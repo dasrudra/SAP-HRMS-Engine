@@ -1,0 +1,380 @@
+<!--
+  App.html — all browser-side JavaScript.
+
+  Remember the two worlds: nothing in this file can touch a spreadsheet. When it
+  needs data it asks the server through google.script.run, and the server
+  replies by calling the success handler.
+
+  The part worth reading first is saveState()/restoreState() at the bottom. That
+  is the fix for the problem in the Database Center where pressing refresh
+  throws you back to page one with your filters cleared.
+-->
+<script>
+(function () {
+  'use strict';
+
+  /** Everything the page currently knows. The single source of truth. */
+  const state = {
+    view: 'kpi1',
+    month: null,
+    boot: null
+  };
+
+  // =========================================================================
+  // STARTUP
+  // =========================================================================
+
+  document.addEventListener('DOMContentLoaded', function () {
+    wireNavigation();
+    wireUploads();
+
+    // ONE server call for everything the page needs. Each round trip to
+    // Google costs a few hundred milliseconds, so we do not make three.
+    google.script.run
+      .withSuccessHandler(onBootstrap)
+      .withFailureHandler(onError)
+      .getBootstrap();
+  });
+
+
+  function onBootstrap(boot) {
+    state.boot = boot;
+    hide('loader');
+
+    if (!boot.configured) {
+      show('notConfigured');
+      return;
+    }
+
+    fillMonthPicker(boot.availableMonths);
+    fillSettings(boot);
+
+    // Restore whatever the URL says BEFORE showing anything, so the user does
+    // not see kpi1 flash up and then get replaced by the view they wanted.
+    restoreState(function () {
+      showView(state.view, { skipSave: true });
+    });
+  }
+
+
+  function onError(err) {
+    hide('loader');
+    document.getElementById('errorText').textContent =
+      (err && err.message) ? err.message : String(err);
+    show('errorBox');
+    setLive(false);
+  }
+
+
+  // =========================================================================
+  // NAVIGATION
+  // =========================================================================
+
+  function wireNavigation() {
+    document.querySelectorAll('.nav-item').forEach(function (button) {
+      button.addEventListener('click', function () {
+        showView(button.dataset.view);
+      });
+    });
+
+    const picker = document.getElementById('monthPicker');
+    if (picker) {
+      picker.addEventListener('change', function () {
+        state.month = picker.value;
+        saveState();
+        loadKpi1();
+      });
+    }
+  }
+
+
+  /**
+   * Shows one view and hides the rest.
+   *
+   * No navigation happens — we only toggle `hidden` on sections. Which is
+   * exactly why state has to be written somewhere durable; see saveState().
+   *
+   * @param {string} name              matches a <section id="view-NAME">
+   * @param {Object} [options]
+   * @param {boolean} options.skipSave don't write to the URL (used on restore,
+   *                                   so restoring does not immediately
+   *                                   re-save what it just read)
+   */
+  function showView(name, options) {
+    options = options || {};
+    const section = document.getElementById('view-' + name);
+    if (!section) name = 'kpi1';
+
+    document.querySelectorAll('.view').forEach(function (el) { el.hidden = true; });
+    const target = document.getElementById('view-' + name);
+    if (target) target.hidden = false;
+
+    document.querySelectorAll('.nav-item').forEach(function (button) {
+      button.classList.toggle('is-active', button.dataset.view === name);
+    });
+
+    const labels = {
+      kpi1: 'KPI 1 · ITSM',
+      kpi2: 'KPI 2 · Training',
+      uploads: 'Data Uploads',
+      settings: 'Settings'
+    };
+    document.getElementById('viewLabel').textContent = labels[name] || name;
+
+    state.view = name;
+    if (!options.skipSave) saveState();
+
+    if (name === 'kpi1') loadKpi1();
+    if (name === 'uploads') loadUploads();
+  }
+
+
+  // =========================================================================
+  // STATE PERSISTENCE  —  the refresh fix
+  // =========================================================================
+  //
+  // The Database Center keeps the current page and its filters in JavaScript
+  // variables only. Refresh wipes browser memory, the request goes back to
+  // /exec with no parameters, doGet() has no idea what you were looking at,
+  // and you land on the default view with the filters cleared.
+  //
+  // We avoid that by writing state into the URL every time it changes, and
+  // reading it back on load.
+  //
+  // An Apps Script web app runs inside a sandboxed iframe, so the ordinary
+  // history.pushState() cannot reach the real address bar. Google provides
+  // google.script.history for exactly this. sessionStorage is kept as a
+  // fallback for the cases where it is unavailable.
+
+  function saveState() {
+    const params = { view: state.view };
+    if (state.month) params.month = state.month;
+
+    // replace() updates the URL without adding a browser-history entry, so the
+    // Back button does not fill up with every filter change. Use push() if you
+    // want Back to step through views.
+    try {
+      if (window.google && google.script && google.script.history) {
+        google.script.history.replace(null, params);
+      }
+    } catch (e) { /* iframe restrictions — fall through to storage */ }
+
+    try {
+      sessionStorage.setItem('easKpiState', JSON.stringify(params));
+    } catch (e) { /* private mode or blocked storage — not fatal */ }
+  }
+
+
+  /**
+   * Reads saved state, URL first, sessionStorage second.
+   *
+   * google.script.url.getLocation() is asynchronous — it has to talk across the
+   * iframe boundary — so this takes a callback rather than returning a value.
+   *
+   * @param {Function} done  called once state has been restored
+   */
+  function restoreState(done) {
+    let settled = false;
+
+    function finish(params) {
+      if (settled) return;
+      settled = true;
+      if (params) {
+        if (params.view) state.view = params.view;
+        if (params.month) {
+          state.month = params.month;
+          const picker = document.getElementById('monthPicker');
+          if (picker) picker.value = params.month;
+        }
+      }
+      done();
+    }
+
+    try {
+      if (window.google && google.script && google.script.url) {
+        google.script.url.getLocation(function (location) {
+          const p = (location && location.parameter) || {};
+          if (p.view || p.month) return finish(p);
+          finish(readStorage());          // URL was empty — try storage
+        });
+        // If the iframe never answers, do not hang the page forever.
+        setTimeout(function () { finish(readStorage()); }, 1500);
+        return;
+      }
+    } catch (e) { /* fall through */ }
+
+    finish(readStorage());
+  }
+
+
+  function readStorage() {
+    try {
+      const raw = sessionStorage.getItem('easKpiState');
+      return raw ? JSON.parse(raw) : null;
+    } catch (e) {
+      return null;                        // corrupted or blocked — start fresh
+    }
+  }
+
+
+  // =========================================================================
+  // KPI 1
+  // =========================================================================
+
+  function fillMonthPicker(months) {
+    const picker = document.getElementById('monthPicker');
+    if (!picker) return;
+
+    picker.innerHTML = '';
+
+    if (!months || !months.length) {
+      picker.innerHTML = '<option value="">No data loaded</option>';
+      picker.disabled = true;
+      return;
+    }
+
+    picker.disabled = false;
+    months.forEach(function (month) {
+      const option = document.createElement('option');
+      option.value = month;
+      option.textContent = formatMonth(month);
+      picker.appendChild(option);
+    });
+
+    if (!state.month) state.month = months[0];
+    picker.value = state.month;
+  }
+
+
+  function loadKpi1() {
+    if (!state.boot || !state.boot.configured) return;
+    // The calculation engine arrives in the next step. The shell is wired and
+    // ready for it — this is where getKpi1(state.month) will be called.
+  }
+
+
+  // =========================================================================
+  // UPLOADS
+  // =========================================================================
+
+  function wireUploads() {
+    const zone = document.getElementById('dropzone');
+    const input = document.getElementById('fileInput');
+    if (!zone || !input) return;
+
+    zone.addEventListener('click', function () { input.click(); });
+
+    ['dragenter', 'dragover'].forEach(function (type) {
+      zone.addEventListener(type, function (event) {
+        event.preventDefault();
+        zone.classList.add('is-over');
+      });
+    });
+
+    ['dragleave', 'drop'].forEach(function (type) {
+      zone.addEventListener(type, function (event) {
+        event.preventDefault();
+        zone.classList.remove('is-over');
+      });
+    });
+
+    zone.addEventListener('drop', function (event) {
+      handleFiles(event.dataTransfer.files);
+    });
+
+    input.addEventListener('change', function () {
+      handleFiles(input.files);
+    });
+  }
+
+
+  function handleFiles(files) {
+    const box = document.getElementById('uploadStatus');
+    if (!files || !files.length) return;
+
+    const names = Array.prototype.map.call(files, function (f) { return f.name; });
+    box.hidden = false;
+    box.innerHTML = '<strong>' + names.length + ' file(s) selected.</strong><br>' +
+                    '<span class="muted">' + names.join('<br>') + '</span><br><br>' +
+                    '<span class="muted">The parser lands in the next step — ' +
+                    'these are not processed yet.</span>';
+  }
+
+
+  function loadUploads() {
+    // Populated once the ingest pipeline exists.
+  }
+
+
+  // =========================================================================
+  // SETTINGS
+  // =========================================================================
+
+  function fillSettings(boot) {
+    const body = document.querySelector('#settingsTable tbody');
+    if (body) {
+      body.innerHTML = '';
+      [boot.kpi.resolution, boot.kpi.feedback].forEach(function (kpi) {
+        const row = document.createElement('tr');
+        row.innerHTML =
+          '<td>' + escapeHtml(kpi.name) + '</td>' +
+          '<td>≥ ' + kpi.target + kpi.unit + '</td>' +
+          '<td>' + kpi.yellowFloor + kpi.unit + '</td>' +
+          '<td>' + escapeHtml(kpi.period) + '</td>' +
+          '<td>' + escapeHtml(kpi.slaLayer) + '</td>';
+        body.appendChild(row);
+      });
+    }
+
+    const info = document.getElementById('dbInfo');
+    if (info) {
+      const stats = boot.stats || { tickets: 0, uploads: 0 };
+      info.innerHTML =
+        '<dt>Version</dt><dd>' + escapeHtml(boot.appVersion) + '</dd>' +
+        '<dt>Departments</dt><dd>' + boot.departments.length + '</dd>' +
+        '<dt>Tickets stored</dt><dd>' + stats.tickets + '</dd>' +
+        '<dt>Uploads logged</dt><dd>' + stats.uploads + '</dd>';
+    }
+  }
+
+
+  // =========================================================================
+  // HELPERS
+  // =========================================================================
+
+  function show(id) { const el = document.getElementById(id); if (el) el.hidden = false; }
+  function hide(id) { const el = document.getElementById(id); if (el) el.hidden = true; }
+
+  function setLive(isLive) {
+    const dot = document.getElementById('liveDot');
+    const text = document.getElementById('liveText');
+    if (dot) dot.classList.toggle('is-busy', !isLive);
+    if (text) text.textContent = isLive ? 'Live' : 'Error';
+  }
+
+  function formatMonth(key) {
+    const names = ['January', 'February', 'March', 'April', 'May', 'June',
+                   'July', 'August', 'September', 'October', 'November', 'December'];
+    const parts = String(key).split('-');
+    const index = parseInt(parts[1], 10) - 1;
+    return (names[index] || key) + ' ' + parts[0];
+  }
+
+  /**
+   * Escapes text before it goes into innerHTML.
+   *
+   * Ticket titles and requestor names come from the ITSM, which means they can
+   * contain < and & and quotes. Without this a stray character breaks the
+   * layout, and untrusted text in innerHTML is how script injection happens.
+   */
+  function escapeHtml(value) {
+    return String(value == null ? '' : value)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+})();
+</script>

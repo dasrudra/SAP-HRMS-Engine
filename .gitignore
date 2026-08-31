@@ -1,0 +1,31 @@
+# ---------------------------------------------------------------------------
+# DATA — never commit.
+# The ITSM exports contain employee names, employee IDs, email addresses and
+# full ticket bodies. None of it belongs in version control.
+# ---------------------------------------------------------------------------
+*.xlsx
+*.xls
+*.csv
+*.tsv
+data/
+exports/
+uploads/
+
+# ---------------------------------------------------------------------------
+# SECRETS — never commit.
+# .clasp.json holds the Apps Script project ID that links this folder to your
+# Google account. Keep it local; .clasp.json.example shows the shape.
+# ---------------------------------------------------------------------------
+.clasp.json
+.clasprc.json
+*.env
+credentials.json
+
+# ---------------------------------------------------------------------------
+# Tooling
+# ---------------------------------------------------------------------------
+node_modules/
+package-lock.json
+.DS_Store
+Thumbs.db
+*.log

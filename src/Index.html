@@ -1,0 +1,227 @@
+<!--
+  Index.html — the page shell.
+
+  This is the ONLY page the app ever serves. The sidebar does not navigate
+  anywhere; it shows and hides the <section class="view"> blocks below. That is
+  the Single Page Application pattern the Database Center uses too.
+
+  The difference is that ours writes the current view into the URL, so pressing
+  refresh puts you back where you were. See saveState() in App.html.
+-->
+<!-- Apps Script cannot <link> a local stylesheet, so we inline it. -->
+<?!= include('Styles'); ?>
+
+<div class="app">
+
+  <!-- ===================== SIDEBAR ===================== -->
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark">EAS</div>
+      <div class="brand-text">
+        <strong><?= appName ?></strong>
+        <span><?= appVersion ?></span>
+      </div>
+    </div>
+
+    <nav class="nav">
+      <!--
+        data-view links a button to a <section id="..."> below.
+        One handler in App.html reads it, so adding a screen is two lines:
+        a button here and a section there.
+      -->
+      <button class="nav-item is-active" data-view="kpi1">
+        <span class="nav-ico">◧</span> KPI 1 · ITSM
+      </button>
+      <button class="nav-item" data-view="kpi2">
+        <span class="nav-ico">◔</span> KPI 2 · Training
+      </button>
+      <button class="nav-item" data-view="uploads">
+        <span class="nav-ico">↥</span> Data Uploads
+      </button>
+      <button class="nav-item" data-view="settings">
+        <span class="nav-ico">⚙</span> Settings
+      </button>
+    </nav>
+  </aside>
+
+  <!-- ===================== MAIN ===================== -->
+  <main class="main">
+
+    <header class="topbar">
+      <div class="topbar-left">
+        <span class="topbar-label">OPERATOR:</span>
+        <strong id="operatorName">Display</strong>
+      </div>
+      <div class="topbar-right">
+        <span id="viewLabel">KPI 1 · ITSM</span>
+        <span class="dot" id="liveDot"></span>
+        <span class="live-text" id="liveText">Live</span>
+        <span class="badge">USER</span>
+      </div>
+    </header>
+
+    <div class="content">
+
+      <!-- Shown until the first server call returns. -->
+      <div id="loader" class="loader">
+        <div class="spinner"></div>
+        <p>Starting up…</p>
+      </div>
+
+      <!-- Shown if CONFIG.SPREADSHEET_ID has not been set yet. -->
+      <div id="notConfigured" class="notice notice-warn" hidden>
+        <h3>The database is not connected yet</h3>
+        <p>
+          Open the Apps Script editor, run <code>setupDatabase()</code> from
+          <code>Setup.gs</code>, then paste the spreadsheet ID it prints into
+          <code>CONFIG.SPREADSHEET_ID</code> in <code>Config.gs</code>. Reload
+          this page afterwards.
+        </p>
+      </div>
+
+      <!-- Shown if a server call throws. -->
+      <div id="errorBox" class="notice notice-error" hidden>
+        <h3>Something went wrong</h3>
+        <p id="errorText"></p>
+      </div>
+
+      <!-- ============ VIEW: KPI 1 ============ -->
+      <section class="view" id="view-kpi1" hidden>
+        <div class="page-head">
+          <div>
+            <h1>Error/Issue Resolution Time</h1>
+            <p class="sub">
+              Ticket Resolution Success Rate across Enterprise Application Services.
+              Target ≥ 99.50% monthly · Policy TVL-KPI-001 §6.3
+            </p>
+          </div>
+          <div class="page-actions">
+            <select id="monthPicker" class="select"></select>
+            <button class="btn btn-ghost" id="refreshKpi1">↻ Refresh</button>
+          </div>
+        </div>
+
+        <div class="tiles" id="kpi1Tiles">
+          <div class="tile tile-empty"><span>No data loaded yet</span></div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">By department</div>
+          <div class="table-wrap">
+            <table id="kpi1Table">
+              <thead>
+                <tr>
+                  <th>Department</th>
+                  <th class="r">Received</th>
+                  <th class="r">Completed</th>
+                  <th class="r">Delayed</th>
+                  <th class="r">Successful</th>
+                  <th class="r">Success Rate</th>
+                  <th class="r">Achievement</th>
+                  <th>Band</th>
+                  <th class="r">Headroom</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><td colspan="9" class="empty">Upload an ITSM export to see results.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ VIEW: KPI 2 ============ -->
+      <section class="view" id="view-kpi2" hidden>
+        <div class="page-head">
+          <div>
+            <h1>User Training Feedback Analysis</h1>
+            <p class="sub">
+              Feedback Score = Avg Score ÷ Max Score × 100 · Target ≥ 90%
+              · Policy TVL-KPI-001 §6.3
+            </p>
+          </div>
+        </div>
+        <div class="notice notice-info">
+          <h3>Waiting on the feedback data</h3>
+          <p>
+            Neither ITSM export carries a feedback score, so this KPI needs its
+            own source file. Once it arrives the grain gets confirmed — per
+            session, per attendee, or per question — and this screen gets built.
+          </p>
+        </div>
+      </section>
+
+      <!-- ============ VIEW: UPLOADS ============ -->
+      <section class="view" id="view-uploads" hidden>
+        <div class="page-head">
+          <div>
+            <h1>Data Uploads</h1>
+            <p class="sub">
+              Five files per pull: one Service/Part overall export plus one
+              Individual Performance export per EAS department.
+            </p>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">Upload ITSM exports</div>
+          <div class="dropzone" id="dropzone">
+            <div class="dropzone-inner">
+              <div class="dropzone-ico">↥</div>
+              <p><strong>Drop .xlsx files here</strong></p>
+              <p class="muted">or click to choose — several at once is fine</p>
+            </div>
+            <input type="file" id="fileInput" multiple accept=".xlsx" hidden>
+          </div>
+          <div id="uploadStatus" class="upload-status" hidden></div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">Upload history</div>
+          <div class="table-wrap">
+            <table id="uploadTable">
+              <thead>
+                <tr>
+                  <th>Uploaded</th><th>File</th><th>Type</th><th>Department</th>
+                  <th class="r">Rows</th><th class="r">Added</th><th class="r">Updated</th>
+                  <th>Range</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><td colspan="8" class="empty">Nothing uploaded yet.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ VIEW: SETTINGS ============ -->
+      <section class="view" id="view-settings" hidden>
+        <div class="page-head">
+          <div>
+            <h1>Settings</h1>
+            <p class="sub">KPI targets and thresholds. Policy §6 calls these provisional.</p>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-head">KPI thresholds</div>
+          <div class="table-wrap">
+            <table id="settingsTable">
+              <thead>
+                <tr><th>KPI</th><th>Target</th><th>Yellow floor</th><th>Period</th><th>SLA layer</th></tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-head">Database</div>
+          <dl class="kv" id="dbInfo"></dl>
+        </div>
+      </section>
+
+    </div>
+  </main>
+</div>
+
+<?!= include('App'); ?>

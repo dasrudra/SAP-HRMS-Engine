@@ -1,0 +1,20 @@
+{
+  "_comment": [
+    "Copy this file to .clasp.json and fill in your own scriptId.",
+    "The real .clasp.json is gitignored because the script ID is specific to",
+    "your Google account.",
+    "",
+    "Find your scriptId in the Apps Script editor under Project Settings (gear",
+    "icon) -> IDs -> Script ID.",
+    "",
+    "Optional — clasp lets you push code from this repo instead of pasting:",
+    "  npm install -g @google/clasp",
+    "  clasp login",
+    "  clasp push",
+    "",
+    "Pasting into the editor works perfectly well too. clasp is a convenience,",
+    "not a requirement."
+  ],
+  "scriptId": "PASTE_YOUR_SCRIPT_ID_HERE",
+  "rootDir": "src"
+}
