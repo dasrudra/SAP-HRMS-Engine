@@ -75,6 +75,10 @@ function getBootstrap() {
     appName: CONFIG.APP_NAME,
     appVersion: CONFIG.APP_VERSION,
     departments: CONFIG.DEPARTMENTS,
+    // The browser builds rows in exactly this order before uploading them.
+    // Sending the list rather than duplicating it in App.html keeps one
+    // source of truth — add a column to Config.gs and the client follows.
+    ticketColumns: CONFIG.TICKET_COLUMNS,
     kpi: {
       resolution: CONFIG.KPI.RESOLUTION,
       feedback: CONFIG.KPI.FEEDBACK

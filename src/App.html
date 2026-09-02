@@ -5,10 +5,19 @@
   needs data it asks the server through google.script.run, and the server
   replies by calling the success handler.
 
-  The part worth reading first is saveState()/restoreState() at the bottom. That
-  is the fix for the problem in the Database Center where pressing refresh
-  throws you back to page one with your filters cleared.
+  This file now does the heavy lifting of an upload: reading the .xlsx, working
+  out which report each file is, normalising every row, merging the five files
+  into one deduplicated set, and sending it up in batches. All of that happens
+  here rather than on the server because parsing 20,000 rows server-side would
+  run straight into Apps Script's 6-minute execution ceiling.
 -->
+
+<!--
+  SheetJS reads .xlsx in the browser. Pinned to an exact version on purpose —
+  "latest" means your app can break overnight because someone else shipped.
+-->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
 <script>
 (function () {
   'use strict';
@@ -17,8 +26,19 @@
   const state = {
     view: 'kpi1',
     month: null,
-    boot: null
+    boot: null,
+    busy: false
   };
+
+  /** Rows are sent in chunks this big. Small enough that no single server
+   *  call runs long; large enough that 20,000 rows doesn't mean 200 calls. */
+  const BATCH_SIZE = 400;
+
+  /** Ticket bodies can run to several KB each. We keep a preview for future
+   *  drill-down and drop the rest, because 2,500 full bodies would make the
+   *  upload payload many times larger for data the KPI never reads. */
+  const DETAILS_LIMIT = 300;
+
 
   // =========================================================================
   // STARTUP
@@ -28,8 +48,6 @@
     wireNavigation();
     wireUploads();
 
-    // ONE server call for everything the page needs. Each round trip to
-    // Google costs a few hundred milliseconds, so we do not make three.
     google.script.run
       .withSuccessHandler(onBootstrap)
       .withFailureHandler(onError)
@@ -49,8 +67,6 @@
     fillMonthPicker(boot.availableMonths);
     fillSettings(boot);
 
-    // Restore whatever the URL says BEFORE showing anything, so the user does
-    // not see kpi1 flash up and then get replaced by the view they wanted.
     restoreState(function () {
       showView(state.view, { skipSave: true });
     });
@@ -63,6 +79,28 @@
       (err && err.message) ? err.message : String(err);
     show('errorBox');
     setLive(false);
+  }
+
+
+  /**
+   * Wraps google.script.run in a Promise.
+   *
+   * The native API is callback-based, which gets unreadable fast once you need
+   * to run twenty batches strictly in order. Promises let us write that as a
+   * simple loop with `await` instead of nesting callbacks twenty deep.
+   *
+   * @param {string} fnName  a function name in the .gs files
+   * @param {...*}   args
+   * @return {Promise}
+   */
+  function callServer(fnName) {
+    const args = Array.prototype.slice.call(arguments, 1);
+    return new Promise(function (resolve, reject) {
+      const runner = google.script.run
+        .withSuccessHandler(resolve)
+        .withFailureHandler(reject);
+      runner[fnName].apply(runner, args);
+    });
   }
 
 
@@ -85,25 +123,17 @@
         loadKpi1();
       });
     }
+
+    const refresh = document.getElementById('refreshKpi1');
+    if (refresh) {
+      refresh.addEventListener('click', function () { loadKpi1(); });
+    }
   }
 
 
-  /**
-   * Shows one view and hides the rest.
-   *
-   * No navigation happens — we only toggle `hidden` on sections. Which is
-   * exactly why state has to be written somewhere durable; see saveState().
-   *
-   * @param {string} name              matches a <section id="view-NAME">
-   * @param {Object} [options]
-   * @param {boolean} options.skipSave don't write to the URL (used on restore,
-   *                                   so restoring does not immediately
-   *                                   re-save what it just read)
-   */
   function showView(name, options) {
     options = options || {};
-    const section = document.getElementById('view-' + name);
-    if (!section) name = 'kpi1';
+    if (!document.getElementById('view-' + name)) name = 'kpi1';
 
     document.querySelectorAll('.view').forEach(function (el) { el.hidden = true; });
     const target = document.getElementById('view-' + name);
@@ -132,27 +162,11 @@
   // =========================================================================
   // STATE PERSISTENCE  —  the refresh fix
   // =========================================================================
-  //
-  // The Database Center keeps the current page and its filters in JavaScript
-  // variables only. Refresh wipes browser memory, the request goes back to
-  // /exec with no parameters, doGet() has no idea what you were looking at,
-  // and you land on the default view with the filters cleared.
-  //
-  // We avoid that by writing state into the URL every time it changes, and
-  // reading it back on load.
-  //
-  // An Apps Script web app runs inside a sandboxed iframe, so the ordinary
-  // history.pushState() cannot reach the real address bar. Google provides
-  // google.script.history for exactly this. sessionStorage is kept as a
-  // fallback for the cases where it is unavailable.
 
   function saveState() {
     const params = { view: state.view };
     if (state.month) params.month = state.month;
 
-    // replace() updates the URL without adding a browser-history entry, so the
-    // Back button does not fill up with every filter change. Use push() if you
-    // want Back to step through views.
     try {
       if (window.google && google.script && google.script.history) {
         google.script.history.replace(null, params);
@@ -165,14 +179,6 @@
   }
 
 
-  /**
-   * Reads saved state, URL first, sessionStorage second.
-   *
-   * google.script.url.getLocation() is asynchronous — it has to talk across the
-   * iframe boundary — so this takes a callback rather than returning a value.
-   *
-   * @param {Function} done  called once state has been restored
-   */
   function restoreState(done) {
     let settled = false;
 
@@ -195,9 +201,8 @@
         google.script.url.getLocation(function (location) {
           const p = (location && location.parameter) || {};
           if (p.view || p.month) return finish(p);
-          finish(readStorage());          // URL was empty — try storage
+          finish(readStorage());
         });
-        // If the iframe never answers, do not hang the page forever.
         setTimeout(function () { finish(readStorage()); }, 1500);
         return;
       }
@@ -212,8 +217,427 @@
       const raw = sessionStorage.getItem('easKpiState');
       return raw ? JSON.parse(raw) : null;
     } catch (e) {
-      return null;                        // corrupted or blocked — start fresh
+      return null;
     }
+  }
+
+
+  // =========================================================================
+  // READING .xlsx FILES
+  // =========================================================================
+
+  /**
+   * Reads one file into { fileName, headers, rows }.
+   *
+   * FileReader is callback-based like most older browser APIs, so it gets
+   * wrapped in a Promise for the same reason google.script.run did.
+   *
+   * @param {File} file
+   * @return {Promise<Object>}
+   */
+  function readWorkbook(file) {
+    return new Promise(function (resolve, reject) {
+      const reader = new FileReader();
+
+      reader.onerror = function () {
+        reject(new Error('Could not read ' + file.name));
+      };
+
+      reader.onload = function (event) {
+        try {
+          const workbook = XLSX.read(new Uint8Array(event.target.result), { type: 'array' });
+          const sheet = workbook.Sheets[workbook.SheetNames[0]];
+
+          // header:1 gives arrays instead of objects, which is what we want —
+          // the two reports order their columns differently, so we map by
+          // header NAME, never by position.
+          const grid = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', blankrows: false });
+
+          if (!grid.length) throw new Error(file.name + ' looks empty');
+
+          resolve({
+            fileName: file.name,
+            headers: grid[0].map(function (h) { return String(h == null ? '' : h).trim(); }),
+            rows: grid.slice(1)
+          });
+        } catch (err) {
+          reject(new Error(file.name + ': ' + err.message));
+        }
+      };
+
+      reader.readAsArrayBuffer(file);
+    });
+  }
+
+
+  /**
+   * Which of the two ITSM reports is this?
+   *
+   * The Personal Performance export carries three man-hour columns the
+   * Service/Part export does not. That is the only structural difference, and
+   * it is a far more reliable test than the filename.
+   *
+   * @param {string[]} headers
+   * @return {string} 'INDIVIDUAL' | 'OVERALL'
+   */
+  function detectReportType(headers) {
+    return headers.indexOf('Man*Hour') !== -1 ? 'INDIVIDUAL' : 'OVERALL';
+  }
+
+
+  /**
+   * Which EAS department, judged from the filename.
+   *
+   * `Manufacturing_IndividualPerformance_202608260835.xlsx` -> Manufacturing
+   * Applications. Only meaningful for INDIVIDUAL files; the overall export
+   * spans every department at once.
+   *
+   * @param {string} fileName
+   * @return {string} department name, or '' if it cannot be told
+   */
+  function detectDepartment(fileName) {
+    const lower = String(fileName).toLowerCase();
+    const departments = (state.boot && state.boot.departments) || [];
+    for (let i = 0; i < departments.length; i++) {
+      if (lower.indexOf(departments[i].match) !== -1) return departments[i].name;
+    }
+    return '';
+  }
+
+
+  /**
+   * Turns one file's raw grid into rows shaped like CONFIG.TICKET_COLUMNS.
+   *
+   * Everything that makes the two exports awkward gets handled here:
+   *   - ' Category' and ' Sub Category' ship with a LEADING SPACE, so headers
+   *     are trimmed before matching
+   *   - the man-hour columns sit between 'Delay Days' and 'Status' in the
+   *     Personal export but do not exist in the other, so column ORDER differs
+   *     between files — we map by name, never by index
+   *   - Details can be several KB; we keep a preview
+   *
+   * @param {Object} file    from readWorkbook()
+   * @param {string} type    'INDIVIDUAL' | 'OVERALL'
+   * @param {string} dept
+   * @return {Array[]}
+   */
+  function normalizeRows(file, type, dept) {
+    const columns = state.boot.ticketColumns;
+
+    // header name -> its position in THIS file
+    const position = {};
+    file.headers.forEach(function (name, i) {
+      if (name && position[name] === undefined) position[name] = i;
+    });
+
+    const idIndex = position['Ticket ID'];
+    if (idIndex === undefined) {
+      throw new Error(file.fileName + ' has no "Ticket ID" column — is it an ITSM export?');
+    }
+
+    const out = [];
+
+    file.rows.forEach(function (raw) {
+      const ticketId = String(raw[idIndex] == null ? '' : raw[idIndex]).trim();
+      if (!ticketId) return;                       // skip blank/total rows
+
+      const row = columns.map(function (columnName) {
+        switch (columnName) {
+          case 'Department':        return type === 'INDIVIDUAL' ? dept : '';
+          case 'In Overall Report': return type === 'OVERALL';
+          case 'In Dept Report':    return type === 'INDIVIDUAL';
+          case 'Source Files':      return file.fileName;
+          case 'Last Updated':      return '';     // stamped server-side
+        }
+
+        const at = position[columnName];
+        if (at === undefined) return '';
+
+        let value = raw[at];
+        if (value === null || value === undefined) return '';
+
+        if (columnName === 'Details') {
+          value = String(value);
+          return value.length > DETAILS_LIMIT ? value.slice(0, DETAILS_LIMIT) + '…' : value;
+        }
+        if (value instanceof Date) return formatDate(value);
+
+        return typeof value === 'number' ? value : String(value);
+      });
+
+      out.push(row);
+    });
+
+    return out;
+  }
+
+
+  /**
+   * Merges every file into one row per Ticket ID.
+   *
+   * Done here rather than server-side because the browser already holds all
+   * five files, and merging first roughly halves what has to be uploaded —
+   * your five August files hold about 5,000 rows describing 2,545 tickets.
+   *
+   * The merge is FIELD BY FIELD. The Service/Part export leaves Process,
+   * Details, Current Activity, Lead-time and Status blank while the department
+   * exports fill them in and add the man-hour columns. Replacing whole rows
+   * would discard whichever file was processed first.
+   *
+   * @param {Array[][]} perFile
+   * @param {string[]}  columns
+   * @return {Array[]}
+   */
+  function mergeFiles(perFile, columns) {
+    const idAt      = columns.indexOf('Ticket ID');
+    const overallAt = columns.indexOf('In Overall Report');
+    const deptAt    = columns.indexOf('In Dept Report');
+    const sourceAt  = columns.indexOf('Source Files');
+    const deptNameAt= columns.indexOf('Department');
+
+    const byId = {};
+    const order = [];
+
+    perFile.forEach(function (rows) {
+      rows.forEach(function (row) {
+        const id = row[idAt];
+
+        if (!byId[id]) {
+          byId[id] = row.slice();
+          order.push(id);
+          return;
+        }
+
+        const kept = byId[id];
+
+        for (let i = 0; i < columns.length; i++) {
+          if (i === overallAt || i === deptAt || i === sourceAt) continue;
+          const empty = (kept[i] === '' || kept[i] === null || kept[i] === undefined);
+          if (empty && row[i] !== '' && row[i] !== null && row[i] !== undefined) {
+            kept[i] = row[i];
+          }
+        }
+
+        // A ticket can legitimately appear in both reports. OR the flags so we
+        // can later count the ones that appear in only one — that is the
+        // discrepancy between the ITSM's own two reports.
+        kept[overallAt] = Boolean(kept[overallAt]) || Boolean(row[overallAt]);
+        kept[deptAt]    = Boolean(kept[deptAt])    || Boolean(row[deptAt]);
+
+        // A department export is authoritative about which department owns it.
+        if (!kept[deptNameAt] && row[deptNameAt]) kept[deptNameAt] = row[deptNameAt];
+
+        const sources = String(kept[sourceAt] || '').split(' | ')
+          .concat(String(row[sourceAt] || '').split(' | '))
+          .filter(function (s) { return s.trim() !== ''; });
+        kept[sourceAt] = sources.filter(function (s, i) {
+          return sources.indexOf(s) === i;
+        }).join(' | ');
+      });
+    });
+
+    return order.map(function (id) { return byId[id]; });
+  }
+
+
+  // =========================================================================
+  // UPLOADING
+  // =========================================================================
+
+  function wireUploads() {
+    const zone = document.getElementById('dropzone');
+    const input = document.getElementById('fileInput');
+    if (!zone || !input) return;
+
+    zone.addEventListener('click', function () {
+      if (!state.busy) input.click();
+    });
+
+    ['dragenter', 'dragover'].forEach(function (type) {
+      zone.addEventListener(type, function (event) {
+        event.preventDefault();
+        if (!state.busy) zone.classList.add('is-over');
+      });
+    });
+
+    ['dragleave', 'drop'].forEach(function (type) {
+      zone.addEventListener(type, function (event) {
+        event.preventDefault();
+        zone.classList.remove('is-over');
+      });
+    });
+
+    zone.addEventListener('drop', function (event) {
+      if (!state.busy) handleFiles(event.dataTransfer.files);
+    });
+
+    input.addEventListener('change', function () {
+      if (!state.busy) handleFiles(input.files);
+      input.value = '';            // so choosing the same file again re-fires
+    });
+  }
+
+
+  function handleFiles(fileList) {
+    if (!fileList || !fileList.length) return;
+    if (!state.boot || !state.boot.configured) {
+      return setStatus('The database is not connected yet.', 'error');
+    }
+
+    const files = Array.prototype.slice.call(fileList).filter(function (f) {
+      return /\.xlsx$/i.test(f.name);
+    });
+
+    if (!files.length) {
+      return setStatus('No .xlsx files in that selection.', 'error');
+    }
+
+    state.busy = true;
+    runUpload(files)
+      .catch(function (err) {
+        setStatus('Upload failed: ' + (err && err.message ? err.message : err), 'error');
+      })
+      .then(function () { state.busy = false; });
+  }
+
+
+  /**
+   * The whole upload, start to finish.
+   *
+   * Written with async/await so the sequence reads top to bottom. Each `await`
+   * pauses until that server call comes back, which is what keeps the batches
+   * strictly in order — sending them all at once would have twenty executions
+   * fighting over the same sheet.
+   */
+  async function runUpload(files) {
+    const columns = state.boot.ticketColumns;
+
+    // ---- 1. read and normalise every file ----
+    setStatus('Reading ' + files.length + ' file(s)…');
+
+    const perFile = [];
+    const meta = { fileNames: [], reportTypes: [], departments: [], totalRows: 0 };
+    const summary = [];
+
+    for (let i = 0; i < files.length; i++) {
+      const parsed = await readWorkbook(files[i]);
+      const type = detectReportType(parsed.headers);
+      const dept = type === 'INDIVIDUAL' ? detectDepartment(parsed.fileName) : '';
+
+      if (type === 'INDIVIDUAL' && !dept) {
+        throw new Error('Cannot tell which department "' + parsed.fileName +
+                        '" belongs to. Expected the department name in the filename.');
+      }
+
+      const rows = normalizeRows(parsed, type, dept);
+      perFile.push(rows);
+
+      meta.fileNames.push(parsed.fileName);
+      meta.reportTypes.push(type);
+      if (dept) meta.departments.push(dept);
+      meta.totalRows += rows.length;
+
+      summary.push({ name: parsed.fileName, type: type, dept: dept, rows: rows.length });
+      setStatus('Read ' + (i + 1) + ' of ' + files.length + ' file(s)…', null, summary);
+    }
+
+    // ---- 2. merge into one row per ticket ----
+    const merged = mergeFiles(perFile, columns);
+
+    const dateAt = columns.indexOf('Request Date');
+    const dates = merged.map(function (r) { return String(r[dateAt] || '').slice(0, 10); })
+                        .filter(Boolean).sort();
+    meta.dateFrom = dates[0] || '';
+    meta.dateTo = dates[dates.length - 1] || '';
+
+    setStatus('Merged ' + meta.totalRows + ' rows into ' + merged.length +
+              ' unique tickets (' + meta.dateFrom + ' to ' + meta.dateTo + '). Uploading…',
+              null, summary);
+
+    // ---- 3. send in batches ----
+    const begun = await callServer('beginUpload', meta);
+
+    for (let start = 0; start < merged.length; start += BATCH_SIZE) {
+      const chunk = merged.slice(start, start + BATCH_SIZE);
+      await callServer('appendTicketBatch', begun.uploadId, chunk);
+
+      const done = Math.min(start + BATCH_SIZE, merged.length);
+      const pct = Math.round((done / merged.length) * 100);
+      setStatus('Uploading… ' + done + ' of ' + merged.length + ' tickets (' + pct + '%)',
+                null, summary);
+    }
+
+    // ---- 4. deduplicate, sort, recompute the KPI cache ----
+    setStatus('Consolidating and recomputing KPI figures…', null, summary);
+    const result = await callServer('finishUpload', begun.uploadId);
+
+    setStatus(
+      'Done. ' + result.kept + ' tickets stored' +
+      (result.merged ? ', ' + result.merged + ' duplicate rows collapsed' : '') + '.',
+      'ok', summary);
+
+    // Refresh the page's idea of what exists.
+    const boot = await callServer('getBootstrap');
+    state.boot = boot;
+    fillMonthPicker(boot.availableMonths);
+    fillSettings(boot);
+    loadUploads();
+  }
+
+
+  function setStatus(message, kind, files) {
+    const box = document.getElementById('uploadStatus');
+    if (!box) return;
+
+    box.hidden = false;
+
+    let colour = 'var(--text-dim)';
+    if (kind === 'error') colour = 'var(--red)';
+    if (kind === 'ok') colour = 'var(--green)';
+
+    let html = '<strong style="color:' + colour + '">' + escapeHtml(message) + '</strong>';
+
+    if (files && files.length) {
+      html += '<div style="margin-top:8px" class="muted">';
+      files.forEach(function (f) {
+        html += escapeHtml(f.name) + ' — ' + f.type +
+                (f.dept ? ' · ' + escapeHtml(f.dept) : '') +
+                ' · ' + f.rows + ' rows<br>';
+      });
+      html += '</div>';
+    }
+
+    box.innerHTML = html;
+  }
+
+
+  function loadUploads() {
+    if (!state.boot || !state.boot.configured) return;
+
+    callServer('getUploadHistory').then(function (history) {
+      const body = document.querySelector('#uploadTable tbody');
+      if (!body) return;
+
+      if (!history || !history.length) {
+        body.innerHTML = '<tr><td colspan="8" class="empty">Nothing uploaded yet.</td></tr>';
+        return;
+      }
+
+      body.innerHTML = '';
+      history.forEach(function (h) {
+        const tr = document.createElement('tr');
+        tr.innerHTML =
+          '<td>' + escapeHtml(String(h.uploadedAt).slice(0, 16).replace('T', ' ')) + '</td>' +
+          '<td>' + escapeHtml(h.fileName) + '</td>' +
+          '<td>' + escapeHtml(h.reportType) + '</td>' +
+          '<td>' + escapeHtml(h.department) + '</td>' +
+          '<td class="r">' + h.rowsInFile + '</td>' +
+          '<td class="r">' + h.rowsKept + '</td>' +
+          '<td class="r">' + h.rowsMerged + '</td>' +
+          '<td>' + escapeHtml(h.dateFrom + ' → ' + h.dateTo) + '</td>';
+        body.appendChild(tr);
+      });
+    }).catch(onError);
   }
 
 
@@ -241,68 +665,15 @@
       picker.appendChild(option);
     });
 
-    if (!state.month) state.month = months[0];
+    if (!state.month || months.indexOf(state.month) === -1) state.month = months[0];
     picker.value = state.month;
   }
 
 
   function loadKpi1() {
-    if (!state.boot || !state.boot.configured) return;
-    // The calculation engine arrives in the next step. The shell is wired and
-    // ready for it — this is where getKpi1(state.month) will be called.
-  }
-
-
-  // =========================================================================
-  // UPLOADS
-  // =========================================================================
-
-  function wireUploads() {
-    const zone = document.getElementById('dropzone');
-    const input = document.getElementById('fileInput');
-    if (!zone || !input) return;
-
-    zone.addEventListener('click', function () { input.click(); });
-
-    ['dragenter', 'dragover'].forEach(function (type) {
-      zone.addEventListener(type, function (event) {
-        event.preventDefault();
-        zone.classList.add('is-over');
-      });
-    });
-
-    ['dragleave', 'drop'].forEach(function (type) {
-      zone.addEventListener(type, function (event) {
-        event.preventDefault();
-        zone.classList.remove('is-over');
-      });
-    });
-
-    zone.addEventListener('drop', function (event) {
-      handleFiles(event.dataTransfer.files);
-    });
-
-    input.addEventListener('change', function () {
-      handleFiles(input.files);
-    });
-  }
-
-
-  function handleFiles(files) {
-    const box = document.getElementById('uploadStatus');
-    if (!files || !files.length) return;
-
-    const names = Array.prototype.map.call(files, function (f) { return f.name; });
-    box.hidden = false;
-    box.innerHTML = '<strong>' + names.length + ' file(s) selected.</strong><br>' +
-                    '<span class="muted">' + names.join('<br>') + '</span><br><br>' +
-                    '<span class="muted">The parser lands in the next step — ' +
-                    'these are not processed yet.</span>';
-  }
-
-
-  function loadUploads() {
-    // Populated once the ingest pipeline exists.
+    if (!state.boot || !state.boot.configured || !state.month) return;
+    // The rendering lands in the next step. The data call is ready for it:
+    // callServer('getKpi1', state.month).then(renderKpi1);
   }
 
 
@@ -358,6 +729,13 @@
     const parts = String(key).split('-');
     const index = parseInt(parts[1], 10) - 1;
     return (names[index] || key) + ' ' + parts[0];
+  }
+
+  /** Date -> 'YYYY-MM-DD HH:MM:SS', matching how the ITSM writes them. */
+  function formatDate(d) {
+    function pad(n) { return String(n).padStart(2, '0'); }
+    return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) +
+           ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
   }
 
   /**
