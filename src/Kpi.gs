@@ -12,21 +12,17 @@
  *   Completed Successfully = Total Completed - Completed with Delay
  *
  * Verified against the PDF's worked example: 100 completed, 100 successful,
- * target 99.50% -> success rate 100%, achievement 100.50%. And against the
- * ITSM's own on-screen reports, which reconcile cell for cell.
+ * target 99.50% -> success rate 100%, achievement 100.50%.
  *
- * WHAT COUNTS AS "EAS"
- * The union of the four department exports — NOT the overall Service/Part
- * report. That report also contains work done by engineers who belong to no
- * EAS department (9 tickets across 6 people in August 2026). Scoring EAS on it
- * would credit the department with work it did not do. So the KPI counts rows
- * flagged `In Dept Report`.
+ * WHAT COUNTS AS "EAS" DEPENDS ON WHAT YOU UPLOADED
+ * The four department exports are the accurate scope. The overall Service/Part
+ * report is wider — it also contains work by engineers who belong to no EAS
+ * department (9 tickets across 6 people in August 2026), so scoring EAS on it
+ * credits the department with work it did not do.
  *
- * WHY THE RESULTS ARE CACHED
- * Reading and grouping 20,000+ rows takes seconds. Doing that every time
- * someone opens the page would make the dashboard feel broken. Instead the
- * numbers are computed once when data is uploaded, written to KPI_MONTHLY, and
- * read back from there — a couple of dozen rows instead of tens of thousands.
+ * But you may upload only the overall report, or only department files, or
+ * both. So the engine scores whichever population it has and records WHICH,
+ * rather than silently returning nothing or silently mixing the two.
  */
 
 
@@ -53,13 +49,11 @@ function recomputeKpiCache() {
   const computedAt = new Date();
   const out = [];
 
-  // Bucket every row by month first, so each month is scored independently.
-  // The policy measures monthly — a rolling all-time figure would hide a bad
-  // month behind a good one.
+  // Bucket by month first. The policy measures monthly — a rolling all-time
+  // figure would let a good month hide a bad one.
   const byMonth = {};
   rows.forEach(function (row) {
-    const id = String(row[COL.TICKET_ID] || '').trim();
-    if (!id) return;
+    if (!String(row[COL.TICKET_ID] || '').trim()) return;
     const month = monthKey(row[COL.REQUEST_DATE]);
     if (!month) return;
     (byMonth[month] = byMonth[month] || []).push(row);
@@ -68,16 +62,31 @@ function recomputeKpiCache() {
   Object.keys(byMonth).sort().forEach(function (month) {
     const all = byMonth[month];
 
-    // The EAS population: rows a department export vouched for.
-    const eas = all.filter(function (r) { return truthy(r[COL.IN_DEPT]); });
+    // Prefer the department exports when we have them; fall back to the whole
+    // set when only the overall report has been uploaded.
+    const deptRows = all.filter(function (r) { return truthy(r[COL.IN_DEPT]); });
+    const usingDept = deptRows.length > 0;
+    const scored = usingDept ? deptRows : all;
 
-    out.push(kpiRow(month, 'EAS', 'All departments', eas, kpi, computedAt));
+    out.push(basisRow(month, usingDept, scored.length, all.length, computedAt));
+    out.push(kpiRow(month, 'EAS', usingDept ? 'EAS (department exports)'
+                                            : 'All tickets (overall report)',
+                    scored, kpi, computedAt));
 
-    groupBy(eas, COL.DEPARTMENT).forEach(function (entry) {
-      out.push(kpiRow(month, 'DEPARTMENT', entry.key, entry.rows, kpi, computedAt));
+    // Department breakdown only makes sense when department files were loaded.
+    if (usingDept) {
+      groupBy(scored, COL.DEPARTMENT).forEach(function (entry) {
+        out.push(kpiRow(month, 'DEPARTMENT', entry.key, entry.rows, kpi, computedAt));
+      });
+    }
+
+    // Service/Part is present in both reports, so this always works — and it
+    // is how the ITSM's own Performance Report is organised.
+    groupBy2(scored, COL.SERVICE, COL.PART).forEach(function (entry) {
+      out.push(kpiRow(month, 'PART', entry.key, entry.rows, kpi, computedAt));
     });
 
-    groupBy(eas, COL.IN_CHARGE).forEach(function (entry) {
+    groupBy(scored, COL.IN_CHARGE).forEach(function (entry) {
       out.push(kpiRow(month, 'PERSON', entry.key, entry.rows, kpi, computedAt));
     });
 
@@ -93,25 +102,37 @@ function recomputeKpiCache() {
       else if (d) deptOnly++;
       else if (o) overallOnly++;
     });
-    out.push(countRow(month, 'SOURCE', 'In both reports',       both,        computedAt));
-    out.push(countRow(month, 'SOURCE', 'Department only',       deptOnly,    computedAt));
-    out.push(countRow(month, 'SOURCE', 'Overall report only',   overallOnly, computedAt));
+    out.push(countRow(month, 'SOURCE', 'In both reports',     both,        computedAt));
+    out.push(countRow(month, 'SOURCE', 'Department only',     deptOnly,    computedAt));
+    out.push(countRow(month, 'SOURCE', 'Overall report only', overallOnly, computedAt));
   });
 
   if (out.length) {
+    // Force the Month column to plain text BEFORE writing. Left alone, Sheets
+    // parses '2026-08' into a Date, and every later lookup by month string
+    // fails to match. Reads are normalised too (see getKpi1) so data written
+    // before this fix still resolves.
+    cache.getRange(2, 1, out.length, 1).setNumberFormat('@');
     cache.getRange(2, 1, out.length, CONFIG.KPI_COLUMNS.length).setValues(out);
   }
 
-  Logger.log('Recomputed %s cache rows across %s month(s).', out.length, Object.keys(byMonth).length);
+  Logger.log('Recomputed %s cache rows across %s month(s).',
+             out.length, Object.keys(byMonth).length);
   return Object.keys(byMonth).sort().reverse();
 }
 
 
-/**
- * Scores one set of rows and shapes it as a KPI_MONTHLY row.
- *
- * @return {Array}
- */
+/** Records which population the month was scored from. */
+function basisRow(month, usingDept, scoredCount, totalCount, computedAt) {
+  return [
+    month, 'BASIS',
+    usingDept ? 'DEPARTMENT' : 'OVERALL',
+    scoredCount, totalCount, '', '', '', '', '', '', computedAt
+  ];
+}
+
+
+/** Scores one set of rows and shapes it as a KPI_MONTHLY row. */
 function kpiRow(month, scopeType, scopeValue, rows, kpi, computedAt) {
   const s = scoreRows(rows, kpi);
   return [
@@ -168,11 +189,8 @@ function scoreRows(rows, kpi) {
  * Not as simple as "is the cell non-empty". Two rows in the August export carry
  * a Completion Date consisting of nothing but whitespace. The ITSM counts those
  * as incomplete — they are the "1 incomplete" showing against Account and CO on
- * its own report. Treating them as complete throws the whole figure off by one,
- * and one ticket is the entire margin this KPI runs on.
- *
- * @param {Array} row
- * @return {boolean}
+ * its own report. Treating them as complete throws the figure off by one, and
+ * one ticket is the entire margin this KPI runs on.
  */
 function isCompleted(row) {
   const value = row[COL.COMPLETION];
@@ -186,11 +204,7 @@ function isCompleted(row) {
  * Reads a number that might be a number, a float, or text.
  *
  * Delay Days arrives as int 0 in one export and float 0.0 in another, and once
- * a value has been through a spreadsheet it can come back as a string. All of
- * them have to compare correctly against zero.
- *
- * @param {*} value
- * @return {number}
+ * a value has been through a spreadsheet it can come back as a string.
  */
 function toNumber(value) {
   if (value === null || value === undefined || value === '') return 0;
@@ -200,19 +214,33 @@ function toNumber(value) {
 }
 
 
-/**
- * Groups rows by the value in one column, largest group first.
- *
- * @return {Object[]} [{ key, rows }]
- */
+/** Groups rows by one column, largest group first. */
 function groupBy(rows, columnIndex) {
   const buckets = {};
-
   rows.forEach(function (row) {
     const key = String(row[columnIndex] || '').trim() || '(unassigned)';
     (buckets[key] = buckets[key] || []).push(row);
   });
+  return Object.keys(buckets)
+    .map(function (key) { return { key: key, rows: buckets[key] }; })
+    .sort(function (a, b) { return b.rows.length - a.rows.length; });
+}
 
+
+/**
+ * Groups by two columns joined with a slash — used for Service / Part.
+ *
+ * Part is scoped to Service: 'e-Accounting' as a Part only exists under the
+ * e-Accounting service, so grouping on Part alone would merge unrelated things.
+ */
+function groupBy2(rows, indexA, indexB) {
+  const buckets = {};
+  rows.forEach(function (row) {
+    const a = String(row[indexA] || '').trim() || '(none)';
+    const b = String(row[indexB] || '').trim() || '(none)';
+    const key = a + ' / ' + b;
+    (buckets[key] = buckets[key] || []).push(row);
+  });
   return Object.keys(buckets)
     .map(function (key) { return { key: key, rows: buckets[key] }; })
     .sort(function (a, b) { return b.rows.length - a.rows.length; });
@@ -226,30 +254,42 @@ function groupBy(rows, columnIndex) {
  * @return {Object}
  */
 function getKpi1(month) {
-  const cache = sheetFor(CONFIG.SHEETS.KPI_MONTH);
-  const lastRow = cache.getLastRow();
-
-  const empty = {
-    month: month, hasData: false,
-    total: null, departments: [], people: [], sources: [],
+  const result = {
+    month: month,
+    hasData: false,
+    basis: null,
+    total: null,
+    departments: [],
+    parts: [],
+    people: [],
+    sources: [],
     target: CONFIG.KPI.RESOLUTION.target,
     yellowFloor: CONFIG.KPI.RESOLUTION.yellowFloor
   };
-  if (lastRow < 2) return empty;
+
+  const cache = sheetFor(CONFIG.SHEETS.KPI_MONTH);
+  const lastRow = cache.getLastRow();
+  if (lastRow < 2) return result;
 
   const rows = cache.getRange(2, 1, lastRow - 1, CONFIG.KPI_COLUMNS.length).getValues();
 
-  const result = {
-    month: month, hasData: false,
-    total: null, departments: [], people: [], sources: [],
-    target: CONFIG.KPI.RESOLUTION.target,
-    yellowFloor: CONFIG.KPI.RESOLUTION.yellowFloor
-  };
-
   rows.forEach(function (r) {
-    if (String(r[0]) !== month) return;
+    // monthKey() rather than String(). Sheets may have stored '2026-08' as a
+    // Date, in which case String() gives 'Sat Aug 01 2026 00:00:00 GMT+0600...'
+    // and nothing ever matches. monthKey normalises Date and text alike.
+    if (monthKey(r[0]) !== month) return;
 
     const scopeType = String(r[1]);
+
+    if (scopeType === 'BASIS') {
+      result.basis = {
+        source: String(r[2]),
+        scored: Number(r[3]) || 0,
+        total: Number(r[4]) || 0
+      };
+      return;
+    }
+
     const entry = {
       name:        String(r[2]),
       received:    Number(r[3]) || 0,
@@ -264,6 +304,7 @@ function getKpi1(month) {
 
     if (scopeType === 'EAS')             { result.total = entry; result.hasData = true; }
     else if (scopeType === 'DEPARTMENT') { result.departments.push(entry); }
+    else if (scopeType === 'PART')       { result.parts.push(entry); }
     else if (scopeType === 'PERSON')     { result.people.push(entry); }
     else if (scopeType === 'SOURCE')     { result.sources.push({ name: entry.name, count: entry.received }); }
   });
@@ -275,9 +316,9 @@ function getKpi1(month) {
 /**
  * Prints the KPI table to the Execution log.
  *
- * Run this from the editor after uploading, to check the numbers without
- * involving the browser at all. If the UI and this disagree, the bug is in the
- * UI; if they agree and both look wrong, the bug is here.
+ * Open Kpi.gs, choose runKpiSelfTest in the function dropdown, press Run.
+ * Checks the stored numbers without involving the browser at all — if the UI
+ * and this disagree, the bug is in the UI.
  */
 function runKpiSelfTest() {
   const months = recomputeKpiCache();
@@ -289,29 +330,44 @@ function runKpiSelfTest() {
 
   months.forEach(function (month) {
     const k = getKpi1(month);
-    if (!k.hasData) return;
+
+    if (!k.hasData) {
+      Logger.log('%s — no scored rows found. (cache lookup problem)', month);
+      return;
+    }
 
     Logger.log('');
     Logger.log('=== %s ===  target %s%%', month, k.target);
-    Logger.log('%-30s %7s %7s %7s %9s %9s %8s %6s',
+    if (k.basis) {
+      Logger.log('scored from: %s  (%s of %s tickets)',
+                 k.basis.source, k.basis.scored, k.basis.total);
+    }
+    Logger.log('%-32s %7s %7s %7s %9s %9s %8s %6s',
                'Scope', 'Recvd', 'Compl', 'Delay', 'Rate%', 'Ach%', 'Band', 'Head');
 
     const t = k.total;
-    Logger.log('%-30s %7s %7s %7s %9s %9s %8s %6s',
-               'EAS (all departments)', t.received, t.completed, t.delayed,
+    Logger.log('%-32s %7s %7s %7s %9s %9s %8s %6s',
+               t.name, t.received, t.completed, t.delayed,
                t.rate, t.achievement, t.band, t.headroom);
 
     k.departments.forEach(function (d) {
-      Logger.log('%-30s %7s %7s %7s %9s %9s %8s %6s',
+      Logger.log('%-32s %7s %7s %7s %9s %9s %8s %6s',
                  '  ' + d.name, d.received, d.completed, d.delayed,
                  d.rate, d.achievement, d.band, d.headroom);
     });
 
-    Logger.log('  people below target:');
+    Logger.log('  by service / part:');
+    k.parts.forEach(function (p) {
+      Logger.log('%-32s %7s %7s %7s %9s %9s %8s %6s',
+                 '    ' + p.name, p.received, p.completed, p.delayed,
+                 p.rate, p.achievement, p.band, p.headroom);
+    });
+
+    Logger.log('  engineers below target:');
     let flagged = 0;
     k.people.forEach(function (p) {
       if (p.delayed > 0 || p.band !== 'GREEN') {
-        Logger.log('    %-28s %7s tickets %5s delayed  %8s%%  %s',
+        Logger.log('    %-30s %5s tickets  %3s delayed  %8s%%  %s',
                    p.name, p.received, p.delayed, p.rate, p.band);
         flagged++;
       }
@@ -320,7 +376,7 @@ function runKpiSelfTest() {
 
     Logger.log('  source reconciliation:');
     k.sources.forEach(function (s) {
-      Logger.log('    %-28s %s', s.name, s.count);
+      Logger.log('    %-30s %s', s.name, s.count);
     });
   });
 }

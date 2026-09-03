@@ -672,8 +672,218 @@
 
   function loadKpi1() {
     if (!state.boot || !state.boot.configured || !state.month) return;
-    // The rendering lands in the next step. The data call is ready for it:
-    // callServer('getKpi1', state.month).then(renderKpi1);
+    callServer('getKpi1', state.month).then(renderKpi1).catch(onError);
+  }
+
+
+  /**
+   * Draws the whole KPI 1 screen from one result object.
+   *
+   * @param {Object} k  from getKpi1()
+   */
+  function renderKpi1(k) {
+    const basisBox = document.getElementById('kpi1Basis');
+    const tiles = document.getElementById('kpi1Tiles');
+
+    if (!k || !k.hasData) {
+      basisBox.hidden = true;
+      tiles.innerHTML = '<div class="tile tile-empty"><span>No data for this month</span></div>';
+      emptyTable('#kpi1Table tbody', 9, 'Upload an ITSM export to see results.');
+      emptyTable('#kpi1People tbody', 6, 'Nothing to show yet.');
+      emptyTable('#kpi1Sources tbody', 2, 'Nothing to show yet.');
+      return;
+    }
+
+    renderBasis(k, basisBox);
+    renderTiles(k, tiles);
+    renderBreakdown(k);
+    renderPeople(k);
+    renderSources(k);
+  }
+
+
+  /**
+   * The banner saying what was counted.
+   *
+   * The department exports are the accurate EAS scope. The overall report is
+   * wider — it also holds work by engineers in no EAS department. Which one
+   * produced the headline number has to be visible, not assumed.
+   */
+  function renderBasis(k, box) {
+    if (!k.basis) { box.hidden = true; return; }
+
+    box.hidden = false;
+
+    if (k.basis.source === 'DEPARTMENT') {
+      box.className = 'notice notice-info';
+      box.innerHTML =
+        '<h3>Scored from the department exports</h3>' +
+        '<p>' + k.basis.scored + ' of ' + k.basis.total +
+        ' loaded tickets belong to an EAS department. This is the accurate ' +
+        'scope for the departmental KPI.</p>';
+    } else {
+      box.className = 'notice notice-warn';
+      box.innerHTML =
+        '<h3>Scored from the overall report</h3>' +
+        '<p>No department exports loaded for this month, so all ' +
+        k.basis.total + ' tickets were counted — including work by engineers ' +
+        'outside EAS. Upload the department files for the accurate ' +
+        'departmental figure.</p>';
+    }
+  }
+
+
+  function renderTiles(k, container) {
+    const t = k.total;
+    const cls = bandClass(t.band);
+
+    // Headroom is the number worth leading with. A band alone says "green";
+    // headroom says "green, and one more delayed ticket ends that".
+    let headroomNote;
+    if (t.headroom > 0) {
+      headroomNote = t.headroom + ' more delay' + (t.headroom === 1 ? '' : 's') + ' before dropping';
+    } else if (t.headroom === 0) {
+      headroomNote = 'on the edge — one more delay drops the band';
+    } else {
+      headroomNote = Math.abs(t.headroom) + ' fewer delays needed to reach target';
+    }
+
+    container.innerHTML =
+      tile('Success Rate', fmt(t.rate) + '%', pill(t.band), cls) +
+      tile('KPI Achievement', fmt(t.achievement) + '%',
+           'target ' + k.target + '%', cls) +
+      tile('Headroom', (t.headroom > 0 ? '+' : '') + t.headroom, headroomNote,
+           t.headroom > 0 ? 'g' : (t.headroom === 0 ? 'a' : 'r')) +
+      tile('Received', t.received, 'tickets this month', '') +
+      tile('Completed', t.completed,
+           (t.received - t.completed) + ' still open', '') +
+      tile('Delayed', t.delayed,
+           t.successful + ' completed successfully',
+           t.delayed ? 'a' : 'g');
+  }
+
+
+  function renderBreakdown(k) {
+    const useDepartments = k.departments.length > 0;
+    const rows = useDepartments ? k.departments : k.parts;
+
+    document.getElementById('kpi1BreakdownHead').textContent =
+      useDepartments ? 'By department' : 'By service / part';
+    document.getElementById('kpi1BreakdownCol').textContent =
+      useDepartments ? 'Department' : 'Service / Part';
+
+    const body = document.querySelector('#kpi1Table tbody');
+    if (!rows.length) {
+      return emptyTable('#kpi1Table tbody', 9, 'No breakdown available.');
+    }
+
+    body.innerHTML = '';
+    rows.forEach(function (r) {
+      const tr = document.createElement('tr');
+      tr.innerHTML =
+        '<td>' + escapeHtml(r.name) + '</td>' +
+        '<td class="r">' + r.received + '</td>' +
+        '<td class="r">' + r.completed + '</td>' +
+        '<td class="r">' + r.delayed + '</td>' +
+        '<td class="r">' + r.successful + '</td>' +
+        '<td class="r">' + fmt(r.rate) + '%</td>' +
+        '<td class="r">' + fmt(r.achievement) + '%</td>' +
+        '<td>' + pill(r.band) + '</td>' +
+        '<td class="r">' + (r.headroom > 0 ? '+' : '') + r.headroom + '</td>';
+      body.appendChild(tr);
+    });
+  }
+
+
+  /**
+   * Only engineers with a delay or below target.
+   *
+   * Listing all 35 would bury the three that matter. In August 2026, 32 of 35
+   * finished at 100% with zero delays — the whole exposure sat with three
+   * people, and one of them held 8 of the 11 delays.
+   */
+  function renderPeople(k) {
+    const flagged = k.people.filter(function (p) {
+      return p.delayed > 0 || p.band !== 'GREEN';
+    });
+
+    if (!flagged.length) {
+      return emptyTable('#kpi1People tbody', 6,
+        'Every engineer at or above target, with no delays.');
+    }
+
+    flagged.sort(function (a, b) { return a.rate - b.rate; });
+
+    const body = document.querySelector('#kpi1People tbody');
+    body.innerHTML = '';
+    flagged.forEach(function (p) {
+      const tr = document.createElement('tr');
+      tr.innerHTML =
+        '<td>' + escapeHtml(p.name) + '</td>' +
+        '<td class="r">' + p.received + '</td>' +
+        '<td class="r">' + p.completed + '</td>' +
+        '<td class="r">' + p.delayed + '</td>' +
+        '<td class="r">' + fmt(p.rate) + '%</td>' +
+        '<td>' + pill(p.band) + '</td>';
+      body.appendChild(tr);
+    });
+  }
+
+
+  function renderSources(k) {
+    if (!k.sources.length) {
+      return emptyTable('#kpi1Sources tbody', 2, 'Nothing to show yet.');
+    }
+
+    const body = document.querySelector('#kpi1Sources tbody');
+    body.innerHTML = '';
+
+    k.sources.forEach(function (s) {
+      // A ticket in only one of the two ITSM reports is a discrepancy, not a
+      // category. Flag those rows so they read as something to look at.
+      const odd = s.count > 0 && s.name !== 'In both reports';
+      const tr = document.createElement('tr');
+      tr.innerHTML =
+        '<td>' + escapeHtml(s.name) +
+        (odd ? ' <span class="pill a">CHECK</span>' : '') + '</td>' +
+        '<td class="r">' + s.count + '</td>';
+      body.appendChild(tr);
+    });
+  }
+
+
+  // ---- small render helpers ----
+
+  function tile(label, value, note, cls) {
+    return '<div class="tile' + (cls ? ' ' + cls : '') + '">' +
+             '<div class="tile-label">' + escapeHtml(label) + '</div>' +
+             '<div class="tile-value">' + value + '</div>' +
+             '<div class="tile-note">' + note + '</div>' +
+           '</div>';
+  }
+
+  function pill(band) {
+    return '<span class="pill ' + bandClass(band) + '">' + escapeHtml(band) + '</span>';
+  }
+
+  function bandClass(band) {
+    if (band === 'GREEN') return 'g';
+    if (band === 'YELLOW') return 'a';
+    if (band === 'RED') return 'r';
+    return '';
+  }
+
+  /** Two decimals, matching how the policy states its thresholds. */
+  function fmt(n) {
+    return (Math.round((Number(n) || 0) * 100) / 100).toFixed(2);
+  }
+
+  function emptyTable(selector, columns, message) {
+    const body = document.querySelector(selector);
+    if (body) {
+      body.innerHTML = '<tr><td colspan="' + columns + '" class="empty">' +
+                       escapeHtml(message) + '</td></tr>';
+    }
   }
 
 

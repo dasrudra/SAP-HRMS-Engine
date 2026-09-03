@@ -32,6 +32,8 @@ const COL = (function () {
   CONFIG.TICKET_COLUMNS.forEach(function (name, i) { index[name] = i; });
   return {
     TICKET_ID:   index['Ticket ID'],
+    SERVICE:     index['Service'],
+    PART:        index['Part'],
     REQUEST_DATE:index['Request Date'],
     COMPLETION:  index['Completion Date'],
     DELAY_DAYS:  index['Delay Days'],
@@ -57,7 +59,14 @@ function beginUpload(meta) {
   const sheet = sheetFor(CONFIG.SHEETS.UPLOADS);
   const uploadId = 'UPL-' + Utilities.formatDate(new Date(), CONFIG_TZ(), 'yyyyMMdd-HHmmss');
 
-  sheet.appendRow([
+  const row = sheet.getLastRow() + 1;
+
+  // Force the two date columns to plain text BEFORE writing. Left alone, Sheets
+  // parses '2026-08-01' into a Date and hands it back as
+  // 'Sat Aug 01 2026 00:00:00 GMT+0600 (Bangladesh Standard Time)'.
+  sheet.getRange(row, 10, 1, 2).setNumberFormat('@');
+
+  sheet.getRange(row, 1, 1, CONFIG.UPLOAD_COLUMNS.length).setValues([[
     uploadId,
     new Date(),
     Session.getActiveUser().getEmail() || 'unknown',
@@ -70,7 +79,7 @@ function beginUpload(meta) {
     meta.dateFrom || '',
     meta.dateTo || '',
     'in progress'
-  ]);
+  ]]);
 
   return { uploadId: uploadId, startedAt: new Date().toISOString() };
 }
@@ -285,11 +294,29 @@ function getUploadHistory() {
       rowsInFile: Number(r[6]) || 0,
       rowsKept:   Number(r[7]) || 0,
       rowsMerged: Number(r[8]) || 0,
-      dateFrom:   String(r[9]),
-      dateTo:     String(r[10]),
+      dateFrom:   dayString(r[9]),
+      dateTo:     dayString(r[10]),
       notes:      String(r[11])
     };
   }).reverse();
+}
+
+
+/**
+ * Renders a cell as 'YYYY-MM-DD' whether it came back as text or a Date.
+ *
+ * Rows written before the text-format fix are still sitting in the sheet as
+ * real Dates, so reading has to cope with both.
+ *
+ * @param {*} value
+ * @return {string}
+ */
+function dayString(value) {
+  if (value === null || value === undefined || value === '') return '';
+  if (value instanceof Date) {
+    return Utilities.formatDate(value, CONFIG_TZ(), 'yyyy-MM-dd');
+  }
+  return String(value).trim().slice(0, 10);
 }
 
 

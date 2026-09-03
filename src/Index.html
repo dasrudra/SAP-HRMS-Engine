@@ -101,17 +101,23 @@
           </div>
         </div>
 
+        <!-- Says which population the month was scored from, so the headline
+             number is never ambiguous about what it counted. -->
+        <div id="kpi1Basis" class="notice notice-info" hidden></div>
+
         <div class="tiles" id="kpi1Tiles">
           <div class="tile tile-empty"><span>No data loaded yet</span></div>
         </div>
 
         <div class="card">
-          <div class="card-head">By department</div>
+          <!-- Heading changes: "By department" when department files are
+               loaded, "By service / part" when only the overall report is. -->
+          <div class="card-head" id="kpi1BreakdownHead">Breakdown</div>
           <div class="table-wrap">
             <table id="kpi1Table">
               <thead>
                 <tr>
-                  <th>Department</th>
+                  <th id="kpi1BreakdownCol">Scope</th>
                   <th class="r">Received</th>
                   <th class="r">Completed</th>
                   <th class="r">Delayed</th>
@@ -124,6 +130,41 @@
               </thead>
               <tbody>
                 <tr><td colspan="9" class="empty">Upload an ITSM export to see results.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">Engineers carrying the delays</div>
+          <div class="table-wrap">
+            <table id="kpi1People">
+              <thead>
+                <tr>
+                  <th>Engineer</th>
+                  <th class="r">Tickets</th>
+                  <th class="r">Completed</th>
+                  <th class="r">Delayed</th>
+                  <th class="r">Success Rate</th>
+                  <th>Band</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><td colspan="6" class="empty">Nothing to show yet.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">Source reconciliation</div>
+          <div class="table-wrap">
+            <table id="kpi1Sources">
+              <thead>
+                <tr><th>Where the ticket appeared</th><th class="r">Tickets</th></tr>
+              </thead>
+              <tbody>
+                <tr><td colspan="2" class="empty">Nothing to show yet.</td></tr>
               </tbody>
             </table>
           </div>
