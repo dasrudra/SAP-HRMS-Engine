@@ -86,8 +86,12 @@ function recomputeKpiCache() {
       out.push(kpiRow(month, 'PART', entry.key, entry.rows, kpi, computedAt));
     });
 
+    // Each individual is tagged with their department so the screen can filter
+    // the individuals table by department without a second lookup.
     groupBy(scored, COL.IN_CHARGE).forEach(function (entry) {
-      out.push(kpiRow(month, 'PERSON', entry.key, entry.rows, kpi, computedAt));
+      const dept = String(entry.rows[0][COL.DEPARTMENT] || '').trim();
+      out.push(kpiRow(month, 'PERSON', (dept ? dept + ' :: ' : '') + entry.key,
+                      entry.rows, kpi, computedAt));
     });
 
     // Reconciliation between the ITSM's two reports. Not a KPI — a data
@@ -305,8 +309,14 @@ function getKpi1(month) {
     if (scopeType === 'EAS')             { result.total = entry; result.hasData = true; }
     else if (scopeType === 'DEPARTMENT') { result.departments.push(entry); }
     else if (scopeType === 'PART')       { result.parts.push(entry); }
-    else if (scopeType === 'PERSON')     { result.people.push(entry); }
     else if (scopeType === 'SOURCE')     { result.sources.push({ name: entry.name, count: entry.received }); }
+    else if (scopeType === 'PERSON') {
+      // Stored as 'Department :: Name'; split it back apart.
+      const split = entry.name.split(' :: ');
+      entry.department = split.length > 1 ? split[0] : '';
+      entry.name = split.length > 1 ? split[1] : split[0];
+      result.people.push(entry);
+    }
   });
 
   return result;

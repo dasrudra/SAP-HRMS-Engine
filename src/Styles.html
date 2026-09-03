@@ -122,6 +122,21 @@
   .btn-ghost:hover { background: var(--blue-050); border-color: var(--blue-500); }
   .btn-primary { background: var(--blue-500); border-color: var(--blue-500); color: #fff; font-weight: 600; }
 
+  /* ---------------- filter bar ---------------- */
+  .filterbar {
+    display: flex; align-items: center; flex-wrap: wrap; gap: 8px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 12px 14px;
+    margin-bottom: 16px;
+    box-shadow: var(--shadow);
+  }
+  .filter-ico { color: var(--blue-500); font-size: 11px; }
+  .filterbar .select { min-width: 150px; }
+  .filterbar input.select { min-width: 190px; cursor: text; }
+  .filter-count { margin-left: auto; font-size: 12px; color: var(--text-mut); }
+
   /* ---------------- tiles ---------------- */
   .tiles {
     display: grid; gap: 12px; margin-bottom: 18px;

@@ -105,6 +105,19 @@
              number is never ambiguous about what it counted. -->
         <div id="kpi1Basis" class="notice notice-info" hidden></div>
 
+        <!-- Month reloads from the server; department and name filter the
+             tables already on screen, so they respond instantly. -->
+        <div class="filterbar">
+          <span class="filter-ico">▼</span>
+          <select id="fMonth" class="select" title="Month"></select>
+          <select id="fDept" class="select" title="Department">
+            <option value="">All departments</option>
+          </select>
+          <input id="fPerson" class="select" type="search" placeholder="Search individual…">
+          <button class="btn btn-ghost" id="fReset">✕ Reset</button>
+          <span class="filter-count" id="fCount"></span>
+        </div>
+
         <div class="tiles" id="kpi1Tiles">
           <div class="tile tile-empty"><span>No data loaded yet</span></div>
         </div>
@@ -136,12 +149,13 @@
         </div>
 
         <div class="card">
-          <div class="card-head">Engineers carrying the delays</div>
+          <div class="card-head">Individuals carrying the delays</div>
           <div class="table-wrap">
             <table id="kpi1People">
               <thead>
                 <tr>
-                  <th>Engineer</th>
+                  <th>Individual</th>
+                  <th>Department</th>
                   <th class="r">Tickets</th>
                   <th class="r">Completed</th>
                   <th class="r">Delayed</th>
@@ -150,21 +164,30 @@
                 </tr>
               </thead>
               <tbody>
-                <tr><td colspan="6" class="empty">Nothing to show yet.</td></tr>
+                <tr><td colspan="7" class="empty">Nothing to show yet.</td></tr>
               </tbody>
             </table>
           </div>
         </div>
 
         <div class="card">
-          <div class="card-head">Source reconciliation</div>
+          <div class="card-head" id="kpi1AllHead">By individuals</div>
           <div class="table-wrap">
-            <table id="kpi1Sources">
+            <table id="kpi1AllPeople">
               <thead>
-                <tr><th>Where the ticket appeared</th><th class="r">Tickets</th></tr>
+                <tr>
+                  <th>Individual</th>
+                  <th>Department</th>
+                  <th class="r">Tickets</th>
+                  <th class="r">Completed</th>
+                  <th class="r">Delayed</th>
+                  <th class="r">Successful</th>
+                  <th class="r">Success Rate</th>
+                  <th>Band</th>
+                </tr>
               </thead>
               <tbody>
-                <tr><td colspan="2" class="empty">Nothing to show yet.</td></tr>
+                <tr><td colspan="8" class="empty">Nothing to show yet.</td></tr>
               </tbody>
             </table>
           </div>

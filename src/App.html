@@ -27,6 +27,8 @@
     view: 'kpi1',
     month: null,
     boot: null,
+    kpi: null,      // the month currently on screen, kept so the filters can
+                    // re-draw without another server call
     busy: false
   };
 
@@ -115,12 +117,33 @@
       });
     });
 
-    const picker = document.getElementById('monthPicker');
-    if (picker) {
+    // Two month pickers exist — the one in the page header and the one in the
+    // filter bar. They stay in step, so changing either works.
+    ['monthPicker', 'fMonth'].forEach(function (id) {
+      const picker = document.getElementById(id);
+      if (!picker) return;
       picker.addEventListener('change', function () {
         state.month = picker.value;
+        syncMonthPickers();
         saveState();
         loadKpi1();
+      });
+    });
+
+    // Department and name only re-filter what is already loaded, so no server
+    // call and no waiting.
+    const dept = document.getElementById('fDept');
+    if (dept) dept.addEventListener('change', applyFilters);
+
+    const person = document.getElementById('fPerson');
+    if (person) person.addEventListener('input', applyFilters);
+
+    const reset = document.getElementById('fReset');
+    if (reset) {
+      reset.addEventListener('click', function () {
+        if (dept) dept.value = '';
+        if (person) person.value = '';
+        applyFilters();
       });
     }
 
@@ -128,6 +151,14 @@
     if (refresh) {
       refresh.addEventListener('click', function () { loadKpi1(); });
     }
+  }
+
+
+  function syncMonthPickers() {
+    ['monthPicker', 'fMonth'].forEach(function (id) {
+      const picker = document.getElementById(id);
+      if (picker && picker.value !== state.month) picker.value = state.month;
+    });
   }
 
 
@@ -412,10 +443,7 @@
 
         for (let i = 0; i < columns.length; i++) {
           if (i === overallAt || i === deptAt || i === sourceAt) continue;
-          const empty = (kept[i] === '' || kept[i] === null || kept[i] === undefined);
-          if (empty && row[i] !== '' && row[i] !== null && row[i] !== undefined) {
-            kept[i] = row[i];
-          }
+          if (isBlank(kept[i]) && !isBlank(row[i])) kept[i] = row[i];
         }
 
         // A ticket can legitimately appear in both reports. OR the flags so we
@@ -646,27 +674,33 @@
   // =========================================================================
 
   function fillMonthPicker(months) {
-    const picker = document.getElementById('monthPicker');
-    if (!picker) return;
+    const pickers = ['monthPicker', 'fMonth']
+      .map(function (id) { return document.getElementById(id); })
+      .filter(Boolean);
 
-    picker.innerHTML = '';
+    if (!pickers.length) return;
 
     if (!months || !months.length) {
-      picker.innerHTML = '<option value="">No data loaded</option>';
-      picker.disabled = true;
+      pickers.forEach(function (p) {
+        p.innerHTML = '<option value="">No data loaded</option>';
+        p.disabled = true;
+      });
       return;
     }
 
-    picker.disabled = false;
-    months.forEach(function (month) {
-      const option = document.createElement('option');
-      option.value = month;
-      option.textContent = formatMonth(month);
-      picker.appendChild(option);
-    });
-
     if (!state.month || months.indexOf(state.month) === -1) state.month = months[0];
-    picker.value = state.month;
+
+    pickers.forEach(function (picker) {
+      picker.innerHTML = '';
+      picker.disabled = false;
+      months.forEach(function (month) {
+        const option = document.createElement('option');
+        option.value = month;
+        option.textContent = formatMonth(month);
+        picker.appendChild(option);
+      });
+      picker.value = state.month;
+    });
   }
 
 
@@ -682,6 +716,8 @@
    * @param {Object} k  from getKpi1()
    */
   function renderKpi1(k) {
+    state.kpi = k;
+
     const basisBox = document.getElementById('kpi1Basis');
     const tiles = document.getElementById('kpi1Tiles');
 
@@ -689,16 +725,71 @@
       basisBox.hidden = true;
       tiles.innerHTML = '<div class="tile tile-empty"><span>No data for this month</span></div>';
       emptyTable('#kpi1Table tbody', 9, 'Upload an ITSM export to see results.');
-      emptyTable('#kpi1People tbody', 6, 'Nothing to show yet.');
-      emptyTable('#kpi1Sources tbody', 2, 'Nothing to show yet.');
+      emptyTable('#kpi1People tbody', 7, 'Nothing to show yet.');
+      emptyTable('#kpi1AllPeople tbody', 8, 'Nothing to show yet.');
+      fillDeptFilter([]);
       return;
     }
 
     renderBasis(k, basisBox);
     renderTiles(k, tiles);
     renderBreakdown(k);
-    renderPeople(k);
-    renderSources(k);
+    fillDeptFilter(k.departments);
+    applyFilters();
+  }
+
+
+  /**
+   * Redraws the two individuals tables against the current filters.
+   *
+   * Department and name filter what is already on screen rather than going
+   * back to the server — the month's figures are all in memory, so filtering
+   * is instant. Only changing month costs a round trip.
+   */
+  function applyFilters() {
+    const k = state.kpi;
+    if (!k || !k.hasData) return;
+
+    const dept = (document.getElementById('fDept') || {}).value || '';
+    const term = ((document.getElementById('fPerson') || {}).value || '')
+                   .trim().toLowerCase();
+
+    const people = k.people.filter(function (p) {
+      if (dept && p.department !== dept) return false;
+      if (term && p.name.toLowerCase().indexOf(term) === -1) return false;
+      return true;
+    });
+
+    renderPeople(people);
+    renderAllPeople(people);
+
+    const count = document.getElementById('fCount');
+    if (count) {
+      count.textContent = people.length === k.people.length
+        ? k.people.length + ' individuals'
+        : people.length + ' of ' + k.people.length + ' individuals';
+    }
+  }
+
+
+  /** Populates the department dropdown from whatever this month contains. */
+  function fillDeptFilter(departments) {
+    const select = document.getElementById('fDept');
+    if (!select) return;
+
+    const previous = select.value;
+    select.innerHTML = '<option value="">All departments</option>';
+
+    departments.forEach(function (d) {
+      const option = document.createElement('option');
+      option.value = d.name;
+      option.textContent = d.name;
+      select.appendChild(option);
+    });
+
+    // Keep the selection across a month change when it still exists.
+    select.value = previous;
+    if (select.value !== previous) select.value = '';
   }
 
 
@@ -802,14 +893,14 @@
    * finished at 100% with zero delays — the whole exposure sat with three
    * people, and one of them held 8 of the 11 delays.
    */
-  function renderPeople(k) {
-    const flagged = k.people.filter(function (p) {
+  function renderPeople(people) {
+    const flagged = people.filter(function (p) {
       return p.delayed > 0 || p.band !== 'GREEN';
     });
 
     if (!flagged.length) {
-      return emptyTable('#kpi1People tbody', 6,
-        'Every engineer at or above target, with no delays.');
+      return emptyTable('#kpi1People tbody', 7,
+        'Every individual at or above target, with no delays.');
     }
 
     flagged.sort(function (a, b) { return a.rate - b.rate; });
@@ -820,6 +911,7 @@
       const tr = document.createElement('tr');
       tr.innerHTML =
         '<td>' + escapeHtml(p.name) + '</td>' +
+        '<td>' + escapeHtml(p.department) + '</td>' +
         '<td class="r">' + p.received + '</td>' +
         '<td class="r">' + p.completed + '</td>' +
         '<td class="r">' + p.delayed + '</td>' +
@@ -830,23 +922,29 @@
   }
 
 
-  function renderSources(k) {
-    if (!k.sources.length) {
-      return emptyTable('#kpi1Sources tbody', 2, 'Nothing to show yet.');
+  /** Everyone, busiest first. */
+  function renderAllPeople(people) {
+    if (!people.length) {
+      return emptyTable('#kpi1AllPeople tbody', 8, 'No individuals match the filters.');
     }
 
-    const body = document.querySelector('#kpi1Sources tbody');
-    body.innerHTML = '';
+    const sorted = people.slice().sort(function (a, b) {
+      return b.received - a.received;
+    });
 
-    k.sources.forEach(function (s) {
-      // A ticket in only one of the two ITSM reports is a discrepancy, not a
-      // category. Flag those rows so they read as something to look at.
-      const odd = s.count > 0 && s.name !== 'In both reports';
+    const body = document.querySelector('#kpi1AllPeople tbody');
+    body.innerHTML = '';
+    sorted.forEach(function (p) {
       const tr = document.createElement('tr');
       tr.innerHTML =
-        '<td>' + escapeHtml(s.name) +
-        (odd ? ' <span class="pill a">CHECK</span>' : '') + '</td>' +
-        '<td class="r">' + s.count + '</td>';
+        '<td>' + escapeHtml(p.name) + '</td>' +
+        '<td>' + escapeHtml(p.department) + '</td>' +
+        '<td class="r">' + p.received + '</td>' +
+        '<td class="r">' + p.completed + '</td>' +
+        '<td class="r">' + p.delayed + '</td>' +
+        '<td class="r">' + p.successful + '</td>' +
+        '<td class="r">' + fmt(p.rate) + '%</td>' +
+        '<td>' + pill(p.band) + '</td>';
       body.appendChild(tr);
     });
   }
@@ -962,6 +1060,18 @@
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&#39;');
+  }
+
+  /**
+   * Is this value effectively empty?
+   *
+   * The trim is the whole point. Some Completion Date cells in the ITSM export
+   * hold a single space. Testing only for '' treats that space as real, the
+   * merge keeps it, and the genuine date from the other report never replaces
+   * it — one ticket silently becomes incomplete.
+   */
+  function isBlank(value) {
+    return value === null || value === undefined || String(value).trim() === '';
   }
 
 })();

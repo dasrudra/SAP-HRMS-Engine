@@ -249,12 +249,7 @@ function mergeRows(existing, incoming) {
 
   for (let i = 0; i < COL.WIDTH; i++) {
     if (i === COL.IN_OVERALL || i === COL.IN_DEPT || i === COL.SOURCE) continue;
-
-    const have = out[i];
-    const isEmpty = (have === '' || have === null || have === undefined);
-    if (isEmpty && incoming[i] !== '' && incoming[i] !== null && incoming[i] !== undefined) {
-      out[i] = incoming[i];
-    }
+    if (isBlank(out[i]) && !isBlank(incoming[i])) out[i] = incoming[i];
   }
 
   out[COL.IN_OVERALL] = truthy(existing[COL.IN_OVERALL]) || truthy(incoming[COL.IN_OVERALL]);
@@ -351,6 +346,23 @@ function sheetFor(tabName) {
 /** Sheets can hand back true, 'TRUE' or 'true' for the same cell. */
 function truthy(value) {
   return value === true || String(value).toLowerCase() === 'true';
+}
+
+
+/**
+ * Is this cell effectively empty?
+ *
+ * The trim matters. Some Completion Date cells in the ITSM export contain a
+ * single space. Testing only for '' treats that space as a real value, so the
+ * merge keeps it and the genuine completion date from the other report never
+ * replaces it — one ticket silently becomes "incomplete". With a KPI whose
+ * whole margin is one ticket, that is not a rounding detail.
+ *
+ * @param {*} value
+ * @return {boolean}
+ */
+function isBlank(value) {
+  return value === null || value === undefined || String(value).trim() === '';
 }
 
 /** The script's timezone, for stamping upload IDs. */
