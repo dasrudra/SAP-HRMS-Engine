@@ -37,6 +37,14 @@
 
   * { box-sizing: border-box; }
 
+  /*
+    The `hidden` attribute must beat any class that sets `display`.
+    Without this, `.loader { display: grid }` keeps the spinner on screen even
+    after JavaScript sets el.hidden = true — a class selector outranks the
+    browser's built-in [hidden] rule.
+  */
+  [hidden] { display: none !important; }
+
   html, body {
     margin: 0; padding: 0; height: 100%;
     background: var(--page);
@@ -46,19 +54,46 @@
     -webkit-font-smoothing: antialiased;
   }
 
-  .app { display: flex; min-height: 100vh; }
+  .app { display: flex; min-height: 100vh; align-items: flex-start; }
 
   /* ---------------- sidebar ---------------- */
+  /*
+    Sticky, not static — the nav stays put while a long table scrolls past it.
+    `align-self: flex-start` is required: a flex item stretches to the row's
+    full height by default, which leaves nothing for sticky to slide within.
+  */
   .sidebar {
     width: 208px; flex: 0 0 208px;
     background: var(--navy-900);
     display: flex; flex-direction: column;
+    position: sticky; top: 0;
+    height: 100vh;
+    align-self: flex-start;
+    transition: width .16s ease, flex-basis .16s ease;
   }
+  .app.is-collapsed .sidebar { width: 56px; flex-basis: 56px; }
+  .app.is-collapsed .brand-text,
+  .app.is-collapsed .nav-item span.nav-text { display: none; }
+  .app.is-collapsed .nav-item { justify-content: center; padding-left: 0; padding-right: 0; }
+  .app.is-collapsed .brand { justify-content: center; padding-left: 0; padding-right: 0; }
+
   .brand {
     display: flex; align-items: center; gap: 10px;
     padding: 18px 16px;
     border-bottom: 1px solid rgba(255,255,255,.08);
+    position: relative;
   }
+  .collapse-btn {
+    position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+    width: 22px; height: 22px;
+    display: grid; place-items: center;
+    background: rgba(255,255,255,.08); border: 0; border-radius: 4px;
+    color: #c2d1e4; cursor: pointer; padding: 0;
+  }
+  .collapse-btn:hover { background: rgba(255,255,255,.18); color: #fff; }
+  .collapse-btn:focus-visible { outline: 2px solid #7cb1ff; outline-offset: 1px; }
+  .app.is-collapsed .collapse-btn { position: static; transform: none; margin: 0 auto; }
+  .app.is-collapsed .collapse-btn svg { transform: rotate(180deg); }
   .brand-mark {
     width: 32px; height: 32px; flex: 0 0 32px;
     display: grid; place-items: center;
@@ -81,7 +116,46 @@
   .nav-item:hover { background: rgba(255,255,255,.06); color: #fff; }
   .nav-item.is-active { background: var(--blue-500); color: #fff; font-weight: 600; }
   .nav-item:focus-visible { outline: 2px solid #7cb1ff; outline-offset: 1px; }
-  .nav-ico { font-size: 14px; width: 16px; text-align: center; }
+  .nav-item svg { width: 16px; height: 16px; flex: 0 0 16px; stroke: currentColor; fill: none;
+                  stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+
+  /* ---------------- per-table filter row ---------------- */
+  /*
+    Each table owns its filter instead of one bar governing the page, so
+    narrowing the individuals list does not silently change what the section
+    table above it is showing.
+  */
+  .table-filter {
+    display: flex; align-items: center; flex-wrap: wrap; gap: 8px;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface-2, #f8fafc);
+  }
+  .table-filter .select { min-width: 140px; padding: 6px 10px; font-size: 12.5px; }
+  .table-filter input.select { min-width: 180px; cursor: text; }
+  .table-filter .btn { padding: 6px 10px; font-size: 12.5px; }
+  .table-filter .filter-count { margin-left: auto; font-size: 12px; color: var(--text-mut); }
+
+  /* ---------------- upload row actions ---------------- */
+  .row-actions { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+  .btn-open {
+    background: var(--navy-700); color: #fff; border: 0;
+    padding: 7px 14px; border-radius: 6px;
+    font-family: inherit; font-size: 12px; font-weight: 700; cursor: pointer;
+  }
+  .btn-open:hover { background: var(--navy-500); }
+  .btn-icon {
+    width: 30px; height: 30px; border-radius: 50%;
+    display: grid; place-items: center; cursor: pointer;
+    border: 1px solid var(--border); background: var(--surface); color: var(--text-dim);
+    padding: 0;
+  }
+  .btn-icon svg { width: 14px; height: 14px; stroke: currentColor; fill: none;
+                  stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  .btn-icon.is-primary { background: var(--blue-500); border-color: var(--blue-500); color: #fff; }
+  .btn-icon.is-primary:hover { background: #1d4ed8; }
+  .btn-icon.is-danger:hover { border-color: var(--red); color: var(--red); }
+  .btn-open:focus-visible, .btn-icon:focus-visible { outline: 2px solid var(--blue-500); outline-offset: 2px; }
 
   /* ---------------- top bar ---------------- */
   .main { flex: 1; min-width: 0; display: flex; flex-direction: column; }

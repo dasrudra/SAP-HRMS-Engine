@@ -5,11 +5,10 @@
   needs data it asks the server through google.script.run, and the server
   replies by calling the success handler.
 
-  This file now does the heavy lifting of an upload: reading the .xlsx, working
-  out which report each file is, normalising every row, merging the five files
-  into one deduplicated set, and sending it up in batches. All of that happens
-  here rather than on the server because parsing 20,000 rows server-side would
-  run straight into Apps Script's 6-minute execution ceiling.
+  This file reads the .xlsx files, works out which report each one is,
+  normalises every row, merges them, sends them up in batches, and draws every
+  screen. Parsing happens here rather than on the server because a 20,000-row
+  workbook would run straight into Apps Script's 6-minute execution ceiling.
 -->
 
 <!--
@@ -27,19 +26,15 @@
     view: 'kpi1',
     month: null,
     boot: null,
-    kpi: null,      // the month currently on screen, kept so the filters can
-                    // re-draw without another server call
+    kpi: null,        // the month on screen, kept so filters redraw without a
+                      // server call
+    compare: null,
     busy: false
   };
 
-  /** Rows are sent in chunks this big. Small enough that no single server
-   *  call runs long; large enough that 20,000 rows doesn't mean 200 calls. */
   const BATCH_SIZE = 400;
-
-  /** Ticket bodies can run to several KB each. We keep a preview for future
-   *  drill-down and drop the rest, because 2,500 full bodies would make the
-   *  upload payload many times larger for data the KPI never reads. */
   const DETAILS_LIMIT = 300;
+  const MAX_COMPARE = 6;
 
 
   // =========================================================================
@@ -47,7 +42,10 @@
   // =========================================================================
 
   document.addEventListener('DOMContentLoaded', function () {
+    wireSidebar();
     wireNavigation();
+    wireFilters();
+    wireCompare();
     wireUploads();
 
     google.script.run
@@ -67,6 +65,7 @@
     }
 
     fillMonthPicker(boot.availableMonths);
+    fillCompareMonths(boot.availableMonths);
     fillSettings(boot);
 
     restoreState(function () {
@@ -87,13 +86,8 @@
   /**
    * Wraps google.script.run in a Promise.
    *
-   * The native API is callback-based, which gets unreadable fast once you need
-   * to run twenty batches strictly in order. Promises let us write that as a
-   * simple loop with `await` instead of nesting callbacks twenty deep.
-   *
-   * @param {string} fnName  a function name in the .gs files
-   * @param {...*}   args
-   * @return {Promise}
+   * The native API is callback-based, which gets unreadable once you need
+   * twenty batches strictly in order. Promises let that be a loop with `await`.
    */
   function callServer(fnName) {
     const args = Array.prototype.slice.call(arguments, 1);
@@ -102,6 +96,32 @@
         .withSuccessHandler(resolve)
         .withFailureHandler(reject);
       runner[fnName].apply(runner, args);
+    });
+  }
+
+
+  // =========================================================================
+  // SIDEBAR
+  // =========================================================================
+
+  function wireSidebar() {
+    const button = document.getElementById('collapseBtn');
+    const root = document.getElementById('appRoot');
+    if (!button || !root) return;
+
+    // Remember the choice per browser, so it survives a refresh.
+    try {
+      if (localStorage.getItem('easSidebar') === 'collapsed') {
+        root.classList.add('is-collapsed');
+      }
+    } catch (e) { /* storage blocked — start expanded */ }
+
+    button.addEventListener('click', function () {
+      const collapsed = root.classList.toggle('is-collapsed');
+      button.title = collapsed ? 'Expand sidebar' : 'Minimise sidebar';
+      try {
+        localStorage.setItem('easSidebar', collapsed ? 'collapsed' : 'expanded');
+      } catch (e) { /* not fatal */ }
     });
   }
 
@@ -117,48 +137,17 @@
       });
     });
 
-    // Two month pickers exist — the one in the page header and the one in the
-    // filter bar. They stay in step, so changing either works.
-    ['monthPicker', 'fMonth'].forEach(function (id) {
-      const picker = document.getElementById(id);
-      if (!picker) return;
+    const picker = document.getElementById('monthPicker');
+    if (picker) {
       picker.addEventListener('change', function () {
         state.month = picker.value;
-        syncMonthPickers();
         saveState();
         loadKpi1();
-      });
-    });
-
-    // Department and name only re-filter what is already loaded, so no server
-    // call and no waiting.
-    const dept = document.getElementById('fDept');
-    if (dept) dept.addEventListener('change', applyFilters);
-
-    const person = document.getElementById('fPerson');
-    if (person) person.addEventListener('input', applyFilters);
-
-    const reset = document.getElementById('fReset');
-    if (reset) {
-      reset.addEventListener('click', function () {
-        if (dept) dept.value = '';
-        if (person) person.value = '';
-        applyFilters();
       });
     }
 
     const refresh = document.getElementById('refreshKpi1');
-    if (refresh) {
-      refresh.addEventListener('click', function () { loadKpi1(); });
-    }
-  }
-
-
-  function syncMonthPickers() {
-    ['monthPicker', 'fMonth'].forEach(function (id) {
-      const picker = document.getElementById(id);
-      if (picker && picker.value !== state.month) picker.value = state.month;
-    });
+    if (refresh) refresh.addEventListener('click', function () { loadKpi1(); });
   }
 
 
@@ -177,6 +166,7 @@
     const labels = {
       kpi1: 'KPI 1 · ITSM',
       kpi2: 'KPI 2 · Training',
+      compare: 'Comparison',
       uploads: 'Data Uploads',
       settings: 'Settings'
     };
@@ -257,15 +247,6 @@
   // READING .xlsx FILES
   // =========================================================================
 
-  /**
-   * Reads one file into { fileName, headers, rows }.
-   *
-   * FileReader is callback-based like most older browser APIs, so it gets
-   * wrapped in a Promise for the same reason google.script.run did.
-   *
-   * @param {File} file
-   * @return {Promise<Object>}
-   */
   function readWorkbook(file) {
     return new Promise(function (resolve, reject) {
       const reader = new FileReader();
@@ -279,11 +260,9 @@
           const workbook = XLSX.read(new Uint8Array(event.target.result), { type: 'array' });
           const sheet = workbook.Sheets[workbook.SheetNames[0]];
 
-          // header:1 gives arrays instead of objects, which is what we want —
-          // the two reports order their columns differently, so we map by
-          // header NAME, never by position.
+          // header:1 gives arrays instead of objects. The two reports order
+          // their columns differently, so we map by header NAME, never index.
           const grid = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', blankrows: false });
-
           if (!grid.length) throw new Error(file.name + ' looks empty');
 
           resolve({
@@ -305,57 +284,28 @@
    * Which of the two ITSM reports is this?
    *
    * The Personal Performance export carries three man-hour columns the
-   * Service/Part export does not. That is the only structural difference, and
-   * it is a far more reliable test than the filename.
-   *
-   * @param {string[]} headers
-   * @return {string} 'INDIVIDUAL' | 'OVERALL'
+   * Service/Part export does not. That structural test beats trusting a
+   * filename somebody might rename.
    */
   function detectReportType(headers) {
     return headers.indexOf('Man*Hour') !== -1 ? 'INDIVIDUAL' : 'OVERALL';
   }
 
 
-  /**
-   * Which EAS department, judged from the filename.
-   *
-   * `Manufacturing_IndividualPerformance_202608260835.xlsx` -> Manufacturing
-   * Applications. Only meaningful for INDIVIDUAL files; the overall export
-   * spans every department at once.
-   *
-   * @param {string} fileName
-   * @return {string} department name, or '' if it cannot be told
-   */
-  function detectDepartment(fileName) {
+  /** Which EAS section, judged from the filename. */
+  function detectSection(fileName) {
     const lower = String(fileName).toLowerCase();
-    const departments = (state.boot && state.boot.departments) || [];
-    for (let i = 0; i < departments.length; i++) {
-      if (lower.indexOf(departments[i].match) !== -1) return departments[i].name;
+    const sections = (state.boot && state.boot.departments) || [];
+    for (let i = 0; i < sections.length; i++) {
+      if (lower.indexOf(sections[i].match) !== -1) return sections[i].name;
     }
     return '';
   }
 
 
-  /**
-   * Turns one file's raw grid into rows shaped like CONFIG.TICKET_COLUMNS.
-   *
-   * Everything that makes the two exports awkward gets handled here:
-   *   - ' Category' and ' Sub Category' ship with a LEADING SPACE, so headers
-   *     are trimmed before matching
-   *   - the man-hour columns sit between 'Delay Days' and 'Status' in the
-   *     Personal export but do not exist in the other, so column ORDER differs
-   *     between files — we map by name, never by index
-   *   - Details can be several KB; we keep a preview
-   *
-   * @param {Object} file    from readWorkbook()
-   * @param {string} type    'INDIVIDUAL' | 'OVERALL'
-   * @param {string} dept
-   * @return {Array[]}
-   */
-  function normalizeRows(file, type, dept) {
+  function normalizeRows(file, type, section) {
     const columns = state.boot.ticketColumns;
 
-    // header name -> its position in THIS file
     const position = {};
     file.headers.forEach(function (name, i) {
       if (name && position[name] === undefined) position[name] = i;
@@ -370,15 +320,15 @@
 
     file.rows.forEach(function (raw) {
       const ticketId = String(raw[idIndex] == null ? '' : raw[idIndex]).trim();
-      if (!ticketId) return;                       // skip blank/total rows
+      if (!ticketId) return;
 
       const row = columns.map(function (columnName) {
         switch (columnName) {
-          case 'Department':        return type === 'INDIVIDUAL' ? dept : '';
+          case 'Department':        return type === 'INDIVIDUAL' ? section : '';
           case 'In Overall Report': return type === 'OVERALL';
           case 'In Dept Report':    return type === 'INDIVIDUAL';
           case 'Source Files':      return file.fileName;
-          case 'Last Updated':      return '';     // stamped server-side
+          case 'Last Updated':      return '';
         }
 
         const at = position[columnName];
@@ -403,28 +353,12 @@
   }
 
 
-  /**
-   * Merges every file into one row per Ticket ID.
-   *
-   * Done here rather than server-side because the browser already holds all
-   * five files, and merging first roughly halves what has to be uploaded —
-   * your five August files hold about 5,000 rows describing 2,545 tickets.
-   *
-   * The merge is FIELD BY FIELD. The Service/Part export leaves Process,
-   * Details, Current Activity, Lead-time and Status blank while the department
-   * exports fill them in and add the man-hour columns. Replacing whole rows
-   * would discard whichever file was processed first.
-   *
-   * @param {Array[][]} perFile
-   * @param {string[]}  columns
-   * @return {Array[]}
-   */
   function mergeFiles(perFile, columns) {
-    const idAt      = columns.indexOf('Ticket ID');
-    const overallAt = columns.indexOf('In Overall Report');
-    const deptAt    = columns.indexOf('In Dept Report');
-    const sourceAt  = columns.indexOf('Source Files');
-    const deptNameAt= columns.indexOf('Department');
+    const idAt        = columns.indexOf('Ticket ID');
+    const overallAt   = columns.indexOf('In Overall Report');
+    const deptAt      = columns.indexOf('In Dept Report');
+    const sourceAt    = columns.indexOf('Source Files');
+    const sectionAt   = columns.indexOf('Department');
 
     const byId = {};
     const order = [];
@@ -446,14 +380,15 @@
           if (isBlank(kept[i]) && !isBlank(row[i])) kept[i] = row[i];
         }
 
-        // A ticket can legitimately appear in both reports. OR the flags so we
-        // can later count the ones that appear in only one — that is the
-        // discrepancy between the ITSM's own two reports.
+        // A ticket can legitimately appear in both reports. OR the flags so
+        // the ones appearing in only one stay countable.
         kept[overallAt] = Boolean(kept[overallAt]) || Boolean(row[overallAt]);
         kept[deptAt]    = Boolean(kept[deptAt])    || Boolean(row[deptAt]);
 
-        // A department export is authoritative about which department owns it.
-        if (!kept[deptNameAt] && row[deptNameAt]) kept[deptNameAt] = row[deptNameAt];
+        // A section export is authoritative about which section owns it.
+        if (isBlank(kept[sectionAt]) && !isBlank(row[sectionAt])) {
+          kept[sectionAt] = row[sectionAt];
+        }
 
         const sources = String(kept[sourceAt] || '').split(' | ')
           .concat(String(row[sourceAt] || '').split(' | '))
@@ -477,9 +412,7 @@
     const input = document.getElementById('fileInput');
     if (!zone || !input) return;
 
-    zone.addEventListener('click', function () {
-      if (!state.busy) input.click();
-    });
+    zone.addEventListener('click', function () { if (!state.busy) input.click(); });
 
     ['dragenter', 'dragover'].forEach(function (type) {
       zone.addEventListener(type, function (event) {
@@ -501,7 +434,7 @@
 
     input.addEventListener('change', function () {
       if (!state.busy) handleFiles(input.files);
-      input.value = '';            // so choosing the same file again re-fires
+      input.value = '';
     });
   }
 
@@ -516,9 +449,7 @@
       return /\.xlsx$/i.test(f.name);
     });
 
-    if (!files.length) {
-      return setStatus('No .xlsx files in that selection.', 'error');
-    }
+    if (!files.length) return setStatus('No .xlsx files in that selection.', 'error');
 
     state.busy = true;
     runUpload(files)
@@ -529,18 +460,9 @@
   }
 
 
-  /**
-   * The whole upload, start to finish.
-   *
-   * Written with async/await so the sequence reads top to bottom. Each `await`
-   * pauses until that server call comes back, which is what keeps the batches
-   * strictly in order — sending them all at once would have twenty executions
-   * fighting over the same sheet.
-   */
   async function runUpload(files) {
     const columns = state.boot.ticketColumns;
 
-    // ---- 1. read and normalise every file ----
     setStatus('Reading ' + files.length + ' file(s)…');
 
     const perFile = [];
@@ -550,26 +472,25 @@
     for (let i = 0; i < files.length; i++) {
       const parsed = await readWorkbook(files[i]);
       const type = detectReportType(parsed.headers);
-      const dept = type === 'INDIVIDUAL' ? detectDepartment(parsed.fileName) : '';
+      const section = type === 'INDIVIDUAL' ? detectSection(parsed.fileName) : '';
 
-      if (type === 'INDIVIDUAL' && !dept) {
-        throw new Error('Cannot tell which department "' + parsed.fileName +
-                        '" belongs to. Expected the department name in the filename.');
+      if (type === 'INDIVIDUAL' && !section) {
+        throw new Error('Cannot tell which section "' + parsed.fileName +
+                        '" belongs to. Expected the section name in the filename.');
       }
 
-      const rows = normalizeRows(parsed, type, dept);
+      const rows = normalizeRows(parsed, type, section);
       perFile.push(rows);
 
       meta.fileNames.push(parsed.fileName);
       meta.reportTypes.push(type);
-      if (dept) meta.departments.push(dept);
+      if (section) meta.departments.push(section);
       meta.totalRows += rows.length;
 
-      summary.push({ name: parsed.fileName, type: type, dept: dept, rows: rows.length });
+      summary.push({ name: parsed.fileName, type: type, dept: section, rows: rows.length });
       setStatus('Read ' + (i + 1) + ' of ' + files.length + ' file(s)…', null, summary);
     }
 
-    // ---- 2. merge into one row per ticket ----
     const merged = mergeFiles(perFile, columns);
 
     const dateAt = columns.indexOf('Request Date');
@@ -582,34 +503,35 @@
               ' unique tickets (' + meta.dateFrom + ' to ' + meta.dateTo + '). Uploading…',
               null, summary);
 
-    // ---- 3. send in batches ----
     const begun = await callServer('beginUpload', meta);
 
     for (let start = 0; start < merged.length; start += BATCH_SIZE) {
-      const chunk = merged.slice(start, start + BATCH_SIZE);
-      await callServer('appendTicketBatch', begun.uploadId, chunk);
-
+      await callServer('appendTicketBatch', begun.uploadId, merged.slice(start, start + BATCH_SIZE));
       const done = Math.min(start + BATCH_SIZE, merged.length);
-      const pct = Math.round((done / merged.length) * 100);
-      setStatus('Uploading… ' + done + ' of ' + merged.length + ' tickets (' + pct + '%)',
-                null, summary);
+      setStatus('Uploading… ' + done + ' of ' + merged.length + ' tickets (' +
+                Math.round((done / merged.length) * 100) + '%)', null, summary);
     }
 
-    // ---- 4. deduplicate, sort, recompute the KPI cache ----
     setStatus('Consolidating and recomputing KPI figures…', null, summary);
     const result = await callServer('finishUpload', begun.uploadId);
 
-    setStatus(
-      'Done. ' + result.kept + ' tickets stored' +
-      (result.merged ? ', ' + result.merged + ' duplicate rows collapsed' : '') + '.',
-      'ok', summary);
+    setStatus('Done. ' + result.kept + ' tickets stored' +
+              (result.merged ? ', ' + result.merged + ' duplicate rows collapsed' : '') + '.',
+              'ok', summary);
 
-    // Refresh the page's idea of what exists.
+    await refreshAfterChange();
+  }
+
+
+  /** Re-reads what exists after any change to the stored data. */
+  async function refreshAfterChange() {
     const boot = await callServer('getBootstrap');
     state.boot = boot;
     fillMonthPicker(boot.availableMonths);
+    fillCompareMonths(boot.availableMonths);
     fillSettings(boot);
     loadUploads();
+    if (state.view === 'kpi1') loadKpi1();
   }
 
 
@@ -629,8 +551,7 @@
       html += '<div style="margin-top:8px" class="muted">';
       files.forEach(function (f) {
         html += escapeHtml(f.name) + ' — ' + f.type +
-                (f.dept ? ' · ' + escapeHtml(f.dept) : '') +
-                ' · ' + f.rows + ' rows<br>';
+                (f.dept ? ' · ' + escapeHtml(f.dept) : '') + ' · ' + f.rows + ' rows<br>';
       });
       html += '</div>';
     }
@@ -653,19 +574,117 @@
 
       body.innerHTML = '';
       history.forEach(function (h) {
+        const deleted = /^deleted/.test(h.notes || '');
         const tr = document.createElement('tr');
+
         tr.innerHTML =
           '<td>' + escapeHtml(String(h.uploadedAt).slice(0, 16).replace('T', ' ')) + '</td>' +
-          '<td>' + escapeHtml(h.fileName) + '</td>' +
+          '<td style="max-width:340px">' + escapeHtml(h.fileName) + '</td>' +
           '<td>' + escapeHtml(h.reportType) + '</td>' +
           '<td>' + escapeHtml(h.department) + '</td>' +
           '<td class="r">' + h.rowsInFile + '</td>' +
           '<td class="r">' + h.rowsKept + '</td>' +
-          '<td class="r">' + h.rowsMerged + '</td>' +
-          '<td>' + escapeHtml(h.dateFrom + ' → ' + h.dateTo) + '</td>';
+          '<td>' + escapeHtml(h.dateFrom + ' → ' + h.dateTo) + '</td>' +
+          '<td>' + (deleted
+            ? '<span class="pill a">' + escapeHtml(h.notes) + '</span>'
+            : rowActions(h.uploadId)) + '</td>';
+
         body.appendChild(tr);
       });
+
+      wireRowActions();
     }).catch(onError);
+  }
+
+
+  function rowActions(uploadId) {
+    const id = escapeHtml(uploadId);
+    return '<div class="row-actions">' +
+      '<button class="btn-open" data-open="' + id + '">Open Dashboard</button>' +
+      '<button class="btn-icon is-primary" data-download="' + id + '" title="Download CSV">' +
+        '<svg viewBox="0 0 16 16"><path d="M8 2v8M5 7l3 3 3-3M3 13h10"/></svg></button>' +
+      '<button class="btn-icon is-danger" data-delete="' + id + '" title="Delete this upload">' +
+        '<svg viewBox="0 0 16 16"><path d="M2.5 4h11M6 4V2.5h4V4M4 4l.6 9.5h6.8L12 4"/></svg></button>' +
+      '</div>';
+  }
+
+
+  function wireRowActions() {
+    document.querySelectorAll('[data-open]').forEach(function (button) {
+      button.addEventListener('click', function () {
+        const row = button.closest('tr');
+        // The range cell holds 'YYYY-MM-DD → YYYY-MM-DD'; its first seven
+        // characters are the month this upload covers.
+        const range = row ? row.children[6].textContent.trim() : '';
+        const month = range.slice(0, 7);
+        if (month && /^\d{4}-\d{2}$/.test(month)) {
+          state.month = month;
+          syncMonthPicker();
+        }
+        showView('kpi1');
+      });
+    });
+
+    document.querySelectorAll('[data-download]').forEach(function (button) {
+      button.addEventListener('click', function () {
+        button.disabled = true;
+        callServer('getUploadCsv', button.dataset.download)
+          .then(function (file) {
+            downloadText(file.fileName, file.csv);
+            button.disabled = false;
+          })
+          .catch(function (err) {
+            button.disabled = false;
+            onError(err);
+          });
+      });
+    });
+
+    document.querySelectorAll('[data-delete]').forEach(function (button) {
+      button.addEventListener('click', function () {
+        const id = button.dataset.delete;
+        if (!window.confirm(
+              'Delete upload ' + id + '?\n\n' +
+              'Tickets that came only from this upload are removed. Tickets ' +
+              'another upload also supplied are kept. The log entry stays as ' +
+              'audit evidence.')) return;
+
+        button.disabled = true;
+        callServer('deleteUpload', id)
+          .then(function (result) {
+            setStatus('Deleted ' + id + ' — ' + result.removed +
+                      ' tickets removed, ' + result.kept + ' kept.', 'ok');
+            return refreshAfterChange();
+          })
+          .catch(function (err) {
+            button.disabled = false;
+            onError(err);
+          });
+      });
+    });
+  }
+
+
+  /**
+   * Hands the browser a file to save.
+   *
+   * A Blob URL rather than a data: URI — data: URIs have length limits that a
+   * few thousand ticket rows would blow straight past.
+   */
+  function downloadText(fileName, text) {
+    try {
+      const blob = new Blob([text], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+    } catch (e) {
+      window.alert('Could not start the download: ' + e.message);
+    }
   }
 
 
@@ -674,33 +693,33 @@
   // =========================================================================
 
   function fillMonthPicker(months) {
-    const pickers = ['monthPicker', 'fMonth']
-      .map(function (id) { return document.getElementById(id); })
-      .filter(Boolean);
-
-    if (!pickers.length) return;
+    const picker = document.getElementById('monthPicker');
+    if (!picker) return;
 
     if (!months || !months.length) {
-      pickers.forEach(function (p) {
-        p.innerHTML = '<option value="">No data loaded</option>';
-        p.disabled = true;
-      });
+      picker.innerHTML = '<option value="">No data loaded</option>';
+      picker.disabled = true;
       return;
     }
 
     if (!state.month || months.indexOf(state.month) === -1) state.month = months[0];
 
-    pickers.forEach(function (picker) {
-      picker.innerHTML = '';
-      picker.disabled = false;
-      months.forEach(function (month) {
-        const option = document.createElement('option');
-        option.value = month;
-        option.textContent = formatMonth(month);
-        picker.appendChild(option);
-      });
-      picker.value = state.month;
+    picker.innerHTML = '';
+    picker.disabled = false;
+    months.forEach(function (month) {
+      const option = document.createElement('option');
+      option.value = month;
+      option.textContent = formatMonth(month);
+      picker.appendChild(option);
     });
+    picker.value = state.month;
+  }
+
+
+  function syncMonthPicker() {
+    const picker = document.getElementById('monthPicker');
+    if (picker && picker.value !== state.month) picker.value = state.month;
+    saveState();
   }
 
 
@@ -710,11 +729,6 @@
   }
 
 
-  /**
-   * Draws the whole KPI 1 screen from one result object.
-   *
-   * @param {Object} k  from getKpi1()
-   */
   function renderKpi1(k) {
     state.kpi = k;
 
@@ -727,79 +741,19 @@
       emptyTable('#kpi1Table tbody', 9, 'Upload an ITSM export to see results.');
       emptyTable('#kpi1People tbody', 7, 'Nothing to show yet.');
       emptyTable('#kpi1AllPeople tbody', 8, 'Nothing to show yet.');
-      fillDeptFilter([]);
+      fillSectionFilters([]);
       return;
     }
 
     renderBasis(k, basisBox);
     renderTiles(k, tiles);
-    renderBreakdown(k);
-    fillDeptFilter(k.departments);
-    applyFilters();
+    fillSectionFilters(k.departments);
+    applySectionFilter();
+    applyDelayFilter();
+    applyAllFilter();
   }
 
 
-  /**
-   * Redraws the two individuals tables against the current filters.
-   *
-   * Department and name filter what is already on screen rather than going
-   * back to the server — the month's figures are all in memory, so filtering
-   * is instant. Only changing month costs a round trip.
-   */
-  function applyFilters() {
-    const k = state.kpi;
-    if (!k || !k.hasData) return;
-
-    const dept = (document.getElementById('fDept') || {}).value || '';
-    const term = ((document.getElementById('fPerson') || {}).value || '')
-                   .trim().toLowerCase();
-
-    const people = k.people.filter(function (p) {
-      if (dept && p.department !== dept) return false;
-      if (term && p.name.toLowerCase().indexOf(term) === -1) return false;
-      return true;
-    });
-
-    renderPeople(people);
-    renderAllPeople(people);
-
-    const count = document.getElementById('fCount');
-    if (count) {
-      count.textContent = people.length === k.people.length
-        ? k.people.length + ' individuals'
-        : people.length + ' of ' + k.people.length + ' individuals';
-    }
-  }
-
-
-  /** Populates the department dropdown from whatever this month contains. */
-  function fillDeptFilter(departments) {
-    const select = document.getElementById('fDept');
-    if (!select) return;
-
-    const previous = select.value;
-    select.innerHTML = '<option value="">All departments</option>';
-
-    departments.forEach(function (d) {
-      const option = document.createElement('option');
-      option.value = d.name;
-      option.textContent = d.name;
-      select.appendChild(option);
-    });
-
-    // Keep the selection across a month change when it still exists.
-    select.value = previous;
-    if (select.value !== previous) select.value = '';
-  }
-
-
-  /**
-   * The banner saying what was counted.
-   *
-   * The department exports are the accurate EAS scope. The overall report is
-   * wider — it also holds work by engineers in no EAS department. Which one
-   * produced the headline number has to be visible, not assumed.
-   */
   function renderBasis(k, box) {
     if (!k.basis) { box.hidden = true; return; }
 
@@ -808,18 +762,17 @@
     if (k.basis.source === 'DEPARTMENT') {
       box.className = 'notice notice-info';
       box.innerHTML =
-        '<h3>Scored from the department exports</h3>' +
+        '<h3>Scored from the section exports</h3>' +
         '<p>' + k.basis.scored + ' of ' + k.basis.total +
-        ' loaded tickets belong to an EAS department. This is the accurate ' +
-        'scope for the departmental KPI.</p>';
+        ' loaded tickets belong to an EAS section. This is the accurate scope ' +
+        'for the departmental KPI.</p>';
     } else {
       box.className = 'notice notice-warn';
       box.innerHTML =
         '<h3>Scored from the overall report</h3>' +
-        '<p>No department exports loaded for this month, so all ' +
-        k.basis.total + ' tickets were counted — including work by engineers ' +
-        'outside EAS. Upload the department files for the accurate ' +
-        'departmental figure.</p>';
+        '<p>No section exports loaded for this month, so all ' + k.basis.total +
+        ' tickets were counted — including work by individuals outside EAS. ' +
+        'Upload the section files for the accurate departmental figure.</p>';
     }
   }
 
@@ -828,8 +781,6 @@
     const t = k.total;
     const cls = bandClass(t.band);
 
-    // Headroom is the number worth leading with. A band alone says "green";
-    // headroom says "green, and one more delayed ticket ends that".
     let headroomNote;
     if (t.headroom > 0) {
       headroomNote = t.headroom + ' more delay' + (t.headroom === 1 ? '' : 's') + ' before dropping';
@@ -841,116 +792,379 @@
 
     container.innerHTML =
       tile('Success Rate', fmt(t.rate) + '%', pill(t.band), cls) +
-      tile('KPI Achievement', fmt(t.achievement) + '%',
-           'target ' + k.target + '%', cls) +
+      tile('KPI Achievement', fmt(t.achievement) + '%', 'target ' + k.target + '%', cls) +
       tile('Headroom', (t.headroom > 0 ? '+' : '') + t.headroom, headroomNote,
            t.headroom > 0 ? 'g' : (t.headroom === 0 ? 'a' : 'r')) +
       tile('Received', t.received, 'tickets this month', '') +
-      tile('Completed', t.completed,
-           (t.received - t.completed) + ' still open', '') +
-      tile('Delayed', t.delayed,
-           t.successful + ' completed successfully',
+      tile('Completed', t.completed, (t.received - t.completed) + ' still open', '') +
+      tile('Delayed', t.delayed, t.successful + ' completed successfully',
            t.delayed ? 'a' : 'g');
   }
 
 
-  function renderBreakdown(k) {
-    const useDepartments = k.departments.length > 0;
-    const rows = useDepartments ? k.departments : k.parts;
+  // ---- filters: each table owns its own ----
+
+  function wireFilters() {
+    bind('fSection', 'change', applySectionFilter);
+    bind('fSectionReset', 'click', function () {
+      setValue('fSection', ''); applySectionFilter();
+    });
+
+    bind('fDelaySection', 'change', applyDelayFilter);
+    bind('fDelayName', 'input', applyDelayFilter);
+    bind('fDelayReset', 'click', function () {
+      setValue('fDelaySection', ''); setValue('fDelayName', ''); applyDelayFilter();
+    });
+
+    bind('fAllSection', 'change', applyAllFilter);
+    bind('fAllName', 'input', applyAllFilter);
+    bind('fAllReset', 'click', function () {
+      setValue('fAllSection', ''); setValue('fAllName', ''); applyAllFilter();
+    });
+  }
+
+
+  /** Fills all three section dropdowns from the month currently loaded. */
+  function fillSectionFilters(sections) {
+    ['fSection', 'fDelaySection', 'fAllSection'].forEach(function (id) {
+      const select = document.getElementById(id);
+      if (!select) return;
+
+      const previous = select.value;
+      select.innerHTML = '<option value="">All sections</option>';
+
+      sections.forEach(function (s) {
+        const option = document.createElement('option');
+        option.value = s.name;
+        option.textContent = s.name;
+        select.appendChild(option);
+      });
+
+      select.value = previous;
+      if (select.value !== previous) select.value = '';
+    });
+  }
+
+
+  function applySectionFilter() {
+    const k = state.kpi;
+    if (!k || !k.hasData) return;
+
+    const useSections = k.departments.length > 0;
+    const all = useSections ? k.departments : k.parts;
 
     document.getElementById('kpi1BreakdownHead').textContent =
-      useDepartments ? 'By department' : 'By service / part';
+      useSections ? 'By section' : 'By service / part';
     document.getElementById('kpi1BreakdownCol').textContent =
-      useDepartments ? 'Department' : 'Service / Part';
+      useSections ? 'Section' : 'Service / Part';
 
-    const body = document.querySelector('#kpi1Table tbody');
-    if (!rows.length) {
-      return emptyTable('#kpi1Table tbody', 9, 'No breakdown available.');
-    }
+    const wanted = getValue('fSection');
+    const rows = wanted ? all.filter(function (r) { return r.name === wanted; }) : all;
 
-    body.innerHTML = '';
-    rows.forEach(function (r) {
-      const tr = document.createElement('tr');
-      tr.innerHTML =
-        '<td>' + escapeHtml(r.name) + '</td>' +
-        '<td class="r">' + r.received + '</td>' +
-        '<td class="r">' + r.completed + '</td>' +
-        '<td class="r">' + r.delayed + '</td>' +
-        '<td class="r">' + r.successful + '</td>' +
-        '<td class="r">' + fmt(r.rate) + '%</td>' +
-        '<td class="r">' + fmt(r.achievement) + '%</td>' +
-        '<td>' + pill(r.band) + '</td>' +
-        '<td class="r">' + (r.headroom > 0 ? '+' : '') + r.headroom + '</td>';
-      body.appendChild(tr);
+    setCount('cSection', rows.length, all.length, useSections ? 'sections' : 'parts');
+
+    if (!rows.length) return emptyTable('#kpi1Table tbody', 9, 'No rows match.');
+
+    fillRows('#kpi1Table tbody', rows, function (r) {
+      return '<td>' + escapeHtml(r.name) + '</td>' +
+             '<td class="r">' + r.received + '</td>' +
+             '<td class="r">' + r.completed + '</td>' +
+             '<td class="r">' + r.delayed + '</td>' +
+             '<td class="r">' + r.successful + '</td>' +
+             '<td class="r">' + fmt(r.rate) + '%</td>' +
+             '<td class="r">' + fmt(r.achievement) + '%</td>' +
+             '<td>' + pill(r.band) + '</td>' +
+             '<td class="r">' + (r.headroom > 0 ? '+' : '') + r.headroom + '</td>';
     });
   }
 
 
   /**
-   * Only engineers with a delay or below target.
+   * Only individuals with a delay or below target.
    *
    * Listing all 35 would bury the three that matter. In August 2026, 32 of 35
-   * finished at 100% with zero delays — the whole exposure sat with three
-   * people, and one of them held 8 of the 11 delays.
+   * finished at 100% with zero delays.
    */
-  function renderPeople(people) {
-    const flagged = people.filter(function (p) {
+  function applyDelayFilter() {
+    const k = state.kpi;
+    if (!k || !k.hasData) return;
+
+    const flagged = k.people.filter(function (p) {
       return p.delayed > 0 || p.band !== 'GREEN';
     });
 
-    if (!flagged.length) {
+    const rows = filterPeople(flagged, 'fDelaySection', 'fDelayName')
+                   .sort(function (a, b) { return a.rate - b.rate; });
+
+    setCount('cDelay', rows.length, flagged.length, 'individuals');
+
+    if (!rows.length) {
       return emptyTable('#kpi1People tbody', 7,
-        'Every individual at or above target, with no delays.');
+        flagged.length ? 'No individuals match the filters.'
+                       : 'Every individual at or above target, with no delays.');
     }
 
-    flagged.sort(function (a, b) { return a.rate - b.rate; });
-
-    const body = document.querySelector('#kpi1People tbody');
-    body.innerHTML = '';
-    flagged.forEach(function (p) {
-      const tr = document.createElement('tr');
-      tr.innerHTML =
-        '<td>' + escapeHtml(p.name) + '</td>' +
-        '<td>' + escapeHtml(p.department) + '</td>' +
-        '<td class="r">' + p.received + '</td>' +
-        '<td class="r">' + p.completed + '</td>' +
-        '<td class="r">' + p.delayed + '</td>' +
-        '<td class="r">' + fmt(p.rate) + '%</td>' +
-        '<td>' + pill(p.band) + '</td>';
-      body.appendChild(tr);
+    fillRows('#kpi1People tbody', rows, function (p) {
+      return '<td>' + escapeHtml(p.name) + '</td>' +
+             '<td>' + escapeHtml(p.department) + '</td>' +
+             '<td class="r">' + p.received + '</td>' +
+             '<td class="r">' + p.completed + '</td>' +
+             '<td class="r">' + p.delayed + '</td>' +
+             '<td class="r">' + fmt(p.rate) + '%</td>' +
+             '<td>' + pill(p.band) + '</td>';
     });
   }
 
 
   /** Everyone, busiest first. */
-  function renderAllPeople(people) {
-    if (!people.length) {
+  function applyAllFilter() {
+    const k = state.kpi;
+    if (!k || !k.hasData) return;
+
+    const rows = filterPeople(k.people, 'fAllSection', 'fAllName')
+                   .sort(function (a, b) { return b.received - a.received; });
+
+    setCount('cAll', rows.length, k.people.length, 'individuals');
+
+    if (!rows.length) {
       return emptyTable('#kpi1AllPeople tbody', 8, 'No individuals match the filters.');
     }
 
-    const sorted = people.slice().sort(function (a, b) {
-      return b.received - a.received;
-    });
-
-    const body = document.querySelector('#kpi1AllPeople tbody');
-    body.innerHTML = '';
-    sorted.forEach(function (p) {
-      const tr = document.createElement('tr');
-      tr.innerHTML =
-        '<td>' + escapeHtml(p.name) + '</td>' +
-        '<td>' + escapeHtml(p.department) + '</td>' +
-        '<td class="r">' + p.received + '</td>' +
-        '<td class="r">' + p.completed + '</td>' +
-        '<td class="r">' + p.delayed + '</td>' +
-        '<td class="r">' + p.successful + '</td>' +
-        '<td class="r">' + fmt(p.rate) + '%</td>' +
-        '<td>' + pill(p.band) + '</td>';
-      body.appendChild(tr);
+    fillRows('#kpi1AllPeople tbody', rows, function (p) {
+      return '<td>' + escapeHtml(p.name) + '</td>' +
+             '<td>' + escapeHtml(p.department) + '</td>' +
+             '<td class="r">' + p.received + '</td>' +
+             '<td class="r">' + p.completed + '</td>' +
+             '<td class="r">' + p.delayed + '</td>' +
+             '<td class="r">' + p.successful + '</td>' +
+             '<td class="r">' + fmt(p.rate) + '%</td>' +
+             '<td>' + pill(p.band) + '</td>';
     });
   }
 
 
-  // ---- small render helpers ----
+  function filterPeople(people, sectionId, nameId) {
+    const section = getValue(sectionId);
+    const term = getValue(nameId).trim().toLowerCase();
+
+    return people.filter(function (p) {
+      if (section && p.department !== section) return false;
+      if (term && p.name.toLowerCase().indexOf(term) === -1) return false;
+      return true;
+    });
+  }
+
+
+  // =========================================================================
+  // COMPARISON
+  // =========================================================================
+
+  function wireCompare() {
+    bind('cmpRun', 'click', runComparison);
+    bind('cmpClear', 'click', function () {
+      document.querySelectorAll('#cmpMonths input[type=checkbox]')
+        .forEach(function (box) { box.checked = false; });
+      document.getElementById('cmpOverallCard').hidden = true;
+      document.getElementById('cmpSectionCard').hidden = true;
+      document.getElementById('cmpEmpty').hidden = false;
+    });
+  }
+
+
+  function fillCompareMonths(months) {
+    const container = document.getElementById('cmpMonths');
+    if (!container) return;
+
+    if (!months || !months.length) {
+      container.innerHTML = '<span class="muted">No months loaded yet.</span>';
+      return;
+    }
+
+    container.innerHTML = '';
+    months.forEach(function (month, index) {
+      const label = document.createElement('label');
+      label.style.cssText = 'display:flex;align-items:center;gap:6px;font-size:12.5px;cursor:pointer';
+      label.innerHTML = '<input type="checkbox" value="' + escapeHtml(month) + '"' +
+                        (index < 3 ? ' checked' : '') + '> ' + escapeHtml(formatMonth(month));
+      container.appendChild(label);
+    });
+  }
+
+
+  function runComparison() {
+    const picked = Array.prototype.slice
+      .call(document.querySelectorAll('#cmpMonths input[type=checkbox]:checked'))
+      .map(function (box) { return box.value; });
+
+    if (picked.length < 2) {
+      return window.alert('Pick at least two months to compare.');
+    }
+    if (picked.length > MAX_COMPARE) {
+      return window.alert('Pick at most ' + MAX_COMPARE + ' months.');
+    }
+
+    callServer('getKpiComparison', picked).then(renderComparison).catch(onError);
+  }
+
+
+  function renderComparison(c) {
+    state.compare = c;
+
+    document.getElementById('cmpEmpty').hidden = true;
+    document.getElementById('cmpOverallCard').hidden = false;
+    document.getElementById('cmpSectionCard').hidden = false;
+
+    // ---- overall, one row per month, with month-on-month change ----
+    const body = document.querySelector('#cmpOverall tbody');
+    body.innerHTML = '';
+
+    let previous = null;
+    c.months.forEach(function (month) {
+      const t = c.totals[month];
+      const tr = document.createElement('tr');
+
+      if (!t) {
+        tr.innerHTML = '<td>' + escapeHtml(formatMonth(month)) + '</td>' +
+                       '<td colspan="9" class="empty">No data</td>';
+        body.appendChild(tr);
+        return;
+      }
+
+      let change = '—';
+      if (previous !== null) {
+        const delta = t.rate - previous;
+        const arrow = delta > 0 ? '▲' : (delta < 0 ? '▼' : '=');
+        const colour = delta > 0 ? 'var(--green)' : (delta < 0 ? 'var(--red)' : 'var(--text-mut)');
+        change = '<span style="color:' + colour + '">' + arrow + ' ' +
+                 fmt(Math.abs(delta)) + '</span>';
+      }
+      previous = t.rate;
+
+      tr.innerHTML =
+        '<td>' + escapeHtml(formatMonth(month)) + '</td>' +
+        '<td class="r">' + t.received + '</td>' +
+        '<td class="r">' + t.completed + '</td>' +
+        '<td class="r">' + t.delayed + '</td>' +
+        '<td class="r">' + t.successful + '</td>' +
+        '<td class="r">' + fmt(t.rate) + '%</td>' +
+        '<td class="r">' + fmt(t.achievement) + '%</td>' +
+        '<td>' + pill(t.band) + '</td>' +
+        '<td class="r">' + (t.headroom > 0 ? '+' : '') + t.headroom + '</td>' +
+        '<td class="r">' + change + '</td>';
+      body.appendChild(tr);
+    });
+
+    // ---- sections down the side, months across the top ----
+    const head = document.querySelector('#cmpSections thead tr');
+    head.innerHTML = '<th>Section</th>' + c.months.map(function (m) {
+      return '<th class="r">' + escapeHtml(formatMonth(m)) + '</th>';
+    }).join('');
+
+    const sectionBody = document.querySelector('#cmpSections tbody');
+    sectionBody.innerHTML = '';
+
+    if (!c.sections.length) {
+      sectionBody.innerHTML = '<tr><td colspan="' + (c.months.length + 1) +
+        '" class="empty">No section data in the selected months.</td></tr>';
+      return;
+    }
+
+    c.sections.forEach(function (section) {
+      const tr = document.createElement('tr');
+      let html = '<td>' + escapeHtml(section) + '</td>';
+
+      c.months.forEach(function (month) {
+        const entry = (c.bySection[section] || {})[month];
+        html += entry
+          ? '<td class="r">' + fmt(entry.rate) + '% ' + pill(entry.band) + '</td>'
+          : '<td class="r muted">—</td>';
+      });
+
+      tr.innerHTML = html;
+      sectionBody.appendChild(tr);
+    });
+  }
+
+
+  // =========================================================================
+  // SETTINGS
+  // =========================================================================
+
+  function fillSettings(boot) {
+    const body = document.querySelector('#settingsTable tbody');
+    if (body) {
+      body.innerHTML = '';
+      [boot.kpi.resolution, boot.kpi.feedback].forEach(function (kpi) {
+        const row = document.createElement('tr');
+        row.innerHTML =
+          '<td>' + escapeHtml(kpi.name) + '</td>' +
+          '<td>≥ ' + kpi.target + kpi.unit + '</td>' +
+          '<td>' + kpi.yellowFloor + kpi.unit + '</td>' +
+          '<td>' + escapeHtml(kpi.period) + '</td>' +
+          '<td>' + escapeHtml(kpi.slaLayer) + '</td>';
+        body.appendChild(row);
+      });
+    }
+
+    const info = document.getElementById('dbInfo');
+    if (info) {
+      const stats = boot.stats || { tickets: 0, uploads: 0 };
+      info.innerHTML =
+        '<dt>Version</dt><dd>' + escapeHtml(boot.appVersion) + '</dd>' +
+        '<dt>Sections</dt><dd>' + boot.departments.length + '</dd>' +
+        '<dt>Tickets stored</dt><dd>' + stats.tickets + '</dd>' +
+        '<dt>Uploads logged</dt><dd>' + stats.uploads + '</dd>';
+    }
+  }
+
+
+  // =========================================================================
+  // HELPERS
+  // =========================================================================
+
+  function show(id) { const el = document.getElementById(id); if (el) el.hidden = false; }
+  function hide(id) { const el = document.getElementById(id); if (el) el.hidden = true; }
+
+  function bind(id, event, handler) {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener(event, handler);
+  }
+
+  function getValue(id) {
+    const el = document.getElementById(id);
+    return el ? (el.value || '') : '';
+  }
+
+  function setValue(id, value) {
+    const el = document.getElementById(id);
+    if (el) el.value = value;
+  }
+
+  function setCount(id, shown, total, noun) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = shown === total
+      ? total + ' ' + noun
+      : shown + ' of ' + total + ' ' + noun;
+  }
+
+  function fillRows(selector, rows, toHtml) {
+    const body = document.querySelector(selector);
+    if (!body) return;
+    body.innerHTML = '';
+    rows.forEach(function (row) {
+      const tr = document.createElement('tr');
+      tr.innerHTML = toHtml(row);
+      body.appendChild(tr);
+    });
+  }
+
+  function setLive(isLive) {
+    const dot = document.getElementById('liveDot');
+    const text = document.getElementById('liveText');
+    if (dot) dot.classList.toggle('is-busy', !isLive);
+    if (text) text.textContent = isLive ? 'Live' : 'Error';
+  }
 
   function tile(label, value, note, cls) {
     return '<div class="tile' + (cls ? ' ' + cls : '') + '">' +
@@ -982,53 +1196,6 @@
       body.innerHTML = '<tr><td colspan="' + columns + '" class="empty">' +
                        escapeHtml(message) + '</td></tr>';
     }
-  }
-
-
-  // =========================================================================
-  // SETTINGS
-  // =========================================================================
-
-  function fillSettings(boot) {
-    const body = document.querySelector('#settingsTable tbody');
-    if (body) {
-      body.innerHTML = '';
-      [boot.kpi.resolution, boot.kpi.feedback].forEach(function (kpi) {
-        const row = document.createElement('tr');
-        row.innerHTML =
-          '<td>' + escapeHtml(kpi.name) + '</td>' +
-          '<td>≥ ' + kpi.target + kpi.unit + '</td>' +
-          '<td>' + kpi.yellowFloor + kpi.unit + '</td>' +
-          '<td>' + escapeHtml(kpi.period) + '</td>' +
-          '<td>' + escapeHtml(kpi.slaLayer) + '</td>';
-        body.appendChild(row);
-      });
-    }
-
-    const info = document.getElementById('dbInfo');
-    if (info) {
-      const stats = boot.stats || { tickets: 0, uploads: 0 };
-      info.innerHTML =
-        '<dt>Version</dt><dd>' + escapeHtml(boot.appVersion) + '</dd>' +
-        '<dt>Departments</dt><dd>' + boot.departments.length + '</dd>' +
-        '<dt>Tickets stored</dt><dd>' + stats.tickets + '</dd>' +
-        '<dt>Uploads logged</dt><dd>' + stats.uploads + '</dd>';
-    }
-  }
-
-
-  // =========================================================================
-  // HELPERS
-  // =========================================================================
-
-  function show(id) { const el = document.getElementById(id); if (el) el.hidden = false; }
-  function hide(id) { const el = document.getElementById(id); if (el) el.hidden = true; }
-
-  function setLive(isLive) {
-    const dot = document.getElementById('liveDot');
-    const text = document.getElementById('liveText');
-    if (dot) dot.classList.toggle('is-busy', !isLive);
-    if (text) text.textContent = isLive ? 'Live' : 'Error';
   }
 
   function formatMonth(key) {

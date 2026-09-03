@@ -316,6 +316,157 @@ function dayString(value) {
 
 
 /**
+ * Removes one upload and the tickets that came only from its files.
+ *
+ * Tickets merge across uploads, so a row can carry sources from several. Only
+ * rows whose ENTIRE source list belongs to this upload are deleted; rows that
+ * another upload also vouched for survive, with this upload's filenames pruned
+ * from their source list. Deleting them outright would silently remove data the
+ * user never asked to lose.
+ *
+ * The upload log row is marked deleted rather than removed — policy §5.4 wants
+ * the evidence trail intact.
+ *
+ * @param {string} uploadId
+ * @return {Object} { removed, kept, months }
+ */
+function deleteUpload(uploadId) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(60000);
+
+  try {
+    const log = sheetFor(CONFIG.SHEETS.UPLOADS);
+    const lastLogRow = log.getLastRow();
+    if (lastLogRow < 2) throw new Error('No uploads recorded.');
+
+    const logRows = log.getRange(2, 1, lastLogRow - 1, CONFIG.UPLOAD_COLUMNS.length).getValues();
+
+    let logIndex = -1;
+    for (let i = logRows.length - 1; i >= 0; i--) {
+      if (String(logRows[i][0]) === uploadId) { logIndex = i; break; }
+    }
+    if (logIndex === -1) throw new Error('Upload ' + uploadId + ' not found.');
+
+    // Which files did this upload contribute?
+    const files = {};
+    String(logRows[logIndex][3] || '').split(' | ').forEach(function (name) {
+      const trimmed = name.trim();
+      if (trimmed) files[trimmed] = true;
+    });
+
+    const tickets = sheetFor(CONFIG.SHEETS.TICKETS);
+    const lastRow = tickets.getLastRow();
+    let removed = 0;
+    let kept = 0;
+
+    if (lastRow > 1) {
+      const rows = tickets.getRange(2, 1, lastRow - 1, COL.WIDTH).getValues();
+      const survivors = [];
+
+      rows.forEach(function (row) {
+        const sources = String(row[COL.SOURCE] || '').split(' | ')
+          .map(function (s) { return s.trim(); })
+          .filter(Boolean);
+
+        const others = sources.filter(function (s) { return !files[s]; });
+
+        if (sources.length && others.length === 0) {
+          removed++;                       // came only from this upload
+          return;
+        }
+
+        if (others.length !== sources.length) {
+          row[COL.SOURCE] = others.join(' | ');
+        }
+        survivors.push(row);
+        kept++;
+      });
+
+      tickets.getRange(2, 1, rows.length, COL.WIDTH).clearContent();
+      if (survivors.length) {
+        tickets.getRange(2, 1, survivors.length, COL.WIDTH).setValues(survivors);
+      }
+    }
+
+    log.getRange(logIndex + 2, 12).setValue('deleted ' +
+      Utilities.formatDate(new Date(), CONFIG_TZ(), 'yyyy-MM-dd HH:mm'));
+
+    const months = (typeof recomputeKpiCache === 'function') ? recomputeKpiCache() : [];
+    return { removed: removed, kept: kept, months: months };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+
+/**
+ * The stored tickets for one upload, as CSV text for download.
+ *
+ * @param {string} uploadId
+ * @return {Object} { fileName, csv, rows }
+ */
+function getUploadCsv(uploadId) {
+  const log = sheetFor(CONFIG.SHEETS.UPLOADS);
+  const lastLogRow = log.getLastRow();
+  if (lastLogRow < 2) throw new Error('No uploads recorded.');
+
+  const logRows = log.getRange(2, 1, lastLogRow - 1, CONFIG.UPLOAD_COLUMNS.length).getValues();
+  let match = null;
+  for (let i = logRows.length - 1; i >= 0; i--) {
+    if (String(logRows[i][0]) === uploadId) { match = logRows[i]; break; }
+  }
+  if (!match) throw new Error('Upload ' + uploadId + ' not found.');
+
+  const files = {};
+  String(match[3] || '').split(' | ').forEach(function (name) {
+    const trimmed = name.trim();
+    if (trimmed) files[trimmed] = true;
+  });
+
+  const tickets = sheetFor(CONFIG.SHEETS.TICKETS);
+  const lastRow = tickets.getLastRow();
+
+  const out = [CONFIG.TICKET_COLUMNS.map(csvCell).join(',')];
+  let count = 0;
+
+  if (lastRow > 1) {
+    const rows = tickets.getRange(2, 1, lastRow - 1, COL.WIDTH).getValues();
+    rows.forEach(function (row) {
+      const sources = String(row[COL.SOURCE] || '').split(' | ');
+      const belongs = sources.some(function (s) { return files[s.trim()]; });
+      if (!belongs) return;
+      out.push(row.map(csvCell).join(','));
+      count++;
+    });
+  }
+
+  return {
+    fileName: uploadId + '.csv',
+    csv: out.join('\n'),
+    rows: count
+  };
+}
+
+
+/**
+ * Escapes one value for CSV.
+ *
+ * Ticket titles contain commas, quotes and newlines routinely, so this is not
+ * optional — without it a single title splits into several columns.
+ */
+function csvCell(value) {
+  if (value === null || value === undefined) return '';
+  let text = (value instanceof Date)
+    ? Utilities.formatDate(value, CONFIG_TZ(), 'yyyy-MM-dd HH:mm:ss')
+    : String(value);
+  if (/[",\n\r]/.test(text)) {
+    text = '"' + text.replace(/"/g, '""') + '"';
+  }
+  return text;
+}
+
+
+/**
  * Deletes every ticket. Upload history is kept as audit evidence.
  * Run by hand from the editor when you want a clean slate.
  */

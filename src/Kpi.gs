@@ -324,6 +324,70 @@ function getKpi1(month) {
 
 
 /**
+ * KPI 1 figures for several months at once, for the comparison screen.
+ *
+ * Reads the cache once and buckets by month rather than calling getKpi1() per
+ * month — six months would otherwise mean six full reads of the same tab.
+ *
+ * @param {string[]} months  e.g. ['2026-06','2026-07','2026-08']
+ * @return {Object} { months: [...], sections: [...], rows: {month: {...}} }
+ */
+function getKpiComparison(months) {
+  const wanted = {};
+  (months || []).forEach(function (m) { wanted[m] = true; });
+
+  const result = {
+    months: (months || []).slice().sort(),
+    sections: [],
+    totals: {},        // month -> total entry
+    bySection: {},     // section -> { month -> entry }
+    target: CONFIG.KPI.RESOLUTION.target
+  };
+
+  const cache = sheetFor(CONFIG.SHEETS.KPI_MONTH);
+  const lastRow = cache.getLastRow();
+  if (lastRow < 2 || !result.months.length) return result;
+
+  const rows = cache.getRange(2, 1, lastRow - 1, CONFIG.KPI_COLUMNS.length).getValues();
+  const sectionSeen = {};
+
+  rows.forEach(function (r) {
+    const month = monthKey(r[0]);
+    if (!wanted[month]) return;
+
+    const scopeType = String(r[1]);
+    if (scopeType !== 'EAS' && scopeType !== 'DEPARTMENT') return;
+
+    const entry = {
+      received:    Number(r[3]) || 0,
+      completed:   Number(r[4]) || 0,
+      delayed:     Number(r[5]) || 0,
+      successful:  Number(r[6]) || 0,
+      rate:        Number(r[7]) || 0,
+      achievement: Number(r[8]) || 0,
+      band:        String(r[9]),
+      headroom:    Number(r[10]) || 0
+    };
+
+    if (scopeType === 'EAS') {
+      result.totals[month] = entry;
+      return;
+    }
+
+    const section = String(r[2]);
+    if (!sectionSeen[section]) {
+      sectionSeen[section] = true;
+      result.sections.push(section);
+    }
+    (result.bySection[section] = result.bySection[section] || {})[month] = entry;
+  });
+
+  result.sections.sort();
+  return result;
+}
+
+
+/**
  * Prints the KPI table to the Execution log.
  *
  * Open Kpi.gs, choose runKpiSelfTest in the function dropdown, press Run.

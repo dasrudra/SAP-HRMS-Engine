@@ -11,7 +11,7 @@
 <!-- Apps Script cannot <link> a local stylesheet, so we inline it. -->
 <?!= include('Styles'); ?>
 
-<div class="app">
+<div class="app" id="appRoot">
 
   <!-- ===================== SIDEBAR ===================== -->
   <aside class="sidebar">
@@ -21,6 +21,10 @@
         <strong><?= appName ?></strong>
         <span><?= appVersion ?></span>
       </div>
+      <button class="collapse-btn" id="collapseBtn" title="Minimise sidebar" aria-label="Minimise sidebar">
+        <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor"
+             stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3L5 8l5 5"/></svg>
+      </button>
     </div>
 
     <nav class="nav">
@@ -29,17 +33,25 @@
         One handler in App.html reads it, so adding a screen is two lines:
         a button here and a section there.
       -->
-      <button class="nav-item is-active" data-view="kpi1">
-        <span class="nav-ico">◧</span> KPI 1 · ITSM
+      <button class="nav-item is-active" data-view="kpi1" title="KPI 1 · ITSM">
+        <svg viewBox="0 0 16 16"><path d="M2 14h12M4.5 11V6M8 11V3M11.5 11V8"/></svg>
+        <span class="nav-text">KPI 1 · ITSM</span>
       </button>
-      <button class="nav-item" data-view="kpi2">
-        <span class="nav-ico">◔</span> KPI 2 · Training
+      <button class="nav-item" data-view="kpi2" title="KPI 2 · Training">
+        <svg viewBox="0 0 16 16"><path d="M14 9.5A1.5 1.5 0 0 1 12.5 11H6l-3.5 3V4.5A1.5 1.5 0 0 1 4 3h8.5A1.5 1.5 0 0 1 14 4.5z"/></svg>
+        <span class="nav-text">KPI 2 · Training</span>
       </button>
-      <button class="nav-item" data-view="uploads">
-        <span class="nav-ico">↥</span> Data Uploads
+      <button class="nav-item" data-view="compare" title="Comparison">
+        <svg viewBox="0 0 16 16"><path d="M2.5 3h4v10h-4zM9.5 3h4v7h-4z"/></svg>
+        <span class="nav-text">Comparison</span>
       </button>
-      <button class="nav-item" data-view="settings">
-        <span class="nav-ico">⚙</span> Settings
+      <button class="nav-item" data-view="uploads" title="Data Uploads">
+        <svg viewBox="0 0 16 16"><path d="M8 10.5V2M5 5l3-3 3 3M2.5 11v1.5A1.5 1.5 0 0 0 4 14h8a1.5 1.5 0 0 0 1.5-1.5V11"/></svg>
+        <span class="nav-text">Data Uploads</span>
+      </button>
+      <button class="nav-item" data-view="settings" title="Settings">
+        <svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="2.4"/><path d="M8 1.2v1.6M8 13.2v1.6M14.8 8h-1.6M2.8 8H1.2M12.8 3.2l-1.1 1.1M4.3 11.7l-1.1 1.1M12.8 12.8l-1.1-1.1M4.3 4.3L3.2 3.2"/></svg>
+        <span class="nav-text">Settings</span>
       </button>
     </nav>
   </aside>
@@ -105,32 +117,25 @@
              number is never ambiguous about what it counted. -->
         <div id="kpi1Basis" class="notice notice-info" hidden></div>
 
-        <!-- Month reloads from the server; department and name filter the
-             tables already on screen, so they respond instantly. -->
-        <div class="filterbar">
-          <span class="filter-ico">▼</span>
-          <select id="fMonth" class="select" title="Month"></select>
-          <select id="fDept" class="select" title="Department">
-            <option value="">All departments</option>
-          </select>
-          <input id="fPerson" class="select" type="search" placeholder="Search individual…">
-          <button class="btn btn-ghost" id="fReset">✕ Reset</button>
-          <span class="filter-count" id="fCount"></span>
-        </div>
-
         <div class="tiles" id="kpi1Tiles">
           <div class="tile tile-empty"><span>No data loaded yet</span></div>
         </div>
 
+        <!-- ---- By section ---- -->
         <div class="card">
-          <!-- Heading changes: "By department" when department files are
-               loaded, "By service / part" when only the overall report is. -->
-          <div class="card-head" id="kpi1BreakdownHead">Breakdown</div>
+          <div class="card-head" id="kpi1BreakdownHead">By section</div>
+          <div class="table-filter">
+            <select id="fSection" class="select" title="Section">
+              <option value="">All sections</option>
+            </select>
+            <button class="btn btn-ghost" id="fSectionReset">✕ Reset</button>
+            <span class="filter-count" id="cSection"></span>
+          </div>
           <div class="table-wrap">
             <table id="kpi1Table">
               <thead>
                 <tr>
-                  <th id="kpi1BreakdownCol">Scope</th>
+                  <th id="kpi1BreakdownCol">Section</th>
                   <th class="r">Received</th>
                   <th class="r">Completed</th>
                   <th class="r">Delayed</th>
@@ -148,14 +153,23 @@
           </div>
         </div>
 
+        <!-- ---- Individuals carrying the delays (own filter) ---- -->
         <div class="card">
           <div class="card-head">Individuals carrying the delays</div>
+          <div class="table-filter">
+            <select id="fDelaySection" class="select" title="Section">
+              <option value="">All sections</option>
+            </select>
+            <input id="fDelayName" class="select" type="search" placeholder="Search name…">
+            <button class="btn btn-ghost" id="fDelayReset">✕ Reset</button>
+            <span class="filter-count" id="cDelay"></span>
+          </div>
           <div class="table-wrap">
             <table id="kpi1People">
               <thead>
                 <tr>
                   <th>Individual</th>
-                  <th>Department</th>
+                  <th>Section</th>
                   <th class="r">Tickets</th>
                   <th class="r">Completed</th>
                   <th class="r">Delayed</th>
@@ -170,14 +184,23 @@
           </div>
         </div>
 
+        <!-- ---- All individuals (own filter) ---- -->
         <div class="card">
-          <div class="card-head" id="kpi1AllHead">By individuals</div>
+          <div class="card-head">By individuals</div>
+          <div class="table-filter">
+            <select id="fAllSection" class="select" title="Section">
+              <option value="">All sections</option>
+            </select>
+            <input id="fAllName" class="select" type="search" placeholder="Search name…">
+            <button class="btn btn-ghost" id="fAllReset">✕ Reset</button>
+            <span class="filter-count" id="cAll"></span>
+          </div>
           <div class="table-wrap">
             <table id="kpi1AllPeople">
               <thead>
                 <tr>
                   <th>Individual</th>
-                  <th>Department</th>
+                  <th>Section</th>
                   <th class="r">Tickets</th>
                   <th class="r">Completed</th>
                   <th class="r">Delayed</th>
@@ -199,19 +222,78 @@
         <div class="page-head">
           <div>
             <h1>User Training Feedback Analysis</h1>
-            <p class="sub">
-              Feedback Score = Avg Score ÷ Max Score × 100 · Target ≥ 90%
-              · Policy TVL-KPI-001 §6.3
-            </p>
+            <p class="sub">Target ≥ 90% · Policy TVL-KPI-001 §6.3</p>
           </div>
         </div>
         <div class="notice notice-info">
-          <h3>Waiting on the feedback data</h3>
+          <h3>Waiting on the feedback data and the revised formula</h3>
           <p>
             Neither ITSM export carries a feedback score, so this KPI needs its
-            own source file. Once it arrives the grain gets confirmed — per
-            session, per attendee, or per question — and this screen gets built.
+            own source file. You mentioned the equation has changed since the
+            policy was written — send both and this screen gets built.
           </p>
+        </div>
+      </section>
+
+      <!-- ============ VIEW: COMPARISON ============ -->
+      <section class="view" id="view-compare" hidden>
+        <div class="page-head">
+          <div>
+            <h1>Month Comparison</h1>
+            <p class="sub">
+              Pick up to six months to compare side by side. KPI 1 is live;
+              KPI 2 joins once its data arrives.
+            </p>
+          </div>
+          <div class="page-actions">
+            <button class="btn btn-primary" id="cmpRun">Compare</button>
+            <button class="btn btn-ghost" id="cmpClear">✕ Clear</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">Select months</div>
+          <div class="table-filter" id="cmpMonths">
+            <span class="muted">No months loaded yet.</span>
+          </div>
+        </div>
+
+        <div id="cmpEmpty" class="notice notice-info">
+          <h3>Nothing selected</h3>
+          <p>Tick two or more months above and press Compare.</p>
+        </div>
+
+        <div class="card" id="cmpOverallCard" hidden>
+          <div class="card-head">KPI 1 — overall by month</div>
+          <div class="table-wrap">
+            <table id="cmpOverall">
+              <thead>
+                <tr>
+                  <th>Month</th>
+                  <th class="r">Received</th>
+                  <th class="r">Completed</th>
+                  <th class="r">Delayed</th>
+                  <th class="r">Successful</th>
+                  <th class="r">Success Rate</th>
+                  <th class="r">Achievement</th>
+                  <th>Band</th>
+                  <th class="r">Headroom</th>
+                  <th class="r">Change</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card" id="cmpSectionCard" hidden>
+          <div class="card-head">KPI 1 — success rate by section</div>
+          <div class="table-wrap">
+            <table id="cmpSections">
+              <thead><tr></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
         </div>
       </section>
 
@@ -221,8 +303,8 @@
           <div>
             <h1>Data Uploads</h1>
             <p class="sub">
-              Five files per pull: one Service/Part overall export plus one
-              Individual Performance export per EAS department.
+              Upload the Service/Part overall export, the section exports, or
+              both — in one go or one at a time.
             </p>
           </div>
         </div>
@@ -246,9 +328,9 @@
             <table id="uploadTable">
               <thead>
                 <tr>
-                  <th>Uploaded</th><th>File</th><th>Type</th><th>Department</th>
-                  <th class="r">Rows</th><th class="r">Added</th><th class="r">Updated</th>
-                  <th>Range</th>
+                  <th>Uploaded</th><th>Files</th><th>Type</th><th>Section</th>
+                  <th class="r">Rows</th><th class="r">Stored</th>
+                  <th>Range</th><th>Action</th>
                 </tr>
               </thead>
               <tbody>
