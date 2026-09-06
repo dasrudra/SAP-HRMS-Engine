@@ -84,10 +84,16 @@
       <div id="notConfigured" class="notice notice-warn" hidden>
         <h3>The database is not connected yet</h3>
         <p>
-          Open the Apps Script editor, run <code>setupDatabase()</code> from
-          <code>Setup.gs</code>, then paste the spreadsheet ID it prints into
-          <code>CONFIG.SPREADSHEET_ID</code> in <code>Config.gs</code>. Reload
-          this page afterwards.
+          <strong>If you already have a spreadsheet:</strong> paste its ID into
+          <code>CONFIG.SPREADSHEET_ID</code> in <code>Config.gs</code>, then run
+          <code>saveSpreadsheetIdToProperties()</code> from <code>Setup.gs</code>.
+          That moves it into Script Properties, where replacing a file can no
+          longer disconnect it.
+        </p>
+        <p style="margin-top:8px">
+          <strong>Starting fresh:</strong> run <code>setupDatabase()</code> from
+          <code>Setup.gs</code> — it creates the spreadsheet and stores the ID
+          for you. Reload this page afterwards.
         </p>
       </div>
 

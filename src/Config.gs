@@ -17,10 +17,16 @@
 const CONFIG = {
 
   /**
-   * The Google Sheet this app stores everything in.
+   * Fallback spreadsheet ID.
    *
-   * Leave as null the first time. Run setupDatabase() from Setup.gs and it
-   * creates the spreadsheet, then logs the ID for you to paste in here.
+   * NORMALLY LEAVE THIS null. The real ID lives in Script Properties, outside
+   * the code, so that replacing this file cannot disconnect the database —
+   * which is exactly what used to happen every time a new Config.gs was
+   * pasted in.
+   *
+   * This slot is only a bootstrap: put an ID here, run
+   * saveSpreadsheetIdToProperties() once, and it moves into Script Properties
+   * for good. After that this can go back to null and stay there.
    *
    * A spreadsheet ID is the long string in its URL:
    *   docs.google.com/spreadsheets/d/[[ THIS PART ]]/edit
@@ -173,6 +179,29 @@ const CONFIG = {
   /** How many rows the browser sends per server call during an upload. */
   UPLOAD_BATCH_SIZE: 500
 };
+
+
+/** Script Property key the spreadsheet ID is stored under. */
+const SPREADSHEET_ID_KEY = 'EAS_SPREADSHEET_ID';
+
+
+/**
+ * The spreadsheet this app uses.
+ *
+ * Script Properties first, CONFIG.SPREADSHEET_ID second. Properties belong to
+ * the Apps Script project rather than to any file, so they survive every code
+ * change — pasting a fresh Config.gs can no longer disconnect the database.
+ *
+ * @return {string|null}
+ */
+function getSpreadsheetId() {
+  try {
+    const stored = PropertiesService.getScriptProperties().getProperty(SPREADSHEET_ID_KEY);
+    if (stored) return stored;
+  } catch (e) { /* fall through to the config value */ }
+
+  return CONFIG.SPREADSHEET_ID || null;
+}
 
 
 /**

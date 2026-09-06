@@ -67,7 +67,7 @@ function include(filename) {
  * @return {Object} config and current state for the client
  */
 function getBootstrap() {
-  const configured = Boolean(CONFIG.SPREADSHEET_ID);
+  const configured = Boolean(getSpreadsheetId());
 
   return {
     ok: true,
@@ -125,7 +125,7 @@ function quickStats() {
   const tickets = Math.max(0, sheet.getLastRow() - 1);
 
   const uploads = SpreadsheetApp
-    .openById(CONFIG.SPREADSHEET_ID)
+    .openById(getSpreadsheetId())
     .getSheetByName(CONFIG.SHEETS.UPLOADS);
 
   return {
@@ -142,11 +142,12 @@ function quickStats() {
  * @return {Sheet}
  */
 function ticketSheet() {
-  if (!CONFIG.SPREADSHEET_ID) {
-    throw new Error('CONFIG.SPREADSHEET_ID is not set. Run setupDatabase() first.');
+  const id = getSpreadsheetId();
+  if (!id) {
+    throw new Error('No spreadsheet connected. Run setupDatabase() first.');
   }
   return SpreadsheetApp
-    .openById(CONFIG.SPREADSHEET_ID)
+    .openById(id)
     .getSheetByName(CONFIG.SHEETS.TICKETS);
 }
 

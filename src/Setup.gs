@@ -17,30 +17,30 @@
  * Creates the spreadsheet and every tab the app needs.
  *
  * Run this first. It prints the spreadsheet ID — paste that into
- * CONFIG.SPREADSHEET_ID in Config.gs, then run verifySetup() to confirm.
+ * Script Properties, then run verifySetup() to confirm.
  */
 function setupDatabase() {
   let ss;
+  const existing = getSpreadsheetId();
 
-  if (CONFIG.SPREADSHEET_ID) {
+  if (existing) {
     // Already configured — open the existing one rather than making a second.
-    ss = SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);
+    ss = SpreadsheetApp.openById(existing);
     Logger.log('Using existing spreadsheet: %s', ss.getName());
   } else {
     ss = SpreadsheetApp.create('EAS KPI Engine — Database');
     Logger.log('');
     Logger.log('=========================================================');
     Logger.log(' CREATED A NEW SPREADSHEET');
-    Logger.log('');
-    Logger.log(' Copy this ID into CONFIG.SPREADSHEET_ID in Config.gs:');
-    Logger.log('');
     Logger.log('   %s', ss.getId());
-    Logger.log('');
-    Logger.log(' Open it here:');
     Logger.log('   %s', ss.getUrl());
     Logger.log('=========================================================');
     Logger.log('');
   }
+
+  // Store it outside the code so replacing a file cannot disconnect it.
+  PropertiesService.getScriptProperties().setProperty(SPREADSHEET_ID_KEY, ss.getId());
+  Logger.log('Spreadsheet ID saved to Script Properties — it will survive any code change.');
 
   // Build each tab with its header row.
   createSheet(ss, CONFIG.SHEETS.TICKETS,   CONFIG.TICKET_COLUMNS);
@@ -120,19 +120,60 @@ function createSheet(ss, name, headers) {
 
 
 /**
+ * Moves an ID out of Config.gs and into Script Properties. Run once.
+ *
+ * Use this when the app says the database is not connected but you already
+ * have a spreadsheet: paste its ID into CONFIG.SPREADSHEET_ID, run this, and
+ * the connection stops depending on that file's contents.
+ */
+function saveSpreadsheetIdToProperties() {
+  if (!CONFIG.SPREADSHEET_ID) {
+    Logger.log('Nothing to save — CONFIG.SPREADSHEET_ID is null.');
+    Logger.log('Paste your spreadsheet ID there first, then run this again.');
+    return false;
+  }
+
+  try {
+    SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);   // fail fast on a bad ID
+  } catch (err) {
+    Logger.log('That ID could not be opened: %s', err.message);
+    return false;
+  }
+
+  PropertiesService.getScriptProperties()
+    .setProperty(SPREADSHEET_ID_KEY, CONFIG.SPREADSHEET_ID);
+
+  Logger.log('Saved. You can set CONFIG.SPREADSHEET_ID back to null —');
+  Logger.log('the connection now lives in Script Properties and survives code changes.');
+  return true;
+}
+
+
+/**
+ * Forgets the stored spreadsheet. Only needed to point at a different one.
+ */
+function clearStoredSpreadsheetId() {
+  PropertiesService.getScriptProperties().deleteProperty(SPREADSHEET_ID_KEY);
+  Logger.log('Stored spreadsheet ID cleared.');
+}
+
+
+/**
  * Confirms the app can reach its database and everything is in place.
- * Run this after pasting the ID into Config.gs.
  */
 function verifySetup() {
-  if (!CONFIG.SPREADSHEET_ID) {
-    Logger.log('FAIL — CONFIG.SPREADSHEET_ID is still null.');
-    Logger.log('Run setupDatabase() first, then paste the ID into Config.gs.');
+  const id = getSpreadsheetId();
+
+  if (!id) {
+    Logger.log('FAIL — no spreadsheet is connected.');
+    Logger.log('Either run setupDatabase(), or paste an existing ID into');
+    Logger.log('CONFIG.SPREADSHEET_ID and run saveSpreadsheetIdToProperties().');
     return false;
   }
 
   let ss;
   try {
-    ss = SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);
+    ss = SpreadsheetApp.openById(id);
   } catch (err) {
     Logger.log('FAIL — could not open that spreadsheet ID.');
     Logger.log('Error: %s', err.message);

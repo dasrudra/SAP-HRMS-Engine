@@ -487,10 +487,11 @@ function clearAllTickets() {
 
 /** @return {Sheet} */
 function sheetFor(tabName) {
-  if (!CONFIG.SPREADSHEET_ID) {
-    throw new Error('CONFIG.SPREADSHEET_ID is not set. Run setupDatabase() first.');
+  const id = getSpreadsheetId();
+  if (!id) {
+    throw new Error('No spreadsheet connected. Run setupDatabase() first.');
   }
-  const sheet = SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID).getSheetByName(tabName);
+  const sheet = SpreadsheetApp.openById(id).getSheetByName(tabName);
   if (!sheet) throw new Error('Missing tab: ' + tabName + '. Run setupDatabase() again.');
   return sheet;
 }
