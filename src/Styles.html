@@ -136,6 +136,24 @@
   .table-filter .btn { padding: 6px 10px; font-size: 12.5px; }
   .table-filter .filter-count { margin-left: auto; font-size: 12px; color: var(--text-mut); }
 
+  /* ---------------- comparison picker ---------------- */
+  .cmp-picker { padding: 20px 22px 22px; }
+  .cmp-grid {
+    display: grid; gap: 16px;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  }
+  .cmp-field { display: flex; flex-direction: column; gap: 6px; }
+  .cmp-field label {
+    font-size: 12px; font-weight: 700; color: var(--navy-700); letter-spacing: .01em;
+  }
+  .cmp-field .muted { font-weight: 400; }
+  .cmp-field .select { width: 100%; padding: 10px 12px; }
+  .cmp-actions {
+    display: flex; align-items: center; justify-content: center; gap: 10px;
+    margin-top: 20px;
+  }
+  .btn-lg { padding: 11px 26px; font-size: 14px; font-weight: 700; border-radius: 8px; }
+
   /* ---------------- upload row actions ---------------- */
   .row-actions { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
   .btn-open {

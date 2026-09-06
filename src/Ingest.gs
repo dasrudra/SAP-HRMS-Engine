@@ -388,8 +388,9 @@ function deleteUpload(uploadId) {
       }
     }
 
-    log.getRange(logIndex + 2, 12).setValue('deleted ' +
-      Utilities.formatDate(new Date(), CONFIG_TZ(), 'yyyy-MM-dd HH:mm'));
+    // Remove the log row outright. Leaving a "deleted" marker behind just
+    // accumulates dead rows in the history the user has to read past.
+    log.deleteRow(logIndex + 2);
 
     const months = (typeof recomputeKpiCache === 'function') ? recomputeKpiCache() : [];
     return { removed: removed, kept: kept, months: months };

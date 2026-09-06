@@ -157,8 +157,8 @@
         <div class="card">
           <div class="card-head">Individuals carrying the delays</div>
           <div class="table-filter">
-            <select id="fDelaySection" class="select" title="Section">
-              <option value="">All sections</option>
+            <select id="fDelayPerson" class="select" title="Individual">
+              <option value="">All individuals</option>
             </select>
             <input id="fDelayName" class="select" type="search" placeholder="Search name…">
             <button class="btn btn-ghost" id="fDelayReset">✕ Reset</button>
@@ -188,8 +188,8 @@
         <div class="card">
           <div class="card-head">By individuals</div>
           <div class="table-filter">
-            <select id="fAllSection" class="select" title="Section">
-              <option value="">All sections</option>
+            <select id="fAllPerson" class="select" title="Individual">
+              <option value="">All individuals</option>
             </select>
             <input id="fAllName" class="select" type="search" placeholder="Search name…">
             <button class="btn btn-ghost" id="fAllReset">✕ Reset</button>
@@ -241,26 +241,43 @@
           <div>
             <h1>Month Comparison</h1>
             <p class="sub">
-              Pick up to six months to compare side by side. KPI 1 is live;
+              Compare two to four months side by side. KPI 1 is live;
               KPI 2 joins once its data arrives.
             </p>
-          </div>
-          <div class="page-actions">
-            <button class="btn btn-primary" id="cmpRun">Compare</button>
-            <button class="btn btn-ghost" id="cmpClear">✕ Clear</button>
           </div>
         </div>
 
         <div class="card">
-          <div class="card-head">Select months</div>
-          <div class="table-filter" id="cmpMonths">
-            <span class="muted">No months loaded yet.</span>
+          <div class="card-head">Select dashboards</div>
+          <div class="cmp-picker">
+            <div class="cmp-grid">
+              <div class="cmp-field">
+                <label for="cmpM1">First Month</label>
+                <select id="cmpM1" class="select"></select>
+              </div>
+              <div class="cmp-field">
+                <label for="cmpM2">Second Month</label>
+                <select id="cmpM2" class="select"></select>
+              </div>
+              <div class="cmp-field">
+                <label for="cmpM3">Third Month <span class="muted">(optional)</span></label>
+                <select id="cmpM3" class="select"></select>
+              </div>
+              <div class="cmp-field">
+                <label for="cmpM4">Fourth Month <span class="muted">(optional)</span></label>
+                <select id="cmpM4" class="select"></select>
+              </div>
+            </div>
+            <div class="cmp-actions">
+              <button class="btn btn-primary btn-lg" id="cmpRun">Compare Dashboards</button>
+              <button class="btn btn-ghost" id="cmpClear">✕ Clear</button>
+            </div>
           </div>
         </div>
 
         <div id="cmpEmpty" class="notice notice-info">
-          <h3>Nothing selected</h3>
-          <p>Tick two or more months above and press Compare.</p>
+          <h3>Nothing compared yet</h3>
+          <p>Choose two or more months above and press Compare Dashboards.</p>
         </div>
 
         <div class="card" id="cmpOverallCard" hidden>

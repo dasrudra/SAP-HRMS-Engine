@@ -34,7 +34,7 @@
 
   const BATCH_SIZE = 400;
   const DETAILS_LIMIT = 300;
-  const MAX_COMPARE = 6;
+  const MAX_COMPARE = 4;
 
 
   // =========================================================================
@@ -748,6 +748,7 @@
     renderBasis(k, basisBox);
     renderTiles(k, tiles);
     fillSectionFilters(k.departments);
+    fillPersonFilters(k);
     applySectionFilter();
     applyDelayFilter();
     applyAllFilter();
@@ -810,39 +811,62 @@
       setValue('fSection', ''); applySectionFilter();
     });
 
-    bind('fDelaySection', 'change', applyDelayFilter);
+    bind('fDelayPerson', 'change', applyDelayFilter);
     bind('fDelayName', 'input', applyDelayFilter);
     bind('fDelayReset', 'click', function () {
-      setValue('fDelaySection', ''); setValue('fDelayName', ''); applyDelayFilter();
+      setValue('fDelayPerson', ''); setValue('fDelayName', ''); applyDelayFilter();
     });
 
-    bind('fAllSection', 'change', applyAllFilter);
+    bind('fAllPerson', 'change', applyAllFilter);
     bind('fAllName', 'input', applyAllFilter);
     bind('fAllReset', 'click', function () {
-      setValue('fAllSection', ''); setValue('fAllName', ''); applyAllFilter();
+      setValue('fAllPerson', ''); setValue('fAllName', ''); applyAllFilter();
     });
   }
 
 
-  /** Fills all three section dropdowns from the month currently loaded. */
+  /** The section table filters by section. */
   function fillSectionFilters(sections) {
-    ['fSection', 'fDelaySection', 'fAllSection'].forEach(function (id) {
-      const select = document.getElementById(id);
-      if (!select) return;
+    fillSelect('fSection', 'All sections',
+      sections.map(function (s) { return s.name; }));
+  }
 
-      const previous = select.value;
-      select.innerHTML = '<option value="">All sections</option>';
 
-      sections.forEach(function (s) {
-        const option = document.createElement('option');
-        option.value = s.name;
-        option.textContent = s.name;
-        select.appendChild(option);
-      });
+  /**
+   * The two individuals tables filter by individual, so their dropdowns list
+   * people — the delays table only the people actually in it, the full table
+   * everyone.
+   */
+  function fillPersonFilters(k) {
+    const flagged = k.people
+      .filter(function (p) { return p.delayed > 0 || p.band !== 'GREEN'; })
+      .map(function (p) { return p.name; })
+      .sort();
 
-      select.value = previous;
-      if (select.value !== previous) select.value = '';
+    const everyone = k.people.map(function (p) { return p.name; }).sort();
+
+    fillSelect('fDelayPerson', 'All individuals', flagged);
+    fillSelect('fAllPerson', 'All individuals', everyone);
+  }
+
+
+  /** Rebuilds a dropdown, keeping the current choice when it still exists. */
+  function fillSelect(id, allLabel, values) {
+    const select = document.getElementById(id);
+    if (!select) return;
+
+    const previous = select.value;
+    select.innerHTML = '<option value="">' + escapeHtml(allLabel) + '</option>';
+
+    values.forEach(function (value) {
+      const option = document.createElement('option');
+      option.value = value;
+      option.textContent = value;
+      select.appendChild(option);
     });
+
+    select.value = previous;
+    if (select.value !== previous) select.value = '';
   }
 
 
@@ -893,7 +917,7 @@
       return p.delayed > 0 || p.band !== 'GREEN';
     });
 
-    const rows = filterPeople(flagged, 'fDelaySection', 'fDelayName')
+    const rows = filterPeople(flagged, 'fDelayPerson', 'fDelayName')
                    .sort(function (a, b) { return a.rate - b.rate; });
 
     setCount('cDelay', rows.length, flagged.length, 'individuals');
@@ -921,7 +945,7 @@
     const k = state.kpi;
     if (!k || !k.hasData) return;
 
-    const rows = filterPeople(k.people, 'fAllSection', 'fAllName')
+    const rows = filterPeople(k.people, 'fAllPerson', 'fAllName')
                    .sort(function (a, b) { return b.received - a.received; });
 
     setCount('cAll', rows.length, k.people.length, 'individuals');
@@ -943,12 +967,17 @@
   }
 
 
-  function filterPeople(people, sectionId, nameId) {
-    const section = getValue(sectionId);
+  /**
+   * The dropdown picks one exact individual; the box does partial matching.
+   * They AND together, so choosing a name and typing something that does not
+   * match it correctly yields nothing.
+   */
+  function filterPeople(people, personId, nameId) {
+    const exact = getValue(personId);
     const term = getValue(nameId).trim().toLowerCase();
 
     return people.filter(function (p) {
-      if (section && p.department !== section) return false;
+      if (exact && p.name !== exact) return false;
       if (term && p.name.toLowerCase().indexOf(term) === -1) return false;
       return true;
     });
@@ -959,11 +988,16 @@
   // COMPARISON
   // =========================================================================
 
+  const CMP_SELECTS = ['cmpM1', 'cmpM2', 'cmpM3', 'cmpM4'];
+
   function wireCompare() {
     bind('cmpRun', 'click', runComparison);
     bind('cmpClear', 'click', function () {
-      document.querySelectorAll('#cmpMonths input[type=checkbox]')
-        .forEach(function (box) { box.checked = false; });
+      CMP_SELECTS.forEach(function (id, index) {
+        // The first two are required, so clearing resets them to the two most
+        // recent months rather than to nothing.
+        setValue(id, index < 2 ? defaultMonthFor(index) : '');
+      });
       document.getElementById('cmpOverallCard').hidden = true;
       document.getElementById('cmpSectionCard').hidden = true;
       document.getElementById('cmpEmpty').hidden = false;
@@ -971,36 +1005,61 @@
   }
 
 
+  function defaultMonthFor(index) {
+    const months = (state.boot && state.boot.availableMonths) || [];
+    return months[index] || '';
+  }
+
+
   function fillCompareMonths(months) {
-    const container = document.getElementById('cmpMonths');
-    if (!container) return;
+    const list = months || [];
 
-    if (!months || !months.length) {
-      container.innerHTML = '<span class="muted">No months loaded yet.</span>';
-      return;
-    }
+    CMP_SELECTS.forEach(function (id, index) {
+      const select = document.getElementById(id);
+      if (!select) return;
 
-    container.innerHTML = '';
-    months.forEach(function (month, index) {
-      const label = document.createElement('label');
-      label.style.cssText = 'display:flex;align-items:center;gap:6px;font-size:12.5px;cursor:pointer';
-      label.innerHTML = '<input type="checkbox" value="' + escapeHtml(month) + '"' +
-                        (index < 3 ? ' checked' : '') + '> ' + escapeHtml(formatMonth(month));
-      container.appendChild(label);
+      const previous = select.value;
+      const optional = index >= 2;
+
+      select.innerHTML = optional
+        ? '<option value="">— none —</option>'
+        : '<option value="">— select a month —</option>';
+
+      list.forEach(function (month) {
+        const option = document.createElement('option');
+        option.value = month;
+        option.textContent = formatMonth(month);
+        select.appendChild(option);
+      });
+
+      select.disabled = !list.length;
+
+      if (previous && list.indexOf(previous) !== -1) {
+        select.value = previous;
+      } else if (!optional) {
+        select.value = list[index] || '';        // newest two by default
+      } else {
+        select.value = '';
+      }
     });
   }
 
 
   function runComparison() {
-    const picked = Array.prototype.slice
-      .call(document.querySelectorAll('#cmpMonths input[type=checkbox]:checked'))
-      .map(function (box) { return box.value; });
+    const picked = [];
+
+    CMP_SELECTS.forEach(function (id) {
+      const value = getValue(id);
+      // Selecting the same month twice would produce duplicate columns, so
+      // ignore repeats rather than rendering them.
+      if (value && picked.indexOf(value) === -1) picked.push(value);
+    });
 
     if (picked.length < 2) {
-      return window.alert('Pick at least two months to compare.');
+      return window.alert('Choose at least two different months to compare.');
     }
     if (picked.length > MAX_COMPARE) {
-      return window.alert('Pick at most ' + MAX_COMPARE + ' months.');
+      return window.alert('Choose at most ' + MAX_COMPARE + ' months.');
     }
 
     callServer('getKpiComparison', picked).then(renderComparison).catch(onError);
