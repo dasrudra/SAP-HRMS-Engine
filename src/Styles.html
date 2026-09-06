@@ -136,6 +136,57 @@
   .table-filter .btn { padding: 6px 10px; font-size: 12.5px; }
   .table-filter .filter-count { margin-left: auto; font-size: 12px; color: var(--text-mut); }
 
+  /* ---------------- charts ---------------- */
+  /*
+    Series colours are validated for colour-vision deficiency in both light and
+    dark: worst adjacent pair CVD ΔE 9.2 against a >=8 target. Aqua sits at
+    2.74:1 on white, below the 3:1 bar — the relief rule applies, so every chart
+    ships direct value labels and a table alongside it.
+  */
+  :root {
+    --series-1: #2a78d6;   /* blue    */
+    --series-2: #eb6834;   /* orange  */
+    --series-3: #1baf7a;   /* aqua    */
+    --series-4: #4a3aa7;   /* violet  */
+    --grid-line: #e8edf3;
+    --axis-text: #6b7c8d;
+    --target-line: #64748b;
+  }
+
+  .chart-row {
+    display: grid; gap: 16px; margin-bottom: 16px;
+    grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  }
+  .chart-card { padding: 0; }
+  .chart-head { padding: 16px 18px 0; }
+  .chart-head h2 {
+    margin: 0 0 3px; font-size: 15px; font-weight: 700; letter-spacing: -.01em;
+  }
+  .chart-head p { margin: 0; font-size: 12px; color: var(--text-dim); }
+  /* Height includes the x-axis band, so labels are never clipped into a
+     nested scrollbar. */
+  .chart-box { padding: 14px 18px 18px; height: 260px; }
+  .chart-box-tall { height: 340px; }
+  .chart-box canvas { width: 100% !important; height: 100% !important; }
+
+  .donut-row {
+    display: grid; gap: 18px; padding: 14px 18px 18px;
+    grid-template-columns: minmax(220px, 300px) 1fr;
+    align-items: center;
+  }
+  .donut-box { padding: 0; height: 240px; }
+  .donut-panel { display: flex; flex-direction: column; gap: 10px; }
+  .weight-item {
+    display: flex; align-items: center; gap: 12px;
+    border: 1px solid var(--border); border-radius: 999px;
+    padding: 10px 16px; background: var(--surface);
+  }
+  .weight-dot { width: 10px; height: 10px; border-radius: 50%; flex: 0 0 10px; }
+  .weight-text strong { display: block; font-size: 13px; }
+  .weight-text span { font-size: 12px; color: var(--text-dim); }
+  .weight-value { margin-left: auto; font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  @media (max-width: 860px) { .donut-row { grid-template-columns: 1fr; } }
+
   /* ---------------- comparison picker ---------------- */
   .cmp-picker { padding: 20px 22px 22px; }
   .cmp-grid {

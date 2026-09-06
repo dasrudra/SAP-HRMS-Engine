@@ -121,6 +121,25 @@
           <div class="tile tile-empty"><span>No data loaded yet</span></div>
         </div>
 
+        <!-- ---- Charts ---- -->
+        <div class="chart-row">
+          <div class="card chart-card">
+            <div class="chart-head">
+              <h2>Success rate by section</h2>
+              <p id="chartRateNote">Against the 99.50% target.</p>
+            </div>
+            <div class="chart-box"><canvas id="chartRate"></canvas></div>
+          </div>
+
+          <div class="card chart-card">
+            <div class="chart-head">
+              <h2>Delayed tickets by section</h2>
+              <p>Completed past their due date. Counted from zero.</p>
+            </div>
+            <div class="chart-box"><canvas id="chartDelay"></canvas></div>
+          </div>
+        </div>
+
         <!-- ---- By section ---- -->
         <div class="card">
           <div class="card-head" id="kpi1BreakdownHead">By section</div>
@@ -280,6 +299,14 @@
           <p>Choose two or more months above and press Compare Dashboards.</p>
         </div>
 
+        <div class="card chart-card" id="cmpChartCard" hidden>
+          <div class="chart-head">
+            <h2>Success rate by section and month</h2>
+            <p id="cmpChartNote">Against the 99.50% target.</p>
+          </div>
+          <div class="chart-box chart-box-tall"><canvas id="chartCompare"></canvas></div>
+        </div>
+
         <div class="card" id="cmpOverallCard" hidden>
           <div class="card-head">KPI 1 — overall by month</div>
           <div class="table-wrap">
@@ -366,12 +393,23 @@
             <p class="sub">KPI targets and thresholds. Policy §6 calls these provisional.</p>
           </div>
         </div>
+        <div class="card chart-card">
+          <div class="chart-head">
+            <h2>KPI weighting</h2>
+            <p>Share of the departmental score each KPI carries. Two more KPIs are planned.</p>
+          </div>
+          <div class="donut-row">
+            <div class="chart-box donut-box"><canvas id="chartWeights"></canvas></div>
+            <div class="donut-panel" id="weightPanel"></div>
+          </div>
+        </div>
+
         <div class="card">
           <div class="card-head">KPI thresholds</div>
           <div class="table-wrap">
             <table id="settingsTable">
               <thead>
-                <tr><th>KPI</th><th>Target</th><th>Yellow floor</th><th>Period</th><th>SLA layer</th></tr>
+                <tr><th>KPI</th><th class="r">Weight</th><th>Target</th><th>Yellow floor</th><th>Red below</th><th>Period</th><th>SLA layer</th></tr>
               </thead>
               <tbody></tbody>
             </table>

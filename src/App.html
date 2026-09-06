@@ -17,6 +17,9 @@
 -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 
+<!-- Chart.js, pinned for the same reason as SheetJS. -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+
 <script>
 (function () {
   'use strict';
@@ -747,6 +750,8 @@
 
     renderBasis(k, basisBox);
     renderTiles(k, tiles);
+    drawRateChart(k);
+    drawDelayChart(k);
     fillSectionFilters(k.departments);
     fillPersonFilters(k);
     applySectionFilter();
@@ -985,6 +990,372 @@
 
 
   // =========================================================================
+  // CHARTS
+  // =========================================================================
+  //
+  // Two small inline Chart.js plugins rather than pulling in two more CDN
+  // dependencies for a target line and value labels.
+
+  /** Draws a solid reference line with a label, e.g. the 99.50% target. */
+  const targetLinePlugin = {
+    id: 'targetLine',
+    afterDatasetsDraw: function (chart, args, opts) {
+      if (!opts || typeof opts.value !== 'number') return;
+      const y = chart.scales.y;
+      if (!y || opts.value < y.min || opts.value > y.max) return;
+
+      const ctx = chart.ctx;
+      const at = y.getPixelForValue(opts.value);
+      const left = chart.chartArea.left;
+      const right = chart.chartArea.right;
+
+      ctx.save();
+      ctx.strokeStyle = opts.color || '#64748b';
+      ctx.lineWidth = 2;                       // solid: dashes read as noise
+      ctx.beginPath();
+      ctx.moveTo(left, at);
+      ctx.lineTo(right, at);
+      ctx.stroke();
+
+      if (opts.label) {
+        // Drawn in the gutter reserved by layout.padding.right, so the badge
+        // can never sit on top of a bar. Overlapping the data would be worse
+        // than having no label at all.
+        ctx.font = '600 10px -apple-system, "Segoe UI", Roboto, sans-serif';
+        const width = ctx.measureText(opts.label).width + 10;
+        ctx.fillStyle = opts.color || '#64748b';
+        ctx.beginPath();
+        ctx.roundRect(right + 6, at - 8, width, 16, 3);
+        ctx.fill();
+        ctx.fillStyle = '#fff';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(opts.label, right + 6 + width / 2, at);
+      }
+      ctx.restore();
+    }
+  };
+
+  /**
+   * Prints each value above its bar.
+   *
+   * Not decoration — the aqua series sits below 3:1 contrast on white, so the
+   * palette's relief rule requires visible labels or a table view. We ship both.
+   */
+  const valueLabelPlugin = {
+    id: 'valueLabels',
+    afterDatasetsDraw: function (chart, args, opts) {
+      if (!opts || !opts.enabled) return;
+      const ctx = chart.ctx;
+      const decimals = opts.decimals || 0;
+      const suffix = opts.suffix || '';
+
+      ctx.save();
+      ctx.font = '600 10px -apple-system, "Segoe UI", Roboto, sans-serif';
+      ctx.fillStyle = '#14202e';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'bottom';
+
+      chart.data.datasets.forEach(function (dataset, i) {
+        const meta = chart.getDatasetMeta(i);
+        if (meta.hidden) return;
+        meta.data.forEach(function (bar, j) {
+          const value = dataset.data[j];
+          if (value === null || value === undefined) return;
+          ctx.fillText(Number(value).toFixed(decimals) + suffix, bar.x, bar.y - 4);
+        });
+      });
+      ctx.restore();
+    }
+  };
+
+
+  const charts = {};
+
+  /** Replaces a chart, destroying the old one so canvases are not leaked. */
+  function drawChart(canvasId, config) {
+    const canvas = document.getElementById(canvasId);
+    if (!canvas || typeof Chart === 'undefined') return;
+
+    if (charts[canvasId]) charts[canvasId].destroy();
+    charts[canvasId] = new Chart(canvas.getContext('2d'), config);
+  }
+
+
+  function bandColour(band) {
+    if (band === 'GREEN') return '#16a34a';
+    if (band === 'YELLOW') return '#b45309';
+    if (band === 'RED') return '#dc2626';
+    return '#8496a8';
+  }
+
+  const SERIES = ['#2a78d6', '#eb6834', '#1baf7a', '#4a3aa7'];
+
+  /** Shared axis/grid styling — recessive, so the data reads first. */
+  function gridStyle() {
+    return {
+      grid: { color: '#e8edf3', drawBorder: false },
+      ticks: { color: '#6b7c8d', font: { size: 11 } }
+    };
+  }
+
+
+  /**
+   * Success rate by section.
+   *
+   * The y-axis does NOT start at zero. Every section sits between 98 and 100,
+   * so a zero baseline renders four identical bars carrying no information.
+   * The window is stated in the subtitle and every bar is labelled with its
+   * exact value, so the compression is disclosed rather than hidden.
+   */
+  function drawRateChart(k) {
+    const rows = k.departments.length ? k.departments : k.parts;
+    const note = document.getElementById('chartRateNote');
+
+    if (!rows.length) {
+      if (charts.chartRate) { charts.chartRate.destroy(); delete charts.chartRate; }
+      if (note) note.textContent = 'No section data for this month.';
+      return;
+    }
+
+    const lowest = Math.min.apply(null, rows.map(function (r) { return r.rate; })
+                                             .concat([k.target]));
+    const floor = Math.max(0, Math.floor(lowest) - 1);
+
+    if (note) {
+      note.textContent = 'Against the ' + k.target + '% target. Axis starts at ' +
+                         floor + '% — the sections sit close together, so the ' +
+                         'differences are small by design.';
+    }
+
+    drawChart('chartRate', {
+      type: 'bar',
+      data: {
+        labels: rows.map(function (r) { return shortLabel(r.name); }),
+        datasets: [{
+          label: 'Success rate',
+          data: rows.map(function (r) { return round2(r.rate); }),
+          backgroundColor: rows.map(function (r) { return bandColour(r.band); }),
+          borderRadius: 4,
+          borderSkipped: false,
+          maxBarThickness: 64
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        layout: { padding: { top: 22, right: 86 } },   // gutter for the target badge
+        scales: {
+          y: Object.assign({ min: floor, max: 100.4 }, gridStyle()),
+          x: { grid: { display: false }, ticks: { color: '#6b7c8d', font: { size: 11 } } }
+        },
+        plugins: {
+          legend: { display: false },          // one series — the title names it
+          tooltip: {
+            callbacks: {
+              label: function (item) {
+                const row = rows[item.dataIndex];
+                return [
+                  'Success rate: ' + fmt(row.rate) + '%',
+                  'Band: ' + row.band,
+                  'Completed: ' + row.completed + ' · delayed: ' + row.delayed
+                ];
+              }
+            }
+          },
+          targetLine: { value: k.target, label: 'Target ' + k.target + '%' },
+          valueLabels: { enabled: true, decimals: 2, suffix: '%' }
+        }
+      },
+      plugins: [targetLinePlugin, valueLabelPlugin]
+    });
+  }
+
+
+  /** Delayed tickets by section — a genuine count, so a zero baseline. */
+  function drawDelayChart(k) {
+    const rows = k.departments.length ? k.departments : k.parts;
+
+    if (!rows.length) {
+      if (charts.chartDelay) { charts.chartDelay.destroy(); delete charts.chartDelay; }
+      return;
+    }
+
+    drawChart('chartDelay', {
+      type: 'bar',
+      data: {
+        labels: rows.map(function (r) { return shortLabel(r.name); }),
+        datasets: [{
+          label: 'Delayed tickets',
+          data: rows.map(function (r) { return r.delayed; }),
+          backgroundColor: SERIES[0],
+          borderRadius: 4,
+          borderSkipped: false,
+          maxBarThickness: 64
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        layout: { padding: { top: 22 } },
+        scales: {
+          y: Object.assign({ beginAtZero: true, ticks: { precision: 0 } }, gridStyle()),
+          x: { grid: { display: false }, ticks: { color: '#6b7c8d', font: { size: 11 } } }
+        },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: function (item) {
+                const row = rows[item.dataIndex];
+                return row.delayed + ' delayed of ' + row.completed + ' completed';
+              }
+            }
+          },
+          valueLabels: { enabled: true, decimals: 0 }
+        }
+      },
+      plugins: [valueLabelPlugin]
+    });
+  }
+
+
+  /** Grouped bars: sections across, one colour per month. */
+  function drawCompareChart(c) {
+    const card = document.getElementById('cmpChartCard');
+    if (!c.sections.length) {
+      if (card) card.hidden = true;
+      return;
+    }
+    if (card) card.hidden = false;
+
+    const labels = ['EAS overall'].concat(c.sections.map(shortLabel));
+
+    let lowest = c.target;
+    c.months.forEach(function (month) {
+      const total = c.totals[month];
+      if (total) lowest = Math.min(lowest, total.rate);
+      c.sections.forEach(function (section) {
+        const entry = (c.bySection[section] || {})[month];
+        if (entry) lowest = Math.min(lowest, entry.rate);
+      });
+    });
+    const floor = Math.max(0, Math.floor(lowest) - 1);
+
+    const note = document.getElementById('cmpChartNote');
+    if (note) {
+      note.textContent = 'Against the ' + c.target + '% target. Axis starts at ' +
+                         floor + '%.';
+    }
+
+    const datasets = c.months.map(function (month, index) {
+      const total = c.totals[month];
+      const data = [total ? round2(total.rate) : null].concat(
+        c.sections.map(function (section) {
+          const entry = (c.bySection[section] || {})[month];
+          return entry ? round2(entry.rate) : null;
+        })
+      );
+
+      return {
+        label: formatMonth(month),
+        data: data,
+        backgroundColor: SERIES[index % SERIES.length],
+        borderRadius: 4,
+        borderSkipped: false,
+        maxBarThickness: 34
+      };
+    });
+
+    drawChart('chartCompare', {
+      type: 'bar',
+      data: { labels: labels, datasets: datasets },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        layout: { padding: { top: 22, right: 86 } },   // gutter for the target badge
+        scales: {
+          y: Object.assign({ min: floor, max: 100.4 }, gridStyle()),
+          x: { grid: { display: false }, ticks: { color: '#6b7c8d', font: { size: 11 } } }
+        },
+        plugins: {
+          // Two or more series, so a legend is required.
+          legend: {
+            position: 'bottom',
+            labels: { boxWidth: 10, boxHeight: 10, usePointStyle: true,
+                      pointStyle: 'circle', color: '#5a6b7d', font: { size: 11 } }
+          },
+          tooltip: {
+            callbacks: {
+              label: function (item) {
+                return item.dataset.label + ': ' +
+                       (item.raw === null ? 'no data' : fmt(item.raw) + '%');
+              }
+            }
+          },
+          targetLine: { value: c.target, label: 'Target ' + c.target + '%' },
+          valueLabels: { enabled: false }      // too dense with 4 months x 5 groups
+        }
+      },
+      plugins: [targetLinePlugin]
+    });
+  }
+
+
+  /** Donut of KPI weights, with the detail panel beside it. */
+  function drawWeightChart(boot) {
+    const kpis = [boot.kpi.resolution, boot.kpi.feedback].filter(Boolean);
+    const panel = document.getElementById('weightPanel');
+
+    drawChart('chartWeights', {
+      type: 'doughnut',
+      data: {
+        labels: kpis.map(function (k) { return k.name; }),
+        datasets: [{
+          data: kpis.map(function (k) { return k.weight || 0; }),
+          backgroundColor: kpis.map(function (k, i) { return SERIES[i % SERIES.length]; }),
+          borderColor: '#ffffff',
+          borderWidth: 2                        // 2px surface gap between slices
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        cutout: '58%',
+        plugins: {
+          legend: { display: false },           // the panel beside it is the legend
+          tooltip: {
+            callbacks: {
+              label: function (item) { return item.label + ': ' + item.raw + '%'; }
+            }
+          }
+        }
+      }
+    });
+
+    if (!panel) return;
+    panel.innerHTML = kpis.map(function (k, i) {
+      return '<div class="weight-item">' +
+               '<span class="weight-dot" style="background:' + SERIES[i % SERIES.length] + '"></span>' +
+               '<span class="weight-text"><strong>' + escapeHtml(k.name) + '</strong>' +
+               '<span>target ≥ ' + k.target + k.unit + ' · red below ' + k.yellowFloor + k.unit + '</span></span>' +
+               '<span class="weight-value">' + (k.weight || 0) + '%</span>' +
+             '</div>';
+    }).join('');
+  }
+
+
+  /** 'Manufacturing Applications' -> 'Manufacturing', so axis labels fit. */
+  function shortLabel(name) {
+    return String(name).replace(/\s+Applications$/, '');
+  }
+
+  function round2(n) {
+    return Math.round((Number(n) || 0) * 100) / 100;
+  }
+
+
+  // =========================================================================
   // COMPARISON
   // =========================================================================
 
@@ -1073,6 +1444,8 @@
     document.getElementById('cmpOverallCard').hidden = false;
     document.getElementById('cmpSectionCard').hidden = false;
 
+    drawCompareChart(c);
+
     // ---- overall, one row per month, with month-on-month change ----
     const body = document.querySelector('#cmpOverall tbody');
     body.innerHTML = '';
@@ -1157,13 +1530,17 @@
         const row = document.createElement('tr');
         row.innerHTML =
           '<td>' + escapeHtml(kpi.name) + '</td>' +
+          '<td class="r">' + (kpi.weight || 0) + '%</td>' +
           '<td>≥ ' + kpi.target + kpi.unit + '</td>' +
-          '<td>' + kpi.yellowFloor + kpi.unit + '</td>' +
+          '<td>' + kpi.yellowFloor + '–' + kpi.target + kpi.unit + '</td>' +
+          '<td>&lt; ' + kpi.yellowFloor + kpi.unit + '</td>' +
           '<td>' + escapeHtml(kpi.period) + '</td>' +
           '<td>' + escapeHtml(kpi.slaLayer) + '</td>';
         body.appendChild(row);
       });
     }
+
+    drawWeightChart(boot);
 
     const info = document.getElementById('dbInfo');
     if (info) {

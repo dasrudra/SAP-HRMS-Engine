@@ -64,11 +64,19 @@ const CONFIG = {
     RESOLUTION: {
       id: 'KPI1',
       name: 'Error/Issue Resolution Time',
-      slaLayer: 'Layer 2: Service Availability',
+      slaLayer: 'Layer 3: Service Requests',
       target: 99.50,        // green at or above this
       yellowFloor: 89.55,   // below this is red
       unit: '%',
-      period: 'monthly'
+      period: 'monthly',
+
+      /**
+       * Share of the departmental score this KPI carries.
+       *
+       * PLACEHOLDER — split evenly until the real weighting is supplied. Two
+       * more KPIs are planned, at which point the four should total 100.
+       */
+      weight: 50
     },
 
     /**
@@ -87,7 +95,8 @@ const CONFIG = {
       target: 90.00,
       yellowFloor: 60.00,
       unit: '%',
-      period: 'monthly'
+      period: 'monthly',
+      weight: 50            // PLACEHOLDER — see RESOLUTION.weight
     }
   },
 
