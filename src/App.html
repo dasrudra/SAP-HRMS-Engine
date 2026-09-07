@@ -1082,9 +1082,18 @@
   }
 
 
+  /**
+   * Fill colours for chart marks.
+   *
+   * Yellow is a true yellow here, not the dark amber the text pills use.
+   * #b45309 has to be dark enough to read as text on a pale chip; as a large
+   * solid fill it just looks brown. A filled arc has no such constraint, and
+   * these are the reserved status hues — they always ship with a label, which
+   * every chart here does.
+   */
   function bandColour(band) {
     if (band === 'GREEN') return '#16a34a';
-    if (band === 'YELLOW') return '#b45309';
+    if (band === 'YELLOW') return '#fab219';
     if (band === 'RED') return '#dc2626';
     return '#8496a8';
   }
@@ -1355,7 +1364,7 @@
                    'Green — ' + kpi.target + kpi.unit + ' and above'],
           datasets: [{
             data: [redWidth, yellowWidth, greenWidth],
-            backgroundColor: ['#dc2626', '#b45309', '#16a34a'],
+            backgroundColor: [bandColour('RED'), bandColour('YELLOW'), bandColour('GREEN')],
             borderColor: '#ffffff',
             borderWidth: 2,           // 2px surface gap between segments
             circumference: 270,       // a gauge, opening at the bottom
@@ -1441,7 +1450,6 @@
       const option = document.createElement('option');
       option.value = kpi.id;
       option.textContent = kpi.name + (kpi.active ? '' : '  — awaiting data');
-      option.disabled = !kpi.active;
       select.appendChild(option);
     });
 
@@ -1535,16 +1543,38 @@
     }
 
     const kpi = selectedKpi();
-    if (kpi && !kpi.active) {
-      return window.alert(kpi.name + ' has no data loaded yet, so there is ' +
-                          'nothing to compare. Only KPI 1 is live today.');
-    }
+
+    // Every KPI is selectable — a disabled option tells you nothing about why.
+    // Picking one without data shows an explanation instead.
+    if (kpi && !kpi.active) return showComparisonPending(kpi);
 
     callServer('getKpiComparison', picked).then(renderComparison).catch(onError);
   }
 
 
+  /** Explains why a KPI cannot be compared yet, in place of the results. */
+  function showComparisonPending(kpi) {
+    const empty = document.getElementById('cmpEmpty');
+    document.getElementById('cmpChartCard').hidden = true;
+    document.getElementById('cmpOverallCard').hidden = true;
+    document.getElementById('cmpSectionCard').hidden = true;
+
+    empty.hidden = false;
+    empty.className = 'notice notice-warn';
+    empty.innerHTML =
+      '<h3>' + escapeHtml(kpi.name) + ' has no data yet</h3>' +
+      '<p>Its definition is loaded — target &ge; ' + kpi.target + kpi.unit +
+      ', ' + escapeHtml(kpi.slaLayer) + ' — but nothing has been uploaded ' +
+      'against it, so there is nothing to compare. Formula: ' +
+      escapeHtml(kpi.formula || '') + '</p>';
+  }
+
+
   function renderComparison(c) {
+    const empty = document.getElementById('cmpEmpty');
+    empty.className = 'notice notice-info';
+    document.getElementById('cmpChartCard').hidden = false;
+
     state.compare = c;
 
     document.getElementById('cmpEmpty').hidden = true;
