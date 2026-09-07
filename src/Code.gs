@@ -83,6 +83,9 @@ function getBootstrap() {
       resolution: CONFIG.KPI.RESOLUTION,
       feedback: CONFIG.KPI.FEEDBACK
     },
+    // All four in display order. The screens iterate this rather than naming
+    // KPIs individually, so adding a fifth is a Config.gs edit only.
+    kpiList: CONFIG.KPI_ORDER.map(function (key) { return CONFIG.KPI[key]; }),
     // Months that actually have data, so the month picker only offers real
     // choices instead of a blank list of every month since January.
     availableMonths: configured ? listAvailableMonths() : [],

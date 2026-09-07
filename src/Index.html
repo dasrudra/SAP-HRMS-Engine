@@ -275,6 +275,10 @@
         <div class="card">
           <div class="card-head">Select dashboards</div>
           <div class="cmp-picker">
+            <div class="cmp-field" style="max-width:340px;margin-bottom:16px">
+              <label for="cmpKpi">Which KPI</label>
+              <select id="cmpKpi" class="select"></select>
+            </div>
             <div class="cmp-grid">
               <div class="cmp-field">
                 <label for="cmpM1">First Month</label>
@@ -401,13 +405,13 @@
         </div>
         <div class="card chart-card">
           <div class="chart-head">
-            <h2>KPI weighting</h2>
-            <p>Share of the departmental score each KPI carries. Two more KPIs are planned.</p>
+            <h2>Performance thresholds</h2>
+            <p>
+              Each ring is one KPI's green / yellow / red bands, drawn to scale.
+              How thin the green slice is tells you how tight the target is.
+            </p>
           </div>
-          <div class="donut-row">
-            <div class="chart-box donut-box"><canvas id="chartWeights"></canvas></div>
-            <div class="donut-panel" id="weightPanel"></div>
-          </div>
+          <div class="gauge-grid" id="gaugeGrid"></div>
         </div>
 
         <div class="card">
@@ -415,7 +419,7 @@
           <div class="table-wrap">
             <table id="settingsTable">
               <thead>
-                <tr><th>KPI</th><th class="r">Weight</th><th>Target</th><th>Yellow floor</th><th>Red below</th><th>Period</th><th>SLA layer</th></tr>
+                <tr><th>KPI</th><th>Formula</th><th>Target</th><th>Yellow</th><th>Red</th><th>SLA layer</th><th>Data</th></tr>
               </thead>
               <tbody></tbody>
             </table>

@@ -55,56 +55,87 @@ const CONFIG = {
   ],
 
   /**
-   * KPI definitions, straight from policy §6.3.
+   * The four TVL-EAS KPIs, each from its own signed definition sheet.
    *
-   * KPI 1 — Error/Issue Resolution Time
-   *   Ticket Resolution Success Rate (%) = (Completed Successfully / Total Completed) x 100
-   *   KPI Achievement (%)                = (Actual Success Rate / Target Success Rate) x 100
+   * Every one shares the same shape:
+   *   Actual Success Rate (%) = (numerator / denominator) x 100
+   *   KPI Achievement (%)     = (Actual Rate / Target Rate) x 100
    *
-   * The band boundaries look arbitrary but are not: 89.55 / 99.50 = exactly
-   * 0.90, so the yellow floor is precisely 90% achievement. Green is 100%
-   * achievement. The bands are Achievement bands expressed on the Success Rate
-   * scale.
+   * The band boundaries look arbitrary and are not. Three of the four put the
+   * yellow floor at exactly 90% achievement — 89.55/99.50 = 0.90, 81.00/90.00
+   * = 0.90. Layer 1 is the exception and is far stricter: 99.50/99.90 = 0.996,
+   * so its yellow floor is 99.60% achievement.
+   *
+   * `active` marks the ones with a working data pipeline. The others are
+   * defined so the thresholds and layers are visible now; their ingest arrives
+   * when the data does.
    */
   KPI: {
     RESOLUTION: {
       id: 'KPI1',
       name: 'Error/Issue Resolution Time',
+      shortName: 'Resolution Time',
+      layer: 3,
       slaLayer: 'Layer 3: Service Requests',
+      formula: '(Completed Successfully ÷ Total Completed) × 100',
       target: 99.50,        // green at or above this
       yellowFloor: 89.55,   // below this is red
       unit: '%',
       period: 'monthly',
-
-      /**
-       * Share of the departmental score this KPI carries.
-       *
-       * PLACEHOLDER — split evenly until the real weighting is supplied. Two
-       * more KPIs are planned, at which point the four should total 100.
-       */
-      weight: 50
+      active: true          // has a working ingest pipeline
     },
 
-    /**
-     * KPI 2 — User Training Feedback analysis
-     *   Feedback Score (%) = (Avg Score / Max Score) x 100
-     *
-     * NOTE: the published thresholds are "green >=90, yellow <90, red <60",
-     * which overlap — a 45% score satisfies both yellow and red. The intended
-     * reading is green >=90, yellow 60-89.99, red <60, and that is what is
-     * encoded here. Flagged to Rudra for correction in the policy itself.
-     */
     FEEDBACK: {
       id: 'KPI2',
-      name: 'User Training Feedback Analysis',
+      name: 'SAP User Training Satisfaction & Feedback',
+      shortName: 'Training Feedback',
+      layer: 3,
       slaLayer: 'Layer 3: Service Requests',
+      // Revised formula. The earlier policy text said Avg Score / Max Score;
+      // the signed definition sheet replaces it with a positive-response ratio,
+      // and resolves the old contradictory thresholds (<90 yellow AND <60 red)
+      // into a clean 81.00–89.99 band.
+      formula: '(Total Positive Responses ÷ Total Applicable Responses) × 100',
       target: 90.00,
-      yellowFloor: 60.00,
+      yellowFloor: 81.00,
       unit: '%',
       period: 'monthly',
-      weight: 50            // PLACEHOLDER — see RESOLUTION.weight
+      active: false         // waiting on the feedback data
+    },
+
+    INCIDENT: {
+      id: 'KPI3',
+      name: 'Incident & Emergency Management',
+      shortName: 'Incident Mgmt',
+      layer: 1,
+      slaLayer: 'Layer 1: Incident & Emergency Management',
+      formula: '(Incidents Resolved Within Target ÷ Total Incidents) × 100',
+      // The strictest of the four: the yellow floor sits at 99.60%
+      // achievement rather than the 90% the other three use.
+      target: 99.90,
+      yellowFloor: 99.50,
+      unit: '%',
+      period: 'monthly',
+      active: false
+    },
+
+    AVAILABILITY: {
+      id: 'KPI4',
+      name: 'SAP Server Availability',
+      shortName: 'Server Availability',
+      layer: 2,
+      slaLayer: 'Layer 2: Service Availability',
+      formula: '(Scheduled Time − Unplanned Downtime) ÷ Scheduled Time × 100',
+      target: 99.50,
+      yellowFloor: 89.55,
+      unit: '%',
+      period: 'monthly',
+      active: false
     }
   },
+
+  /** Display order for the settings and comparison screens. */
+  KPI_ORDER: ['RESOLUTION', 'FEEDBACK', 'INCIDENT', 'AVAILABILITY'],
 
   /** Tab names inside the spreadsheet. Change here, changes everywhere. */
   SHEETS: {
