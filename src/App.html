@@ -32,7 +32,16 @@
     kpi: null,        // the month on screen, kept so filters redraw without a
                       // server call
     compare: null,
-    busy: false
+    busy: false,
+
+    // TRUE once a comparison has actually been run, so a refresh knows to
+    // re-run it instead of dropping you on an empty panel.
+    compareRan: false,
+
+    // Filter values read back from the URL before the dropdowns they belong to
+    // exist. Applied once the data lands and the options are built.
+    pending: null,
+    restoring: false
   };
 
   const BATCH_SIZE = 400;
@@ -180,6 +189,12 @@
 
     if (name === 'kpi1') loadKpi1();
     if (name === 'uploads') loadUploads();
+
+    // A comparison that was on screen before the refresh gets rebuilt. Guarded
+    // on state.compare being empty so this costs a server call once and not
+    // every time you tab back — the rendered tables are still in the DOM,
+    // hidden rather than destroyed.
+    if (name === 'compare' && state.compareRan && !state.compare) runComparison();
   }
 
 
@@ -187,9 +202,35 @@
   // STATE PERSISTENCE  —  the refresh fix
   // =========================================================================
 
+  /**
+   * Everything a refresh has to survive.
+   *
+   * Persisting only the view and month was not enough: filters and the
+   * comparison selection live in the same throwaway browser memory, so a
+   * reload silently reset them — the exact complaint the whole URL-state
+   * mechanism exists to prevent.
+   */
+  const TRACKED_CONTROLS = [
+    'fSection', 'fDelayPerson', 'fDelayName', 'fAllPerson', 'fAllName',
+    'cmpKpi', 'cmpM1', 'cmpM2', 'cmpM3', 'cmpM4'
+  ];
+
   function saveState() {
+    if (state.restoring) return;      // don't overwrite what we're restoring
+
     const params = { view: state.view };
     if (state.month) params.month = state.month;
+
+    TRACKED_CONTROLS.forEach(function (id) {
+      // A control belonging to a screen that has not been drawn yet reads back
+      // as empty, but its restored value is still waiting in state.pending.
+      // Without this fallback, saving from the comparison screen would quietly
+      // wipe the KPI 1 filters before KPI 1 ever had a chance to apply them.
+      const value = getValue(id) || (state.pending && state.pending[id]) || '';
+      if (value) params[id] = value;  // omit empties to keep the URL short
+    });
+
+    if (state.compareRan) params.ran = '1';
 
     try {
       if (window.google && google.script && google.script.history) {
@@ -203,12 +244,56 @@
   }
 
 
+  /**
+   * Puts saved values back into controls, once those controls exist.
+   *
+   * Split out because the two groups of controls become ready at different
+   * times. The comparison dropdowns are filled from the bootstrap, so they can
+   * be restored immediately; the section and individual dropdowns are built
+   * from the selected month's tickets, which have not arrived yet.
+   *
+   * Each id is CONSUMED on the way through. Restoring is a one-time event —
+   * leaving the values in state.pending would make an old filter reappear
+   * every time the month changed.
+   *
+   * @param {string[]} ids  control ids to restore
+   */
+  function applyPendingTo(ids) {
+    if (!state.pending) return;
+
+    ids.forEach(function (id) {
+      const saved = state.pending[id];
+      if (saved === undefined) return;
+      delete state.pending[id];
+
+      const el = document.getElementById(id);
+      if (!el) return;
+
+      // A <select> silently refuses a value it has no <option> for and lands
+      // on ''. That is the correct outcome: the month now on screen simply has
+      // no such section or person, so the table falls back to showing all.
+      el.value = saved;
+    });
+
+    const outstanding = TRACKED_CONTROLS.some(function (id) {
+      return state.pending[id] !== undefined;
+    });
+    if (!outstanding) state.pending = null;
+  }
+
+
   function restoreState(done) {
     let settled = false;
 
     function finish(params) {
       if (settled) return;
       settled = true;
+
+      // Writing to a control does not fire its change event, but the callers
+      // further down this chain do save. Hold them off until we are done, or
+      // a half-restored page would overwrite the state we are reading.
+      state.restoring = true;
+
       if (params) {
         if (params.view) state.view = params.view;
         if (params.month) {
@@ -216,7 +301,16 @@
           const picker = document.getElementById('monthPicker');
           if (picker) picker.value = params.month;
         }
+        state.compareRan = params.ran === '1';
+
+        // The section and individual dropdowns are not populated yet — their
+        // options come from the month's data. Hold those until renderKpi1 has
+        // built them; the comparison dropdowns are ready now.
+        state.pending = params;
+        applyPendingTo(['cmpKpi', 'cmpM1', 'cmpM2', 'cmpM3', 'cmpM4']);
       }
+
+      state.restoring = false;
       done();
     }
 
@@ -754,6 +848,12 @@
     drawDelayChart(k);
     fillSectionFilters(k.departments);
     fillPersonFilters(k);
+
+    // The options exist now, so a filter saved before the refresh can finally
+    // be put back. Has to happen here, between building the dropdowns and
+    // drawing the tables — any earlier and the <select> has nothing to match.
+    applyPendingTo(['fSection', 'fDelayPerson', 'fDelayName', 'fAllPerson', 'fAllName']);
+
     applySectionFilter();
     applyDelayFilter();
     applyAllFilter();
@@ -810,22 +910,32 @@
 
   // ---- filters: each table owns its own ----
 
+  /**
+   * Every handler here redraws its table AND saves.
+   *
+   * The save is what makes a filter survive refresh. applySectionFilter and
+   * friends deliberately do NOT save themselves — they are also called during
+   * restore and after every render, and saving from there would write the
+   * state back before it had finished being read.
+   */
   function wireFilters() {
-    bind('fSection', 'change', applySectionFilter);
+    bind('fSection', 'change', function () { applySectionFilter(); saveState(); });
     bind('fSectionReset', 'click', function () {
-      setValue('fSection', ''); applySectionFilter();
+      setValue('fSection', ''); applySectionFilter(); saveState();
     });
 
-    bind('fDelayPerson', 'change', applyDelayFilter);
-    bind('fDelayName', 'input', applyDelayFilter);
+    bind('fDelayPerson', 'change', function () { applyDelayFilter(); saveState(); });
+    bind('fDelayName', 'input', function () { applyDelayFilter(); saveState(); });
     bind('fDelayReset', 'click', function () {
-      setValue('fDelayPerson', ''); setValue('fDelayName', ''); applyDelayFilter();
+      setValue('fDelayPerson', ''); setValue('fDelayName', '');
+      applyDelayFilter(); saveState();
     });
 
-    bind('fAllPerson', 'change', applyAllFilter);
-    bind('fAllName', 'input', applyAllFilter);
+    bind('fAllPerson', 'change', function () { applyAllFilter(); saveState(); });
+    bind('fAllName', 'input', function () { applyAllFilter(); saveState(); });
     bind('fAllReset', 'click', function () {
-      setValue('fAllPerson', ''); setValue('fAllName', ''); applyAllFilter();
+      setValue('fAllPerson', ''); setValue('fAllName', '');
+      applyAllFilter(); saveState();
     });
   }
 
@@ -1472,15 +1582,35 @@
 
   function wireCompare() {
     bind('cmpRun', 'click', runComparison);
+
+    // Changing a month or the KPI without pressing Run still gets saved, so a
+    // refresh mid-selection does not throw the choices away.
+    bind('cmpKpi', 'change', saveState);
+    CMP_SELECTS.forEach(function (id) { bind(id, 'change', saveState); });
+
     bind('cmpClear', 'click', function () {
       CMP_SELECTS.forEach(function (id, index) {
         // The first two are required, so clearing resets them to the two most
         // recent months rather than to nothing.
         setValue(id, index < 2 ? defaultMonthFor(index) : '');
       });
+      document.getElementById('cmpChartCard').hidden = true;
       document.getElementById('cmpOverallCard').hidden = true;
       document.getElementById('cmpSectionCard').hidden = true;
-      document.getElementById('cmpEmpty').hidden = false;
+
+      // Put the prompt back. showComparisonPending() rewrites this box, so
+      // without this you would clear the results and be left staring at a
+      // stale "no data yet" warning.
+      const empty = document.getElementById('cmpEmpty');
+      empty.hidden = false;
+      empty.className = 'notice notice-info';
+      empty.innerHTML =
+        '<h3>Nothing compared yet</h3>' +
+        '<p>Choose two or more months above and press Compare Dashboards.</p>';
+
+      state.compare = null;
+      state.compareRan = false;
+      saveState();
     });
   }
 
@@ -1543,6 +1673,12 @@
     }
 
     const kpi = selectedKpi();
+
+    // Remembered so a refresh lands back on the results rather than on the
+    // empty prompt. Saved before the server call, not after, so it survives
+    // even if you reload while the comparison is still loading.
+    state.compareRan = true;
+    saveState();
 
     // Every KPI is selectable — a disabled option tells you nothing about why.
     // Picking one without data shows an explanation instead.
