@@ -44,6 +44,12 @@
     restoring: false
   };
 
+  /**
+   * The month picker's "every month" value. Must match ALL_MONTHS in Kpi.gs —
+   * the string travels to the server as the month argument.
+   */
+  const ALL_MONTHS = 'ALL';
+
   const BATCH_SIZE = 400;
   const DETAILS_LIMIT = 300;
   const MAX_COMPARE = 4;
@@ -789,6 +795,14 @@
   // KPI 1
   // =========================================================================
 
+  /**
+   * The month picker, with an "All months" option at the top.
+   *
+   * All months is a real aggregate, not an average of the monthly rates —
+   * see getKpi1() in Kpi.gs for why those differ. The default stays the newest
+   * single month, because the KPI itself is reported monthly; all-time is a
+   * view you choose, not the one you land on.
+   */
   function fillMonthPicker(months) {
     const picker = document.getElementById('monthPicker');
     if (!picker) return;
@@ -799,16 +813,31 @@
       return;
     }
 
-    if (!state.month || months.indexOf(state.month) === -1) state.month = months[0];
+    const valid = [ALL_MONTHS].concat(months);
+    if (!state.month || valid.indexOf(state.month) === -1) state.month = months[0];
 
     picker.innerHTML = '';
     picker.disabled = false;
+
+    const all = document.createElement('option');
+    all.value = ALL_MONTHS;
+    all.textContent = 'All months (' + months.length + ')';
+    picker.appendChild(all);
+
+    // A rule between the aggregate and the individual months, so the first
+    // real month is not mistaken for part of the same group.
+    const divider = document.createElement('option');
+    divider.disabled = true;
+    divider.textContent = '──────────';
+    picker.appendChild(divider);
+
     months.forEach(function (month) {
       const option = document.createElement('option');
       option.value = month;
       option.textContent = formatMonth(month);
       picker.appendChild(option);
     });
+
     picker.value = state.month;
   }
 
@@ -832,9 +861,13 @@
     const basisBox = document.getElementById('kpi1Basis');
     const tiles = document.getElementById('kpi1Tiles');
 
+    renderPeriod(k);
+
     if (!k || !k.hasData) {
       basisBox.hidden = true;
-      tiles.innerHTML = '<div class="tile tile-empty"><span>No data for this month</span></div>';
+      tiles.innerHTML = '<div class="tile tile-empty"><span>' +
+        (k && k.allMonths ? 'No data loaded' : 'No data for this month') +
+        '</span></div>';
       emptyTable('#kpi1Table tbody', 9, 'Upload an ITSM export to see results.');
       emptyTable('#kpi1People tbody', 7, 'Nothing to show yet.');
       emptyTable('#kpi1AllPeople tbody', 8, 'Nothing to show yet.');
@@ -881,9 +914,41 @@
     box.className = 'notice notice-warn';
     box.innerHTML =
       '<h3>Scored from the overall report</h3>' +
-      '<p>No section exports loaded for this month, so all ' + count(k.basis.total) +
-      ' tickets were counted — including work by individuals outside EAS. ' +
+      '<p>' + (k.allMonths
+        ? 'At least one month in this range has no section exports, so its '
+        : 'No section exports loaded for this month, so its ') +
+      'tickets were counted from the overall report — including work by ' +
+      'individuals outside EAS (' + count(k.basis.total) + ' tickets in scope). ' +
       'Upload the section files for the accurate departmental figure.</p>';
+  }
+
+
+  /**
+   * Says which period is on screen — but only for the all-months view.
+   *
+   * Policy TVL-KPI-001 measures this KPI monthly, so the all-time figure is an
+   * overview, not the number that gets reported. Anyone reading a 100.00% off
+   * this screen and putting it in a K-SOX pack needs to know which of the two
+   * they are looking at, so the aggregate labels itself and the monthly view
+   * stays silent.
+   */
+  function renderPeriod(k) {
+    const box = document.getElementById('kpi1Period');
+    if (!box) return;
+
+    if (!k || !k.allMonths) { box.hidden = true; return; }
+
+    const months = (state.boot && state.boot.availableMonths) || [];
+    const span = months.length
+      ? formatMonth(months[months.length - 1]) + ' – ' + formatMonth(months[0])
+      : '';
+
+    box.hidden = false;
+    box.innerHTML =
+      '<b>All months</b>' +
+      (span ? '<span>' + escapeHtml(span) + '</span>' : '') +
+      '<span>' + (k.monthsCovered || months.length) + ' months combined · ' +
+      'an aggregate, not the monthly reported figure</span>';
   }
 
 
@@ -968,7 +1033,8 @@
       }) +
       tile({
         label: 'Received', icon: 'inbox', tone: 'blue',
-        value: count(t.received), note: 'tickets this month'
+        value: count(t.received),
+        note: k.allMonths ? 'tickets across all months' : 'tickets this month'
       }) +
       tile({
         label: 'Completed', icon: 'check', tone: 'teal',
@@ -1386,10 +1452,11 @@
     const note = document.getElementById('chartRateNote');
 
     if (!rows.length) {
+      const noneMsg = k.allMonths ? 'No section data loaded.'
+                                  : 'No section data for this month.';
       chartMessage('chartRate',
-        '<p>No section data for this month. Upload the section exports to see ' +
-        'the breakdown.</p>');
-      if (note) note.textContent = 'No section data for this month.';
+        '<p>' + noneMsg + ' Upload the section exports to see the breakdown.</p>');
+      if (note) note.textContent = noneMsg;
       return;
     }
     chartMessage('chartRate', null);
@@ -1448,7 +1515,9 @@
     const rows = k.departments.length ? k.departments : k.parts;
 
     if (!rows.length) {
-      chartMessage('chartDelay', '<p>No section data for this month.</p>');
+      chartMessage('chartDelay', '<p>' +
+        (k.allMonths ? 'No section data loaded.' : 'No section data for this month.') +
+        '</p>');
       return;
     }
 
@@ -1458,7 +1527,8 @@
     if (worst === 0) {
       chartMessage('chartDelay',
         '<div class="big">0</div>' +
-        '<p>No ticket in any section was completed past its due date this month.</p>');
+        '<p>No ticket in any section was completed past its due date ' +
+        (k.allMonths ? 'in any month loaded' : 'this month') + '.</p>');
       return;
     }
     chartMessage('chartDelay', null);
@@ -2120,6 +2190,8 @@
   }
 
   function formatMonth(key) {
+    if (key === ALL_MONTHS) return 'All months';
+
     const names = ['January', 'February', 'March', 'April', 'May', 'June',
                    'July', 'August', 'September', 'October', 'November', 'December'];
     const parts = String(key).split('-');

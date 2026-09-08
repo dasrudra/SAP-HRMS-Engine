@@ -201,6 +201,22 @@
   .sub { margin: 0; color: var(--text-dim); font-size: 12.5px; max-width: 74ch; line-height: 1.5; }
   .page-actions { display: flex; align-items: center; gap: 8px; }
 
+  /*
+    Shown only when the all-months aggregate is on screen. The policy measures
+    this KPI monthly, so an all-time figure is a useful overview but is NOT the
+    number that gets reported — the screen has to say which one you are
+    looking at.
+  */
+  .period-note {
+    display: inline-flex; align-items: center; gap: 8px;
+    margin: 10px 0 0; padding: 6px 12px 6px 10px;
+    background: var(--blue-050); border: 1px solid #cfe0f8;
+    border-radius: 999px;
+    font-size: 12px; color: var(--navy-700);
+  }
+  .period-note b { font-weight: 700; }
+  .period-note span { color: var(--text-dim); }
+
   /* ---------------- headline tiles ---------------- */
   /*
     Six figures across the top. Each carries a colour FAMILY rather than a

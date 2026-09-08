@@ -252,14 +252,40 @@ function groupBy2(rows, indexA, indexB) {
 
 
 /**
- * Everything the KPI 1 screen needs for one month, read from the cache.
+ * The month picker's "every month" option.
  *
- * @param {string} month  'YYYY-MM'
+ * A sentinel rather than an empty string, so an accidental blank never
+ * silently turns into "all time" — the two mean very different things when the
+ * number ends up in a K-SOX pack.
+ */
+const ALL_MONTHS = 'ALL';
+
+
+/**
+ * Everything the KPI 1 screen needs, read from the cache.
+ *
+ * WHY AN ALL-MONTHS FIGURE IS NOT AN AVERAGE
+ * Percentages cannot be averaged across periods of different size. January
+ * with 4 completed tickets and one delay scores 75%; August with 2,640 and 11
+ * scores 99.58%. Their mean is 87.29%, which describes nothing that happened.
+ * The true all-time rate is (Σ successful / Σ completed) × 100.
+ *
+ * So this sums the RAW COUNTS the cache stores beside each rate, then
+ * recomputes rate, achievement, band and headroom from those sums. The answer
+ * is identical to scoring every ticket in one pass, without re-reading the
+ * TICKETS tab.
+ *
+ * @param {string} month  'YYYY-MM', or ALL_MONTHS for the whole period
  * @return {Object}
  */
 function getKpi1(month) {
+  const kpi = CONFIG.KPI.RESOLUTION;
+  const everyMonth = (month === ALL_MONTHS);
+
   const result = {
     month: month,
+    allMonths: everyMonth,
+    monthsCovered: 0,
     hasData: false,
     basis: null,
     total: null,
@@ -267,8 +293,8 @@ function getKpi1(month) {
     parts: [],
     people: [],
     sources: [],
-    target: CONFIG.KPI.RESOLUTION.target,
-    yellowFloor: CONFIG.KPI.RESOLUTION.yellowFloor
+    target: kpi.target,
+    yellowFloor: kpi.yellowFloor
   };
 
   const cache = sheetFor(CONFIG.SHEETS.KPI_MONTH);
@@ -277,40 +303,83 @@ function getKpi1(month) {
 
   const rows = cache.getRange(2, 1, lastRow - 1, CONFIG.KPI_COLUMNS.length).getValues();
 
+  const buckets = {};        // key -> summed counts
+  const order = [];          // keys in first-seen order, so output is stable
+  const monthsSeen = {};
+  const basis = { scored: 0, total: 0, allDepartment: true, seen: false };
+
   rows.forEach(function (r) {
     // monthKey() rather than String(). Sheets may have stored '2026-08' as a
     // Date, in which case String() gives 'Sat Aug 01 2026 00:00:00 GMT+0600...'
     // and nothing ever matches. monthKey normalises Date and text alike.
-    if (monthKey(r[0]) !== month) return;
+    const rowMonth = monthKey(r[0]);
+    if (!rowMonth) return;
+    if (!everyMonth && rowMonth !== month) return;
+
+    monthsSeen[rowMonth] = true;
 
     const scopeType = String(r[1]);
+    const name = String(r[2]);
 
     if (scopeType === 'BASIS') {
-      result.basis = {
-        source: String(r[2]),
-        scored: Number(r[3]) || 0,
-        total: Number(r[4]) || 0
-      };
+      basis.seen = true;
+      basis.scored += Number(r[3]) || 0;
+      basis.total  += Number(r[4]) || 0;
+      // Mixed is treated as OVERALL. That direction is the safe one: it warns
+      // that some month in the range counted people outside EAS.
+      if (name !== 'DEPARTMENT') basis.allDepartment = false;
       return;
     }
 
-    const entry = {
-      name:        String(r[2]),
-      received:    Number(r[3]) || 0,
-      completed:   Number(r[4]) || 0,
-      delayed:     Number(r[5]) || 0,
-      successful:  Number(r[6]) || 0,
-      rate:        Number(r[7]) || 0,
-      achievement: Number(r[8]) || 0,
-      band:        String(r[9]),
-      headroom:    Number(r[10]) || 0
-    };
+    // EAS is bucketed on scope alone. Its label changes with the basis
+    // ('EAS (department exports)' vs 'All tickets (overall report)'), so
+    // keying on the name would split one total into two across a mixed range.
+    const key = scopeType === 'EAS' ? 'EAS' : scopeType + '\u0000' + name;
 
-    if (scopeType === 'EAS')             { result.total = entry; result.hasData = true; }
-    else if (scopeType === 'DEPARTMENT') { result.departments.push(entry); }
-    else if (scopeType === 'PART')       { result.parts.push(entry); }
-    else if (scopeType === 'SOURCE')     { result.sources.push({ name: entry.name, count: entry.received }); }
-    else if (scopeType === 'PERSON') {
+    if (!buckets[key]) {
+      buckets[key] = {
+        scope: scopeType, name: name,
+        received: 0, completed: 0, delayed: 0, successful: 0
+      };
+      order.push(key);
+    }
+
+    const b = buckets[key];
+    b.received   += Number(r[3]) || 0;
+    b.completed  += Number(r[4]) || 0;
+    b.delayed    += Number(r[5]) || 0;
+    b.successful += Number(r[6]) || 0;
+  });
+
+  result.monthsCovered = Object.keys(monthsSeen).length;
+
+  if (basis.seen) {
+    result.basis = {
+      source: basis.allDepartment ? 'DEPARTMENT' : 'OVERALL',
+      scored: basis.scored,
+      total: basis.total
+    };
+  }
+
+  order.forEach(function (key) {
+    const b = buckets[key];
+
+    if (b.scope === 'SOURCE') {
+      // Not a KPI — countRow() puts its figure in the received column.
+      result.sources.push({ name: b.name, count: b.received });
+      return;
+    }
+
+    const entry = finaliseEntry(b, kpi);
+
+    if (b.scope === 'EAS') {
+      result.total = entry;
+      result.hasData = true;
+    } else if (b.scope === 'DEPARTMENT') {
+      result.departments.push(entry);
+    } else if (b.scope === 'PART') {
+      result.parts.push(entry);
+    } else if (b.scope === 'PERSON') {
       // Stored as 'Department :: Name'; split it back apart.
       const split = entry.name.split(' :: ');
       entry.department = split.length > 1 ? split[0] : '';
@@ -319,7 +388,37 @@ function getKpi1(month) {
     }
   });
 
+  // Busiest first. For a single month this reproduces the cache's own order;
+  // across months it is the only order that makes sense, since a name's rank
+  // in January says nothing about its rank overall.
+  result.departments.sort(byReceived);
+  result.parts.sort(byReceived);
+  result.people.sort(byReceived);
+
   return result;
+}
+
+
+/** Recomputes the derived figures from summed counts. */
+function finaliseEntry(b, kpi) {
+  const rate = b.completed ? (b.successful / b.completed) * 100 : 0;
+
+  return {
+    name:        b.name,
+    received:    b.received,
+    completed:   b.completed,
+    delayed:     b.delayed,
+    successful:  b.successful,
+    rate:        round2(rate),
+    achievement: round2(b.completed ? achievementFor(rate, kpi) : 0),
+    band:        b.completed ? bandFor(rate, kpi) : 'NO DATA',
+    headroom:    headroomFor(b.completed, b.successful, kpi)
+  };
+}
+
+
+function byReceived(a, b) {
+  return b.received - a.received;
 }
 
 
