@@ -15,6 +15,7 @@
 
   <!-- ===================== SIDEBAR ===================== -->
   <aside class="sidebar">
+   <div class="sidebar-inner">
     <div class="brand">
       <div class="brand-mark">EAS</div>
       <div class="brand-text">
@@ -33,6 +34,7 @@
         One handler in App.html reads it, so adding a screen is two lines:
         a button here and a section there.
       -->
+      <div class="nav-group-label">Indicators</div>
       <button class="nav-item is-active" data-view="kpi1" title="KPI 1 · ITSM">
         <svg viewBox="0 0 16 16"><path d="M2 14h12M4.5 11V6M8 11V3M11.5 11V8"/></svg>
         <span class="nav-text">KPI 1 · ITSM</span>
@@ -45,6 +47,8 @@
         <svg viewBox="0 0 16 16"><path d="M2.5 3h4v10h-4zM9.5 3h4v7h-4z"/></svg>
         <span class="nav-text">Comparison</span>
       </button>
+
+      <div class="nav-group-label">Data</div>
       <button class="nav-item" data-view="uploads" title="Data Uploads">
         <svg viewBox="0 0 16 16"><path d="M8 10.5V2M5 5l3-3 3 3M2.5 11v1.5A1.5 1.5 0 0 0 4 14h8a1.5 1.5 0 0 0 1.5-1.5V11"/></svg>
         <span class="nav-text">Data Uploads</span>
@@ -54,6 +58,7 @@
         <span class="nav-text">Settings</span>
       </button>
     </nav>
+   </div>
   </aside>
 
   <!-- ===================== MAIN ===================== -->
@@ -66,6 +71,7 @@
       </div>
       <div class="topbar-right">
         <span id="viewLabel">KPI 1 · ITSM</span>
+        <span class="topbar-sep"></span>
         <span class="dot" id="liveDot"></span>
         <span class="live-text" id="liveText">Live</span>
         <span class="badge">USER</span>
@@ -119,30 +125,48 @@
           </div>
         </div>
 
-        <!-- Says which population the month was scored from, so the headline
-             number is never ambiguous about what it counted. -->
-        <div id="kpi1Basis" class="notice notice-info" hidden></div>
+        <!--
+          Only appears when the month was scored from the WRONG population —
+          i.e. no section exports were loaded, so the figure includes work by
+          people outside EAS. The healthy case says nothing: a banner that is
+          always on screen stops being read, and this one carries a warning.
+        -->
+        <div id="kpi1Basis" class="notice notice-warn" hidden></div>
 
-        <div class="tiles" id="kpi1Tiles">
-          <div class="tile tile-empty"><span>No data loaded yet</span></div>
+        <!--
+          The hero panel. One headline figure, its band, how far it sits from
+          the target, and the four supporting counts. Built by renderHero().
+        -->
+        <div class="hero" id="kpi1Hero">
+          <div class="hero-empty">No data loaded yet</div>
         </div>
 
         <!-- ---- Charts ---- -->
         <div class="chart-row">
           <div class="card chart-card">
             <div class="chart-head">
-              <h2>Success rate by section</h2>
-              <p id="chartRateNote">Against the 99.50% target.</p>
+              <div>
+                <h2>Success rate by section</h2>
+                <p id="chartRateNote">Against the 99.50% target.</p>
+              </div>
             </div>
-            <div class="chart-box"><canvas id="chartRate"></canvas></div>
+            <div class="chart-box">
+              <canvas id="chartRate"></canvas>
+              <div class="chart-empty" id="chartRateEmpty" hidden></div>
+            </div>
           </div>
 
           <div class="card chart-card">
             <div class="chart-head">
-              <h2>Delayed tickets by section</h2>
-              <p>Completed past their due date. Counted from zero.</p>
+              <div>
+                <h2>Delayed tickets by section</h2>
+                <p>Completed past their due date. Counted from zero.</p>
+              </div>
             </div>
-            <div class="chart-box"><canvas id="chartDelay"></canvas></div>
+            <div class="chart-box">
+              <canvas id="chartDelay"></canvas>
+              <div class="chart-empty" id="chartDelayEmpty" hidden></div>
+            </div>
           </div>
         </div>
 
@@ -311,8 +335,10 @@
 
         <div class="card chart-card" id="cmpChartCard" hidden>
           <div class="chart-head">
-            <h2>Success rate by section and month</h2>
-            <p id="cmpChartNote">Against the 99.50% target.</p>
+            <div>
+              <h2>Success rate by section and month</h2>
+              <p id="cmpChartNote">Against the 99.50% target.</p>
+            </div>
           </div>
           <div class="chart-box chart-box-tall"><canvas id="chartCompare"></canvas></div>
         </div>

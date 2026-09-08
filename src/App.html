@@ -830,11 +830,12 @@
     state.kpi = k;
 
     const basisBox = document.getElementById('kpi1Basis');
-    const tiles = document.getElementById('kpi1Tiles');
+    const hero = document.getElementById('kpi1Hero');
 
     if (!k || !k.hasData) {
       basisBox.hidden = true;
-      tiles.innerHTML = '<div class="tile tile-empty"><span>No data for this month</span></div>';
+      hero.innerHTML = '<div class="hero-empty">No data for this month</div>';
+      hero.style.removeProperty('--hero-accent');
       emptyTable('#kpi1Table tbody', 9, 'Upload an ITSM export to see results.');
       emptyTable('#kpi1People tbody', 7, 'Nothing to show yet.');
       emptyTable('#kpi1AllPeople tbody', 8, 'Nothing to show yet.');
@@ -843,7 +844,7 @@
     }
 
     renderBasis(k, basisBox);
-    renderTiles(k, tiles);
+    renderHero(k, hero);
     drawRateChart(k);
     drawDelayChart(k);
     fillSectionFilters(k.departments);
@@ -857,54 +858,141 @@
     applySectionFilter();
     applyDelayFilter();
     applyAllFilter();
+
+    // The settings rings show the selected month's figure, so they follow it.
+    updateGaugeCentres();
   }
 
 
+  /**
+   * Warns when the month was scored from the wrong population.
+   *
+   * There is deliberately NO message for the healthy case. A banner that is on
+   * screen every single time gets tuned out within a week, and then the one
+   * month it turns into a warning gets tuned out with it. Silence means the
+   * scope is right; the panel only speaks when something is off.
+   */
   function renderBasis(k, box) {
-    if (!k.basis) { box.hidden = true; return; }
+    if (!k.basis || k.basis.source === 'DEPARTMENT') {
+      box.hidden = true;
+      return;
+    }
 
     box.hidden = false;
-
-    if (k.basis.source === 'DEPARTMENT') {
-      box.className = 'notice notice-info';
-      box.innerHTML =
-        '<h3>Scored from the section exports</h3>' +
-        '<p>' + k.basis.scored + ' of ' + k.basis.total +
-        ' loaded tickets belong to an EAS section. This is the accurate scope ' +
-        'for the departmental KPI.</p>';
-    } else {
-      box.className = 'notice notice-warn';
-      box.innerHTML =
-        '<h3>Scored from the overall report</h3>' +
-        '<p>No section exports loaded for this month, so all ' + k.basis.total +
-        ' tickets were counted — including work by individuals outside EAS. ' +
-        'Upload the section files for the accurate departmental figure.</p>';
-    }
+    box.className = 'notice notice-warn';
+    box.innerHTML =
+      '<h3>Scored from the overall report</h3>' +
+      '<p>No section exports loaded for this month, so all ' + k.basis.total +
+      ' tickets were counted — including work by individuals outside EAS. ' +
+      'Upload the section files for the accurate departmental figure.</p>';
   }
 
 
-  function renderTiles(k, container) {
+  /**
+   * The hero panel.
+   *
+   * One large figure, because there is one question: did the month clear the
+   * target? Six equal tiles gave "Received" the same visual weight as the rate
+   * the KPI is actually about, so the answer had to be hunted for.
+   *
+   * The meter underneath is the delay BUDGET, not the rate.
+   *
+   * A meter of the percentage itself is useless here: every plausible value
+   * sits in the last 1% of the scale, so the bar is always full. What the rate
+   * cannot say is how close the month came to the edge. At a 99.50% target,
+   * 2,640 completed tickets buy exactly 13 delays; August used 11 of them.
+   * That is the same fact as "headroom +2", drawn to scale.
+   *
+   * The arithmetic needs no extra server field: headroom is defined as
+   * successful − ceil(target% × completed), so delayed + headroom is the
+   * permitted count.
+   */
+  function renderHero(k, container) {
     const t = k.total;
     const cls = bandClass(t.band);
 
+    container.style.setProperty('--hero-accent', bandColour(t.band));
+
+    const allowed = t.delayed + t.headroom;
+    const used = t.delayed;
+    // Over budget still fills the bar — you cannot use 110% of a track.
+    const usedPct = allowed > 0 ? Math.min(100, (used / allowed) * 100)
+                                : (used > 0 ? 100 : 0);
+
+    let budgetNote;
+    if (allowed <= 0) {
+      budgetNote = 'This month is too small for any delay to be permitted at ' +
+                   k.target + '%.';
+    } else if (t.headroom > 0) {
+      budgetNote = used + ' of ' + allowed + ' permitted delay' +
+                   (allowed === 1 ? '' : 's') + ' used';
+    } else if (t.headroom === 0) {
+      budgetNote = 'all ' + allowed + ' permitted delay' +
+                   (allowed === 1 ? '' : 's') + ' used — on the edge';
+    } else {
+      budgetNote = used + ' delays against ' + allowed + ' permitted — ' +
+                   Math.abs(t.headroom) + ' over';
+    }
+
     let headroomNote;
     if (t.headroom > 0) {
-      headroomNote = t.headroom + ' more delay' + (t.headroom === 1 ? '' : 's') + ' before dropping';
+      headroomNote = t.headroom + ' more delay' + (t.headroom === 1 ? '' : 's') +
+                     ' before the band drops';
     } else if (t.headroom === 0) {
       headroomNote = 'on the edge — one more delay drops the band';
     } else {
       headroomNote = Math.abs(t.headroom) + ' fewer delays needed to reach target';
     }
 
+    const gap = round2(t.rate - k.target);
+    const gapText = gap >= 0
+      ? '+' + fmt(gap) + ' points above target'
+      : fmt(Math.abs(gap)) + ' points below target';
+
     container.innerHTML =
-      tile('Success Rate', fmt(t.rate) + '%', pill(t.band), cls) +
-      tile('KPI Achievement', fmt(t.achievement) + '%', 'target ' + k.target + '%', cls) +
-      tile('Headroom', (t.headroom > 0 ? '+' : '') + t.headroom, headroomNote,
-           t.headroom > 0 ? 'g' : (t.headroom === 0 ? 'a' : 'r')) +
-      tile('Received', t.received, 'tickets this month', '') +
-      tile('Completed', t.completed, (t.received - t.completed) + ' still open', '') +
-      tile('Delayed', t.delayed, t.successful + ' completed successfully',
-           t.delayed ? 'a' : 'g');
+      '<div class="hero-main">' +
+        '<div class="hero-label">Actual success rate · ' +
+          escapeHtml(formatMonth(k.month || state.month || '')) + '</div>' +
+        '<div class="hero-figure-row">' +
+          '<span class="hero-figure">' + fmt(t.rate) + '%</span>' +
+          '<span class="chip ' + cls + '">' + escapeHtml(t.band) + '</span>' +
+        '</div>' +
+        '<p class="hero-sub"><b>' + fmt(t.achievement) + '%</b> KPI achievement · ' +
+          escapeHtml(gapText) + '</p>' +
+
+        '<div class="meter">' +
+          '<div class="meter-head">' +
+            '<span>Delay budget</span>' +
+            '<span>' + escapeHtml(budgetNote) + '</span>' +
+          '</div>' +
+          '<div class="meter-track">' +
+            '<div class="meter-fill" style="width:' + usedPct.toFixed(2) + '%"></div>' +
+          '</div>' +
+          '<div class="meter-scale">' +
+            '<span>0 delays</span>' +
+            '<span>' + (allowed > 0 ? allowed + ' permitted at ' + k.target + '%' : '') + '</span>' +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+
+      '<div class="hero-side">' +
+        heroCell('Headroom', (t.headroom > 0 ? '+' : '') + t.headroom, headroomNote,
+                 t.headroom > 0 ? 'g' : (t.headroom === 0 ? 'a' : 'r')) +
+        heroCell('Delayed', t.delayed,
+                 t.successful + ' completed on time', t.delayed ? 'a' : 'g') +
+        heroCell('Completed', t.completed,
+                 Math.max(0, t.received - t.completed) + ' still open', '') +
+        heroCell('Received', t.received, 'tickets this month', '') +
+      '</div>';
+  }
+
+
+  function heroCell(label, value, note, cls) {
+    return '<div class="hero-cell">' +
+             '<div class="k">' + escapeHtml(label) + '</div>' +
+             '<div class="v' + (cls ? ' ' + cls : '') + '">' + value + '</div>' +
+             '<div class="n">' + escapeHtml(note) + '</div>' +
+           '</div>';
   }
 
 
@@ -1005,11 +1093,8 @@
     if (!rows.length) return emptyTable('#kpi1Table tbody', 9, 'No rows match.');
 
     fillRows('#kpi1Table tbody', rows, function (r) {
-      return '<td>' + escapeHtml(r.name) + '</td>' +
-             '<td class="r">' + r.received + '</td>' +
-             '<td class="r">' + r.completed + '</td>' +
-             '<td class="r">' + r.delayed + '</td>' +
-             '<td class="r">' + r.successful + '</td>' +
+      return '<td class="name">' + escapeHtml(r.name) + '</td>' +
+             num(r.received) + num(r.completed) + num(r.delayed) + num(r.successful) +
              '<td class="r">' + fmt(r.rate) + '%</td>' +
              '<td class="r">' + fmt(r.achievement) + '%</td>' +
              '<td>' + pill(r.band) + '</td>' +
@@ -1044,11 +1129,9 @@
     }
 
     fillRows('#kpi1People tbody', rows, function (p) {
-      return '<td>' + escapeHtml(p.name) + '</td>' +
+      return '<td class="name">' + escapeHtml(p.name) + '</td>' +
              '<td>' + escapeHtml(p.department) + '</td>' +
-             '<td class="r">' + p.received + '</td>' +
-             '<td class="r">' + p.completed + '</td>' +
-             '<td class="r">' + p.delayed + '</td>' +
+             num(p.received) + num(p.completed) + num(p.delayed) +
              '<td class="r">' + fmt(p.rate) + '%</td>' +
              '<td>' + pill(p.band) + '</td>';
     });
@@ -1070,12 +1153,9 @@
     }
 
     fillRows('#kpi1AllPeople tbody', rows, function (p) {
-      return '<td>' + escapeHtml(p.name) + '</td>' +
+      return '<td class="name">' + escapeHtml(p.name) + '</td>' +
              '<td>' + escapeHtml(p.department) + '</td>' +
-             '<td class="r">' + p.received + '</td>' +
-             '<td class="r">' + p.completed + '</td>' +
-             '<td class="r">' + p.delayed + '</td>' +
-             '<td class="r">' + p.successful + '</td>' +
+             num(p.received) + num(p.completed) + num(p.delayed) + num(p.successful) +
              '<td class="r">' + fmt(p.rate) + '%</td>' +
              '<td>' + pill(p.band) + '</td>';
     });
@@ -1120,8 +1200,8 @@
       const right = chart.chartArea.right;
 
       ctx.save();
-      ctx.strokeStyle = opts.color || '#64748b';
-      ctx.lineWidth = 2;                       // solid: dashes read as noise
+      ctx.strokeStyle = opts.color || '#1e3a5f';
+      ctx.lineWidth = 1.5;                     // solid: dashes read as noise
       ctx.beginPath();
       ctx.moveTo(left, at);
       ctx.lineTo(right, at);
@@ -1131,16 +1211,16 @@
         // Drawn in the gutter reserved by layout.padding.right, so the badge
         // can never sit on top of a bar. Overlapping the data would be worse
         // than having no label at all.
-        ctx.font = '600 10px -apple-system, "Segoe UI", Roboto, sans-serif';
-        const width = ctx.measureText(opts.label).width + 10;
-        ctx.fillStyle = opts.color || '#64748b';
+        ctx.font = '700 9.5px -apple-system, "Segoe UI", Roboto, sans-serif';
+        const width = ctx.measureText(opts.label).width + 14;
+        ctx.fillStyle = opts.color || '#1e3a5f';
         ctx.beginPath();
-        ctx.roundRect(right + 6, at - 8, width, 16, 3);
+        ctx.roundRect(right + 8, at - 9, width, 18, 9);
         ctx.fill();
         ctx.fillStyle = '#fff';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText(opts.label, right + 6 + width / 2, at);
+        ctx.fillText(opts.label, right + 8 + width / 2, at);
       }
       ctx.restore();
     }
@@ -1161,7 +1241,9 @@
       const suffix = opts.suffix || '';
 
       ctx.save();
-      ctx.font = '600 10px -apple-system, "Segoe UI", Roboto, sans-serif';
+      // Text tokens, never the series colour: a label wearing the mark's hue
+      // is unreadable the moment that hue is a light one.
+      ctx.font = '700 10.5px -apple-system, "Segoe UI", Roboto, sans-serif';
       ctx.fillStyle = '#14202e';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'bottom';
@@ -1202,20 +1284,82 @@
    * every chart here does.
    */
   function bandColour(band) {
-    if (band === 'GREEN') return '#16a34a';
+    if (band === 'GREEN') return '#0ca30c';
     if (band === 'YELLOW') return '#fab219';
-    if (band === 'RED') return '#dc2626';
+    if (band === 'RED') return '#d03b3b';
     return '#8496a8';
   }
 
   const SERIES = ['#2a78d6', '#eb6834', '#1baf7a', '#4a3aa7'];
 
-  /** Shared axis/grid styling — recessive, so the data reads first. */
+  /**
+   * Mark specs, applied to every bar in the app.
+   *
+   * 24px is a cap, not a width: a bar that fills its slot reads as a solid
+   * block of colour rather than as a measurement, and four sections across a
+   * wide card were rendering 64px slabs. The leftover space is deliberate.
+   */
+  const BAR = {
+    borderRadius: { topLeft: 4, topRight: 4, bottomLeft: 0, bottomRight: 0 },
+    borderSkipped: false,
+    maxBarThickness: 24
+  };
+
+  const AXIS_FONT = { size: 11, family: '-apple-system, "Segoe UI", Roboto, sans-serif' };
+
+  /** Shared axis/grid styling — hairline and recessive, so the data reads first. */
   function gridStyle() {
     return {
-      grid: { color: '#e8edf3', drawBorder: false },
-      ticks: { color: '#6b7c8d', font: { size: 11 } }
+      border: { display: false },
+      grid: { color: '#eaeff5', drawTicks: false, lineWidth: 1 },
+      ticks: { color: '#7b8b9d', font: AXIS_FONT, padding: 8 }
     };
+  }
+
+  /** X axis: no grid at all — the bars sit on the baseline, that is enough. */
+  function categoryAxis() {
+    return {
+      border: { display: false },
+      grid: { display: false },
+      ticks: { color: '#5a6b7d', font: AXIS_FONT, padding: 6 }
+    };
+  }
+
+  /** Tooltip styling, shared so every chart behaves the same on hover. */
+  function tooltipStyle(callbacks) {
+    return {
+      backgroundColor: '#14202e',
+      titleFont: { size: 12, weight: '600' },
+      bodyFont: { size: 12 },
+      padding: 10,
+      cornerRadius: 6,
+      displayColors: false,
+      callbacks: callbacks
+    };
+  }
+
+
+  /**
+   * Shows a message in place of a chart.
+   *
+   * Needed because an axis auto-scaled to all-zero data draws 0.1 … 1.0 ticks
+   * for a count that can only be a whole number. It looks broken, and it says
+   * nothing — where "no delays at all" is the best news the month has.
+   */
+  function chartMessage(canvasId, html) {
+    const box = document.getElementById(canvasId + 'Empty');
+    const canvas = document.getElementById(canvasId);
+
+    if (html) {
+      if (charts[canvasId]) { charts[canvasId].destroy(); delete charts[canvasId]; }
+      if (canvas) canvas.hidden = true;
+      if (box) { box.innerHTML = html; box.hidden = false; }
+      return true;
+    }
+
+    if (canvas) canvas.hidden = false;
+    if (box) box.hidden = true;
+    return false;
   }
 
 
@@ -1232,10 +1376,13 @@
     const note = document.getElementById('chartRateNote');
 
     if (!rows.length) {
-      if (charts.chartRate) { charts.chartRate.destroy(); delete charts.chartRate; }
+      chartMessage('chartRate',
+        '<p>No section data for this month. Upload the section exports to see ' +
+        'the breakdown.</p>');
       if (note) note.textContent = 'No section data for this month.';
       return;
     }
+    chartMessage('chartRate', null);
 
     const lowest = Math.min.apply(null, rows.map(function (r) { return r.rate; })
                                              .concat([k.target]));
@@ -1251,37 +1398,32 @@
       type: 'bar',
       data: {
         labels: rows.map(function (r) { return shortLabel(r.name); }),
-        datasets: [{
+        datasets: [Object.assign({
           label: 'Success rate',
           data: rows.map(function (r) { return round2(r.rate); }),
-          backgroundColor: rows.map(function (r) { return bandColour(r.band); }),
-          borderRadius: 4,
-          borderSkipped: false,
-          maxBarThickness: 64
-        }]
+          backgroundColor: rows.map(function (r) { return bandColour(r.band); })
+        }, BAR)]
       },
       options: {
         responsive: true,
         maintainAspectRatio: false,
-        layout: { padding: { top: 22, right: 86 } },   // gutter for the target badge
+        layout: { padding: { top: 24, right: 74 } },   // gutter for the target badge
         scales: {
           y: Object.assign({ min: floor, max: 100.4 }, gridStyle()),
-          x: { grid: { display: false }, ticks: { color: '#6b7c8d', font: { size: 11 } } }
+          x: categoryAxis()
         },
         plugins: {
           legend: { display: false },          // one series — the title names it
-          tooltip: {
-            callbacks: {
-              label: function (item) {
-                const row = rows[item.dataIndex];
-                return [
-                  'Success rate: ' + fmt(row.rate) + '%',
-                  'Band: ' + row.band,
-                  'Completed: ' + row.completed + ' · delayed: ' + row.delayed
-                ];
-              }
+          tooltip: tooltipStyle({
+            label: function (item) {
+              const row = rows[item.dataIndex];
+              return [
+                'Success rate: ' + fmt(row.rate) + '%',
+                'Band: ' + row.band,
+                'Completed: ' + row.completed + ' · delayed: ' + row.delayed
+              ];
             }
-          },
+          }),
           targetLine: { value: k.target, label: 'Target ' + k.target + '%' },
           valueLabels: { enabled: true, decimals: 2, suffix: '%' }
         }
@@ -1296,41 +1438,53 @@
     const rows = k.departments.length ? k.departments : k.parts;
 
     if (!rows.length) {
-      if (charts.chartDelay) { charts.chartDelay.destroy(); delete charts.chartDelay; }
+      chartMessage('chartDelay', '<p>No section data for this month.</p>');
       return;
     }
+
+    // Every section at zero. Plotting that draws four invisible bars under a
+    // fractional axis; saying it plainly is both truer and better news.
+    const worst = Math.max.apply(null, rows.map(function (r) { return r.delayed; }));
+    if (worst === 0) {
+      chartMessage('chartDelay',
+        '<div class="big">0</div>' +
+        '<p>No ticket in any section was completed past its due date this month.</p>');
+      return;
+    }
+    chartMessage('chartDelay', null);
 
     drawChart('chartDelay', {
       type: 'bar',
       data: {
         labels: rows.map(function (r) { return shortLabel(r.name); }),
-        datasets: [{
+        datasets: [Object.assign({
           label: 'Delayed tickets',
           data: rows.map(function (r) { return r.delayed; }),
-          backgroundColor: SERIES[0],
-          borderRadius: 4,
-          borderSkipped: false,
-          maxBarThickness: 64
-        }]
+          backgroundColor: SERIES[0]
+        }, BAR)]
       },
       options: {
         responsive: true,
         maintainAspectRatio: false,
-        layout: { padding: { top: 22 } },
+        layout: { padding: { top: 24 } },
         scales: {
-          y: Object.assign({ beginAtZero: true, ticks: { precision: 0 } }, gridStyle()),
-          x: { grid: { display: false }, ticks: { color: '#6b7c8d', font: { size: 11 } } }
+          // suggestedMax keeps a lone delay from filling the card, and
+          // stepSize 1 stops Chart.js subdividing a count into halves.
+          y: Object.assign({
+            beginAtZero: true,
+            suggestedMax: Math.max(4, worst + 1),
+            ticks: { precision: 0, stepSize: 1, color: '#7b8b9d', font: AXIS_FONT, padding: 8 }
+          }, { border: { display: false }, grid: { color: '#eaeff5', drawTicks: false } }),
+          x: categoryAxis()
         },
         plugins: {
           legend: { display: false },
-          tooltip: {
-            callbacks: {
-              label: function (item) {
-                const row = rows[item.dataIndex];
-                return row.delayed + ' delayed of ' + row.completed + ' completed';
-              }
+          tooltip: tooltipStyle({
+            label: function (item) {
+              const row = rows[item.dataIndex];
+              return row.delayed + ' delayed of ' + row.completed + ' completed';
             }
-          },
+          }),
           valueLabels: { enabled: true, decimals: 0 }
         }
       },
@@ -1376,14 +1530,19 @@
         })
       );
 
-      return {
+      // Colour follows the month, never its position in the sorted result —
+      // dropping a month must not repaint the ones that remain.
+      return Object.assign({
         label: formatMonth(month),
         data: data,
         backgroundColor: SERIES[index % SERIES.length],
-        borderRadius: 4,
-        borderSkipped: false,
-        maxBarThickness: 34
-      };
+        // The months of one section belong together, so they sit side by side
+        // with a hairline of surface between them; the air goes BETWEEN the
+        // sections instead. Left at the defaults the pair drifts apart and
+        // reads as two unrelated bars.
+        categoryPercentage: 0.55,
+        barPercentage: 0.9
+      }, BAR, { maxBarThickness: 22 });
     });
 
     drawChart('chartCompare', {
@@ -1392,26 +1551,24 @@
       options: {
         responsive: true,
         maintainAspectRatio: false,
-        layout: { padding: { top: 22, right: 86 } },   // gutter for the target badge
+        layout: { padding: { top: 22, right: 74 } },   // gutter for the target badge
         scales: {
           y: Object.assign({ min: floor, max: 100.4 }, gridStyle()),
-          x: { grid: { display: false }, ticks: { color: '#6b7c8d', font: { size: 11 } } }
+          x: categoryAxis()
         },
         plugins: {
           // Two or more series, so a legend is required.
           legend: {
             position: 'bottom',
-            labels: { boxWidth: 10, boxHeight: 10, usePointStyle: true,
-                      pointStyle: 'circle', color: '#5a6b7d', font: { size: 11 } }
+            labels: { boxWidth: 8, boxHeight: 8, usePointStyle: true, padding: 16,
+                      pointStyle: 'circle', color: '#5a6b7d', font: AXIS_FONT }
           },
-          tooltip: {
-            callbacks: {
-              label: function (item) {
-                return item.dataset.label + ': ' +
-                       (item.raw === null ? 'no data' : fmt(item.raw) + '%');
-              }
+          tooltip: Object.assign(tooltipStyle({
+            label: function (item) {
+              return item.dataset.label + ': ' +
+                     (item.raw === null ? 'no data' : fmt(item.raw) + '%');
             }
-          },
+          }), { displayColors: true, usePointStyle: true }),
           targetLine: { value: c.target, label: 'Target ' + c.target + '%' },
           valueLabels: { enabled: false }      // too dense with 4 months x 5 groups
         }
@@ -1451,11 +1608,16 @@
           '<canvas id="gauge' + index + '"></canvas>' +
           '<div class="gauge-centre" id="gaugeCentre' + index + '"></div>' +
         '</div>' +
+        // A swatch beside each row, so the band a number belongs to is
+        // readable without matching it back to a slice by colour alone.
         '<div class="gauge-bands">' +
-          '<span><b>&ge; ' + kpi.target + kpi.unit + '</b> green</span>' +
-          '<span><b>' + kpi.yellowFloor + ' – ' + (round2(kpi.target - 0.01)) +
+          '<span><i style="background:' + bandColour('GREEN') + '"></i>' +
+            '<b>&ge; ' + kpi.target + kpi.unit + '</b> green</span>' +
+          '<span><i style="background:' + bandColour('YELLOW') + '"></i>' +
+            '<b>' + kpi.yellowFloor + ' – ' + (round2(kpi.target - 0.01)) +
             kpi.unit + '</b> yellow</span>' +
-          '<span><b>&lt; ' + kpi.yellowFloor + kpi.unit + '</b> red</span>' +
+          '<span><i style="background:' + bandColour('RED') + '"></i>' +
+            '<b>&lt; ' + kpi.yellowFloor + kpi.unit + '</b> red</span>' +
         '</div>';
       grid.appendChild(cell);
 
@@ -1496,20 +1658,41 @@
         }
       });
 
-      // Centre reading, when this KPI has a figure for the month on screen.
+    });
+
+    updateGaugeCentres();
+  }
+
+
+  /**
+   * Writes the reading in the middle of each ring.
+   *
+   * Split out of drawThresholdGauges because the two run at different times:
+   * the rings are built once from the bootstrap, before any month has loaded,
+   * so every centre would sit on "no month loaded" forever. This runs again
+   * whenever KPI 1 data arrives, and only rewrites four small divs rather than
+   * destroying and rebuilding four canvases.
+   */
+  function updateGaugeCentres() {
+    const list = (state.boot && state.boot.kpiList) || [];
+
+    list.forEach(function (kpi, index) {
       const centre = document.getElementById('gaugeCentre' + index);
+      if (!centre) return;
+
       const actual = currentValueFor(kpi);
 
       if (actual === null) {
         centre.innerHTML = '<strong style="color:var(--text-mut)">—</strong>' +
                            '<span>' + (kpi.active ? 'no month loaded' : 'awaiting data') + '</span>';
-      } else {
-        const band = actual >= kpi.target ? 'GREEN'
-                   : (actual >= kpi.yellowFloor ? 'YELLOW' : 'RED');
-        centre.innerHTML =
-          '<strong style="color:' + bandColour(band) + '">' + fmt(actual) + kpi.unit + '</strong>' +
-          '<span>' + escapeHtml(formatMonth(state.month || '')) + '</span>';
+        return;
       }
+
+      const band = actual >= kpi.target ? 'GREEN'
+                 : (actual >= kpi.yellowFloor ? 'YELLOW' : 'RED');
+      centre.innerHTML =
+        '<strong style="color:' + bandColour(band) + '">' + fmt(actual) + kpi.unit + '</strong>' +
+        '<span>' + escapeHtml(formatMonth(state.month || '')) + '</span>';
     });
   }
 
@@ -1746,11 +1929,8 @@
       previous = t.rate;
 
       tr.innerHTML =
-        '<td>' + escapeHtml(formatMonth(month)) + '</td>' +
-        '<td class="r">' + t.received + '</td>' +
-        '<td class="r">' + t.completed + '</td>' +
-        '<td class="r">' + t.delayed + '</td>' +
-        '<td class="r">' + t.successful + '</td>' +
+        '<td class="name">' + escapeHtml(formatMonth(month)) + '</td>' +
+        num(t.received) + num(t.completed) + num(t.delayed) + num(t.successful) +
         '<td class="r">' + fmt(t.rate) + '%</td>' +
         '<td class="r">' + fmt(t.achievement) + '%</td>' +
         '<td>' + pill(t.band) + '</td>' +
@@ -1852,6 +2032,18 @@
     if (el) el.value = value;
   }
 
+  /**
+   * A numeric table cell.
+   *
+   * Zeros are dimmed. In a healthy month almost every Delayed column is zero,
+   * and a wall of full-strength zeros makes the two rows that matter harder to
+   * find, not easier.
+   */
+  function num(value) {
+    return '<td class="r' + (Number(value) === 0 ? ' zero' : '') + '">' + value + '</td>';
+  }
+
+
   function setCount(id, shown, total, noun) {
     const el = document.getElementById(id);
     if (!el) return;
@@ -1876,14 +2068,6 @@
     const text = document.getElementById('liveText');
     if (dot) dot.classList.toggle('is-busy', !isLive);
     if (text) text.textContent = isLive ? 'Live' : 'Error';
-  }
-
-  function tile(label, value, note, cls) {
-    return '<div class="tile' + (cls ? ' ' + cls : '') + '">' +
-             '<div class="tile-label">' + escapeHtml(label) + '</div>' +
-             '<div class="tile-value">' + value + '</div>' +
-             '<div class="tile-note">' + note + '</div>' +
-           '</div>';
   }
 
   function pill(band) {
