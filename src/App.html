@@ -830,12 +830,11 @@
     state.kpi = k;
 
     const basisBox = document.getElementById('kpi1Basis');
-    const hero = document.getElementById('kpi1Hero');
+    const tiles = document.getElementById('kpi1Tiles');
 
     if (!k || !k.hasData) {
       basisBox.hidden = true;
-      hero.innerHTML = '<div class="hero-empty">No data for this month</div>';
-      hero.style.removeProperty('--hero-accent');
+      tiles.innerHTML = '<div class="tile tile-empty"><span>No data for this month</span></div>';
       emptyTable('#kpi1Table tbody', 9, 'Upload an ITSM export to see results.');
       emptyTable('#kpi1People tbody', 7, 'Nothing to show yet.');
       emptyTable('#kpi1AllPeople tbody', 8, 'Nothing to show yet.');
@@ -844,7 +843,7 @@
     }
 
     renderBasis(k, basisBox);
-    renderHero(k, hero);
+    renderTiles(k, tiles);
     drawRateChart(k);
     drawDelayChart(k);
     fillSectionFilters(k.departments);
@@ -889,109 +888,120 @@
 
 
   /**
-   * The hero panel.
+   * Line-art icons for the tiles, as SVG path data.
    *
-   * One large figure, because there is one question: did the month clear the
-   * target? Six equal tiles gave "Received" the same visual weight as the rate
-   * the KPI is actually about, so the answer had to be hunted for.
-   *
-   * The meter underneath is the delay BUDGET, not the rate.
-   *
-   * A meter of the percentage itself is useless here: every plausible value
-   * sits in the last 1% of the scale, so the bar is always full. What the rate
-   * cannot say is how close the month came to the edge. At a 99.50% target,
-   * 2,640 completed tickets buy exactly 13 delays; August used 11 of them.
-   * That is the same fact as "headroom +2", drawn to scale.
-   *
-   * The arithmetic needs no extra server field: headroom is defined as
-   * successful − ceil(target% × completed), so delayed + headroom is the
-   * permitted count.
+   * Inline rather than an icon font or a CDN sprite: Apps Script serves one
+   * HTML document and the CSP here blocks most external hosts, so anything
+   * fetched at runtime is a request that can fail. These cannot.
    */
-  function renderHero(k, container) {
+  const TILE_ICONS = {
+    target: '<circle cx="8" cy="8" r="6"/><circle cx="8" cy="8" r="2.6"/>' +
+            '<path d="M8 .8v1.6M8 13.6v1.6M.8 8h1.6M13.6 8h1.6"/>',
+    trend:  '<path d="M2 11.2l3.7-3.7 2.6 2.6L14 4.4"/><path d="M10.6 4.4H14V7.8"/>',
+    shield: '<path d="M8 1.4l5 2v3.9c0 3.1-2.1 5.7-5 7.2-2.9-1.5-5-4.1-5-7.2V3.4z"/>' +
+            '<path d="M5.9 8.1l1.5 1.5 2.8-3"/>',
+    inbox:  '<path d="M2 9.4h3.1l1 1.9h3.8l1-1.9H14"/>' +
+            '<path d="M2 9.4l1.7-6a1.1 1.1 0 0 1 1-.8h6.6a1.1 1.1 0 0 1 1 .8l1.7 6v3.1a1.1 1.1 0 0 1-1.1 1.1H3.1A1.1 1.1 0 0 1 2 12.5z"/>',
+    check:  '<circle cx="8" cy="8" r="6.1"/><path d="M5.3 8.2l1.9 1.9 3.5-3.8"/>',
+    clock:  '<circle cx="8" cy="8" r="6.1"/><path d="M8 4.3V8.2l2.5 1.6"/>'
+  };
+
+
+  /**
+   * The six headline figures.
+   *
+   * Order matches the reading order of the KPI itself: the rate, how that
+   * rate scores against target, how much room is left, then the three counts
+   * the rate is computed from.
+   *
+   * `tone` is a colour family, not decoration. The first three carry a state
+   * and take the reserved status hues; the last three are plain counts with
+   * no good or bad about them, so they take neutral families that can never
+   * be mistaken for a band.
+   */
+  function renderTiles(k, container) {
     const t = k.total;
-    const cls = bandClass(t.band);
+    const band = bandClass(t.band);          // 'g' | 'a' | 'r'
 
-    container.style.setProperty('--hero-accent', bandColour(t.band));
-
+    // At a 99.50% target, N completed tickets buy a fixed number of delays.
+    // headroom is successful - ceil(target% x completed), so delayed +
+    // headroom is that permitted count — no extra server field needed.
     const allowed = t.delayed + t.headroom;
-    const used = t.delayed;
-    // Over budget still fills the bar — you cannot use 110% of a track.
-    const usedPct = allowed > 0 ? Math.min(100, (used / allowed) * 100)
-                                : (used > 0 ? 100 : 0);
-
-    let budgetNote;
-    if (allowed <= 0) {
-      budgetNote = 'This month is too small for any delay to be permitted at ' +
-                   k.target + '%.';
-    } else if (t.headroom > 0) {
-      budgetNote = used + ' of ' + allowed + ' permitted delay' +
-                   (allowed === 1 ? '' : 's') + ' used';
-    } else if (t.headroom === 0) {
-      budgetNote = 'all ' + allowed + ' permitted delay' +
-                   (allowed === 1 ? '' : 's') + ' used — on the edge';
-    } else {
-      budgetNote = used + ' delays against ' + allowed + ' permitted — ' +
-                   Math.abs(t.headroom) + ' over';
-    }
+    const usedPct = allowed > 0 ? Math.min(100, (t.delayed / allowed) * 100)
+                                : (t.delayed > 0 ? 100 : 0);
 
     let headroomNote;
     if (t.headroom > 0) {
-      headroomNote = t.headroom + ' more delay' + (t.headroom === 1 ? '' : 's') +
-                     ' before the band drops';
+      headroomNote = t.delayed + ' of ' + allowed + ' permitted delay' +
+                     (allowed === 1 ? '' : 's') + ' used';
     } else if (t.headroom === 0) {
       headroomNote = 'on the edge — one more delay drops the band';
     } else {
       headroomNote = Math.abs(t.headroom) + ' fewer delays needed to reach target';
     }
 
+    // Kept short on purpose: this note has to fit one line, or the tallest
+    // tile stretches all six.
     const gap = round2(t.rate - k.target);
-    const gapText = gap >= 0
-      ? '+' + fmt(gap) + ' points above target'
-      : fmt(Math.abs(gap)) + ' points below target';
+    const gapText = (gap >= 0 ? '+' : '−') + fmt(Math.abs(gap)) + ' pts';
+
+    const headroomTone = t.headroom > 0 ? 'g' : (t.headroom === 0 ? 'a' : 'r');
 
     container.innerHTML =
-      '<div class="hero-main">' +
-        '<div class="hero-label">Actual success rate · ' +
-          escapeHtml(formatMonth(k.month || state.month || '')) + '</div>' +
-        '<div class="hero-figure-row">' +
-          '<span class="hero-figure">' + fmt(t.rate) + '%</span>' +
-          '<span class="chip ' + cls + '">' + escapeHtml(t.band) + '</span>' +
-        '</div>' +
-        '<p class="hero-sub"><b>' + fmt(t.achievement) + '%</b> KPI achievement · ' +
-          escapeHtml(gapText) + '</p>' +
-
-        '<div class="meter">' +
-          '<div class="meter-head">' +
-            '<span>Delay budget</span>' +
-            '<span>' + escapeHtml(budgetNote) + '</span>' +
-          '</div>' +
-          '<div class="meter-track">' +
-            '<div class="meter-fill" style="width:' + usedPct.toFixed(2) + '%"></div>' +
-          '</div>' +
-          '<div class="meter-scale">' +
-            '<span>0 delays</span>' +
-            '<span>' + (allowed > 0 ? allowed + ' permitted at ' + k.target + '%' : '') + '</span>' +
-          '</div>' +
-        '</div>' +
-      '</div>' +
-
-      '<div class="hero-side">' +
-        heroCell('Headroom', (t.headroom > 0 ? '+' : '') + t.headroom, headroomNote,
-                 t.headroom > 0 ? 'g' : (t.headroom === 0 ? 'a' : 'r')) +
-        heroCell('Delayed', count(t.delayed),
-                 count(t.successful) + ' completed on time', t.delayed ? 'a' : 'g') +
-        heroCell('Completed', count(t.completed),
-                 count(Math.max(0, t.received - t.completed)) + ' still open', '') +
-        heroCell('Received', count(t.received), 'tickets this month', '') +
-      '</div>';
+      tile({
+        label: 'Success Rate', icon: 'target', tone: band,
+        value: fmt(t.rate) + '%',
+        note: '<span class="pill ' + band + '">' + escapeHtml(t.band) + '</span>'
+      }) +
+      tile({
+        label: 'KPI Achievement', icon: 'trend', tone: band,
+        value: fmt(t.achievement) + '%',
+        note: escapeHtml('target ' + k.target + '% · ' + gapText)
+      }) +
+      tile({
+        label: 'Headroom', icon: 'shield', tone: headroomTone,
+        value: (t.headroom > 0 ? '+' : '') + t.headroom,
+        note: escapeHtml(headroomNote),
+        // A hairline of the delay budget, drawn to scale. The number above
+        // says how much room is left; this says how much of it has gone.
+        bar: allowed > 0 ? usedPct : null
+      }) +
+      tile({
+        label: 'Received', icon: 'inbox', tone: 'blue',
+        value: count(t.received), note: 'tickets this month'
+      }) +
+      tile({
+        label: 'Completed', icon: 'check', tone: 'teal',
+        value: count(t.completed),
+        note: count(Math.max(0, t.received - t.completed)) + ' still open'
+      }) +
+      tile({
+        label: 'Delayed', icon: 'clock', tone: t.delayed ? 'a' : 'g',
+        value: count(t.delayed),
+        note: count(t.successful) + ' completed on time'
+      });
   }
 
 
-  function heroCell(label, value, note, cls) {
-    return '<div class="hero-cell">' +
-             '<div class="k">' + escapeHtml(label) + '</div>' +
-             '<div class="v' + (cls ? ' ' + cls : '') + '">' + value + '</div>' +
-             '<div class="n">' + escapeHtml(note) + '</div>' +
+  /**
+   * One tile.
+   *
+   * `note` is inserted as HTML so a caller can pass a pill; every caller that
+   * passes plain text escapes it first.
+   */
+  function tile(o) {
+    return '<div class="tile t-' + o.tone + '">' +
+             '<div class="tile-top">' +
+               '<span class="tile-ico" aria-hidden="true">' +
+                 '<svg viewBox="0 0 16 16">' + TILE_ICONS[o.icon] + '</svg>' +
+               '</span>' +
+               '<span class="tile-label">' + escapeHtml(o.label) + '</span>' +
+             '</div>' +
+             '<div class="tile-value">' + o.value + '</div>' +
+             '<div class="tile-note">' + o.note + '</div>' +
+             (typeof o.bar === 'number'
+               ? '<div class="tile-bar"><i style="width:' + o.bar.toFixed(1) + '%"></i></div>'
+               : '') +
            '</div>';
   }
 
