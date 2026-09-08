@@ -148,7 +148,9 @@
     cursor: pointer; transition: background .12s, color .12s;
     position: relative;
   }
-  .nav-item:hover { background: rgba(255,255,255,.07); color: #fff; }
+  .nav-item:hover { background: rgba(255,255,255,.09); color: #fff; }
+  .nav-item:hover svg { transform: scale(1.08); }
+  .nav-item svg { transition: transform .14s ease; }
   .nav-item.is-active {
     background: rgba(37,99,235,.9); color: #fff; font-weight: 600;
     box-shadow: 0 3px 12px -4px rgba(37,99,235,.9);
@@ -215,7 +217,10 @@
     margin-bottom: 14px;
     overflow: hidden;
   }
-  .hero-main { padding: 22px 26px 24px; position: relative; }
+  .hero-main {
+    padding: 22px 26px 24px; position: relative;
+    background: linear-gradient(135deg, #ffffff 0%, #fbfcfe 55%, #f6f9fd 100%);
+  }
   /* A 3px band-coloured spine — the state of the KPI, readable at any zoom. */
   .hero-main::before {
     content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 4px;
@@ -289,7 +294,9 @@
   .hero-cell {
     padding: 16px 18px;
     border-bottom: 1px solid var(--border);
+    transition: background .14s ease;
   }
+  .hero-cell:hover { background: #eef3fa; }
   .hero-cell:nth-child(odd) { border-right: 1px solid var(--border); }
   .hero-cell:nth-last-child(-n+2) { border-bottom: 0; }
   .hero-cell .k {
@@ -425,7 +432,8 @@
     font-family: inherit; font-size: 12px; font-weight: 700; cursor: pointer;
     transition: background .12s;
   }
-  .btn-open:hover { background: var(--navy-500); }
+  .btn-open:hover { background: var(--navy-500); box-shadow: 0 3px 10px -3px rgba(30,58,95,.7); }
+  .btn-open:active { transform: translateY(1px); }
   .btn-icon {
     width: 30px; height: 30px; border-radius: 50%;
     display: grid; place-items: center; cursor: pointer;
@@ -435,25 +443,60 @@
   .btn-icon svg { width: 14px; height: 14px; stroke: currentColor; fill: none;
                   stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
   .btn-icon.is-primary { background: var(--blue-500); border-color: var(--blue-500); color: #fff; }
+  .btn-icon:hover { transform: translateY(-1px); box-shadow: 0 3px 8px -2px rgba(20,32,46,.28); }
+  .btn-icon:active { transform: translateY(0); }
   .btn-icon.is-primary:hover { background: var(--blue-600); }
   .btn-icon.is-danger:hover { border-color: var(--red); color: var(--red); background: var(--red-bg); }
   .btn-open:focus-visible, .btn-icon:focus-visible { outline: 2px solid var(--blue-500); outline-offset: 2px; }
 
   /* ---------------- controls ---------------- */
   .select, .btn {
-    font-family: inherit; font-size: 13px;
+    font-family: inherit; font-size: 13px; font-weight: 500;
     padding: 8px 12px; border-radius: var(--radius-sm);
     border: 1px solid var(--border-str); background: var(--surface); color: var(--text);
-    cursor: pointer; transition: border-color .12s, background .12s, box-shadow .12s;
+    cursor: pointer;
+    transition: border-color .14s, background .14s, box-shadow .14s, transform .08s;
   }
-  .select:hover, .btn:hover { border-color: #adc0d6; }
-  .select:focus-visible, .btn:focus-visible { outline: 2px solid var(--blue-500); outline-offset: 1px; }
+  .select:hover, .btn:hover {
+    border-color: #9db3cd;
+    box-shadow: 0 1px 3px rgba(20,32,46,.08);
+  }
+  /* A soft ring rather than a hard outline — same job, less shouting. */
+  .select:focus-visible, .btn:focus-visible {
+    outline: none;
+    border-color: var(--blue-500);
+    box-shadow: 0 0 0 3px rgba(37,99,235,.18);
+  }
+  .btn:active { transform: translateY(1px); }
+
+  /*
+    Custom dropdown arrow. The browser's own arrow is drawn by the OS and
+    looks like a 2005 form control next to everything else here. The chevron
+    is a data: URI so it costs no request and cannot be blocked by the CSP.
+  */
+  select.select {
+    appearance: none; -webkit-appearance: none; -moz-appearance: none;
+    padding-right: 32px;
+    background-image: url("data:image/svg+xml;charset=utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%235a6b7d' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 6.5L8 10.5l4-4'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+    background-size: 14px 14px;
+  }
+  select.select:disabled {
+    background-color: var(--surface-2); color: var(--text-mut); cursor: not-allowed;
+  }
+
   .btn-ghost:hover { background: var(--blue-050); border-color: var(--blue-500); color: var(--navy-700); }
   .btn-primary {
-    background: var(--blue-500); border-color: var(--blue-500); color: #fff; font-weight: 600;
-    box-shadow: 0 2px 8px -2px rgba(37,99,235,.6);
+    background: linear-gradient(180deg, #2f6ef0 0%, var(--blue-500) 100%);
+    border-color: var(--blue-500); color: #fff; font-weight: 600;
+    box-shadow: 0 2px 8px -2px rgba(37,99,235,.55);
   }
-  .btn-primary:hover { background: var(--blue-600); border-color: var(--blue-600); }
+  .btn-primary:hover {
+    background: linear-gradient(180deg, var(--blue-500) 0%, var(--blue-600) 100%);
+    border-color: var(--blue-600);
+    box-shadow: 0 4px 14px -3px rgba(37,99,235,.6);
+  }
 
   /* ---------------- per-table filter row ---------------- */
   /*
@@ -480,13 +523,29 @@
     box-shadow: var(--shadow);
     margin-bottom: 14px;
     overflow: hidden;
+    transition: box-shadow .18s ease, border-color .18s ease, transform .18s ease;
   }
+  .card:hover {
+    box-shadow: var(--shadow-lg);
+    border-color: var(--border-str);
+  }
+  /* Only the charts lift. Lifting a long table under the cursor is motion
+     sickness, not delight. */
+  .chart-card:hover { transform: translateY(-2px); }
+
   .card-head {
     padding: 13px 18px;
     border-bottom: 1px solid var(--border);
     font-size: 10.5px; font-weight: 700; letter-spacing: .11em;
     text-transform: uppercase; color: var(--navy-700);
     background: var(--surface);
+    display: flex; align-items: center; gap: 9px;
+  }
+  /* A short accent rule in front of the label — reads as a section marker
+     without adding another line of text. */
+  .card-head::before {
+    content: ''; width: 3px; height: 13px; border-radius: 2px;
+    background: var(--blue-500); flex: 0 0 3px;
   }
   .table-wrap { overflow-x: auto; }
   table { width: 100%; border-collapse: collapse; font-size: 13px; }
@@ -501,8 +560,18 @@
     padding: 10px 16px; border-top: 1px solid var(--border);
     font-variant-numeric: tabular-nums;
   }
+  tbody tr { transition: background .12s ease; }
   tbody tr:nth-child(even) td { background: #fafcfe; }
   tbody tr:hover td { background: var(--blue-050); }
+  /* Tracking a 9-column row is much easier with a marker at its start. */
+  tbody tr td:first-child { position: relative; }
+  tbody tr td:first-child::before {
+    content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+    background: var(--blue-500);
+    transform: scaleY(0); transform-origin: center;
+    transition: transform .16s ease;
+  }
+  tbody tr:hover td:first-child::before { transform: scaleY(1); }
   /* A column of zeros should recede — the non-zero values are the signal. */
   td.zero { color: var(--text-mut); }
   td.empty { text-align: center; color: var(--text-mut); padding: 30px; font-style: italic; background: var(--surface) !important; }
@@ -511,7 +580,10 @@
   .pill {
     display: inline-block; padding: 3px 9px; border-radius: 999px;
     font-size: 10px; font-weight: 700; letter-spacing: .05em;
+    border: 1px solid transparent;
+    transition: box-shadow .14s ease;
   }
+  tbody tr:hover .pill { box-shadow: 0 1px 4px rgba(20,32,46,.14); }
   .pill.g { background: var(--green-bg); color: var(--green-ink); }
   .pill.a { background: var(--amber-bg); color: var(--amber-ink); }
   .pill.r { background: var(--red-bg);   color: var(--red-ink); }
@@ -538,7 +610,12 @@
     border: 2px dashed var(--border-str); border-radius: var(--radius);
     text-align: center; cursor: pointer; transition: border-color .15s, background .15s;
   }
-  .dropzone:hover, .dropzone.is-over { border-color: var(--blue-500); background: var(--blue-050); }
+  .dropzone:hover, .dropzone.is-over {
+    border-color: var(--blue-500); background: var(--blue-050);
+    box-shadow: inset 0 0 0 4px rgba(37,99,235,.05);
+  }
+  .dropzone:hover .dropzone-ico, .dropzone.is-over .dropzone-ico { transform: translateY(-3px); }
+  .dropzone-ico { transition: transform .18s ease; }
   .dropzone-ico { font-size: 26px; color: var(--blue-500); margin-bottom: 6px; }
   .dropzone p { margin: 2px 0; font-size: 13px; }
   .muted { color: var(--text-mut); font-size: 12px; }
@@ -552,9 +629,47 @@
     animation: spin .8s linear infinite;
   }
   @keyframes spin { to { transform: rotate(360deg); } }
+
+  /*
+    Views fade up as they appear. Small enough that it registers as
+    responsiveness rather than as an animation you have to wait for.
+  */
+  @keyframes riseIn {
+    from { opacity: 0; transform: translateY(6px); }
+    to   { opacity: 1; transform: none; }
+  }
+  .view:not([hidden]) { animation: riseIn .22s ease both; }
+
+  /*
+    Scrollbars. The OS default is a wide grey slab that fights the palette;
+    these match the page. Firefox takes the two-value form, WebKit the
+    pseudo-elements — both are ignored where unsupported.
+  */
+  * { scrollbar-width: thin; scrollbar-color: #c3d1e0 transparent; }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    background: #c3d1e0; border-radius: 999px;
+    border: 3px solid transparent; background-clip: content-box;
+  }
+  ::-webkit-scrollbar-thumb:hover { background: #9db3cd; background-clip: content-box; }
+  .sidebar-inner { scrollbar-color: #33456a transparent; }
+  .sidebar-inner::-webkit-scrollbar-thumb { background: #33456a; background-clip: content-box; }
+
+  /*
+    One switch turns every bit of motion off. Anyone who has asked their OS
+    for reduced motion has asked for a reason, and a KPI dashboard is not the
+    place to argue with them.
+  */
   @media (prefers-reduced-motion: reduce) {
-    .spinner { animation-duration: 2.4s; }
-    .meter-fill { transition: none; }
+    *, *::before, *::after {
+      animation-duration: .001ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: .001ms !important;
+      scroll-behavior: auto !important;
+    }
+    .spinner { animation-duration: 2.4s !important; animation-iteration-count: infinite !important; }
+    .chart-card:hover { transform: none; }
   }
 
   .kv { display: grid; grid-template-columns: max-content 1fr; gap: 9px 20px; margin: 0; padding: 18px; font-size: 13px; }

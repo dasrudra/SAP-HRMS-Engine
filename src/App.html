@@ -882,7 +882,7 @@
     box.className = 'notice notice-warn';
     box.innerHTML =
       '<h3>Scored from the overall report</h3>' +
-      '<p>No section exports loaded for this month, so all ' + k.basis.total +
+      '<p>No section exports loaded for this month, so all ' + count(k.basis.total) +
       ' tickets were counted — including work by individuals outside EAS. ' +
       'Upload the section files for the accurate departmental figure.</p>';
   }
@@ -978,11 +978,11 @@
       '<div class="hero-side">' +
         heroCell('Headroom', (t.headroom > 0 ? '+' : '') + t.headroom, headroomNote,
                  t.headroom > 0 ? 'g' : (t.headroom === 0 ? 'a' : 'r')) +
-        heroCell('Delayed', t.delayed,
-                 t.successful + ' completed on time', t.delayed ? 'a' : 'g') +
-        heroCell('Completed', t.completed,
-                 Math.max(0, t.received - t.completed) + ' still open', '') +
-        heroCell('Received', t.received, 'tickets this month', '') +
+        heroCell('Delayed', count(t.delayed),
+                 count(t.successful) + ' completed on time', t.delayed ? 'a' : 'g') +
+        heroCell('Completed', count(t.completed),
+                 count(Math.max(0, t.received - t.completed)) + ' still open', '') +
+        heroCell('Received', count(t.received), 'tickets this month', '') +
       '</div>';
   }
 
@@ -2004,8 +2004,8 @@
       info.innerHTML =
         '<dt>Version</dt><dd>' + escapeHtml(boot.appVersion) + '</dd>' +
         '<dt>Sections</dt><dd>' + boot.departments.length + '</dd>' +
-        '<dt>Tickets stored</dt><dd>' + stats.tickets + '</dd>' +
-        '<dt>Uploads logged</dt><dd>' + stats.uploads + '</dd>';
+        '<dt>Tickets stored</dt><dd>' + count(stats.tickets) + '</dd>' +
+        '<dt>Uploads logged</dt><dd>' + count(stats.uploads) + '</dd>';
     }
   }
 
@@ -2040,7 +2040,22 @@
    * find, not easier.
    */
   function num(value) {
-    return '<td class="r' + (Number(value) === 0 ? ' zero' : '') + '">' + value + '</td>';
+    return '<td class="r' + (Number(value) === 0 ? ' zero' : '') + '">' +
+           count(value) + '</td>';
+  }
+
+
+  /**
+   * A whole number with thousands separators: 2640 -> "2,640".
+   *
+   * en-US is pinned rather than left to the viewer's locale. The figures on
+   * screen get read out in meetings against the ITSM's own reports, which
+   * print 2,640 — a browser set to a locale that groups differently would
+   * quietly disagree with the source.
+   */
+  function count(value) {
+    const n = Number(value);
+    return isFinite(n) ? n.toLocaleString('en-US') : String(value);
   }
 
 
