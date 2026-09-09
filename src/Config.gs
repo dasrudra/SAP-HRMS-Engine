@@ -55,7 +55,13 @@ const CONFIG = {
 
     // Financial and EAS existed before the split and still do.
     { key: 'FIN', name: 'Financial Applications',     match: 'financial',     era: 'both'    },
-    { key: 'EAS', name: 'EAS (Team Lead)',            match: 'eas',           era: 'both'    },
+
+    // 'EAS' names two things and that is not a mistake: the department as a
+    // whole, and the section the team lead's own tickets sit in. They live in
+    // different columns of KPI_MONTHLY — Scope Type 'EAS' is the departmental
+    // total, Scope Type 'DEPARTMENT' with the value 'EAS' is this section —
+    // so nothing collides.
+    { key: 'EAS', name: 'EAS',                       match: 'eas',           era: 'both'    },
 
     // ---- historical, JANUARY to JULY 2026 ----
     // Everyone outside Financial sat in one Functional section. It was split
@@ -141,7 +147,7 @@ const CONFIG = {
       'Md. Ariful Islam Srabon',
       'Intesarul Haque'
     ],
-    'EAS (Team Lead)': [
+    'EAS': [
       'Utpal Biswas'                  // EAS lead; his own section throughout
     ]
   },
@@ -158,7 +164,7 @@ const CONFIG = {
     'Sales Applications':         'Functional Applications',
     'SCM Applications':           'Functional Applications',
     'Financial Applications':     'Financial Applications',
-    'EAS (Team Lead)':            'EAS (Team Lead)'
+    'EAS':            'EAS'
   },
 
   /**

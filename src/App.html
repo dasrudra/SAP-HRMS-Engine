@@ -410,12 +410,16 @@
     const lower = String(fileName).toLowerCase();
     const sections = (state.boot && state.boot.departments) || [];
 
-    // Longest match wins, so 'Financial_...' cannot be claimed by a shorter
+    // Matched at a word boundary, not as a bare substring: 'eas' is three
+    // letters and sits inside 'release', 'measure' and plenty more. Longest
+    // match wins too, so 'Financial_...' cannot be claimed by a shorter
     // pattern that happens to appear inside it.
     let best = '';
     let bestLength = 0;
     sections.forEach(function (s) {
-      if (s.match && lower.indexOf(s.match) !== -1 && s.match.length > bestLength) {
+      if (!s.match || s.match.length <= bestLength) return;
+      const bounded = new RegExp('(^|[^a-z])' + s.match + '([^a-z]|$)');
+      if (bounded.test(lower)) {
         best = s.name;
         bestLength = s.match.length;
       }
