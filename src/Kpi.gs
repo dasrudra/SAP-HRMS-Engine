@@ -75,7 +75,15 @@ function recomputeKpiCache() {
 
     // Department breakdown only makes sense when department files were loaded.
     if (usingDept) {
-      groupBy(scored, COL.DEPARTMENT).forEach(function (entry) {
+      // Grouped by the SECTION THE PERSON BELONGED TO THAT MONTH, not by the
+      // Department column the upload wrote. See sectionFor() in Config.gs:
+      // the column records what a file claimed, the roster decides what is
+      // true, and the two differ for a combined export, for the pre-August
+      // months, and for the three people whose module role is not their
+      // section.
+      groupByKey(scored, function (row) {
+        return sectionFor(row[COL.IN_CHARGE], month, row[COL.DEPARTMENT]);
+      }).forEach(function (entry) {
         out.push(kpiRow(month, 'DEPARTMENT', entry.key, entry.rows, kpi, computedAt));
       });
     }
@@ -88,9 +96,15 @@ function recomputeKpiCache() {
 
     // Each individual is tagged with their department so the screen can filter
     // the individuals table by department without a second lookup.
-    groupBy(scored, COL.IN_CHARGE).forEach(function (entry) {
-      const dept = String(entry.rows[0][COL.DEPARTMENT] || '').trim();
-      out.push(kpiRow(month, 'PERSON', (dept ? dept + ' :: ' : '') + entry.key,
+    groupByKey(scored, function (row) {
+      // Group on the matched key, not the raw name, so 'Md. Jafar Ullah' and
+      // 'Md.Jafar Ullah' are one person rather than two half-rows.
+      return matchPerson(row[COL.IN_CHARGE]) || String(row[COL.IN_CHARGE] || '').trim();
+    }).forEach(function (entry) {
+      // Display the name as the ITSM wrote it on the first ticket we saw.
+      const name = String(entry.rows[0][COL.IN_CHARGE] || '').trim() || '(unassigned)';
+      const dept = sectionFor(name, month, entry.rows[0][COL.DEPARTMENT]);
+      out.push(kpiRow(month, 'PERSON', (dept ? dept + ' :: ' : '') + name,
                       entry.rows, kpi, computedAt));
     });
 
@@ -220,9 +234,24 @@ function toNumber(value) {
 
 /** Groups rows by one column, largest group first. */
 function groupBy(rows, columnIndex) {
+  return groupByKey(rows, function (row) { return row[columnIndex]; });
+}
+
+
+/**
+ * Groups by whatever a function returns, rather than by a column.
+ *
+ * Needed because a ticket's section is no longer a value sitting in a cell —
+ * it is derived from who handled it and when (see sectionFor in Config.gs).
+ *
+ * @param {Array[]} rows
+ * @param {Function} keyOf  row -> grouping key
+ * @return {Array<{key: string, rows: Array[]}>} biggest bucket first
+ */
+function groupByKey(rows, keyOf) {
   const buckets = {};
   rows.forEach(function (row) {
-    const key = String(row[columnIndex] || '').trim() || '(unassigned)';
+    const key = String(keyOf(row) || '').trim() || '(unassigned)';
     (buckets[key] = buckets[key] || []).push(row);
   });
   return Object.keys(buckets)
@@ -334,17 +363,43 @@ function getKpi1(month) {
     // EAS is bucketed on scope alone. Its label changes with the basis
     // ('EAS (department exports)' vs 'All tickets (overall report)'), so
     // keying on the name would split one total into two across a mixed range.
-    const key = scopeType === 'EAS' ? 'EAS' : scopeType + '\u0000' + name;
+    //
+    // PERSON is bucketed on the person, NOT on 'Section :: Person'. Someone
+    // who was in Functional until July and Manufacturing from August carries
+    // two different labels across the range, and keying on the whole string
+    // would list them twice — half their year in each row. The individual is
+    // the unit of that table, so one person is one row.
+    let key;
+    let label = name;
+    if (scopeType === 'EAS') {
+      key = 'EAS';
+    } else if (scopeType === 'PERSON') {
+      const split = name.split(' :: ');
+      label = split.length > 1 ? split[1] : split[0];
+      key = 'PERSON\u0000' + label;
+    } else {
+      key = scopeType + '\u0000' + name;
+    }
 
     if (!buckets[key]) {
       buckets[key] = {
-        scope: scopeType, name: name,
+        scope: scopeType, name: label,
+        section: '',
         received: 0, completed: 0, delayed: 0, successful: 0
       };
       order.push(key);
     }
 
     const b = buckets[key];
+
+    if (scopeType === 'PERSON') {
+      // Cache rows are written month-ascending, so the last one wins: a person
+      // is shown under the section they are in NOW, with their whole-period
+      // totals beside it.
+      const split = name.split(' :: ');
+      if (split.length > 1) b.section = split[0];
+    }
+
     b.received   += Number(r[3]) || 0;
     b.completed  += Number(r[4]) || 0;
     b.delayed    += Number(r[5]) || 0;
@@ -380,10 +435,7 @@ function getKpi1(month) {
     } else if (b.scope === 'PART') {
       result.parts.push(entry);
     } else if (b.scope === 'PERSON') {
-      // Stored as 'Department :: Name'; split it back apart.
-      const split = entry.name.split(' :: ');
-      entry.department = split.length > 1 ? split[0] : '';
-      entry.name = split.length > 1 ? split[1] : split[0];
+      entry.department = b.section;
       result.people.push(entry);
     }
   });

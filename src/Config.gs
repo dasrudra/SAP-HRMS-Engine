@@ -48,11 +48,118 @@ const CONFIG = {
    * department a file belongs to (case-insensitive).
    */
   DEPARTMENTS: [
-    { key: 'MFG', name: 'Manufacturing Applications', match: 'manufacturing' },
-    { key: 'SLS', name: 'Sales Applications',         match: 'sales'         },
-    { key: 'SCM', name: 'SCM Applications',           match: 'scm'           },
-    { key: 'FIN', name: 'Financial Applications',     match: 'financial'     }
+    // ---- the four current sections, in place from AUGUST 2026 ----
+    { key: 'MFG', name: 'Manufacturing Applications', match: 'manufacturing', era: 'current' },
+    { key: 'SLS', name: 'Sales Applications',         match: 'sales',         era: 'current' },
+    { key: 'SCM', name: 'SCM Applications',           match: 'scm',           era: 'current' },
+
+    // Financial and EAS existed before the split and still do.
+    { key: 'FIN', name: 'Financial Applications',     match: 'financial',     era: 'both'    },
+    { key: 'EAS', name: 'EAS (Team Lead)',            match: 'eas',           era: 'both'    },
+
+    // ---- historical, JANUARY to JULY 2026 ----
+    // Everyone outside Financial sat in one Functional section. It was split
+    // into Manufacturing, Sales and SCM at the start of August.
+    { key: 'FNC', name: 'Functional Applications',    match: 'functional',    era: 'legacy'  }
   ],
+
+  /**
+   * The month the four current sections came into force.
+   *
+   * Not a guess. The Functional export runs January to July and stops; the
+   * section exports begin in August. A ticket from before this month is
+   * scored against the structure that existed when the work was done — a
+   * January ticket did not belong to a Sales section, because there was none.
+   *
+   * If the cutover date is ever corrected, change it here and re-run
+   * recomputeKpiCache(). No re-upload is needed.
+   */
+  SECTION_ERA_START: '2026-08',
+
+  /**
+   * Who belongs to which section — the EAS org chart, as data.
+   *
+   * THIS IS THE AUTHORITY, not the filename and not the ticket's module.
+   * Three people make that distinction necessary: Md. Nasir Uddin, Nazma Begum
+   * and Sanjib Guha hold MM and MD module roles, so their tickets look like
+   * supply-chain work, but they report into Sales & Customer Applications.
+   * Sorting by module would file them under the wrong section every month.
+   *
+   * It also means a single combined export works: the file need not say which
+   * section it is, because every row carries the individual who handled it.
+   *
+   * Names are spelled as the ITSM writes them, since that is what arrives in
+   * the data. matchPerson() handles the rest — 'Md.Jafar Ullah' with no space,
+   * and 'Muhammad Abul Masum Siddique' where the org chart says 'Md. Abul
+   * Masum Siddique', both resolve.
+   *
+   * To move someone, move their name between these lists and re-run
+   * recomputeKpiCache().
+   */
+  ROSTER: {
+    'Manufacturing Applications': [
+      'Pradip Kumar Nath',            // section head
+      'Shamsul Arefin',
+      'Palash Kusum Nandi',
+      'Md.Jafar Ullah',
+      'Md. Rahim Ullah',
+      'Mohammad Mamunur Rashid',
+      'Rudra Das',
+      'Asma Akter',
+      'Md. Sajjad Hossain Shuvo'
+    ],
+    'Sales Applications': [
+      'Muhammad Abul Masum Siddique', // section head
+      'Lincoln Barua',
+      'Mohammad Abul Kalam',
+      'Tito Das Gupta',
+      'Sanjib Guha',                  // MM/MD module role, Sales section
+      'Nazma Begum',                  // MM/MD module role, Sales section
+      'Mohammad Osman Goni',
+      'Md. Nasir Uddin',              // MM/MD module role, Sales section
+      'Al Muhib Bhuiyan',
+      'Md. Mosharraf Hossain',
+      'Mahfuzur Rahman Bhuiyan'
+    ],
+    'SCM Applications': [
+      'Shanta Aich',
+      'Aungshuman Das',
+      'Sudip Paul',
+      'Jowel Barua',
+      'Md. Ashraful Karim',
+      'Md. Ashraful Islam',           // org chart writes this one 'Ashraful Islam'
+      'Md. Abdullah Al Mamun',
+      'Debobroto Mondol'
+    ],
+    'Financial Applications': [
+      'Abul Bashar',                  // section head
+      'Sushanta Kumar Das',
+      'Syed Wazedul Islam',
+      'Rubel Das',
+      'Ronjoy Chowdhury',
+      'Sadril Ali',
+      'Md. Ariful Islam Srabon',
+      'Intesarul Haque'
+    ],
+    'EAS (Team Lead)': [
+      'Utpal Biswas'                  // EAS lead; his own section throughout
+    ]
+  },
+
+  /**
+   * Where each current section's people sat before the August split.
+   *
+   * Financial and EAS were already their own sections, so they map to
+   * themselves. The other three did not exist — their people were all in
+   * Functional.
+   */
+  PRE_SPLIT_SECTION: {
+    'Manufacturing Applications': 'Functional Applications',
+    'Sales Applications':         'Functional Applications',
+    'SCM Applications':           'Functional Applications',
+    'Financial Applications':     'Financial Applications',
+    'EAS (Team Lead)':            'EAS (Team Lead)'
+  },
 
   /**
    * The four TVL-EAS KPIs, each from its own signed definition sheet.
@@ -232,6 +339,116 @@ function getSpreadsheetId() {
   } catch (e) { /* fall through to the config value */ }
 
   return CONFIG.SPREADSHEET_ID || null;
+}
+
+
+/**
+ * Reduces a person's name to a form that survives the ITSM's spelling.
+ *
+ * The same person appears as 'Md. Jafar Ullah' and 'Md.Jafar Ullah', and as
+ * 'Md. Abul Masum Siddique' on the org chart but 'Muhammad Abul Masum
+ * Siddique' in every export. Matching on the raw string files one person as
+ * two, splitting their tickets across two rows of the individuals table.
+ *
+ * The honorific is the only part collapsed — md / md. / mohammad / muhammad /
+ * mohd all become 'md'. Nothing else is touched, so 'Md. Ashraful Islam' and
+ * 'Md. Ashraful Karim' stay distinct, as do 'Mohammad Abul Kalam' and
+ * 'Muhammad Abul Masum Siddique'. Checked against all 37 names on the chart:
+ * no two collide.
+ *
+ * @param {string} name
+ * @return {string} lookup key, or '' for a blank name
+ */
+function matchPerson(name) {
+  const text = String(name || '').toLowerCase().replace(/[^a-z]+/g, ' ').trim();
+  if (!text) return '';
+  return text.replace(/^(mohammad|muhammad|mohd|md)\b\s*/, 'md ').replace(/\s+/g, '');
+}
+
+
+/**
+ * Person -> current section, built once from CONFIG.ROSTER.
+ *
+ * Cached in a script-global rather than rebuilt per row: recomputeKpiCache()
+ * calls this for every ticket, and there are over twelve thousand of them.
+ */
+let ROSTER_INDEX = null;
+
+function rosterIndex() {
+  if (ROSTER_INDEX) return ROSTER_INDEX;
+
+  const full = {};
+  const bare = {};      // honorific dropped entirely
+  const clash = {};
+
+  Object.keys(CONFIG.ROSTER).forEach(function (section) {
+    CONFIG.ROSTER[section].forEach(function (person) {
+      const key = matchPerson(person);
+      if (!key) return;
+      full[key] = section;
+
+      // A second key with the honorific removed, so a ticket raised against
+      // 'Ashraful Islam' still finds 'Md. Ashraful Islam'. The ITSM writes the
+      // honorific today, but if it ever stops, the symptom would be silent —
+      // that person's tickets would drop into '(unassigned)' and the section
+      // totals would quietly go wrong.
+      const stripped = key.replace(/^md/, '');
+      if (!stripped || stripped === key) return;
+      if (bare[stripped] && bare[stripped] !== section) clash[stripped] = true;
+      bare[stripped] = section;
+    });
+  });
+
+  // The bare form is a fallback, never an override, and any bare form that
+  // two different people share is dropped rather than guessed at.
+  ROSTER_INDEX = { full: full, bare: bare, clash: clash };
+  return ROSTER_INDEX;
+}
+
+
+/**
+ * Which section does this ticket belong to?
+ *
+ * Resolved from WHO handled it and WHEN — never from the module on the ticket
+ * and never from the filename it arrived in.
+ *
+ *   - Who, because three people hold MM/MD module roles while reporting into
+ *     Sales. Their tickets look like supply-chain work and are not.
+ *   - When, because the section a person belongs to today is not the section
+ *     they belonged to in March. Before August 2026 the three current
+ *     application sections did not exist.
+ *
+ * Doing this at scoring time rather than at upload time means the org chart
+ * can be corrected in Config.gs and recomputeKpiCache() re-run, with nothing
+ * to re-upload.
+ *
+ * @param {string} person    Current Activity In Charge
+ * @param {string} month     'YYYY-MM' from the Request Date
+ * @param {string} fallback  the Department recorded at upload, if any
+ * @return {string} section name, or '' when nothing can be determined
+ */
+function sectionFor(person, month, fallback) {
+  const index = rosterIndex();
+  const key = matchPerson(person);
+
+  let current = index.full[key];
+  if (!current && key) {
+    const stripped = key.replace(/^md/, '');
+    if (stripped && !index.clash[stripped]) current = index.bare[stripped];
+  }
+
+  if (!current) {
+    // Someone not on the chart — a leaver, a new joiner, or a name the ITSM
+    // spells in a way matchPerson does not reach. Fall back to whatever the
+    // upload claimed rather than dropping the ticket on the floor.
+    return String(fallback || '').trim();
+  }
+
+  if (month && month < CONFIG.SECTION_ERA_START) {
+    return CONFIG.PRE_SPLIT_SECTION[current] || current;
+  }
+
+  return current;
 }
 
 

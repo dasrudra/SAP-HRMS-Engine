@@ -396,13 +396,31 @@
 
 
   /** Which EAS section, judged from the filename. */
+  /**
+   * Guesses a section from the filename.
+   *
+   * A hint, not the answer — the section that ends up on the dashboard comes
+   * from the roster, keyed on who handled each ticket. This only matters for
+   * an individual the org chart does not list, where the filename is the last
+   * thing left to go on.
+   *
+   * Returns '' for a combined export, which is expected and fine.
+   */
   function detectSection(fileName) {
     const lower = String(fileName).toLowerCase();
     const sections = (state.boot && state.boot.departments) || [];
-    for (let i = 0; i < sections.length; i++) {
-      if (lower.indexOf(sections[i].match) !== -1) return sections[i].name;
-    }
-    return '';
+
+    // Longest match wins, so 'Financial_...' cannot be claimed by a shorter
+    // pattern that happens to appear inside it.
+    let best = '';
+    let bestLength = 0;
+    sections.forEach(function (s) {
+      if (s.match && lower.indexOf(s.match) !== -1 && s.match.length > bestLength) {
+        best = s.name;
+        bestLength = s.match.length;
+      }
+    });
+    return best;
   }
 
 
@@ -577,20 +595,24 @@
       const type = detectReportType(parsed.headers);
       const section = type === 'INDIVIDUAL' ? detectSection(parsed.fileName) : '';
 
-      if (type === 'INDIVIDUAL' && !section) {
-        throw new Error('Cannot tell which section "' + parsed.fileName +
-                        '" belongs to. Expected the section name in the filename.');
-      }
+      // A filename with no section in it is no longer an error. Every section
+      // is resolved from the individual who handled the ticket (see
+      // sectionFor in Config.gs), so one combined export of all four sections
+      // works exactly as well as four separate ones — and the filename is
+      // only ever a hint for people who are not on the org chart.
 
       const rows = normalizeRows(parsed, type, section);
       perFile.push(rows);
 
       meta.fileNames.push(parsed.fileName);
       meta.reportTypes.push(type);
-      if (section) meta.departments.push(section);
+      // 'All sections' rather than a blank, so the upload log says plainly
+      // that this file was not one section's export.
+      const label = type === 'INDIVIDUAL' ? (section || 'All sections') : '';
+      if (label) meta.departments.push(label);
       meta.totalRows += rows.length;
 
-      summary.push({ name: parsed.fileName, type: type, dept: section, rows: rows.length });
+      summary.push({ name: parsed.fileName, type: type, dept: label, rows: rows.length });
       setStatus('Read ' + (i + 1) + ' of ' + files.length + ' file(s)…', null, summary);
     }
 
