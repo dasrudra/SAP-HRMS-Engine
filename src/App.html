@@ -38,6 +38,10 @@
     // re-run it instead of dropping you on an empty panel.
     compareRan: false,
 
+    // Every month, for the trend chart. Fetched once — it only changes when
+    // something is uploaded, and the uploads screen reloads the page anyway.
+    trend: null,
+
     // Filter values read back from the URL before the dropdowns they belong to
     // exist. Applied once the data lands and the options are built.
     pending: null,
@@ -201,6 +205,10 @@
     // every time you tab back — the rendered tables are still in the DOM,
     // hidden rather than destroyed.
     if (name === 'compare' && state.compareRan && !state.compare) runComparison();
+
+    // The trend is not part of the comparison and does not wait for the
+    // Compare button: it is the backdrop the comparison sits against.
+    if (name === 'compare') loadTrend();
   }
 
 
@@ -1599,6 +1607,176 @@
   }
 
 
+  /**
+   * Line colours for the trend chart — one per section.
+   *
+   * Not the same list as SERIES. This chart sits in a dashboard whose whole
+   * language is green / yellow / red, so a green or yellow LINE would read as
+   * a band rather than as a section. Both are avoided; the sixth slot is a
+   * brown that cannot be mistaken for anything.
+   *
+   * Validated against white: worst adjacent CVD ΔE 17.1, normal-vision 20.4.
+   * Teal replaces the palette's aqua for that reason — it lifts the worst
+   * colour-blind pair from 9.2 to 17.1.
+   *
+   * Magenta sits at 2.69:1 contrast, below the 3:1 bar, so the relief rule
+   * applies: the legend names every line and the two tables below carry every
+   * value, so identity never rests on hue alone.
+   */
+  const TREND_LINES = [
+    '#2a78d6',   // blue
+    '#eb6834',   // orange
+    '#0891b2',   // teal
+    '#4a3aa7',   // violet
+    '#e87ba4',   // magenta
+    '#7c3f00'    // brown
+  ];
+
+  /** The departmental total. Ink, not a series hue — it is not a peer. */
+  const TREND_TOTAL = '#14202e';
+
+
+  /**
+   * Every month uploaded, as lines. Never filtered by the pickers above.
+   *
+   * The bar chart and the two tables answer "how did these months compare?".
+   * This answers "what has the year done?", and narrowing the comparison to
+   * three months should not hide the other six. Loaded once per session and
+   * kept, since it only changes when something is uploaded.
+   */
+  function loadTrend() {
+    const months = (state.boot && state.boot.availableMonths) || [];
+
+    if (months.length < 2) {
+      const card = document.getElementById('cmpTrendCard');
+      if (card) card.hidden = true;
+      return;
+    }
+
+    if (state.trend) { drawTrendChart(state.trend); return; }
+
+    // Oldest first: a trend reads left to right.
+    callServer('getKpiComparison', months.slice().sort())
+      .then(function (c) { state.trend = c; drawTrendChart(c); })
+      .catch(onError);
+  }
+
+
+  function drawTrendChart(c) {
+    const card = document.getElementById('cmpTrendCard');
+    if (!card) return;
+
+    if (!c || !c.months.length) { card.hidden = true; return; }
+    card.hidden = false;
+
+    const months = c.months.slice().sort();
+    const labels = months.map(shortMonth);
+
+    // Window the axis the same way the bar charts do — on a 0-100 scale every
+    // line would sit flat against the ceiling and the shape would vanish.
+    let lowest = c.target;
+    months.forEach(function (m) {
+      const t = c.totals[m];
+      if (t && t.completed) lowest = Math.min(lowest, t.rate);
+      c.sections.forEach(function (s) {
+        const e = (c.bySection[s] || {})[m];
+        if (e && e.completed) lowest = Math.min(lowest, e.rate);
+      });
+    });
+
+    // Down to the nearest half point below the lowest line, rather than the
+    // nearest whole point minus one. Over nine months the looser floor left
+    // roughly a third of the plot empty and squashed every line into the top
+    // band, which is the one thing a trend chart must not do.
+    const floor = Math.max(0, Math.floor((lowest - 0.3) * 2) / 2);
+
+    const note = document.getElementById('cmpTrendNote');
+    if (note) {
+      note.textContent = months.length + ' months, ' + shortMonth(months[0]) + ' to ' +
+        shortMonth(months[months.length - 1]) + '. Axis starts at ' + floor +
+        '%. A line stops where its section did — Functional ended when the ' +
+        'new sections began.';
+    }
+
+    const datasets = [];
+
+    // The departmental total leads: heavier, in ink, drawn on top.
+    datasets.push({
+      label: 'EAS overall',
+      data: months.map(function (m) {
+        const t = c.totals[m];
+        return t && t.completed ? round2(t.rate) : null;
+      }),
+      borderColor: TREND_TOTAL,
+      backgroundColor: TREND_TOTAL,
+      borderWidth: 3,
+      pointRadius: 4.5,
+      pointHoverRadius: 7,
+      pointBackgroundColor: TREND_TOTAL,
+      pointBorderColor: '#ffffff',
+      pointBorderWidth: 2,          // 2px surface ring, so points stay legible
+      tension: 0,
+      order: 0
+    });
+
+    c.sections.forEach(function (section, i) {
+      const colour = TREND_LINES[i % TREND_LINES.length];
+      datasets.push({
+        label: section.replace(' Applications', ''),
+        data: months.map(function (m) {
+          const e = (c.bySection[section] || {})[m];
+          return e && e.completed ? round2(e.rate) : null;
+        }),
+        borderColor: colour,
+        backgroundColor: colour,
+        borderWidth: 2,
+        pointRadius: 3.5,
+        pointHoverRadius: 6,
+        pointBackgroundColor: colour,
+        pointBorderColor: '#ffffff',
+        pointBorderWidth: 2,
+        tension: 0,
+        // A gap is the truth: Functional has no August, the new sections have
+        // no January. Joining across it would draw a line through nothing.
+        spanGaps: false,
+        order: i + 1
+      });
+    });
+
+    drawChart('chartTrend', {
+      type: 'line',
+      data: { labels: labels, datasets: datasets },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        layout: { padding: { top: 18, right: 74 } },
+        interaction: { mode: 'index', intersect: false },
+        scales: {
+          y: Object.assign({ min: floor, max: 100.4 }, gridStyle()),
+          x: categoryAxis()
+        },
+        plugins: {
+          legend: {
+            position: 'bottom',
+            labels: { boxWidth: 8, boxHeight: 8, usePointStyle: true, padding: 14,
+                      pointStyle: 'circle', color: '#5a6b7d', font: AXIS_FONT }
+          },
+          // Index mode: one hover shows every section for that month, which is
+          // the only practical way to read seven converging lines.
+          tooltip: Object.assign(tooltipStyle({
+            label: function (item) {
+              return item.dataset.label + ': ' +
+                     (item.raw === null ? 'no data' : fmt(item.raw) + '%');
+            }
+          }), { displayColors: true, usePointStyle: true }),
+          targetLine: { value: c.target, label: 'Target ' + c.target + '%' }
+        }
+      },
+      plugins: [targetLinePlugin]
+    });
+  }
+
+
   /** Grouped bars: sections across, one colour per month. */
   function drawCompareChart(c) {
     const card = document.getElementById('cmpChartCard');
@@ -1897,6 +2075,8 @@
         '<h3>Nothing compared yet</h3>' +
         '<p>Choose two or more months above and press Compare Dashboards.</p>';
 
+      // state.trend is deliberately untouched: Clear resets the comparison,
+      // and the trend is not part of it.
       state.compare = null;
       state.compareRan = false;
       saveState();
@@ -2214,6 +2394,16 @@
                        escapeHtml(message) + '</td></tr>';
     }
   }
+
+  /** 'Jan 26' — short enough that nine months fit across one axis. */
+  function shortMonth(key) {
+    const names = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const parts = String(key).split('-');
+    const index = parseInt(parts[1], 10) - 1;
+    if (!names[index]) return String(key);
+    return names[index] + ' ' + String(parts[0]).slice(2);
+  }
+
 
   function formatMonth(key) {
     if (key === ALL_MONTHS) return 'All months';

@@ -342,6 +342,24 @@
           <div class="chart-box chart-box-tall"><canvas id="chartCompare"></canvas></div>
         </div>
 
+        <!--
+          The trend. Deliberately NOT governed by the month pickers above —
+          it always plots every month uploaded, so the selection can narrow
+          the comparison without losing sight of the shape of the year.
+        -->
+        <div class="card chart-card" id="cmpTrendCard" hidden>
+          <div class="chart-head">
+            <div>
+              <h2>Success rate over time — every month</h2>
+              <p id="cmpTrendNote">One line per section across the whole period.</p>
+            </div>
+          </div>
+          <div class="chart-box chart-box-tall">
+            <canvas id="chartTrend"></canvas>
+            <div class="chart-empty" id="chartTrendEmpty" hidden></div>
+          </div>
+        </div>
+
         <div class="card" id="cmpOverallCard" hidden>
           <div class="card-head">KPI 1 — overall by month</div>
           <div class="table-wrap">
