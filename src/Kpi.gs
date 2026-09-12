@@ -291,6 +291,54 @@ const ALL_MONTHS = 'ALL';
 
 
 /**
+ * Which months does a scope cover?
+ *
+ * A scope is one of three shapes:
+ *   'ALL'        every month in the cache
+ *   '2026-Q3'    the three months of a company quarter
+ *   '2026-08'    one month
+ *
+ * Quarters follow the company calendar: Q1 Jan-Mar, Q2 Apr-Jun, Q3 Jul-Sep,
+ * Q4 Oct-Dec.
+ *
+ * @param {string} scope
+ * @return {Object|null} a lookup of wanted months, or null for 'every month'
+ */
+function monthsInScope(scope) {
+  const text = String(scope || '').trim();
+  if (!text || text === ALL_MONTHS) return null;
+
+  const quarter = text.match(/^(\d{4})-Q([1-4])$/);
+  if (quarter) {
+    const year = quarter[1];
+    const first = (Number(quarter[2]) - 1) * 3 + 1;
+    const wanted = {};
+    for (let i = 0; i < 3; i++) {
+      wanted[year + '-' + String(first + i).padStart(2, '0')] = true;
+    }
+    return wanted;
+  }
+
+  const single = {};
+  single[text] = true;
+  return single;
+}
+
+
+/**
+ * The quarter a month falls in: '2026-08' -> '2026-Q3'.
+ *
+ * @param {string} month 'YYYY-MM'
+ * @return {string} 'YYYY-Qn', or '' if unreadable
+ */
+function quarterOf(month) {
+  const parts = String(month || '').match(/^(\d{4})-(\d{2})$/);
+  if (!parts) return '';
+  return parts[1] + '-Q' + (Math.floor((Number(parts[2]) - 1) / 3) + 1);
+}
+
+
+/**
  * Everything the KPI 1 screen needs, read from the cache.
  *
  * WHY AN ALL-MONTHS FIGURE IS NOT AN AVERAGE
@@ -310,6 +358,11 @@ const ALL_MONTHS = 'ALL';
 function getKpi1(month) {
   const kpi = CONFIG.KPI.RESOLUTION;
   const everyMonth = (month === ALL_MONTHS);
+
+  // null means "take every month"; otherwise a lookup of the ones wanted.
+  // One month, a quarter's three, or all of them go down the same path — the
+  // summing below does not care how many months it was handed.
+  const wanted = monthsInScope(month);
 
   const result = {
     month: month,
@@ -343,7 +396,7 @@ function getKpi1(month) {
     // and nothing ever matches. monthKey normalises Date and text alike.
     const rowMonth = monthKey(r[0]);
     if (!rowMonth) return;
-    if (!everyMonth && rowMonth !== month) return;
+    if (wanted && !wanted[rowMonth]) return;
 
     monthsSeen[rowMonth] = true;
 

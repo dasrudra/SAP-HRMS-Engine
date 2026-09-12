@@ -236,6 +236,14 @@
         <div class="card">
           <div class="card-head">By individuals</div>
           <div class="table-filter">
+            <!--
+              Scope is this table's alone. Every other panel on the page stays
+              on the month chosen at the top; only these rows re-scope, which
+              is what "quarterly individual data" asks for.
+            -->
+            <select id="fAllScope" class="select" title="Period">
+              <option value="">Follow the page</option>
+            </select>
             <select id="fAllPerson" class="select" title="Individual">
               <option value="">All individuals</option>
             </select>

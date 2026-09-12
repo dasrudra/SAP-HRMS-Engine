@@ -42,6 +42,12 @@
     // something is uploaded, and the uploads screen reloads the page anyway.
     trend: null,
 
+    // The By Individuals table scopes itself, independently of the month
+    // picker. Holds the getKpi1() result for the chosen quarter, or null when
+    // that table is simply following the page.
+    scopePeople: null,
+    scopeKey: '',
+
     // Filter values read back from the URL before the dropdowns they belong to
     // exist. Applied once the data lands and the options are built.
     pending: null,
@@ -87,6 +93,7 @@
     }
 
     fillMonthPicker(boot.availableMonths);
+    fillScopeFilter(boot.availableMonths);
     fillCompareMonths(boot.availableMonths);
     fillSettings(boot);
 
@@ -225,7 +232,7 @@
    * mechanism exists to prevent.
    */
   const TRACKED_CONTROLS = [
-    'fSection', 'fDelayPerson', 'fDelayName', 'fAllPerson', 'fAllName',
+    'fSection', 'fDelayPerson', 'fDelayName', 'fAllScope', 'fAllPerson', 'fAllName',
     'cmpKpi', 'cmpM1', 'cmpM2', 'cmpM3', 'cmpM4'
   ];
 
@@ -665,6 +672,7 @@
     const boot = await callServer('getBootstrap');
     state.boot = boot;
     fillMonthPicker(boot.availableMonths);
+    fillScopeFilter(boot.availableMonths);
     fillCompareMonths(boot.availableMonths);
     fillSettings(boot);
     loadUploads();
@@ -919,11 +927,16 @@
     // The options exist now, so a filter saved before the refresh can finally
     // be put back. Has to happen here, between building the dropdowns and
     // drawing the tables — any earlier and the <select> has nothing to match.
-    applyPendingTo(['fSection', 'fDelayPerson', 'fDelayName', 'fAllPerson', 'fAllName']);
+    applyPendingTo(['fSection', 'fDelayPerson', 'fDelayName', 'fAllScope',
+                    'fAllPerson', 'fAllName']);
 
     applySectionFilter();
     applyDelayFilter();
-    applyAllFilter();
+
+    // The individuals table may be pinned to a quarter — restored from the URL
+    // or left over from a previous month. applyScopeFilter fetches it when
+    // needed and falls through to applyAllFilter either way.
+    if (getValue('fAllScope')) applyScopeFilter(); else applyAllFilter();
 
     // The settings rings show the selected month's figure, so they follow it.
     updateGaugeCentres();
@@ -1129,11 +1142,12 @@
       applyDelayFilter(); saveState();
     });
 
+    bind('fAllScope', 'change', applyScopeFilter);
     bind('fAllPerson', 'change', function () { applyAllFilter(); saveState(); });
     bind('fAllName', 'input', function () { applyAllFilter(); saveState(); });
     bind('fAllReset', 'click', function () {
-      setValue('fAllPerson', ''); setValue('fAllName', '');
-      applyAllFilter(); saveState();
+      setValue('fAllPerson', ''); setValue('fAllName', ''); setValue('fAllScope', '');
+      applyScopeFilter();          // clears the period and redraws
     });
   }
 
@@ -1248,10 +1262,24 @@
   }
 
 
-  /** Everyone, busiest first. */
+  /**
+   * Everyone, busiest first.
+   *
+   * The only table on the page that can be looking at a different period from
+   * everything around it — state.scopePeople holds a quarter when one is
+   * chosen, and state.kpi is the page's month otherwise.
+   */
   function applyAllFilter() {
-    const k = state.kpi;
-    if (!k || !k.hasData) return;
+    const k = state.scopePeople || state.kpi;
+    if (!k || !k.hasData) {
+      if (state.scopePeople === null && getValue('fAllScope')) {
+        // A quarter was picked and it holds nothing.
+        setCount('cAll', 0, 0, 'individuals');
+        return emptyTable('#kpi1AllPeople tbody', 8,
+          'No tickets in ' + quarterLabel(getValue('fAllScope')) + '.');
+      }
+      return;
+    }
 
     const rows = filterPeople(k.people, 'fAllPerson', 'fAllName')
                    .sort(function (a, b) { return b.received - a.received; });
@@ -1301,7 +1329,10 @@
     id: 'targetLine',
     afterDatasetsDraw: function (chart, args, opts) {
       if (!opts || typeof opts.value !== 'number') return;
-      const y = chart.scales.y;
+
+      // The combo chart has two y scales, so the caller names the one the
+      // target belongs to. Everything else has a single 'y' and says nothing.
+      const y = chart.scales[opts.scaleId || 'y'];
       if (!y || opts.value < y.min || opts.value > y.max) return;
 
       const ctx = chart.ctx;
@@ -1607,42 +1638,29 @@
   }
 
 
-  /**
-   * Line colours for the trend chart — one per section.
-   *
-   * Not the same list as SERIES. This chart sits in a dashboard whose whole
-   * language is green / yellow / red, so a green or yellow LINE would read as
-   * a band rather than as a section. Both are avoided; the sixth slot is a
-   * brown that cannot be mistaken for anything.
-   *
-   * Validated against white: worst adjacent CVD ΔE 17.1, normal-vision 20.4.
-   * Teal replaces the palette's aqua for that reason — it lifts the worst
-   * colour-blind pair from 9.2 to 17.1.
-   *
-   * Magenta sits at 2.69:1 contrast, below the 3:1 bar, so the relief rule
-   * applies: the legend names every line and the two tables below carry every
-   * value, so identity never rests on hue alone.
-   */
-  const TREND_LINES = [
-    '#2a78d6',   // blue
-    '#eb6834',   // orange
-    '#0891b2',   // teal
-    '#4a3aa7',   // violet
-    '#e87ba4',   // magenta
-    '#7c3f00'    // brown
-  ];
-
-  /** The departmental total. Ink, not a series hue — it is not a peer. */
-  const TREND_TOTAL = '#14202e';
+  /** Volume bars. */
+  const TREND_BAR = '#2a78d6';
+  /** The rate line, on its own axis. */
+  const TREND_LINE = '#eb6834';
 
 
   /**
-   * Every month uploaded, as lines. Never filtered by the pickers above.
+   * EAS overall across every month uploaded: volume as bars, rate as a line.
    *
-   * The bar chart and the two tables answer "how did these months compare?".
-   * This answers "what has the year done?", and narrowing the comparison to
-   * three months should not hide the other six. Loaded once per session and
-   * kept, since it only changes when something is uploaded.
+   * TWO SCALES, ONE PLOT — the one thing to be careful about here. Tickets
+   * completed runs in the thousands and the success rate sits between 98 and
+   * 100, so they cannot share an axis. The risk of a dual axis is that the two
+   * scales are aligned arbitrarily and the chart appears to show a
+   * relationship — "volume went up, the rate fell" — that is an artefact of
+   * where the axes were put, not something in the data.
+   *
+   * Two things hold it honest. The rate axis is anchored to the 99.50% target
+   * rule, so the line is read against a fixed policy threshold rather than
+   * against the bars. And each axis is titled in its series' own colour, so
+   * which mark belongs to which scale is never in question.
+   *
+   * Never governed by the month pickers: narrowing the comparison to three
+   * months should not hide the other six.
    */
   function loadTrend() {
     const months = (state.boot && state.boot.availableMonths) || [];
@@ -1672,104 +1690,115 @@
     const months = c.months.slice().sort();
     const labels = months.map(shortMonth);
 
-    // Window the axis the same way the bar charts do — on a 0-100 scale every
-    // line would sit flat against the ceiling and the shape would vanish.
-    let lowest = c.target;
-    months.forEach(function (m) {
+    const completed = months.map(function (m) {
       const t = c.totals[m];
-      if (t && t.completed) lowest = Math.min(lowest, t.rate);
-      c.sections.forEach(function (s) {
-        const e = (c.bySection[s] || {})[m];
-        if (e && e.completed) lowest = Math.min(lowest, e.rate);
-      });
+      return t ? t.completed : 0;
+    });
+    const rates = months.map(function (m) {
+      const t = c.totals[m];
+      return t && t.completed ? round2(t.rate) : null;
     });
 
-    // Down to the nearest half point below the lowest line, rather than the
-    // nearest whole point minus one. Over nine months the looser floor left
-    // roughly a third of the plot empty and squashed every line into the top
-    // band, which is the one thing a trend chart must not do.
+    // Window the rate axis. On a 0-100 scale the line would sit flat against
+    // the ceiling every month and the shape would vanish.
+    let lowest = c.target;
+    rates.forEach(function (r) { if (r !== null) lowest = Math.min(lowest, r); });
     const floor = Math.max(0, Math.floor((lowest - 0.3) * 2) / 2);
 
     const note = document.getElementById('cmpTrendNote');
     if (note) {
       note.textContent = months.length + ' months, ' + shortMonth(months[0]) + ' to ' +
-        shortMonth(months[months.length - 1]) + '. Axis starts at ' + floor +
-        '%. A line stops where its section did — Functional ended when the ' +
-        'new sections began.';
+        shortMonth(months[months.length - 1]) +
+        '. Bars are tickets completed (left axis); the line is the success ' +
+        'rate against the ' + c.target + '% target (right axis, starting at ' +
+        floor + '%).';
     }
 
-    const datasets = [];
-
-    // The departmental total leads: heavier, in ink, drawn on top.
-    datasets.push({
-      label: 'EAS overall',
-      data: months.map(function (m) {
-        const t = c.totals[m];
-        return t && t.completed ? round2(t.rate) : null;
-      }),
-      borderColor: TREND_TOTAL,
-      backgroundColor: TREND_TOTAL,
-      borderWidth: 3,
-      pointRadius: 4.5,
-      pointHoverRadius: 7,
-      pointBackgroundColor: TREND_TOTAL,
-      pointBorderColor: '#ffffff',
-      pointBorderWidth: 2,          // 2px surface ring, so points stay legible
-      tension: 0,
-      order: 0
-    });
-
-    c.sections.forEach(function (section, i) {
-      const colour = TREND_LINES[i % TREND_LINES.length];
-      datasets.push({
-        label: section.replace(' Applications', ''),
-        data: months.map(function (m) {
-          const e = (c.bySection[section] || {})[m];
-          return e && e.completed ? round2(e.rate) : null;
-        }),
-        borderColor: colour,
-        backgroundColor: colour,
-        borderWidth: 2,
-        pointRadius: 3.5,
-        pointHoverRadius: 6,
-        pointBackgroundColor: colour,
-        pointBorderColor: '#ffffff',
-        pointBorderWidth: 2,
-        tension: 0,
-        // A gap is the truth: Functional has no August, the new sections have
-        // no January. Joining across it would draw a line through nothing.
-        spanGaps: false,
-        order: i + 1
-      });
-    });
-
     drawChart('chartTrend', {
-      type: 'line',
-      data: { labels: labels, datasets: datasets },
+      type: 'bar',
+      data: {
+        labels: labels,
+        datasets: [
+          {
+            type: 'line',
+            label: 'Success rate',
+            data: rates,
+            yAxisID: 'yRate',
+            borderColor: TREND_LINE,
+            backgroundColor: TREND_LINE,
+            borderWidth: 2.5,
+            pointRadius: 4,
+            pointHoverRadius: 7,
+            pointBackgroundColor: TREND_LINE,
+            pointBorderColor: '#ffffff',
+            pointBorderWidth: 2,      // 2px surface ring keeps points legible
+            tension: 0,               // a monthly rate is a discrete reading
+            order: 0                  // drawn over the bars
+          },
+          {
+            type: 'bar',
+            label: 'Tickets completed',
+            data: completed,
+            yAxisID: 'yVolume',
+            backgroundColor: TREND_BAR,
+            borderRadius: { topLeft: 4, topRight: 4, bottomLeft: 0, bottomRight: 0 },
+            borderSkipped: false,
+            maxBarThickness: 34,
+            order: 1
+          }
+        ]
+      },
       options: {
         responsive: true,
         maintainAspectRatio: false,
-        layout: { padding: { top: 18, right: 74 } },
+        // Room on the right for the target badge AND the rate axis title.
+        layout: { padding: { top: 18, right: 104 } },
         interaction: { mode: 'index', intersect: false },
         scales: {
-          y: Object.assign({ min: floor, max: 100.4 }, gridStyle()),
+          // Volume on the left, from zero — a count must never be truncated.
+          yVolume: Object.assign({
+            position: 'left',
+            beginAtZero: true,
+            title: { display: true, text: 'Tickets completed',
+                     color: TREND_BAR, font: { size: 11, weight: '600' } }
+          }, gridStyle()),
+          // Rate on the right, windowed, with no grid of its own — two sets of
+          // horizontal lines across one plot is noise.
+          yRate: Object.assign({}, gridStyle(), {
+            position: 'right',
+            min: floor,
+            max: 100.4,
+            grid: { drawOnChartArea: false },
+            // No rotated title on this one. It was being overlapped by the
+            // target badge, and it says nothing the other four cues do not:
+            // the ticks, the line, the badge and the subtitle are all orange
+            // and all name the rate.
+            ticks: { color: TREND_LINE, font: AXIS_FONT, padding: 6,
+                     callback: function (v) { return v + '%'; } }
+          }),
           x: categoryAxis()
         },
         plugins: {
           legend: {
             position: 'bottom',
-            labels: { boxWidth: 8, boxHeight: 8, usePointStyle: true, padding: 14,
+            labels: { boxWidth: 9, boxHeight: 9, usePointStyle: true, padding: 16,
                       pointStyle: 'circle', color: '#5a6b7d', font: AXIS_FONT }
           },
-          // Index mode: one hover shows every section for that month, which is
-          // the only practical way to read seven converging lines.
           tooltip: Object.assign(tooltipStyle({
             label: function (item) {
-              return item.dataset.label + ': ' +
-                     (item.raw === null ? 'no data' : fmt(item.raw) + '%');
+              if (item.dataset.yAxisID === 'yRate') {
+                return item.raw === null ? 'Success rate: no data'
+                                         : 'Success rate: ' + fmt(item.raw) + '%';
+              }
+              return 'Completed: ' + count(item.raw) + ' tickets';
             }
           }), { displayColors: true, usePointStyle: true }),
-          targetLine: { value: c.target, label: 'Target ' + c.target + '%' }
+          // Drawn in the LINE's colour, not the usual navy. On a two-scale
+          // plot a neutral rule reads as if it belonged to the left axis —
+          // a volume threshold at 1,050 tickets, which it is not. Wearing the
+          // rate's colour it can only be read against the rate.
+          targetLine: { value: c.target, label: 'Target ' + c.target + '%',
+                        scaleId: 'yRate', color: TREND_LINE }
         }
       },
       plugins: [targetLinePlugin]
@@ -1777,7 +1806,7 @@
   }
 
 
-  /** Grouped bars: sections across, one colour per month. */
+  /** Grouped bars: sections across, one colour per month. */  /** Grouped bars: sections across, one colour per month. */
   function drawCompareChart(c) {
     const card = document.getElementById('cmpChartCard');
     if (!c.sections.length) {
@@ -2394,6 +2423,98 @@
                        escapeHtml(message) + '</td></tr>';
     }
   }
+
+  /**
+   * Fills the By Individuals period dropdown.
+   *
+   * Only quarters that actually contain a loaded month are offered. Listing
+   * Q4 when October has not been uploaded would promise data that is not
+   * there and hand back an empty table, which reads as a bug.
+   */
+  function fillScopeFilter(months) {
+    const select = document.getElementById('fAllScope');
+    if (!select) return;
+
+    const seen = [];
+    (months || []).forEach(function (m) {
+      const q = quarterOf(m);
+      if (q && seen.indexOf(q) === -1) seen.push(q);
+    });
+    seen.sort().reverse();          // newest quarter first
+
+    const previous = select.value;
+    select.innerHTML = '<option value="">Follow the page</option>';
+
+    if (months && months.length > 1) {
+      const all = document.createElement('option');
+      all.value = ALL_MONTHS;
+      all.textContent = 'All months';
+      select.appendChild(all);
+    }
+
+    seen.forEach(function (q) {
+      const option = document.createElement('option');
+      option.value = q;
+      option.textContent = quarterLabel(q);
+      select.appendChild(option);
+    });
+
+    select.value = previous;
+    if (select.value !== previous) select.value = '';
+  }
+
+
+  /** '2026-08' -> '2026-Q3'. Q1 Jan-Mar, Q2 Apr-Jun, Q3 Jul-Sep, Q4 Oct-Dec. */
+  function quarterOf(month) {
+    const parts = String(month || '').match(/^(\d{4})-(\d{2})$/);
+    if (!parts) return '';
+    return parts[1] + '-Q' + (Math.floor((Number(parts[2]) - 1) / 3) + 1);
+  }
+
+
+  /** '2026-Q3' -> 'Q3 2026 · Jul–Sep'. */
+  function quarterLabel(key) {
+    const parts = String(key || '').match(/^(\d{4})-Q([1-4])$/);
+    if (!parts) return String(key);
+    const spans = ['Jan–Mar', 'Apr–Jun', 'Jul–Sep', 'Oct–Dec'];
+    return 'Q' + parts[2] + ' ' + parts[1] + ' · ' + spans[Number(parts[2]) - 1];
+  }
+
+
+  /**
+   * Re-scopes the By Individuals table, and nothing else.
+   *
+   * A quarter is three months summed, which is exactly what getKpi1 already
+   * does for 'ALL' — so the same call serves, with a quarter key instead of
+   * the sentinel. The result is kept apart from state.kpi on purpose: the
+   * tiles, both charts and the other two tables carry on showing the month
+   * chosen at the top of the page.
+   */
+  function applyScopeFilter() {
+    const scope = getValue('fAllScope');
+
+    if (!scope) {
+      state.scopePeople = null;
+      state.scopeKey = '';
+      applyAllFilter();
+      saveState();
+      return;
+    }
+
+    if (state.scopeKey === scope && state.scopePeople) {
+      applyAllFilter();
+      saveState();
+      return;
+    }
+
+    callServer('getKpi1', scope).then(function (k) {
+      state.scopeKey = scope;
+      state.scopePeople = (k && k.hasData) ? k : null;
+      applyAllFilter();
+      saveState();
+    }).catch(onError);
+  }
+
 
   /** 'Jan 26' — short enough that nine months fit across one axis. */
   function shortMonth(key) {
