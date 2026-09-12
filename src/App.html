@@ -238,7 +238,7 @@
    */
   const TRACKED_CONTROLS = [
     'fSection', 'fDelayPerson', 'fDelayName', 'fAllScope', 'fAllPerson', 'fAllName',
-    'kpi2Month', 'fModule', 'fSession', 'fSessionName',
+    'kpi2Month', 'fModule', 'fZone',
     'cmpKpi', 'cmpM1', 'cmpM2', 'cmpM3', 'cmpM4'
   ];
 
@@ -1475,7 +1475,7 @@
       tiles.innerHTML = '<div class="tile tile-empty"><span>No feedback for this period</span></div>';
       emptyTable('#kpi2Questions tbody', 7, 'Nothing to show yet.');
       emptyTable('#kpi2Modules tbody', 8, 'Nothing to show yet.');
-      emptyTable('#kpi2Sessions tbody', 6, 'Nothing to show yet.');
+      emptyTable('#kpi2Zones tbody', 8, 'Nothing to show yet.');
       return;
     }
 
@@ -1486,10 +1486,10 @@
     drawFeedbackMixChart(k);
     renderKpi2Questions(k);
     fillSelect('fModule', 'All modules', k.modules.map(function (m) { return m.name; }));
-    fillSelect('fSession', 'All sessions', k.sessions.map(function (s) { return s.name; }));
-    applyPendingTo(['fModule', 'fSession', 'fSessionName']);
+    fillSelect('fZone', 'All zones', (k.zones || []).map(function (z) { return z.name; }));
+    applyPendingTo(['fModule', 'fZone']);
     applyModuleFilter();
-    applySessionFilter();
+    applyZoneFilter();
   }
 
 
@@ -1604,27 +1604,32 @@
   }
 
 
-  function applySessionFilter() {
+  /**
+   * Training satisfaction by plant zone — KEPZ, CEPZ, DEPZ.
+   *
+   * A zone that ran no training in the period still gets a row, at zero and
+   * banded NO DATA. Dropping it would make "nobody trained at DEPZ this
+   * quarter" look identical to "DEPZ was not asked about", and those are very
+   * different facts.
+   */
+  function applyZoneFilter() {
     const k = state.kpi2;
     if (!k || !k.hasData) return;
 
-    const exact = getValue('fSession');
-    const term = getValue('fSessionName').trim().toLowerCase();
+    const all = k.zones || [];
+    const wanted = getValue('fZone');
+    const rows = wanted ? all.filter(function (z) { return z.name === wanted; }) : all;
 
-    const rows = k.sessions.filter(function (s) {
-      if (exact && s.name !== exact) return false;
-      if (term && s.name.toLowerCase().indexOf(term) === -1) return false;
-      return true;
-    });
+    setCount('cZone', rows.length, all.length, 'zones');
+    if (!rows.length) return emptyTable('#kpi2Zones tbody', 8, 'No zones match.');
 
-    setCount('cSession', rows.length, k.sessions.length, 'sessions');
-    if (!rows.length) return emptyTable('#kpi2Sessions tbody', 6, 'No sessions match.');
-
-    fillRows('#kpi2Sessions tbody', rows, function (s) {
-      return '<td class="name">' + escapeHtml(s.name) + '</td>' +
-             num(s.respondents) + num(s.responses) + num(s.positive) +
-             '<td class="r">' + fmt(s.rate) + '%</td>' +
-             '<td>' + pill(s.band) + '</td>';
+    fillRows('#kpi2Zones tbody', rows, function (z) {
+      const dead = !z.respondents;
+      return '<td class="name">' + escapeHtml(z.name) + '</td>' +
+             num(z.sessions) + num(z.respondents) + num(z.responses) + num(z.positive) +
+             '<td class="r">' + (dead ? '—' : fmt(z.rate) + '%') + '</td>' +
+             '<td class="r">' + (dead ? '—' : fmt(z.achievement) + '%') + '</td>' +
+             '<td>' + pill(z.band) + '</td>';
     });
   }
 
@@ -1769,11 +1774,9 @@
     bind('fModuleReset', 'click', function () {
       setValue('fModule', ''); applyModuleFilter(); saveState();
     });
-    bind('fSession', 'change', function () { applySessionFilter(); saveState(); });
-    bind('fSessionName', 'input', function () { applySessionFilter(); saveState(); });
-    bind('fSessionReset', 'click', function () {
-      setValue('fSession', ''); setValue('fSessionName', '');
-      applySessionFilter(); saveState();
+    bind('fZone', 'change', function () { applyZoneFilter(); saveState(); });
+    bind('fZoneReset', 'click', function () {
+      setValue('fZone', ''); applyZoneFilter(); saveState();
     });
 
     bind('fAllScope', 'change', applyScopeFilter);

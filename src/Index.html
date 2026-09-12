@@ -390,31 +390,32 @@
           </div>
         </div>
 
-        <!-- ---- By session ---- -->
+        <!-- ---- By zone ---- -->
         <div class="card">
-          <div class="card-head">By training session</div>
+          <div class="card-head">By zone</div>
           <div class="table-filter">
-            <select id="fSession" class="select" title="Session">
-              <option value="">All sessions</option>
+            <select id="fZone" class="select" title="Zone">
+              <option value="">All zones</option>
             </select>
-            <input id="fSessionName" class="select" type="search" placeholder="Search session…">
-            <button class="btn btn-ghost" id="fSessionReset">✕ Reset</button>
-            <span class="filter-count" id="cSession"></span>
+            <button class="btn btn-ghost" id="fZoneReset">✕ Reset</button>
+            <span class="filter-count" id="cZone"></span>
           </div>
           <div class="table-wrap">
-            <table id="kpi2Sessions">
+            <table id="kpi2Zones">
               <thead>
                 <tr>
-                  <th>Session</th>
+                  <th>Zone</th>
+                  <th class="r">Sessions</th>
                   <th class="r">Attendees</th>
                   <th class="r">Responses</th>
                   <th class="r">Positive</th>
                   <th class="r">Success Rate</th>
+                  <th class="r">Achievement</th>
                   <th>Band</th>
                 </tr>
               </thead>
               <tbody>
-                <tr><td colspan="6" class="empty">Nothing to show yet.</td></tr>
+                <tr><td colspan="8" class="empty">Nothing to show yet.</td></tr>
               </tbody>
             </table>
           </div>

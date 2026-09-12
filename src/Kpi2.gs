@@ -44,6 +44,7 @@ function getKpi2(scope) {
     yellowFloor: kpi.yellowFloor,
     total: null,
     modules: [],
+    zones: [],
     sessions: [],
     questions: [],
     trainers: [],
@@ -80,6 +81,17 @@ function getKpi2(scope) {
   const byTrainer = {}, trainerOrder = [];
   const byQuestion = QUESTION_LABELS.map(function (label) { return blank(label); });
 
+  // Zones are a fixed, known set, so they are seeded rather than discovered.
+  // A zone with no training in the period stays on the table showing zero —
+  // "KEPZ ran nothing this month" is a finding, and a row that vanishes hides
+  // it. Unspecified is added only if something actually lands there.
+  const byZone = {}, zoneOrder = [];
+  CONFIG.ZONES.forEach(function (z) {
+    byZone[z.name] = blank(z.name);
+    byZone[z.name].sessionsSeen = {};
+    zoneOrder.push(z.name);
+  });
+
   rows.forEach(function (r) {
     if (!String(r[COL2.RESPONSE_ID] || '').trim()) return;
 
@@ -91,11 +103,19 @@ function getKpi2(scope) {
     const sessionName = String(r[COL2.TITLE]   || '').trim() || '(untitled session)';
     const trainerName = String(r[COL2.TRAINER] || '').trim() || '(unnamed)';
 
+    const zoneName = zoneFor(r[COL2.SOURCE], r[COL2.PLANT]);
+
     const m = bucket(byModule,  moduleOrder,  moduleName,  moduleName);
     const s = bucket(bySession, sessionOrder, sessionName, sessionName);
     const t = bucket(byTrainer, trainerOrder, trainerName, trainerName);
+    const z = bucket(byZone,    zoneOrder,    zoneName,    zoneName);
+
+    // Only the discovered zones (Unspecified) need this; the seeded ones have it.
+    if (!z.sessionsSeen) z.sessionsSeen = {};
+    z.sessionsSeen[sessionName] = true;
 
     overall.respondents++; m.respondents++; s.respondents++; t.respondents++;
+    z.respondents++;
 
     // The seven scored questions sit together, so one loop covers them all.
     for (let q = 0; q < QUESTION_LABELS.length; q++) {
@@ -113,7 +133,7 @@ function getKpi2(scope) {
                   : tier === 'UNKNOWN'  ? 'unknown'
                   : 'noResponse';
 
-      overall[field]++; m[field]++; s[field]++; t[field]++;
+      overall[field]++; m[field]++; s[field]++; t[field]++; z[field]++;
       byQuestion[q][field]++;
       byQuestion[q].respondents++;
     }
@@ -128,6 +148,13 @@ function getKpi2(scope) {
                                .sort(byRespondents);
   result.sessions = sessionOrder.map(function (k) { return scoreFeedback(bySession[k], kpi); })
                                 .sort(byRespondents);
+  // Zones keep their configured order — KEPZ, CEPZ, DEPZ — with Unspecified
+  // last, because the reader is comparing three known places, not ranking them.
+  result.zones = zoneOrder.map(function (k) {
+    const scored = scoreFeedback(byZone[k], kpi);
+    scored.sessions = Object.keys(byZone[k].sessionsSeen || {}).length;
+    return scored;
+  });
   result.trainers = trainerOrder.map(function (k) { return scoreFeedback(byTrainer[k], kpi); })
                                 .sort(byRespondents);
   // Questions keep their form order — Q1 to Q7 is how the survey reads.
@@ -274,6 +301,13 @@ function runKpi2SelfTest() {
   k.modules.forEach(function (m) {
     Logger.log('    %s — %s respondents, %s%% (%s)',
                m.name, m.respondents, m.rate, m.band);
+  });
+
+  Logger.log('');
+  Logger.log('  by zone:');
+  k.zones.forEach(function (z) {
+    Logger.log('    %s — %s sessions, %s attendees, %s%% (%s)',
+               z.name, z.sessions, z.respondents, z.rate, z.band);
   });
 
   if (k.unknownAnswers.length) {

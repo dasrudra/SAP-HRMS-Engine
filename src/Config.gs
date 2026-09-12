@@ -394,6 +394,40 @@ const CONFIG = {
     { key: 'FI',   name: 'FI',           match: ['fi'] }
   ],
 
+  /**
+   * The three plant zones training is reported against.
+   *
+   * Like the module, the zone is not a field on the feedback form — it comes
+   * from the filename, which is where it has always been recorded
+   * ('Trainee Feedback_MM KEPZ– Ashraful.xlsx').
+   *
+   * A file that names no zone is reported as Unspecified rather than being
+   * guessed into one. Roughly half the historical files name a zone and half
+   * do not, so that bucket will be real; it is better as a visible gap than as
+   * a wrong attribution.
+   */
+  ZONES: [
+    { key: 'KEPZ', name: 'KEPZ', match: ['kepz'] },
+    { key: 'CEPZ', name: 'CEPZ', match: ['cepz'] },
+    { key: 'DEPZ', name: 'DEPZ', match: ['depz'] }
+  ],
+
+  /** Shown for a session whose file names no zone. */
+  ZONE_UNSPECIFIED: 'Unspecified',
+
+  /**
+   * Plant code -> zone, checked BEFORE the filename.
+   *
+   * Empty on purpose. The Plant column is captured on every stored response
+   * (the E-Accounting file carries 3400), so once the plant-to-zone mapping is
+   * known it goes here and every zone becomes exact rather than inferred from
+   * a filename — with nothing to re-upload, because zones resolve at scoring
+   * time. Until then the filename is the only signal there is.
+   *
+   * Example: { '3400': 'CEPZ', '3500': 'KEPZ' }
+   */
+  PLANT_ZONES: {},
+
   /** Column layout of the TRAINING tab — one row per respondent. */
   TRAINING_COLUMNS: [
     'Response ID',        // source file + the form's own row id; the merge key
@@ -638,6 +672,37 @@ function moduleFor(fileName) {
     }
   }
   return '';
+}
+
+
+/**
+ * Which plant zone did this training belong to?
+ *
+ * Plant code first when a mapping exists, filename second, Unspecified last.
+ * Resolved at SCORING time, not at upload: the same reason KPI 1 resolves
+ * sections that way — correcting CONFIG.ZONES or filling in PLANT_ZONES and
+ * re-running is enough, with nothing to re-upload.
+ *
+ * Matched at a word boundary so 'KEPZ' cannot fire inside a longer token.
+ *
+ * @param {string} sourceFile  the filename the responses arrived in
+ * @param {string} plant       the plant code on the response, if any
+ * @return {string} zone name
+ */
+function zoneFor(sourceFile, plant) {
+  const code = String(plant == null ? '' : plant).trim();
+  if (code && CONFIG.PLANT_ZONES[code]) return CONFIG.PLANT_ZONES[code];
+
+  const text = String(sourceFile || '').toLowerCase();
+  for (let i = 0; i < CONFIG.ZONES.length; i++) {
+    const zone = CONFIG.ZONES[i];
+    for (let j = 0; j < zone.match.length; j++) {
+      if (new RegExp('(^|[^a-z0-9])' + zone.match[j] + '([^a-z0-9]|$)').test(text)) {
+        return zone.name;
+      }
+    }
+  }
+  return CONFIG.ZONE_UNSPECIFIED;
 }
 
 
