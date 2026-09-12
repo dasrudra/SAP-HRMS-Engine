@@ -46,9 +46,7 @@ function setupDatabase() {
   createSheet(ss, CONFIG.SHEETS.TICKETS,   CONFIG.TICKET_COLUMNS);
   createSheet(ss, CONFIG.SHEETS.KPI_MONTH, CONFIG.KPI_COLUMNS);
   createSheet(ss, CONFIG.SHEETS.UPLOADS,   CONFIG.UPLOAD_COLUMNS);
-  createSheet(ss, CONFIG.SHEETS.TRAINING,  ['Session Date', 'Session Title', 'Trainer',
-                                            'Attendee', 'Employee ID', 'Department',
-                                            'Score', 'Max Score', 'Comments', 'Source File']);
+  createSheet(ss, CONFIG.SHEETS.TRAINING,  CONFIG.TRAINING_COLUMNS);
   createSheet(ss, CONFIG.SHEETS.OPERATORS, ['Operator', 'Display Name', 'Role',
                                             'Password Hash', 'Active', 'Created']);
 

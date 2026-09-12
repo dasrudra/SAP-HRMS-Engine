@@ -213,7 +213,7 @@ const CONFIG = {
       yellowFloor: 81.00,
       unit: '%',
       period: 'monthly',
-      active: false         // waiting on the feedback data
+      active: true          // feedback ingest is live
     },
 
     INCIDENT: {
@@ -311,6 +311,107 @@ const CONFIG = {
     'Upload ID', 'Uploaded At', 'Uploaded By', 'File Name', 'Report Type',
     'Department', 'Rows In File', 'Rows Added', 'Rows Updated',
     'Date From', 'Date To', 'Notes'
+  ],
+
+  /**
+   * KPI 2 — how a feedback answer is classified.
+   *
+   * DERIVED FROM THE EXISTING WORKBOOK, NOT INVENTED. Overall_Feedback.xlsx
+   * covers 32 training sessions, 667 respondents and 4,669 answers, and its
+   * Department Summary splits them into Excellent & Good / Average / Poor /
+   * Not Responded. This mapping reproduces those four totals exactly —
+   * 4,538 / 121 / 6 / 4 — with no answer left unclassified.
+   *
+   * The seven questions use four different wordings for the same idea, and
+   * the forms changed over time ('Very helpful' and 'Confident' only appear
+   * in some batches), so every variant seen across all 32 files is listed.
+   *
+   * POSITIVE is the numerator. AVERAGE and POOR sit in the denominator but
+   * not the numerator. NO_RESPONSE is handled by COUNT_NON_RESPONSES below.
+   *
+   * Matching ignores case, spacing and the Bangla gloss in brackets, so
+   * 'Excellent [চমৎকার]' and 'Excellent' are the same answer.
+   */
+  FEEDBACK_ANSWERS: {
+    POSITIVE: [
+      'Excellent', 'Good',                                    // Q1, Q3, Q4
+      'Highly relevant and very useful', 'Relevant and useful', // Q2
+      'Extremely helpful', 'Very helpful', 'Helpful',          // Q5
+      'Much more confident', 'More confident', 'Confident',    // Q6
+      'Appropriate', 'Mostly appropriate'                      // Q7
+    ],
+    AVERAGE: [
+      'Average',                  // Q1, Q3, Q4
+      'Somewhat relevant',        // Q2
+      'Slightly helpful',         // Q5
+      'Slightly more confident',  // Q6
+      'Somewhat appropriate'      // Q7
+    ],
+    POOR: [
+      'Poor',                     // Q1, Q3, Q4
+      'Not more confident at all' // Q6
+    ],
+    NO_RESPONSE: [
+      'No response', 'N/A', 'NA', '-'
+    ]
+  },
+
+  /**
+   * Does a skipped question count against the rate?
+   *
+   * The signed definition says "Total APPLICABLE Responses", which reads as
+   * excluding a question nobody answered. The existing workbook includes them:
+   * PP reports 1107/1120, and 1120 counts its 4 non-responses.
+   *
+   * TRUE keeps the figures continuous with everything reported so far, and is
+   * the more conservative of the two — it can only lower the rate. Across all
+   * 667 respondents the difference is 97.19% against 97.28%, so it changes no
+   * band today. Set FALSE to follow the policy wording to the letter.
+   */
+  COUNT_NON_RESPONSES: true,
+
+  /**
+   * The SAP modules training is reported against.
+   *
+   * KPI 2 is organised by MODULE, not by the EAS sections KPI 1 uses — that
+   * is how the existing Department Summary is built, and the two axes are
+   * genuinely different questions.
+   *
+   * The raw feedback form carries no module field, so it comes from the
+   * filename. `match` is tried in this order and the FIRST hit wins, which is
+   * why the specific names come before the two-letter codes: 'Trainee
+   * Feedback– MD & MM Module Training (Spareparts)' is filed under MM in the
+   * existing workbook, and MM is listed above MD to reproduce that.
+   */
+  TRAINING_MODULES: [
+    { key: 'EACC', name: 'E-Accounting', match: ['e-accounting', 'e accounting', 'eaccounting'] },
+    { key: 'FITR', name: 'FI/TR',        match: ['fi_tr', 'fi-tr', 'fitr', 'fi tr'] },
+    { key: 'MM',   name: 'MM',           match: ['inventory', 'purchase', 'mcd', 'mm'] },
+    { key: 'MD',   name: 'MD',           match: ['md'] },
+    { key: 'PP',   name: 'PP',           match: ['production', 'ypl', 'pp'] },
+    { key: 'SD',   name: 'SD',           match: ['development', 'export', 'shipping', 'sd'] },
+    { key: 'CO',   name: 'CO',           match: ['co'] },
+    { key: 'FI',   name: 'FI',           match: ['fi'] }
+  ],
+
+  /** Column layout of the TRAINING tab — one row per respondent. */
+  TRAINING_COLUMNS: [
+    'Response ID',        // source file + the form's own row id; the merge key
+    'Session Date',
+    'Month',              // 'YYYY-MM', the period the KPI reports on
+    'Module',
+    'Session Title',
+    'Trainer',
+    'Plant',
+    'Employee ID',
+    'Employee Name',
+    // The seven scored questions, stored as the RAW ANSWER TEXT. Classifying
+    // at scoring time rather than at upload means FEEDBACK_ANSWERS can be
+    // corrected and everything re-scored with nothing to re-upload.
+    'Q1 Overall', 'Q2 Relevance', 'Q3 Trainer Knowledge', 'Q4 Explanation',
+    'Q5 Materials', 'Q6 Confidence', 'Q7 Duration',
+    'Source File',
+    'Uploaded At'
   ],
 
   /** Column layout of KPI_MONTHLY — precomputed so the dashboard reads fast. */
@@ -455,6 +556,88 @@ function sectionFor(person, month, fallback) {
   }
 
   return current;
+}
+
+
+/**
+ * Strips a feedback answer down to something matchable.
+ *
+ * The forms carry a Bangla gloss in brackets — 'Excellent [চমৎকার]' — and the
+ * bracket style varies between square and round across batches. One respondent
+ * answered 'Confident (আত্মবিশ্বাসী]' with mismatched brackets, so the gloss is
+ * removed by looking for either kind rather than by pairing them.
+ *
+ * @param {string} answer
+ * @return {string} lower-case, gloss removed, whitespace collapsed
+ */
+function normaliseAnswer(answer) {
+  return String(answer == null ? '' : answer)
+    .replace(/[\(\[][^\)\]]*[\)\]]/g, ' ')   // drop the bracketed gloss
+    .replace(/[\(\[\)\]]/g, ' ')               // and any orphaned bracket
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+
+/** Answer -> tier, built once from CONFIG.FEEDBACK_ANSWERS. */
+let ANSWER_TIERS = null;
+
+function answerTiers() {
+  if (ANSWER_TIERS) return ANSWER_TIERS;
+
+  ANSWER_TIERS = {};
+  ['POSITIVE', 'AVERAGE', 'POOR', 'NO_RESPONSE'].forEach(function (tier) {
+    (CONFIG.FEEDBACK_ANSWERS[tier] || []).forEach(function (answer) {
+      const key = normaliseAnswer(answer);
+      if (key) ANSWER_TIERS[key] = tier;
+    });
+  });
+  return ANSWER_TIERS;
+}
+
+
+/**
+ * Which tier does one feedback answer fall into?
+ *
+ * An answer nobody anticipated returns 'UNKNOWN' rather than being quietly
+ * counted as positive or quietly dropped. Unknowns are surfaced on the KPI 2
+ * screen so a new form wording gets noticed instead of silently moving the
+ * number.
+ *
+ * @param {string} answer
+ * @return {string} 'POSITIVE' | 'AVERAGE' | 'POOR' | 'NO_RESPONSE' | 'UNKNOWN'
+ */
+function answerTier(answer) {
+  const key = normaliseAnswer(answer);
+  if (!key) return 'NO_RESPONSE';
+  return answerTiers()[key] || 'UNKNOWN';
+}
+
+
+/**
+ * Which SAP module does a training file belong to?
+ *
+ * From the filename, because the feedback form itself has no module field.
+ * First match wins — see CONFIG.TRAINING_MODULES for why the order matters.
+ * Matched at a word boundary so 'CO' does not fire on 'Accounting'.
+ *
+ * @param {string} fileName
+ * @return {string} module name, or '' when nothing matches
+ */
+function moduleFor(fileName) {
+  const text = String(fileName || '').toLowerCase();
+
+  for (let i = 0; i < CONFIG.TRAINING_MODULES.length; i++) {
+    const module = CONFIG.TRAINING_MODULES[i];
+    for (let j = 0; j < module.match.length; j++) {
+      const pattern = module.match[j].replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      if (new RegExp('(^|[^a-z0-9])' + pattern + '([^a-z0-9]|$)').test(text)) {
+        return module.name;
+      }
+    }
+  }
+  return '';
 }
 
 

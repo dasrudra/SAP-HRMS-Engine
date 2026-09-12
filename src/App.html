@@ -48,6 +48,9 @@
     scopePeople: null,
     scopeKey: '',
 
+    // KPI 2's own result, kept so its filters redraw without a server call.
+    kpi2: null,
+
     // Filter values read back from the URL before the dropdowns they belong to
     // exist. Applied once the data lands and the options are built.
     pending: null,
@@ -94,6 +97,7 @@
 
     fillMonthPicker(boot.availableMonths);
     fillScopeFilter(boot.availableMonths);
+    fillFeedbackMonths(boot.feedbackMonths);
     fillCompareMonths(boot.availableMonths);
     fillSettings(boot);
 
@@ -205,6 +209,7 @@
     if (!options.skipSave) saveState();
 
     if (name === 'kpi1') loadKpi1();
+    if (name === 'kpi2') loadKpi2();
     if (name === 'uploads') loadUploads();
 
     // A comparison that was on screen before the refresh gets rebuilt. Guarded
@@ -233,6 +238,7 @@
    */
   const TRACKED_CONTROLS = [
     'fSection', 'fDelayPerson', 'fDelayName', 'fAllScope', 'fAllPerson', 'fAllName',
+    'kpi2Month', 'fModule', 'fSession', 'fSessionName',
     'cmpKpi', 'cmpM1', 'cmpM2', 'cmpM3', 'cmpM4'
   ];
 
@@ -328,7 +334,7 @@
         // options come from the month's data. Hold those until renderKpi1 has
         // built them; the comparison dropdowns are ready now.
         state.pending = params;
-        applyPendingTo(['cmpKpi', 'cmpM1', 'cmpM2', 'cmpM3', 'cmpM4']);
+        applyPendingTo(['cmpKpi', 'cmpM1', 'cmpM2', 'cmpM3', 'cmpM4', 'kpi2Month']);
       }
 
       state.restoring = false;
@@ -405,8 +411,190 @@
    * Service/Part export does not. That structural test beats trusting a
    * filename somebody might rename.
    */
+  /**
+   * What kind of file is this?
+   *
+   * Decided from the HEADERS, never the filename. A file can be renamed;
+   * its columns are what it is.
+   *
+   *   FEEDBACK   — a training feedback form export. Routed to KPI 2.
+   *   INDIVIDUAL — an ITSM Individual Performance export. KPI 1, with the
+   *                per-engineer man-hour columns.
+   *   OVERALL    — the ITSM Service/Part export. KPI 1, no man-hours.
+   *
+   * FEEDBACK is tested first because it shares nothing with either ITSM
+   * export: no Ticket ID, and its questions are unmistakable.
+   */
   function detectReportType(headers) {
+    if (findFeedbackQuestions(headers).length >= 4) return 'FEEDBACK';
     return headers.indexOf('Man*Hour') !== -1 ? 'INDIVIDUAL' : 'OVERALL';
+  }
+
+
+  /**
+   * Which columns are the seven scored questions?
+   *
+   * Matched on a distinctive phrase rather than on position or exact text.
+   * The forms carry a Bangla translation inside brackets and the wording has
+   * drifted between batches, so 'How would you rate the overall training
+   * session? [সামগ্রিক...]' has to resolve on 'overall training session'
+   * alone. Order follows the survey, not the spreadsheet.
+   */
+  const FEEDBACK_QUESTIONS = [
+    { key: 'Q1', needle: 'overall training session' },
+    { key: 'Q2', needle: 'relevant and useful for your job' },
+    { key: 'Q3', needle: 'knowledge and expertise' },
+    { key: 'Q4', needle: 'explain concepts' },
+    { key: 'Q5', needle: 'training materials' },
+    { key: 'Q6', needle: 'more confident' },
+    { key: 'Q7', needle: 'duration and pace' }
+  ];
+
+  function findFeedbackQuestions(headers) {
+    const lower = headers.map(function (h) { return String(h || '').toLowerCase(); });
+
+    return FEEDBACK_QUESTIONS.map(function (q) {
+      let at = -1;
+      for (let i = 0; i < lower.length; i++) {
+        if (lower[i].indexOf(q.needle) !== -1) { at = i; break; }
+      }
+      return { key: q.key, at: at };
+    }).filter(function (q) { return q.at !== -1; });
+  }
+
+
+  /**
+   * Pulls the module, session title and trainer out of a filename.
+   *
+   * The feedback form has no field for any of the three, so the filename is
+   * the only source. Everything before the first separator is dropped as
+   * boilerplate ('Trainee Feedback'), the trailing extension goes, and what
+   * is left is split on the last underscore or dash into title and trainer.
+   *
+   * A guess, and labelled as one on screen — the stored Session Title lets a
+   * human check it against the real training record.
+   */
+  function describeFeedbackFile(fileName) {
+    let text = String(fileName || '').replace(/\.(xlsx|xlsm|csv)$/i, '');
+
+    // Drop the 'Trainee Feedback' / 'Training Feedback' prefix and whatever
+    // punctuation follows it.
+    text = text.replace(/^\s*train(ee|ing)[ _-]*feedback[ _–—-]*/i, '').trim();
+    text = text.replace(/^[_\-–—\s]+/, '').trim();
+
+    // The trainer tends to sit last, after an underscore or a dash.
+    let title = text;
+    let trainer = '';
+    const split = text.match(/^(.*?)[ _]*[-–—_][ _]*([A-Za-z .&']{2,40})$/);
+    if (split) {
+      title = split[1].trim();
+      trainer = split[2].trim();
+    }
+
+    return {
+      title: title || String(fileName || ''),
+      trainer: trainer,
+      fileName: String(fileName || '')
+    };
+  }
+
+
+  /**
+   * Turns a feedback export into TRAINING rows — one per respondent.
+   *
+   * The seven answers are stored as the RAW TEXT the attendee chose. Deciding
+   * positive from average happens at scoring time, so the classification in
+   * Config.gs can be corrected and everything re-scored without re-uploading
+   * a single file.
+   */
+  function normalizeFeedback(file, columns) {
+    const found = findFeedbackQuestions(file.headers);
+    if (found.length < 4) {
+      throw new Error(file.fileName + ' looks like a feedback form but only ' +
+                      found.length + ' of the 7 questions were recognised.');
+    }
+
+    const position = {};
+    file.headers.forEach(function (name, i) {
+      const key = String(name || '').toLowerCase();
+      if (key.indexOf('employee id') !== -1 && position.empId === undefined) position.empId = i;
+      if (key.indexOf('employee name') !== -1 && position.empName === undefined) position.empName = i;
+      if (key.indexOf('plant') !== -1 && position.plant === undefined) position.plant = i;
+      if (key.indexOf('date') !== -1 && key.indexOf('time') !== -1 &&
+          position.when === undefined) position.when = i;
+      if (key === 'id' && position.rowId === undefined) position.rowId = i;
+      if (key === 'completion time' && position.completed === undefined) position.completed = i;
+    });
+
+    const meta = describeFeedbackFile(file.fileName);
+    const module = detectModule(file.fileName);
+    const at = function (name) { return columns.indexOf(name); };
+    const out = [];
+
+    file.rows.forEach(function (raw, index) {
+      // A respondent is real if they answered at least one scored question.
+      const answers = FEEDBACK_QUESTIONS.map(function (q) {
+        const hit = found.filter(function (f) { return f.key === q.key; })[0];
+        if (!hit) return '';
+        const value = raw[hit.at];
+        return value === null || value === undefined ? '' : String(value).trim();
+      });
+      if (!answers.some(function (a) { return a !== ''; })) return;
+
+      // Session date: the form's own Date & Time field when present, the
+      // submission timestamp otherwise.
+      let when = position.when !== undefined ? raw[position.when] : null;
+      if (!when && position.completed !== undefined) when = raw[position.completed];
+      const date = when instanceof Date ? formatDate(when) : String(when || '').trim();
+      const month = (date.match(/^(\d{4})-(\d{2})/) || []).slice(1, 3).join('-');
+
+      const rowId = position.rowId !== undefined && raw[position.rowId] !== undefined
+        ? String(raw[position.rowId]).trim()
+        : String(index + 1);
+
+      const row = columns.map(function () { return ''; });
+      row[at('Response ID')]   = meta.fileName + '#' + rowId;
+      row[at('Session Date')]  = date.slice(0, 10);
+      row[at('Month')]         = month;
+      row[at('Module')]        = module;
+      row[at('Session Title')] = meta.title;
+      row[at('Trainer')]       = meta.trainer;
+      row[at('Plant')]         = position.plant !== undefined ? String(raw[position.plant] || '') : '';
+      row[at('Employee ID')]   = position.empId !== undefined ? String(raw[position.empId] || '') : '';
+      row[at('Employee Name')] = position.empName !== undefined ? String(raw[position.empName] || '') : '';
+
+      const qCols = ['Q1 Overall', 'Q2 Relevance', 'Q3 Trainer Knowledge', 'Q4 Explanation',
+                     'Q5 Materials', 'Q6 Confidence', 'Q7 Duration'];
+      qCols.forEach(function (name, i) { row[at(name)] = answers[i]; });
+
+      row[at('Source File')] = meta.fileName;
+      out.push(row);
+    });
+
+    return out;
+  }
+
+
+  /**
+   * Which SAP module, from the filename? Mirrors moduleFor() in Config.gs.
+   *
+   * Duplicated rather than round-tripped to the server: the browser needs it
+   * while parsing, and a server call per file would add a round trip to every
+   * upload for a string match.
+   */
+  function detectModule(fileName) {
+    const text = String(fileName || '').toLowerCase();
+    const modules = (state.boot && state.boot.trainingModules) || [];
+
+    for (let i = 0; i < modules.length; i++) {
+      for (let j = 0; j < modules[i].match.length; j++) {
+        const pattern = modules[i].match[j].replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        if (new RegExp('(^|[^a-z0-9])' + pattern + '([^a-z0-9]|$)').test(text)) {
+          return modules[i].name;
+        }
+      }
+    }
+    return '';
   }
 
 
@@ -600,18 +788,107 @@
   }
 
 
+  /**
+   * Reads every dropped file, then sends each kind down its own pipeline.
+   *
+   * ONE DROPZONE, TWO KPIs. A ticket export scores KPI 1 and a training
+   * feedback form scores KPI 2, and the two share nothing — different sheets,
+   * different merge keys, different maths. Rather than ask which is which,
+   * the headers are read and each file is routed on what it actually is. Drop
+   * both kinds together and both land correctly.
+   */
   async function runUpload(files) {
-    const columns = state.boot.ticketColumns;
-
     setStatus('Reading ' + files.length + ' file(s)…');
 
-    const perFile = [];
-    const meta = { fileNames: [], reportTypes: [], departments: [], totalRows: 0 };
+    const read = [];
     const summary = [];
 
     for (let i = 0; i < files.length; i++) {
       const parsed = await readWorkbook(files[i]);
       const type = detectReportType(parsed.headers);
+      read.push({ parsed: parsed, type: type });
+      summary.push({ name: parsed.fileName, type: type, dept: '', rows: parsed.rows.length });
+      setStatus('Read ' + (i + 1) + ' of ' + files.length + ' file(s)…', null, summary);
+    }
+
+    const tickets = read.filter(function (f) { return f.type !== 'FEEDBACK'; });
+    const feedback = read.filter(function (f) { return f.type === 'FEEDBACK'; });
+
+    if (feedback.length) await uploadFeedback(feedback, summary);
+    if (tickets.length)  await uploadTickets(tickets, summary);
+
+    await refreshAfterChange();
+  }
+
+
+  /** KPI 2 — training feedback forms. */
+  async function uploadFeedback(files, summary) {
+    const columns = state.boot.trainingColumns;
+    const meta = { fileNames: [], reportTypes: [], departments: [], totalRows: 0,
+                   kind: 'FEEDBACK' };
+    const rows = [];
+
+    files.forEach(function (f) {
+      const parsed = normalizeFeedback(f.parsed, columns);
+      rows.push.apply(rows, parsed);
+
+      const module = detectModule(f.parsed.fileName) || 'Unrecognised module';
+      meta.fileNames.push(f.parsed.fileName);
+      meta.reportTypes.push('FEEDBACK');
+      meta.departments.push(module);
+      meta.totalRows += parsed.length;
+
+      // Overwrite this file's line in the shared summary with what we learned.
+      summary.forEach(function (s) {
+        if (s.name === f.parsed.fileName) { s.dept = module; s.rows = parsed.length; }
+      });
+    });
+
+    if (!rows.length) {
+      throw new Error('No feedback responses found in those files.');
+    }
+
+    const monthAt = columns.indexOf('Month');
+    const dateAt = columns.indexOf('Session Date');
+    const dates = rows.map(function (r) { return String(r[dateAt] || ''); })
+                      .filter(Boolean).sort();
+    meta.dateFrom = dates[0] || '';
+    meta.dateTo = dates[dates.length - 1] || '';
+
+    const months = {};
+    rows.forEach(function (r) { if (r[monthAt]) months[r[monthAt]] = true; });
+
+    setStatus('Read ' + rows.length + ' feedback responses across ' +
+              Object.keys(months).length + ' month(s). Uploading…', null, summary);
+
+    const begun = await callServer('beginUpload', meta);
+
+    for (let start = 0; start < rows.length; start += BATCH_SIZE) {
+      await callServer('appendFeedbackBatch', begun.uploadId,
+                       rows.slice(start, start + BATCH_SIZE));
+      const done = Math.min(start + BATCH_SIZE, rows.length);
+      setStatus('Uploading… ' + done + ' of ' + rows.length + ' responses (' +
+                Math.round((done / rows.length) * 100) + '%)', null, summary);
+    }
+
+    const result = await callServer('finishFeedbackUpload', begun.uploadId);
+
+    setStatus('Done. ' + result.kept + ' feedback responses stored for KPI 2' +
+              (result.merged ? ', ' + result.merged + ' duplicates collapsed' : '') + '.',
+              'ok', summary);
+  }
+
+
+  /** KPI 1 — ITSM ticket exports. Unchanged behaviour, now behind a router. */
+  async function uploadTickets(files, summary) {
+    const columns = state.boot.ticketColumns;
+
+    const perFile = [];
+    const meta = { fileNames: [], reportTypes: [], departments: [], totalRows: 0 };
+
+    for (let i = 0; i < files.length; i++) {
+      const parsed = files[i].parsed;
+      const type = files[i].type;
       const section = type === 'INDIVIDUAL' ? detectSection(parsed.fileName) : '';
 
       // A filename with no section in it is no longer an error. Every section
@@ -631,8 +908,9 @@
       if (label) meta.departments.push(label);
       meta.totalRows += rows.length;
 
-      summary.push({ name: parsed.fileName, type: type, dept: label, rows: rows.length });
-      setStatus('Read ' + (i + 1) + ' of ' + files.length + ' file(s)…', null, summary);
+      summary.forEach(function (sm) {
+        if (sm.name === parsed.fileName) { sm.dept = label; sm.rows = rows.length; }
+      });
     }
 
     const merged = mergeFiles(perFile, columns);
@@ -662,8 +940,6 @@
     setStatus('Done. ' + result.kept + ' tickets stored' +
               (result.merged ? ', ' + result.merged + ' duplicate rows collapsed' : '') + '.',
               'ok', summary);
-
-    await refreshAfterChange();
   }
 
 
@@ -673,10 +949,12 @@
     state.boot = boot;
     fillMonthPicker(boot.availableMonths);
     fillScopeFilter(boot.availableMonths);
+    fillFeedbackMonths(boot.feedbackMonths);
     fillCompareMonths(boot.availableMonths);
     fillSettings(boot);
     loadUploads();
     if (state.view === 'kpi1') loadKpi1();
+    if (state.view === 'kpi2') { state.kpi2 = null; loadKpi2(); }
   }
 
 
@@ -1119,6 +1397,300 @@
   }
 
 
+  // =========================================================================
+  // KPI 2 — TRAINING FEEDBACK
+  // =========================================================================
+
+  function loadKpi2() {
+    if (!state.boot || !state.boot.configured) return;
+
+    const months = state.boot.feedbackMonths || [];
+    if (!months.length) {
+      show('kpi2Empty');
+      hide('kpi2Unknown');
+      document.getElementById('kpi2Tiles').innerHTML =
+        '<div class="tile tile-empty"><span>No feedback uploaded yet</span></div>';
+      return;
+    }
+    hide('kpi2Empty');
+
+    const scope = getValue('kpi2Month') || ALL_MONTHS;
+    callServer('getKpi2', scope).then(renderKpi2).catch(onError);
+  }
+
+
+  function renderKpi2(k) {
+    state.kpi2 = k;
+
+    const tiles = document.getElementById('kpi2Tiles');
+    if (!k || !k.hasData) {
+      tiles.innerHTML = '<div class="tile tile-empty"><span>No feedback for this period</span></div>';
+      emptyTable('#kpi2Questions tbody', 7, 'Nothing to show yet.');
+      emptyTable('#kpi2Modules tbody', 8, 'Nothing to show yet.');
+      emptyTable('#kpi2Sessions tbody', 6, 'Nothing to show yet.');
+      return;
+    }
+
+    renderKpi2Period(k);
+    renderKpi2Unknown(k);
+    renderKpi2Tiles(k, tiles);
+    drawFeedbackModuleChart(k);
+    drawFeedbackMixChart(k);
+    renderKpi2Questions(k);
+    fillSelect('fModule', 'All modules', k.modules.map(function (m) { return m.name; }));
+    fillSelect('fSession', 'All sessions', k.sessions.map(function (s) { return s.name; }));
+    applyPendingTo(['fModule', 'fSession', 'fSessionName']);
+    applyModuleFilter();
+    applySessionFilter();
+  }
+
+
+  function renderKpi2Period(k) {
+    const box = document.getElementById('kpi2Period');
+    if (!box) return;
+
+    if (!k.allMonths) { box.hidden = true; return; }
+
+    box.hidden = false;
+    box.innerHTML =
+      '<b>All months</b>' +
+      '<span>' + k.monthsCovered + ' month' + (k.monthsCovered === 1 ? '' : 's') +
+      ' with training · ' + count(k.total.respondents) + ' attendees · ' +
+      count(k.total.responses) + ' responses</span>';
+  }
+
+
+  /**
+   * Warns about answers the classification does not recognise.
+   *
+   * The forms have been reworded between batches before — 'Very helpful' and
+   * 'Confident' only appear in some. A new wording that silently counted as
+   * positive would move the KPI with nobody noticing, so unknowns are counted
+   * against the rate AND named here.
+   */
+  function renderKpi2Unknown(k) {
+    const box = document.getElementById('kpi2Unknown');
+    if (!box) return;
+
+    if (!k.unknownAnswers || !k.unknownAnswers.length) { box.hidden = true; return; }
+
+    box.hidden = false;
+    box.innerHTML =
+      '<h3>' + k.unknownAnswers.length + ' answer wording' +
+      (k.unknownAnswers.length === 1 ? '' : 's') + ' not recognised</h3>' +
+      '<p>These are counted as applicable but not positive, so they lower the ' +
+      'rate rather than inflating it. Add them to <code>FEEDBACK_ANSWERS</code> ' +
+      'in <code>Config.gs</code> under the right tier and reload:<br>' +
+      k.unknownAnswers.map(function (u) {
+        return '<code>' + escapeHtml(u.answer) + '</code> ×' + u.count;
+      }).join(' &nbsp; ') + '</p>';
+  }
+
+
+  function renderKpi2Tiles(k, container) {
+    const t = k.total;
+    const band = bandClass(t.band);
+
+    const gap = round2(t.rate - k.target);
+    const gapText = (gap >= 0 ? '+' : '−') + fmt(Math.abs(gap)) + ' pts';
+
+    const nonPositive = t.average + t.poor + t.unknown +
+                        (t.noResponse && k.countsNonResponses !== false ? 0 : 0);
+
+    container.innerHTML =
+      tile({ label: 'Success Rate', icon: 'target', tone: band,
+             value: fmt(t.rate) + '%',
+             note: '<span class="pill ' + band + '">' + escapeHtml(t.band) + '</span>' }) +
+      tile({ label: 'KPI Achievement', icon: 'trend', tone: band,
+             value: fmt(t.achievement) + '%',
+             note: escapeHtml('target ' + k.target + '% · ' + gapText) }) +
+      tile({ label: 'Headroom', icon: 'shield',
+             tone: t.headroom > 0 ? 'g' : (t.headroom === 0 ? 'a' : 'r'),
+             value: (t.headroom > 0 ? '+' : '') + t.headroom,
+             note: t.headroom > 0
+               ? escapeHtml(t.headroom + ' more non-positive answers before the band drops')
+               : (t.headroom === 0 ? 'on the edge' : 'below target') }) +
+      tile({ label: 'Attendees', icon: 'inbox', tone: 'blue',
+             value: count(t.respondents),
+             note: count(k.sessions.length) + ' training session' +
+                   (k.sessions.length === 1 ? '' : 's') }) +
+      tile({ label: 'Positive', icon: 'check', tone: 'teal',
+             value: count(t.positive),
+             note: 'of ' + count(t.applicable) + ' applicable responses' }) +
+      tile({ label: 'Not Positive', icon: 'clock',
+             tone: (t.average + t.poor) ? 'a' : 'g',
+             value: count(t.average + t.poor),
+             note: count(t.average) + ' average · ' + count(t.poor) + ' poor' });
+  }
+
+
+  function renderKpi2Questions(k) {
+    fillRows('#kpi2Questions tbody', k.questions, function (q) {
+      return '<td class="name">' + escapeHtml(q.name) + '</td>' +
+             num(q.responses) + num(q.positive) + num(q.average) + num(q.poor) +
+             '<td class="r">' + fmt(q.rate) + '%</td>' +
+             '<td>' + pill(q.band) + '</td>';
+    });
+  }
+
+
+  function applyModuleFilter() {
+    const k = state.kpi2;
+    if (!k || !k.hasData) return;
+
+    const wanted = getValue('fModule');
+    const rows = wanted ? k.modules.filter(function (m) { return m.name === wanted; })
+                        : k.modules;
+
+    setCount('cModule', rows.length, k.modules.length, 'modules');
+    if (!rows.length) return emptyTable('#kpi2Modules tbody', 8, 'No modules match.');
+
+    fillRows('#kpi2Modules tbody', rows, function (m) {
+      return '<td class="name">' + escapeHtml(m.name) + '</td>' +
+             num(m.respondents) + num(m.responses) + num(m.positive) +
+             '<td class="r">' + fmt(m.rate) + '%</td>' +
+             '<td class="r">' + fmt(m.achievement) + '%</td>' +
+             '<td>' + pill(m.band) + '</td>' +
+             '<td class="r">' + (m.headroom > 0 ? '+' : '') + m.headroom + '</td>';
+    });
+  }
+
+
+  function applySessionFilter() {
+    const k = state.kpi2;
+    if (!k || !k.hasData) return;
+
+    const exact = getValue('fSession');
+    const term = getValue('fSessionName').trim().toLowerCase();
+
+    const rows = k.sessions.filter(function (s) {
+      if (exact && s.name !== exact) return false;
+      if (term && s.name.toLowerCase().indexOf(term) === -1) return false;
+      return true;
+    });
+
+    setCount('cSession', rows.length, k.sessions.length, 'sessions');
+    if (!rows.length) return emptyTable('#kpi2Sessions tbody', 6, 'No sessions match.');
+
+    fillRows('#kpi2Sessions tbody', rows, function (s) {
+      return '<td class="name">' + escapeHtml(s.name) + '</td>' +
+             num(s.respondents) + num(s.responses) + num(s.positive) +
+             '<td class="r">' + fmt(s.rate) + '%</td>' +
+             '<td>' + pill(s.band) + '</td>';
+    });
+  }
+
+
+  /** Satisfaction by module, banded like KPI 1's section chart. */
+  function drawFeedbackModuleChart(k) {
+    if (!k.modules.length) {
+      chartMessage('chartFeedbackModule', '<p>No modules to plot.</p>');
+      return;
+    }
+    chartMessage('chartFeedbackModule', null);
+
+    const lowest = Math.min.apply(null, k.modules.map(function (m) { return m.rate; })
+                                                 .concat([k.target]));
+    const floor = Math.max(0, Math.floor((lowest - 1) / 5) * 5);
+
+    const note = document.getElementById('kpi2ModuleNote');
+    if (note) {
+      note.textContent = 'Against the ' + k.target + '% target. Axis starts at ' +
+                         floor + '%.';
+    }
+
+    drawChart('chartFeedbackModule', {
+      type: 'bar',
+      data: {
+        labels: k.modules.map(function (m) { return m.name; }),
+        datasets: [Object.assign({
+          label: 'Satisfaction',
+          data: k.modules.map(function (m) { return round2(m.rate); }),
+          backgroundColor: k.modules.map(function (m) { return bandColour(m.band); })
+        }, BAR)]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        layout: { padding: { top: 24, right: 74 } },
+        scales: {
+          y: Object.assign({ min: floor, max: 100.6 }, gridStyle()),
+          x: categoryAxis()
+        },
+        plugins: {
+          legend: { display: false },
+          tooltip: tooltipStyle({
+            label: function (item) {
+              const m = k.modules[item.dataIndex];
+              return [fmt(m.rate) + '% · ' + m.band,
+                      m.positive + ' positive of ' + m.applicable + ' applicable',
+                      m.respondents + ' attendees'];
+            }
+          }),
+          targetLine: { value: k.target, label: 'Target ' + k.target + '%' },
+          valueLabels: { enabled: true, decimals: 2, suffix: '%' }
+        }
+      },
+      plugins: [targetLinePlugin, valueLabelPlugin]
+    });
+  }
+
+
+  /**
+   * The response mix, as a doughnut.
+   *
+   * Part-to-whole across four tiers, which is exactly what a doughnut is for —
+   * and the numerator/denominator split is the thing this KPI turns on.
+   */
+  function drawFeedbackMixChart(k) {
+    const t = k.total;
+    const slices = [
+      { label: 'Positive', value: t.positive,   colour: bandColour('GREEN') },
+      { label: 'Average',  value: t.average,    colour: bandColour('YELLOW') },
+      { label: 'Poor',     value: t.poor,       colour: bandColour('RED') },
+      { label: 'No response', value: t.noResponse, colour: '#8496a8' },
+      { label: 'Unrecognised', value: t.unknown, colour: '#4a3aa7' }
+    ].filter(function (s) { return s.value > 0; });
+
+    if (!slices.length) {
+      chartMessage('chartFeedbackMix', '<p>No responses to plot.</p>');
+      return;
+    }
+    chartMessage('chartFeedbackMix', null);
+
+    drawChart('chartFeedbackMix', {
+      type: 'doughnut',
+      data: {
+        labels: slices.map(function (s) { return s.label; }),
+        datasets: [{
+          data: slices.map(function (s) { return s.value; }),
+          backgroundColor: slices.map(function (s) { return s.colour; }),
+          borderColor: '#ffffff',
+          borderWidth: 2          // 2px surface gap between segments
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        cutout: '58%',
+        plugins: {
+          legend: {
+            position: 'right',
+            labels: { boxWidth: 9, boxHeight: 9, usePointStyle: true, padding: 12,
+                      pointStyle: 'circle', color: '#5a6b7d', font: AXIS_FONT }
+          },
+          tooltip: tooltipStyle({
+            label: function (item) {
+              const share = t.responses ? (item.raw / t.responses) * 100 : 0;
+              return item.label + ': ' + count(item.raw) + ' (' + fmt(share) + '%)';
+            }
+          })
+        }
+      }
+    });
+  }
+
+
   // ---- filters: each table owns its own ----
 
   /**
@@ -1140,6 +1712,20 @@
     bind('fDelayReset', 'click', function () {
       setValue('fDelayPerson', ''); setValue('fDelayName', '');
       applyDelayFilter(); saveState();
+    });
+
+    // ---- KPI 2 ----
+    bind('kpi2Month', 'change', function () { loadKpi2(); saveState(); });
+    bind('refreshKpi2', 'click', function () { state.kpi2 = null; loadKpi2(); });
+    bind('fModule', 'change', function () { applyModuleFilter(); saveState(); });
+    bind('fModuleReset', 'click', function () {
+      setValue('fModule', ''); applyModuleFilter(); saveState();
+    });
+    bind('fSession', 'change', function () { applySessionFilter(); saveState(); });
+    bind('fSessionName', 'input', function () { applySessionFilter(); saveState(); });
+    bind('fSessionReset', 'click', function () {
+      setValue('fSession', ''); setValue('fSessionName', '');
+      applySessionFilter(); saveState();
     });
 
     bind('fAllScope', 'change', applyScopeFilter);
@@ -2461,6 +3047,51 @@
 
     select.value = previous;
     if (select.value !== previous) select.value = '';
+  }
+
+
+  /**
+   * KPI 2's month picker.
+   *
+   * Its own list, not KPI 1's: training runs on its own calendar, and a month
+   * full of tickets need not have had a session in it. Defaults to All months
+   * — unlike KPI 1, where the policy reports monthly, training feedback is
+   * most often read cumulatively.
+   */
+  function fillFeedbackMonths(months) {
+    const select = document.getElementById('kpi2Month');
+    if (!select) return;
+
+    const list = months || [];
+    const previous = select.value;
+
+    select.innerHTML = '';
+    select.disabled = !list.length;
+
+    if (!list.length) {
+      select.innerHTML = '<option value="">No feedback loaded</option>';
+      return;
+    }
+
+    const all = document.createElement('option');
+    all.value = ALL_MONTHS;
+    all.textContent = 'All months (' + list.length + ')';
+    select.appendChild(all);
+
+    const divider = document.createElement('option');
+    divider.disabled = true;
+    divider.textContent = '──────────';
+    select.appendChild(divider);
+
+    list.forEach(function (month) {
+      const option = document.createElement('option');
+      option.value = month;
+      option.textContent = formatMonth(month);
+      select.appendChild(option);
+    });
+
+    select.value = previous && [ALL_MONTHS].concat(list).indexOf(previous) !== -1
+      ? previous : ALL_MONTHS;
   }
 
 

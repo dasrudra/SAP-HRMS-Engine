@@ -126,6 +126,131 @@ function appendTicketBatch(uploadId, rows) {
 
 
 /**
+ * Appends a batch of TRAINING FEEDBACK rows.
+ *
+ * The KPI 2 twin of appendTicketBatch. Kept separate rather than parameterised
+ * because the two write different sheets with different widths and different
+ * merge keys, and a single function juggling both would be the kind of code
+ * where a KPI 1 change quietly breaks KPI 2.
+ *
+ * The merge key is Response ID — the source filename plus the form's own row
+ * number — so re-uploading the same file updates its rows instead of doubling
+ * the respondent count.
+ *
+ * @param {string}    uploadId
+ * @param {Array[]}   rows      shaped as CONFIG.TRAINING_COLUMNS
+ * @return {Object} { appended, totalRows }
+ */
+function appendFeedbackBatch(uploadId, rows) {
+  if (!rows || !rows.length) return { appended: 0, totalRows: 0 };
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+
+  try {
+    const sheet = sheetFor(CONFIG.SHEETS.TRAINING);
+    const width = CONFIG.TRAINING_COLUMNS.length;
+    const stamp = new Date();
+    const updatedAt = CONFIG.TRAINING_COLUMNS.indexOf('Uploaded At');
+    const monthAt = CONFIG.TRAINING_COLUMNS.indexOf('Month');
+
+    const clean = rows.map(function (row) {
+      const out = row.slice(0, width);
+      while (out.length < width) out.push('');
+      out[updatedAt] = stamp;
+      return out;
+    });
+
+    const first = sheet.getLastRow() + 1;
+
+    // Month must be plain text before it is written. Left alone, Sheets parses
+    // '2026-05' into a Date and every later lookup by month string misses —
+    // the same trap KPI 1's cache hit.
+    sheet.getRange(first, monthAt + 1, clean.length, 1).setNumberFormat('@');
+    sheet.getRange(first, 1, clean.length, width).setValues(clean);
+
+    return { appended: clean.length, totalRows: sheet.getLastRow() - 1 };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+
+/**
+ * Deduplicates the TRAINING tab on Response ID, newest write winning.
+ *
+ * @return {Object} { kept, merged }
+ */
+function compactFeedback() {
+  const sheet = sheetFor(CONFIG.SHEETS.TRAINING);
+  const lastRow = sheet.getLastRow();
+  const width = CONFIG.TRAINING_COLUMNS.length;
+  if (lastRow < 2) return { kept: 0, merged: 0 };
+
+  const rows = sheet.getRange(2, 1, lastRow - 1, width).getValues();
+  const byId = {};
+  const order = [];
+
+  rows.forEach(function (row) {
+    const id = String(row[0] || '').trim();
+    if (!id) return;
+    if (!byId[id]) order.push(id);
+    byId[id] = row;            // a later upload of the same response wins
+  });
+
+  const kept = order.map(function (id) { return byId[id]; });
+  const merged = rows.length - kept.length;
+
+  sheet.getRange(2, 1, lastRow - 1, width).clearContent();
+  if (kept.length) {
+    sheet.getRange(2, CONFIG.TRAINING_COLUMNS.indexOf('Month') + 1, kept.length, 1)
+         .setNumberFormat('@');
+    sheet.getRange(2, 1, kept.length, width).setValues(kept);
+  }
+
+  return { kept: kept.length, merged: merged };
+}
+
+
+/**
+ * Closes a training feedback upload.
+ *
+ * Separate from finishUpload because there is no KPI cache to rebuild —
+ * KPI 2 scores live off the TRAINING tab, so the work here is deduplicate,
+ * close the log row, and report.
+ *
+ * @param {string} uploadId
+ * @return {Object} summary
+ */
+function finishFeedbackUpload(uploadId) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(60000);
+
+  try {
+    const result = compactFeedback();
+
+    const log = sheetFor(CONFIG.SHEETS.UPLOADS);
+    const lastRow = log.getLastRow();
+    if (lastRow > 1) {
+      const ids = log.getRange(2, 1, lastRow - 1, 1).getValues();
+      for (let i = ids.length - 1; i >= 0; i--) {
+        if (String(ids[i][0]) === uploadId) {
+          log.getRange(i + 2, 8, 1, 2).setValues([[result.kept, result.merged]]);
+          log.getRange(i + 2, 12).setValue('complete');
+          break;
+        }
+      }
+    }
+
+    result.months = typeof listFeedbackMonths === 'function' ? listFeedbackMonths() : [];
+    return result;
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+
+/**
  * Closes the upload: deduplicates, sorts, updates the log, refreshes the cache.
  *
  * @param {string} uploadId

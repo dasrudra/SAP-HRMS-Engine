@@ -7,6 +7,8 @@
 *.xls
 *.csv
 *.tsv
+*.pdf
+*.docx
 data/
 exports/
 uploads/

@@ -277,17 +277,147 @@
       <section class="view" id="view-kpi2" hidden>
         <div class="page-head">
           <div>
-            <h1>User Training Feedback Analysis</h1>
-            <p class="sub">Target ≥ 90% · Policy TVL-KPI-001 §6.3</p>
+            <h1>SAP User Training Satisfaction &amp; Feedback</h1>
+            <p class="sub">
+              Positive responses as a share of applicable responses.
+              Target ≥ 90.00% · Layer 3 · Service Requests
+            </p>
+            <p class="period-note" id="kpi2Period" hidden></p>
+          </div>
+          <div class="page-actions">
+            <select id="kpi2Month" class="select"></select>
+            <button class="btn btn-ghost" id="refreshKpi2">↻ Refresh</button>
           </div>
         </div>
-        <div class="notice notice-info">
-          <h3>Waiting on the feedback data and the revised formula</h3>
+
+        <!-- Shown only when a form wording is not in the classification. -->
+        <div id="kpi2Unknown" class="notice notice-warn" hidden></div>
+
+        <!-- No feedback uploaded yet. -->
+        <div id="kpi2Empty" class="notice notice-info" hidden>
+          <h3>No training feedback loaded yet</h3>
           <p>
-            Neither ITSM export carries a feedback score, so this KPI needs its
-            own source file. You mentioned the equation has changed since the
-            policy was written — send both and this screen gets built.
+            Drop a training feedback export on the Data Uploads screen and it
+            is scored here automatically. Ticket exports go to KPI 1 and
+            feedback forms come here — the file's own columns decide, so there
+            is nothing to choose.
           </p>
+        </div>
+
+        <div class="tiles" id="kpi2Tiles">
+          <div class="tile tile-empty"><span>No data loaded yet</span></div>
+        </div>
+
+        <div class="chart-row">
+          <div class="card chart-card">
+            <div class="chart-head">
+              <div>
+                <h2>Satisfaction by module</h2>
+                <p id="kpi2ModuleNote">Against the 90.00% target.</p>
+              </div>
+            </div>
+            <div class="chart-box">
+              <canvas id="chartFeedbackModule"></canvas>
+              <div class="chart-empty" id="chartFeedbackModuleEmpty" hidden></div>
+            </div>
+          </div>
+
+          <div class="card chart-card">
+            <div class="chart-head">
+              <div>
+                <h2>Response mix</h2>
+                <p>Every answer across the seven questions, by tier.</p>
+              </div>
+            </div>
+            <div class="chart-box">
+              <canvas id="chartFeedbackMix"></canvas>
+              <div class="chart-empty" id="chartFeedbackMixEmpty" hidden></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ---- By question ---- -->
+        <div class="card">
+          <div class="card-head">By question</div>
+          <div class="table-wrap">
+            <table id="kpi2Questions">
+              <thead>
+                <tr>
+                  <th>Question</th>
+                  <th class="r">Responses</th>
+                  <th class="r">Positive</th>
+                  <th class="r">Average</th>
+                  <th class="r">Poor</th>
+                  <th class="r">Success Rate</th>
+                  <th>Band</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><td colspan="7" class="empty">Nothing to show yet.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- ---- By module ---- -->
+        <div class="card">
+          <div class="card-head">By module</div>
+          <div class="table-filter">
+            <select id="fModule" class="select" title="Module">
+              <option value="">All modules</option>
+            </select>
+            <button class="btn btn-ghost" id="fModuleReset">✕ Reset</button>
+            <span class="filter-count" id="cModule"></span>
+          </div>
+          <div class="table-wrap">
+            <table id="kpi2Modules">
+              <thead>
+                <tr>
+                  <th>Module</th>
+                  <th class="r">Attendees</th>
+                  <th class="r">Responses</th>
+                  <th class="r">Positive</th>
+                  <th class="r">Success Rate</th>
+                  <th class="r">Achievement</th>
+                  <th>Band</th>
+                  <th class="r">Headroom</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><td colspan="8" class="empty">Nothing to show yet.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- ---- By session ---- -->
+        <div class="card">
+          <div class="card-head">By training session</div>
+          <div class="table-filter">
+            <select id="fSession" class="select" title="Session">
+              <option value="">All sessions</option>
+            </select>
+            <input id="fSessionName" class="select" type="search" placeholder="Search session…">
+            <button class="btn btn-ghost" id="fSessionReset">✕ Reset</button>
+            <span class="filter-count" id="cSession"></span>
+          </div>
+          <div class="table-wrap">
+            <table id="kpi2Sessions">
+              <thead>
+                <tr>
+                  <th>Session</th>
+                  <th class="r">Attendees</th>
+                  <th class="r">Responses</th>
+                  <th class="r">Positive</th>
+                  <th class="r">Success Rate</th>
+                  <th>Band</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><td colspan="6" class="empty">Nothing to show yet.</td></tr>
+              </tbody>
+            </table>
+          </div>
         </div>
       </section>
 

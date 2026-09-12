@@ -79,6 +79,12 @@ function getBootstrap() {
     // Sending the list rather than duplicating it in App.html keeps one
     // source of truth — add a column to Config.gs and the client follows.
     ticketColumns: CONFIG.TICKET_COLUMNS,
+
+    // KPI 2's equivalents. The browser parses feedback files itself, so it
+    // needs both the column order to build rows in and the module patterns to
+    // read a filename with.
+    trainingColumns: CONFIG.TRAINING_COLUMNS,
+    trainingModules: CONFIG.TRAINING_MODULES,
     kpi: {
       resolution: CONFIG.KPI.RESOLUTION,
       feedback: CONFIG.KPI.FEEDBACK
@@ -89,6 +95,12 @@ function getBootstrap() {
     // Months that actually have data, so the month picker only offers real
     // choices instead of a blank list of every month since January.
     availableMonths: configured ? listAvailableMonths() : [],
+
+    // KPI 2 keeps its own month list: training runs on its own calendar and a
+    // month with tickets need not have had a training session, or the reverse.
+    feedbackMonths: (configured && typeof listFeedbackMonths === 'function')
+      ? listFeedbackMonths() : [],
+
     stats: configured ? quickStats() : null
   };
 }
@@ -131,9 +143,14 @@ function quickStats() {
     .openById(getSpreadsheetId())
     .getSheetByName(CONFIG.SHEETS.UPLOADS);
 
+  const training = SpreadsheetApp
+    .openById(getSpreadsheetId())
+    .getSheetByName(CONFIG.SHEETS.TRAINING);
+
   return {
     tickets: tickets,
-    uploads: uploads ? Math.max(0, uploads.getLastRow() - 1) : 0
+    uploads: uploads ? Math.max(0, uploads.getLastRow() - 1) : 0,
+    feedback: training ? Math.max(0, training.getLastRow() - 1) : 0
   };
 }
 
