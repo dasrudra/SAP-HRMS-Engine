@@ -381,7 +381,14 @@
 
       reader.onload = function (event) {
         try {
-          const workbook = XLSX.read(new Uint8Array(event.target.result), { type: 'array' });
+          // cellDates is not optional here. The ITSM exports store dates as
+          // TEXT, so they parse either way — but the feedback form stores them
+          // as real date cells, and without this SheetJS hands back the Excel
+          // serial number instead. '2026-05-20' arrives as 46162, no month can
+          // be read from it, and the KPI 2 screen goes blank while the data
+          // sits in the sheet perfectly well.
+          const workbook = XLSX.read(new Uint8Array(event.target.result),
+                                     { type: 'array', cellDates: true });
           const sheet = workbook.Sheets[workbook.SheetNames[0]];
 
           // header:1 gives arrays instead of objects. The two reports order
@@ -531,6 +538,19 @@
     const at = function (name) { return columns.indexOf(name); };
     const out = [];
 
+    // ONE FILE MAY HOLD MANY SESSIONS.
+    // A single session's export is all one date; a combined quarterly export
+    // is not. Lumping a quarter under one session name would make the By
+    // session table useless, so the dates are counted first and the date is
+    // appended to the title only when there is more than one. A single-session
+    // file keeps its plain name, so re-uploading one never changes its rows.
+    const sessionDates = {};
+    file.rows.forEach(function (raw) {
+      const d = feedbackDate(raw, position);
+      if (d) sessionDates[d.slice(0, 10)] = true;
+    });
+    const manySessions = Object.keys(sessionDates).length > 1;
+
     file.rows.forEach(function (raw, index) {
       // A respondent is real if they answered at least one scored question.
       const answers = FEEDBACK_QUESTIONS.map(function (q) {
@@ -541,12 +561,11 @@
       });
       if (!answers.some(function (a) { return a !== ''; })) return;
 
-      // Session date: the form's own Date & Time field when present, the
-      // submission timestamp otherwise.
-      let when = position.when !== undefined ? raw[position.when] : null;
-      if (!when && position.completed !== undefined) when = raw[position.completed];
-      const date = when instanceof Date ? formatDate(when) : String(when || '').trim();
+      const date = feedbackDate(raw, position);
       const month = (date.match(/^(\d{4})-(\d{2})/) || []).slice(1, 3).join('-');
+      const title = manySessions && date
+        ? meta.title + ' · ' + date.slice(0, 10)
+        : meta.title;
 
       const rowId = position.rowId !== undefined && raw[position.rowId] !== undefined
         ? String(raw[position.rowId]).trim()
@@ -557,7 +576,7 @@
       row[at('Session Date')]  = date.slice(0, 10);
       row[at('Month')]         = month;
       row[at('Module')]        = module;
-      row[at('Session Title')] = meta.title;
+      row[at('Session Title')] = title;
       row[at('Trainer')]       = meta.trainer;
       row[at('Plant')]         = position.plant !== undefined ? String(raw[position.plant] || '') : '';
       row[at('Employee ID')]   = position.empId !== undefined ? String(raw[position.empId] || '') : '';
@@ -572,6 +591,21 @@
     });
 
     return out;
+  }
+
+
+  /**
+   * When did this attendee's session run?
+   *
+   * The form's own 'Date & Time' field when it has one, the submission
+   * timestamp otherwise. With cellDates set on the reader these arrive as real
+   * Date objects; a text date is passed through unchanged.
+   */
+  function feedbackDate(raw, position) {
+    let when = position.when !== undefined ? raw[position.when] : null;
+    if (!when && position.completed !== undefined) when = raw[position.completed];
+    if (when instanceof Date) return formatDate(when);
+    return String(when === null || when === undefined ? '' : when).trim();
   }
 
 
@@ -1036,11 +1070,25 @@
     document.querySelectorAll('[data-open]').forEach(function (button) {
       button.addEventListener('click', function () {
         const row = button.closest('tr');
-        // The range cell holds 'YYYY-MM-DD → YYYY-MM-DD'; its first seven
-        // characters are the month this upload covers.
-        const range = row ? row.children[6].textContent.trim() : '';
+        if (!row) return showView('kpi1');
+
+        // The Type cell says which KPI this upload feeds, and the range cell
+        // holds 'YYYY-MM-DD → YYYY-MM-DD', whose first seven characters are
+        // the month. Sending a feedback upload to the KPI 1 screen was simply
+        // wrong — that screen has none of its data.
+        const type = row.children[2].textContent.trim().toUpperCase();
+        const range = row.children[6].textContent.trim();
         const month = range.slice(0, 7);
-        if (month && /^\d{4}-\d{2}$/.test(month)) {
+        const valid = /^\d{4}-\d{2}$/.test(month);
+
+        if (type.indexOf('FEEDBACK') !== -1) {
+          if (valid) setValue('kpi2Month', month);
+          showView('kpi2');
+          loadKpi2();
+          return;
+        }
+
+        if (valid) {
           state.month = month;
           syncMonthPicker();
         }
