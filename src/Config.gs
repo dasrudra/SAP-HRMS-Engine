@@ -446,22 +446,22 @@ const CONFIG = {
   /**
    * What a quarter means, per KPI.
    *
-   * `startMonth` is the month Q1 begins in. 1 gives plain calendar quarters —
-   * Q1 is Jan–Mar and every quarter shares its year. 4 makes the year run
-   * April to March: Q1 Apr–Jun 2026, Q2 Jul–Sep 2026, Q3 Oct–Dec 2026 and
-   * Q4 Jan–Mar 2027, which is why Q4 lands in the following calendar year.
+   * CALENDAR QUARTERS, ON BOTH DASHBOARDS, AS THE TEAM CONFIRMED.
+   *   Q1 Jan–Mar · Q2 Apr–Jun · Q3 Jul–Sep · Q4 Oct–Dec
+   * January 2027 starts Q1 of 2027; no quarter ever crosses a calendar year.
+   * "Quarter 2" therefore means the same three months whichever screen it is
+   * read on, which is the point.
    *
-   * THE TWO KPIs ARE SET SEPARATELY, AND CURRENTLY DIFFER.
-   * KPI 1's quarter filter was specified as calendar quarters and is left
-   * that way. KPI 2 reports on an April–March year. That is deliberate, not an
-   * oversight — but it does mean "Quarter 1" names different months on the two
-   * screens, which is worth settling one way or the other. Set both to the
-   * same startMonth to unify them; nothing else has to change, because every
-   * quarter on both dashboards is derived from here.
+   * `startMonth` is the month Q1 begins in. It is kept per KPI, and both are
+   * set to 1, because the two are only the same by decision and not by
+   * necessity: a KPI moved onto a company year that starts in April would be
+   * one line here — set startMonth to 4 and Q4 becomes Jan–Mar of the next
+   * calendar year — with nothing else to change, since every quarter on both
+   * dashboards is derived from this and resolved when the figures are read.
    */
   QUARTERS: {
     RESOLUTION: { startMonth: 1, yearFrom: 'start' },   // KPI 1 — Jan–Mar is Q1
-    FEEDBACK:   { startMonth: 4, yearFrom: 'start' }    // KPI 2 — Apr–Mar year
+    FEEDBACK:   { startMonth: 1, yearFrom: 'start' }    // KPI 2 — the same
   },
 
   /**
