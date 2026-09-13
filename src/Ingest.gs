@@ -155,6 +155,8 @@ function appendFeedbackBatch(uploadId, rows) {
   lock.waitLock(30000);
 
   try {
+    ensureTrainingHeaders();
+
     const sheet = sheetFor(CONFIG.SHEETS.TRAINING);
     const width = CONFIG.TRAINING_COLUMNS.length;
     const stamp = new Date();
@@ -258,6 +260,156 @@ function finishFeedbackUpload(uploadId) {
   } finally {
     lock.releaseLock();
   }
+}
+
+
+/**
+ * Adds any TRAINING header the layout has gained but the sheet has not.
+ *
+ * TRAINING_COLUMNS grows over time — 'Zone' arrived when the feedback form
+ * started asking for it. Rows are addressed by position, so a new column
+ * appended at the end costs the stored data nothing; only the header row on
+ * the sheet needs catching up, and only so a human reading it sees the right
+ * label. Idempotent, and cheap enough to run before every write.
+ */
+function ensureTrainingHeaders() {
+  const sheet = sheetFor(CONFIG.SHEETS.TRAINING);
+  const want = CONFIG.TRAINING_COLUMNS;
+
+  if (sheet.getMaxColumns() < want.length) {
+    sheet.insertColumnsAfter(sheet.getMaxColumns(),
+                             want.length - sheet.getMaxColumns());
+  }
+
+  const have = sheet.getRange(1, 1, 1, want.length).getValues()[0];
+  let gap = false;
+  for (let i = 0; i < want.length; i++) {
+    if (String(have[i] || '').trim() !== want[i]) { gap = true; break; }
+  }
+  if (gap) sheet.getRange(1, 1, 1, want.length).setValues([want]);
+}
+
+
+/**
+ * Training responses whose upload is no longer in the history.
+ *
+ * These exist because deleteUpload used to remove the log row and the tickets
+ * and leave the TRAINING tab untouched, so every feedback upload deleted
+ * before that was fixed left its responses behind — invisible in the upload
+ * history and still counted by KPI 2. That cannot happen again, but the rows
+ * already orphaned are still there and only a sweep like this will find them.
+ *
+ * Read-only. Nothing is removed until purgeOrphanedFeedback is called.
+ *
+ * @return {Object} { orphans, kept, files }
+ */
+function auditFeedback() {
+  const sheet = sheetFor(CONFIG.SHEETS.TRAINING);
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return { orphans: 0, kept: 0, files: [] };
+
+  const known = knownUploadFiles();
+  const COL2 = trainingColumns();
+  const rows = sheet.getRange(2, 1, lastRow - 1, CONFIG.TRAINING_COLUMNS.length).getValues();
+
+  const byFile = {};
+  const order = [];
+  let orphans = 0;
+  let kept = 0;
+
+  rows.forEach(function (row) {
+    if (!String(row[COL2.RESPONSE_ID] || '').trim()) return;
+
+    const source = sourceOf(row, COL2);
+    if (source && known[source]) { kept++; return; }
+
+    orphans++;
+    const name = source || '(no source file recorded)';
+    if (!byFile[name]) { byFile[name] = 0; order.push(name); }
+    byFile[name]++;
+  });
+
+  return {
+    orphans: orphans,
+    kept: kept,
+    files: order.map(function (name) {
+      return { fileName: name, rows: byFile[name] };
+    }).sort(function (a, b) { return b.rows - a.rows; })
+  };
+}
+
+
+/**
+ * Removes the responses auditFeedback found.
+ *
+ * @return {Object} { removed, kept, files }
+ */
+function purgeOrphanedFeedback() {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(60000);
+
+  try {
+    const audit = auditFeedback();
+    if (!audit.orphans) return { removed: 0, kept: audit.kept, files: [] };
+
+    const sheet = sheetFor(CONFIG.SHEETS.TRAINING);
+    const width = CONFIG.TRAINING_COLUMNS.length;
+    const lastRow = sheet.getLastRow();
+    const known = knownUploadFiles();
+    const COL2 = trainingColumns();
+
+    const rows = sheet.getRange(2, 1, lastRow - 1, width).getValues();
+    const survivors = rows.filter(function (row) {
+      if (!String(row[COL2.RESPONSE_ID] || '').trim()) return false;
+      const source = sourceOf(row, COL2);
+      return source && known[source];
+    });
+
+    sheet.getRange(2, 1, rows.length, width).clearContent();
+    if (survivors.length) {
+      sheet.getRange(2, COL2.MONTH + 1, survivors.length, 1).setNumberFormat('@');
+      sheet.getRange(2, 1, survivors.length, width).setValues(survivors);
+    }
+    SpreadsheetApp.flush();
+
+    return { removed: audit.orphans, kept: survivors.length, files: audit.files };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+
+/** Every filename any surviving upload claims. */
+function knownUploadFiles() {
+  const log = sheetFor(CONFIG.SHEETS.UPLOADS);
+  const lastRow = log.getLastRow();
+  const known = {};
+  if (lastRow < 2) return known;
+
+  log.getRange(2, 4, lastRow - 1, 1).getValues().forEach(function (row) {
+    String(row[0] || '').split(' | ').forEach(function (name) {
+      const trimmed = name.trim();
+      if (trimmed) known[trimmed] = true;
+    });
+  });
+  return known;
+}
+
+
+/**
+ * Which file did this response arrive in?
+ *
+ * Source File when it is filled in; otherwise the Response ID, which is
+ * 'filename#rownumber' and so still identifies the file for rows written
+ * before Source File was populated.
+ */
+function sourceOf(row, COL2) {
+  const source = String(row[COL2.SOURCE] || '').trim();
+  if (source) return source;
+
+  const id = String(row[COL2.RESPONSE_ID] || '').trim();
+  const hash = id.lastIndexOf('#');
+  return hash > 0 ? id.slice(0, hash) : '';
 }
 
 

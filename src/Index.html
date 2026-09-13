@@ -290,6 +290,13 @@
           </div>
         </div>
 
+        <!--
+          Responses whose upload no longer exists. Shown here as well as on
+          Data Uploads because this is the screen where the wrong number is
+          actually visible.
+        -->
+        <div id="kpi2Orphans" class="notice notice-warn" hidden></div>
+
         <!-- Shown only when a form wording is not in the classification. -->
         <div id="kpi2Unknown" class="notice notice-warn" hidden></div>
 
@@ -536,6 +543,9 @@
             </p>
           </div>
         </div>
+
+        <!-- Left-behind responses, with the button that clears them. -->
+        <div id="uploadOrphans" class="notice notice-warn" hidden></div>
 
         <div class="card">
           <div class="card-head">Upload ITSM exports</div>

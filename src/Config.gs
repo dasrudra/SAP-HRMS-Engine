@@ -397,19 +397,24 @@ const CONFIG = {
   /**
    * The three plant zones training is reported against.
    *
-   * Like the module, the zone is not a field on the feedback form — it comes
-   * from the filename, which is where it has always been recorded
-   * ('Trainee Feedback_MM KEPZ– Ashraful.xlsx').
+   * WHERE THE ZONE COMES FROM, IN ORDER
+   *   1. the form's own Zone answer, from August 2026 onward
+   *   2. the plant code, via PLANT_ZONES
+   *   3. the filename ('Trainee Feedback_MM KEPZ– Ashraful.xlsx')
+   *   4. Unspecified
    *
-   * A file that names no zone is reported as Unspecified rather than being
-   * guessed into one. Roughly half the historical files name a zone and half
-   * do not, so that bucket will be real; it is better as a visible gap than as
-   * a wrong attribution.
+   * The feedback form did not ask for a zone before this quarter, so the
+   * historical responses genuinely have no zone to recover and belong in
+   * Unspecified — that bucket is a fact about the old forms, not a gap in the
+   * data. New sessions carry the answer and land in a real zone.
+   *
+   * `match` is applied to all three sources, so 'Karnaphuli EPZ (KEPZ)' typed
+   * into the form resolves the same as a filename that mentions KEPZ.
    */
   ZONES: [
-    { key: 'KEPZ', name: 'KEPZ', match: ['kepz'] },
-    { key: 'CEPZ', name: 'CEPZ', match: ['cepz'] },
-    { key: 'DEPZ', name: 'DEPZ', match: ['depz'] }
+    { key: 'KEPZ', name: 'KEPZ', match: ['kepz', 'karnaphuli'] },
+    { key: 'CEPZ', name: 'CEPZ', match: ['cepz', 'chittagong', 'chattogram'] },
+    { key: 'DEPZ', name: 'DEPZ', match: ['depz', 'dhaka'] }
   ],
 
   /** Shown for a session whose file names no zone. */
@@ -445,7 +450,13 @@ const CONFIG = {
     'Q1 Overall', 'Q2 Relevance', 'Q3 Trainer Knowledge', 'Q4 Explanation',
     'Q5 Materials', 'Q6 Confidence', 'Q7 Duration',
     'Source File',
-    'Uploaded At'
+    'Uploaded At',
+    // Added last, on purpose. Existing rows were written at the old width and
+    // are addressed by position, so a column inserted anywhere else would
+    // shift every value already stored. Appended, it is simply blank on the
+    // older responses — which is the truth: the forms they came from never
+    // asked. ensureTrainingHeaders() writes the header in when it is missing.
+    'Zone'
   ],
 
   /** Column layout of KPI_MONTHLY — precomputed so the dashboard reads fast. */
@@ -678,31 +689,54 @@ function moduleFor(fileName) {
 /**
  * Which plant zone did this training belong to?
  *
- * Plant code first when a mapping exists, filename second, Unspecified last.
+ * The form's own answer first — from this quarter the feedback form asks for
+ * the zone, so when a response carries one it is the fact and nothing should
+ * override it. Then the plant code, then the filename, then Unspecified.
+ *
  * Resolved at SCORING time, not at upload: the same reason KPI 1 resolves
  * sections that way — correcting CONFIG.ZONES or filling in PLANT_ZONES and
  * re-running is enough, with nothing to re-upload.
  *
- * Matched at a word boundary so 'KEPZ' cannot fire inside a longer token.
- *
  * @param {string} sourceFile  the filename the responses arrived in
  * @param {string} plant       the plant code on the response, if any
+ * @param {string} answered    the Zone the respondent selected, if the form asked
  * @return {string} zone name
  */
-function zoneFor(sourceFile, plant) {
+function zoneFor(sourceFile, plant, answered) {
+  const said = matchZone(answered);
+  if (said) return said;
+
   const code = String(plant == null ? '' : plant).trim();
   if (code && CONFIG.PLANT_ZONES[code]) return CONFIG.PLANT_ZONES[code];
 
-  const text = String(sourceFile || '').toLowerCase();
+  return matchZone(sourceFile) || CONFIG.ZONE_UNSPECIFIED;
+}
+
+
+/**
+ * Reads a zone out of a piece of text, or returns '' if there is none.
+ *
+ * Matched at a word boundary so 'KEPZ' cannot fire inside a longer token —
+ * 'DEPZONE' is not DEPZ. An exact name still wins outright, which is the
+ * normal case for a dropdown answer.
+ *
+ * @param {*} value
+ * @return {string} zone name, or ''
+ */
+function matchZone(value) {
+  const text = String(value == null ? '' : value).trim().toLowerCase();
+  if (!text) return '';
+
   for (let i = 0; i < CONFIG.ZONES.length; i++) {
     const zone = CONFIG.ZONES[i];
+    if (text === zone.name.toLowerCase()) return zone.name;
     for (let j = 0; j < zone.match.length; j++) {
       if (new RegExp('(^|[^a-z0-9])' + zone.match[j] + '([^a-z0-9]|$)').test(text)) {
         return zone.name;
       }
     }
   }
-  return CONFIG.ZONE_UNSPECIFIED;
+  return '';
 }
 
 

@@ -562,6 +562,10 @@
       if (key.indexOf('employee id') !== -1 && position.empId === undefined) position.empId = i;
       if (key.indexOf('employee name') !== -1 && position.empName === undefined) position.empName = i;
       if (key.indexOf('plant') !== -1 && position.plant === undefined) position.plant = i;
+      // From this quarter the form asks which zone the training was held in.
+      // Older exports have no such column and simply leave it blank — which is
+      // the truth about them, not a gap to be guessed at.
+      if (key.indexOf('zone') !== -1 && position.zone === undefined) position.zone = i;
       if (key.indexOf('date') !== -1 && key.indexOf('time') !== -1 &&
           position.when === undefined) position.when = i;
       if (key === 'id' && position.rowId === undefined) position.rowId = i;
@@ -622,6 +626,7 @@
       qCols.forEach(function (name, i) { row[at(name)] = answers[i]; });
 
       row[at('Source File')] = meta.fileName;
+      row[at('Zone')] = position.zone !== undefined ? String(raw[position.zone] || '').trim() : '';
       out.push(row);
     });
 
@@ -1070,8 +1075,87 @@
   }
 
 
+  /**
+   * Offers to clear responses whose upload no longer exists.
+   *
+   * These are the wreckage of the old delete, which removed the log row and
+   * the tickets and left the TRAINING tab alone. They cannot be seen in the
+   * upload history — there is nothing left to see — but KPI 2 still counts
+   * them, which is why a deleted feedback file went on showing attendees.
+   *
+   * Drawn on both the KPI 2 and Data Uploads screens: one is where the wrong
+   * number shows, the other is where data is managed.
+   */
+  function renderOrphans() {
+    const n = (state.boot && state.boot.orphanedFeedback) || 0;
+
+    ['kpi2Orphans', 'uploadOrphans'].forEach(function (id) {
+      const box = document.getElementById(id);
+      if (!box) return;
+
+      if (!n) { box.hidden = true; return; }
+
+      box.hidden = false;
+      box.innerHTML =
+        '<h3>' + count(n) + ' training response' + (n === 1 ? '' : 's') +
+        ' left over from a deleted upload</h3>' +
+        '<p>' + (n === 1 ? 'It belongs' : 'They belong') + ' to a feedback file ' +
+        'that is no longer in the upload history, so ' +
+        (n === 1 ? 'it is' : 'they are') + ' still being counted in KPI 2 with ' +
+        'no way to see where ' + (n === 1 ? 'it' : 'they') + ' came from. ' +
+        'Earlier versions removed the history entry without removing the ' +
+        'responses; that is fixed, but what was already orphaned is still here.</p>' +
+        '<p><button class="btn btn-danger" data-purge="1">' +
+        'Remove ' + count(n) + ' orphaned response' + (n === 1 ? '' : 's') +
+        '</button></p>';
+    });
+
+    document.querySelectorAll('[data-purge]').forEach(function (button) {
+      button.addEventListener('click', function () { askThenPurge(button); });
+    });
+  }
+
+
+  function askThenPurge(button) {
+    const n = (state.boot && state.boot.orphanedFeedback) || 0;
+
+    confirmDialog({
+      title: 'Remove the orphaned responses?',
+      subtitle: count(n) + ' response' + (n === 1 ? '' : 's'),
+      body:
+        '<p>Only responses whose upload is <strong>no longer in the ' +
+        'history</strong> are removed. Everything belonging to an upload you ' +
+        'can still see is kept, untouched.</p>' +
+        '<p>KPI 2 is scored live, so its figures correct themselves as soon ' +
+        'as this finishes.</p>' +
+        '<p>This cannot be undone. If you want the data back, re-upload the ' +
+        'file it came from.</p>',
+      confirmLabel: 'Remove them'
+    }).then(function (yes) {
+      if (!yes) return;
+
+      button.disabled = true;
+      setStatus('Removing ' + count(n) + ' orphaned responses…');
+
+      return withTimeout(callServer('purgeOrphanedFeedback'), 120000, 'The cleanup')
+        .then(function (result) {
+          setStatus('Removed ' + count(result.removed) + ' orphaned response' +
+                    (result.removed === 1 ? '' : 's') + ' — ' +
+                    count(result.kept) + ' kept.', 'ok');
+          return refreshAfterChange();
+        })
+        .catch(function (err) {
+          button.disabled = false;
+          onError(err);
+          return refreshAfterChange().catch(function () {});
+        });
+    });
+  }
+
+
   function loadUploads() {
     if (!state.boot || !state.boot.configured) return;
+    renderOrphans();
 
     callServer('getUploadHistory').then(function (history) {
       const body = document.querySelector('#uploadTable tbody');
@@ -1665,6 +1749,8 @@
 
   function loadKpi2() {
     if (!state.boot || !state.boot.configured) return;
+
+    renderOrphans();
 
     const months = state.boot.feedbackMonths || [];
     if (!months.length) {

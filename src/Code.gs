@@ -101,6 +101,13 @@ function getBootstrap() {
     feedbackMonths: (configured && typeof listFeedbackMonths === 'function')
       ? listFeedbackMonths() : [],
 
+    // Responses left behind by an upload that has since been deleted. Sent on
+    // every bootstrap so the page can offer to clear them without the user
+    // having to know they exist — they are invisible in the upload history and
+    // KPI 2 counts them regardless.
+    orphanedFeedback: (configured && typeof auditFeedback === 'function')
+      ? auditFeedback().orphans : 0,
+
     stats: configured ? quickStats() : null
   };
 }

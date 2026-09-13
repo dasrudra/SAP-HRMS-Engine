@@ -103,7 +103,7 @@ function getKpi2(scope) {
     const sessionName = String(r[COL2.TITLE]   || '').trim() || '(untitled session)';
     const trainerName = String(r[COL2.TRAINER] || '').trim() || '(unnamed)';
 
-    const zoneName = zoneFor(r[COL2.SOURCE], r[COL2.PLANT]);
+    const zoneName = zoneFor(r[COL2.SOURCE], r[COL2.PLANT], r[COL2.ZONE]);
 
     const m = bucket(byModule,  moduleOrder,  moduleName,  moduleName);
     const s = bucket(bySession, sessionOrder, sessionName, sessionName);
@@ -312,7 +312,8 @@ function trainingColumns() {
     EMP_NAME:     at('Employee Name'),
     Q1:           at('Q1 Overall'),
     SOURCE:       at('Source File'),
-    UPDATED:      at('Uploaded At')
+    UPDATED:      at('Uploaded At'),
+    ZONE:         at('Zone')
   };
 }
 
