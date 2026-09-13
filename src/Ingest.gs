@@ -210,12 +210,11 @@ function compactFeedback() {
   const kept = order.map(function (id) { return byId[id]; });
   const merged = rows.length - kept.length;
 
-  sheet.getRange(2, 1, lastRow - 1, width).clearContent();
   if (kept.length) {
     sheet.getRange(2, CONFIG.TRAINING_COLUMNS.indexOf('Month') + 1, kept.length, 1)
          .setNumberFormat('@');
-    sheet.getRange(2, 1, kept.length, width).setValues(kept);
   }
+  rewrite(sheet, kept, rows.length, width);
 
   return { kept: kept.length, merged: merged };
 }
@@ -365,12 +364,10 @@ function purgeOrphanedFeedback() {
       return source && known[source];
     });
 
-    sheet.getRange(2, 1, rows.length, width).clearContent();
     if (survivors.length) {
       sheet.getRange(2, COL2.MONTH + 1, survivors.length, 1).setNumberFormat('@');
-      sheet.getRange(2, 1, survivors.length, width).setValues(survivors);
     }
-    SpreadsheetApp.flush();
+    rewrite(sheet, survivors, rows.length, width);
 
     return { removed: audit.orphans, kept: survivors.length, files: audit.files };
   } finally {
@@ -450,7 +447,12 @@ function countFeedbackOf(fileList) {
 
 
 /**
- * Closes the upload: deduplicates, sorts, updates the log, refreshes the cache.
+ * Closes the upload: deduplicates, sorts, updates the log.
+ *
+ * DOES NOT RECOMPUTE. That is a separate call now — see recomputeAfterUpload.
+ * Consolidating twenty-eight thousand tickets and then re-scoring all of them
+ * in one server call ran past the six-minute ceiling and the run was killed
+ * mid-write. Two calls means two budgets, and each is comfortably inside one.
  *
  * @param {string} uploadId
  * @return {Object} summary
@@ -476,14 +478,33 @@ function finishUpload(uploadId) {
       }
     }
 
+    SpreadsheetApp.flush();
+    return result;
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+
+/**
+ * Rebuilds the KPI 1 cache. Called straight after finishUpload.
+ *
+ * Split out so the consolidate and the re-score cannot share one six-minute
+ * budget. If this one is interrupted the tickets are already safely stored —
+ * only the cache is stale, and pressing Refresh rebuilds it.
+ *
+ * @return {Object} { months }
+ */
+function recomputeAfterUpload() {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(60000);
+
+  try {
     // Kpi.gs may not exist yet. Apps Script shares one global namespace across
     // files, so this is how you ask "has that file been added?" without an
     // error taking down the whole upload.
-    if (typeof recomputeKpiCache === 'function') {
-      result.months = recomputeKpiCache();
-    }
-
-    return result;
+    const months = (typeof recomputeKpiCache === 'function') ? recomputeKpiCache() : [];
+    return { months: months };
   } finally {
     lock.releaseLock();
   }
@@ -540,15 +561,48 @@ function compactTickets() {
     return x < y ? -1 : (x > y ? 1 : 0);
   });
 
-  // Clear the old block, write the new one. Clearing first matters — the
-  // deduplicated set is shorter, and stale rows would otherwise survive
-  // underneath it.
-  sheet.getRange(2, 1, before, COL.WIDTH).clearContent();
-  if (merged.length) {
-    sheet.getRange(2, 1, merged.length, COL.WIDTH).setValues(merged);
-  }
+  rewrite(sheet, merged, before, COL.WIDTH);
 
   return { before: before, kept: merged.length, merged: before - merged.length };
+}
+
+
+/**
+ * Replaces a sheet's rows with a shorter set, WITHOUT a window where the data
+ * does not exist.
+ *
+ * This used to clear the whole block and then write the survivors back. That
+ * ordering destroyed twenty thousand tickets: an upload of six section exports
+ * on top of the existing data pushed the run past the six-minute ceiling, Apps
+ * Script killed it, and what survived was the clear and not the write. "Upload
+ * failed: Exceeded maximum execution time" and an empty TICKETS tab are the
+ * same event.
+ *
+ * Writing first is safe in a way clearing first can never be. The survivors
+ * always fit inside the block they came from, so they are written over the top
+ * of it; only the tail below them is stale, and that is cleared afterwards.
+ * Interrupted at any point the sheet still holds every surviving row — at
+ * worst with some leftover duplicates below, which the next compaction
+ * removes. Losing a few minutes of work beats losing the database.
+ *
+ * @param {Sheet}   sheet
+ * @param {Array[]} survivors  never longer than `before`
+ * @param {number}  before     how many rows were there
+ * @param {number}  width
+ */
+function rewrite(sheet, survivors, before, width) {
+  if (survivors.length) {
+    sheet.getRange(2, 1, survivors.length, width).setValues(survivors);
+  }
+
+  // Commit the survivors before touching anything else, so a kill here cannot
+  // take them with it.
+  SpreadsheetApp.flush();
+
+  const tail = before - survivors.length;
+  if (tail > 0) {
+    sheet.getRange(2 + survivors.length, 1, tail, width).clearContent();
+  }
 }
 
 
@@ -768,10 +822,7 @@ function removeTicketsOf(files) {
     return { removed: 0, kept: survivors.length, changed: false };
   }
 
-  sheet.getRange(2, 1, rows.length, COL.WIDTH).clearContent();
-  if (survivors.length) {
-    sheet.getRange(2, 1, survivors.length, COL.WIDTH).setValues(survivors);
-  }
+  rewrite(sheet, survivors, rows.length, COL.WIDTH);
 
   return { removed: removed, kept: survivors.length, changed: true };
 }
@@ -818,11 +869,10 @@ function removeFeedbackOf(files) {
 
   if (!removed) return { removed: 0, kept: survivors.length, changed: false };
 
-  sheet.getRange(2, 1, rows.length, width).clearContent();
   if (survivors.length) {
     sheet.getRange(2, COL2.MONTH + 1, survivors.length, 1).setNumberFormat('@');
-    sheet.getRange(2, 1, survivors.length, width).setValues(survivors);
   }
+  rewrite(sheet, survivors, rows.length, width);
 
   return { removed: removed, kept: survivors.length, changed: true };
 }

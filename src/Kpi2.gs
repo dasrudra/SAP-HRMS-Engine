@@ -51,7 +51,12 @@ function getKpi2(scope) {
     // Answers no one anticipated. Surfaced rather than swallowed — a new form
     // wording that silently counted as positive would move the KPI without
     // anyone noticing.
-    unknownAnswers: []
+    unknownAnswers: [],
+
+    // Files whose module the filename did not name. They pool into
+    // '(unassigned)', which answers no question at all unless you can see
+    // which files went into it.
+    unassignedFiles: []
   };
 
   const sheet = sheetFor(CONFIG.SHEETS.TRAINING);
@@ -64,6 +69,7 @@ function getKpi2(scope) {
   const COL2 = trainingColumns();
   const monthsSeen = {};
   const unknown = {};
+  const unassigned = {};
 
   // One accumulator shape, used for every grouping.
   function blank(name) {
@@ -100,6 +106,10 @@ function getKpi2(scope) {
     if (month) monthsSeen[month] = true;
 
     const moduleName  = String(r[COL2.MODULE]  || '').trim() || '(unassigned)';
+    if (moduleName === '(unassigned)') {
+      const from = String(r[COL2.SOURCE] || '').trim() || '(no source file)';
+      unassigned[from] = (unassigned[from] || 0) + 1;
+    }
     const sessionName = String(r[COL2.TITLE]   || '').trim() || '(untitled session)';
     const trainerName = String(r[COL2.TRAINER] || '').trim() || '(unnamed)';
 
@@ -163,6 +173,10 @@ function getKpi2(scope) {
   result.unknownAnswers = Object.keys(unknown).map(function (text) {
     return { answer: text, count: unknown[text] };
   }).sort(function (a, b) { return b.count - a.count; });
+
+  result.unassignedFiles = Object.keys(unassigned).map(function (name) {
+    return { fileName: name, respondents: unassigned[name] };
+  }).sort(function (a, b) { return b.respondents - a.respondents; });
 
   return result;
 }

@@ -590,6 +590,10 @@
     });
     const manySessions = Object.keys(sessionDates).length > 1;
 
+    // Counted so the upload can report how many typed dates it had to
+    // overrule, rather than silently rewriting them.
+    let corrected = 0;
+
     file.rows.forEach(function (raw, index) {
       // A respondent is real if they answered at least one scored question.
       const answers = FEEDBACK_QUESTIONS.map(function (q) {
@@ -600,7 +604,9 @@
       });
       if (!answers.some(function (a) { return a !== ''; })) return;
 
-      const date = feedbackDate(raw, position);
+      const parts = feedbackDateParts(raw, position);
+      const date = parts.date;
+      if (parts.corrected) corrected++;
       const month = (date.match(/^(\d{4})-(\d{2})/) || []).slice(1, 3).join('-');
       const title = manySessions && date
         ? meta.title + ' · ' + date.slice(0, 10)
@@ -630,6 +636,8 @@
       out.push(row);
     });
 
+    out.corrected = corrected;
+    out.moduleFound = module !== '';
     return out;
   }
 
@@ -637,15 +645,55 @@
   /**
    * When did this attendee's session run?
    *
-   * The form's own 'Date & Time' field when it has one, the submission
-   * timestamp otherwise. With cellDates set on the reader these arrive as real
-   * Date objects; a text date is passed through unchanged.
+   * TWO SOURCES, AND ONLY ONE OF THEM IS TRUSTWORTHY ON ITS OWN.
+   * 'Date & Time' is typed by the attendee, so it carries whatever they wrote
+   * and whatever Excel then made of it — a session held in June 2026 came
+   * through as January 1974, June 1984, March 1993 and September 2003 across
+   * the real files, because a two-digit year typed into a text box is read as
+   * a date by Excel when the sheet is opened and saved. 'Completion time' is
+   * stamped by the form when the response is submitted and cannot be typed
+   * wrong.
+   *
+   * So the typed date is used only when it agrees with the submission to
+   * within FEEDBACK_DATE_TOLERANCE_DAYS — feedback is filled in at the session
+   * or within days of it — and the submission timestamp is used otherwise.
+   * That is self-calibrating: no hardcoded earliest year to maintain, and it
+   * catches a date typed wrong in either direction.
+   *
+   * @return {Object} { date, submitted, corrected }
    */
+  function feedbackDateParts(raw, position) {
+    const typed = position.when !== undefined ? asDate(raw[position.when]) : '';
+    const submitted = position.completed !== undefined
+      ? asDate(raw[position.completed]) : '';
+
+    if (!typed) return { date: submitted, submitted: submitted, corrected: false };
+    if (!submitted) return { date: typed, submitted: '', corrected: false };
+
+    const gap = Math.abs(Date.parse(typed.slice(0, 10)) - Date.parse(submitted.slice(0, 10)));
+    const days = gap / 86400000;
+
+    if (isFinite(days) && days > FEEDBACK_DATE_TOLERANCE_DAYS) {
+      return { date: submitted, submitted: submitted, corrected: true };
+    }
+    return { date: typed, submitted: submitted, corrected: false };
+  }
+
+
+  /** Feedback is filled in at the session, not years later. */
+  const FEEDBACK_DATE_TOLERANCE_DAYS = 120;
+
+
   function feedbackDate(raw, position) {
-    let when = position.when !== undefined ? raw[position.when] : null;
-    if (!when && position.completed !== undefined) when = raw[position.completed];
-    if (when instanceof Date) return formatDate(when);
-    return String(when === null || when === undefined ? '' : when).trim();
+    return feedbackDateParts(raw, position).date;
+  }
+
+
+  /** A cell as 'YYYY-MM-DD…', whether it arrived as a Date or as text. */
+  function asDate(value) {
+    if (value instanceof Date) return formatDate(value);
+    const text = String(value === null || value === undefined ? '' : value).trim();
+    return /^\d{4}-\d{2}-\d{2}/.test(text) ? text : '';
   }
 
 
@@ -902,11 +950,23 @@
                    kind: 'FEEDBACK' };
     const rows = [];
 
+    // Files the filename could not place, and responses whose typed session
+    // date had to be overruled. Both are reported rather than quietly
+    // absorbed: an unplaced file lands in the '(unassigned)' module and a
+    // wrong date lands in the wrong month, and neither is visible afterwards
+    // unless the upload says so.
+    const unnamed = [];
+    let corrected = 0;
+
     files.forEach(function (f) {
       const parsed = normalizeFeedback(f.parsed, columns);
       rows.push.apply(rows, parsed);
+      corrected += parsed.corrected || 0;
 
-      const module = detectModule(f.parsed.fileName) || 'Unrecognised module';
+      const detected = detectModule(f.parsed.fileName);
+      if (!detected) unnamed.push(f.parsed.fileName);
+
+      const module = detected || 'Unrecognised module';
       meta.fileNames.push(f.parsed.fileName);
       meta.reportTypes.push('FEEDBACK');
       meta.departments.push(module);
@@ -921,6 +981,8 @@
     if (!rows.length) {
       throw new Error('No feedback responses found in those files.');
     }
+
+    state.lastFeedbackNotes = { unnamed: unnamed, corrected: corrected };
 
     const monthAt = columns.indexOf('Month');
     const dateAt = columns.indexOf('Session Date');
@@ -947,8 +1009,19 @@
 
     const result = await callServer('finishFeedbackUpload', begun.uploadId);
 
+    const notes = [];
+    if (corrected) {
+      notes.push(' ' + corrected + ' response' + (corrected === 1 ? ' had its' : 's had their') +
+                 ' typed session date replaced with the submission date — see below.');
+    }
+    if (unnamed.length) {
+      notes.push(' ' + unnamed.length + ' file' + (unnamed.length === 1 ? '' : 's') +
+                 ' could not be placed in a module — see below.');
+    }
+
     setStatus('Done. ' + result.kept + ' feedback responses stored for KPI 2' +
-              (result.merged ? ', ' + result.merged + ' duplicates collapsed' : '') + '.',
+              (result.merged ? ', ' + result.merged + ' duplicates collapsed' : '') + '.' +
+              notes.join(''),
               'ok', summary);
   }
 
@@ -1008,8 +1081,14 @@
                 Math.round((done / merged.length) * 100) + '%)', null, summary);
     }
 
-    setStatus('Consolidating and recomputing KPI figures…', null, summary);
+    // Two calls, not one. Consolidating and re-scoring together used to run
+    // past the server's six-minute ceiling on a large upload, and the run was
+    // killed part-way through rewriting the sheet.
+    setStatus('Consolidating ' + merged.length + ' tickets…', null, summary);
     const result = await callServer('finishUpload', begun.uploadId);
+
+    setStatus('Stored ' + result.kept + ' tickets. Recomputing KPI 1…', null, summary);
+    await callServer('recomputeAfterUpload');
 
     setStatus('Done. ' + result.kept + ' tickets stored' +
               (result.merged ? ', ' + result.merged + ' duplicate rows collapsed' : '') + '.',
@@ -1166,6 +1245,8 @@
         return;
       }
 
+      renderMissingData(history);
+
       body.innerHTML = '';
       history.forEach(function (h) {
         const deleted = /^deleted/.test(h.notes || '');
@@ -1188,6 +1269,41 @@
 
       wireRowActions();
     }).catch(onError);
+  }
+
+
+  /**
+   * Says so when the history claims rows the database does not have.
+   *
+   * The two can disagree after a run is killed part-way: the log entry was
+   * written and flushed at the start of the upload, the rows were not. Before
+   * this, the only sign was a KPI screen that had gone blank while the history
+   * still confidently listed 19,946 tickets, which reads as the dashboard
+   * being broken rather than as the data being gone.
+   */
+  function renderMissingData(history) {
+    const box = document.getElementById('uploadMissing');
+    if (!box) return;
+
+    const stats = (state.boot && state.boot.stats) || {};
+    const claimed = history.filter(function (h) {
+      return String(h.reportType || '').toUpperCase().indexOf('FEEDBACK') === -1 &&
+             h.rowsKept > 0;
+    });
+
+    if (!claimed.length || (stats.tickets || 0) > 0) { box.hidden = true; return; }
+
+    box.hidden = false;
+    box.innerHTML =
+      '<h3>' + claimed.length + ' ticket upload' + (claimed.length === 1 ? '' : 's') +
+      ' logged, but no tickets are stored</h3>' +
+      '<p>The history below says these uploads landed, and the TICKETS sheet ' +
+      'is empty. That happens when a run is stopped part-way: the log entry ' +
+      'is written when the upload starts, the rows only as it finishes.</p>' +
+      '<p>KPI 1 has nothing to report until the exports are uploaded again. ' +
+      'Delete the ' + claimed.length + ' row' + (claimed.length === 1 ? '' : 's') +
+      ' below and re-upload the files — the history entries describe data ' +
+      'that no longer exists, so leaving them only makes this harder to read.</p>';
   }
 
 
@@ -1776,10 +1892,13 @@
       emptyTable('#kpi2Questions tbody', 7, 'Nothing to show yet.');
       emptyTable('#kpi2Modules tbody', 8, 'Nothing to show yet.');
       emptyTable('#kpi2Zones tbody', 8, 'Nothing to show yet.');
+      hide('kpi2Unassigned');
+      hide('kpi2Unknown');
       return;
     }
 
     renderKpi2Period(k);
+    renderKpi2Unassigned(k);
     renderKpi2Unknown(k);
     renderKpi2Tiles(k, tiles);
     drawFeedbackModuleChart(k);
@@ -1805,6 +1924,41 @@
       '<span>' + k.monthsCovered + ' month' + (k.monthsCovered === 1 ? '' : 's') +
       ' with training · ' + count(k.total.respondents) + ' attendees · ' +
       count(k.total.responses) + ' responses</span>';
+  }
+
+
+  /**
+   * Names the files behind the '(unassigned)' module.
+   *
+   * The module is read from the filename, so a file called only after its
+   * trainer — 'Trainee Feedback– Mamun.xlsx', 'Trainee Feedback–Rubel.xlsx' —
+   * has nothing to match on. They pool into one '(unassigned)' row, which
+   * tells you the size of the problem and nothing about its cause. Listing
+   * them turns it into something fixable: rename the file and re-upload, or
+   * add the wording to TRAINING_MODULES.
+   */
+  function renderKpi2Unassigned(k) {
+    const box = document.getElementById('kpi2Unassigned');
+    if (!box) return;
+
+    const files = k.unassignedFiles || [];
+    if (!files.length) { box.hidden = true; return; }
+
+    const people = files.reduce(function (a, f) { return a + f.respondents; }, 0);
+
+    box.hidden = false;
+    box.innerHTML =
+      '<h3>' + files.length + ' file' + (files.length === 1 ? '' : 's') +
+      ' could not be matched to a module</h3>' +
+      '<p>Their ' + count(people) + ' response' + (people === 1 ? '' : 's') +
+      ' are counted in the KPI, but grouped under <code>(unassigned)</code> ' +
+      'because the filename does not name a module. Rename the file and ' +
+      're-upload it, or add the wording to <code>TRAINING_MODULES</code> in ' +
+      '<code>Config.gs</code> — the module is resolved at scoring time, so ' +
+      'editing the list and reloading fixes it with nothing to re-upload.</p>' +
+      '<p>' + files.map(function (f) {
+        return '<code>' + escapeHtml(f.fileName) + '</code> ×' + f.respondents;
+      }).join(' &nbsp; ') + '</p>';
   }
 
 
