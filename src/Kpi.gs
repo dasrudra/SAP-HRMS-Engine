@@ -304,18 +304,14 @@ const ALL_MONTHS = 'ALL';
  * @param {string} scope
  * @return {Object|null} a lookup of wanted months, or null for 'every month'
  */
-function monthsInScope(scope) {
+function monthsInScope(scope, scheme) {
   const text = String(scope || '').trim();
   if (!text || text === ALL_MONTHS) return null;
 
   const quarter = text.match(/^(\d{4})-Q([1-4])$/);
   if (quarter) {
-    const year = quarter[1];
-    const first = (Number(quarter[2]) - 1) * 3 + 1;
     const wanted = {};
-    for (let i = 0; i < 3; i++) {
-      wanted[year + '-' + String(first + i).padStart(2, '0')] = true;
-    }
+    monthsOfQuarter(text, scheme).forEach(function (m) { wanted[m] = true; });
     return wanted;
   }
 
@@ -325,16 +321,85 @@ function monthsInScope(scope) {
 }
 
 
+/** The quarter rules for a KPI, defaulting to KPI 1's. */
+function quarterScheme(scheme) {
+  return (CONFIG.QUARTERS && CONFIG.QUARTERS[scheme || 'RESOLUTION']) ||
+         { startMonth: 1, yearFrom: 'start' };
+}
+
+
+/**
+ * The three months a quarter covers, oldest first.
+ *
+ * Driven by CONFIG.QUARTERS, so a company year that starts in April is
+ * described in one place rather than assumed in several. With startMonth 4,
+ * '2026-Q4' is January to March of 2027 — the quarter crosses the calendar
+ * year, which is the whole reason this is not arithmetic on the month number.
+ *
+ * @param {string} key     'YYYY-Qn'
+ * @param {string} scheme  'RESOLUTION' (default) or 'FEEDBACK'
+ * @return {string[]} 'YYYY-MM'
+ */
+function monthsOfQuarter(key, scheme) {
+  const parts = String(key || '').match(/^(\d{4})-Q([1-4])$/);
+  if (!parts) return [];
+
+  const rules = quarterScheme(scheme);
+  const startMonth = Number(rules.startMonth) || 1;
+  const offset = (Number(parts[2]) - 1) * 3;
+
+  // Month index counted from the start of the labelled year.
+  let year = Number(parts[1]);
+  if (rules.yearFrom === 'end' && startMonth > 1) year -= 1;
+
+  const out = [];
+  for (let i = 0; i < 3; i++) {
+    const n = startMonth + offset + i;                 // 1-based, may exceed 12
+    const y = year + Math.floor((n - 1) / 12);
+    const m = ((n - 1) % 12) + 1;
+    out.push(y + '-' + String(m).padStart(2, '0'));
+  }
+  return out;
+}
+
+
 /**
  * The quarter a month falls in: '2026-08' -> '2026-Q3'.
  *
  * @param {string} month 'YYYY-MM'
  * @return {string} 'YYYY-Qn', or '' if unreadable
  */
-function quarterOf(month) {
+function quarterOf(month, scheme) {
   const parts = String(month || '').match(/^(\d{4})-(\d{2})$/);
   if (!parts) return '';
-  return parts[1] + '-Q' + (Math.floor((Number(parts[2]) - 1) / 3) + 1);
+
+  const rules = quarterScheme(scheme);
+  const startMonth = Number(rules.startMonth) || 1;
+  const year = Number(parts[1]);
+  const m = Number(parts[2]);
+
+  // How far into the company year this month sits, 0-11.
+  const into = ((m - startMonth) + 12) % 12;
+  const q = Math.floor(into / 3) + 1;
+
+  // A month before the start month belongs to the year that began earlier.
+  let label = (m >= startMonth) ? year : year - 1;
+  if (rules.yearFrom === 'end' && startMonth > 1) label += 1;
+
+  return label + '-Q' + q;
+}
+
+
+/**
+ * 'Quarter 1 (2026)', and what it covers.
+ *
+ * @param {string} key  'YYYY-Qn'
+ * @return {string}
+ */
+function quarterLabel(key) {
+  const parts = String(key || '').match(/^(\d{4})-Q([1-4])$/);
+  if (!parts) return String(key || '');
+  return 'Quarter ' + parts[2] + ' (' + parts[1] + ')';
 }
 
 

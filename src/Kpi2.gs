@@ -33,7 +33,7 @@
  */
 function getKpi2(scope) {
   const kpi = CONFIG.KPI.FEEDBACK;
-  const wanted = monthsInScope(scope);
+  const wanted = monthsInScope(scope, 'FEEDBACK');
 
   const result = {
     scope: scope,
@@ -356,6 +356,41 @@ function listFeedbackMonths() {
   });
 
   return Object.keys(months).sort().reverse();
+}
+
+
+/**
+ * Which quarters have training feedback loaded?
+ *
+ * KPI 2 reports by quarter, not by month: a module is trained once or twice a
+ * quarter, so a month-by-month reading is mostly empty cells and a rate over
+ * a handful of responses. The picker offers what the data actually has.
+ *
+ * @return {Object[]} { key: '2026-Q1', label: 'Quarter 1 (2026)', months: [...] }
+ *                    newest first
+ */
+function listFeedbackQuarters() {
+  const months = listFeedbackMonths();
+  const seen = {};
+  const order = [];
+
+  months.forEach(function (month) {
+    const key = quarterOf(month, 'FEEDBACK');
+    if (!key) return;
+    if (!seen[key]) { seen[key] = []; order.push(key); }
+    seen[key].push(month);
+  });
+
+  return order.sort().reverse().map(function (key) {
+    return {
+      key: key,
+      label: quarterLabel(key),
+      // Only the months that actually have training, not all three — the
+      // picker's tooltip should say what is in the quarter, not what could be.
+      months: seen[key].slice().sort(),
+      covers: monthsOfQuarter(key, 'FEEDBACK')
+    };
+  });
 }
 
 

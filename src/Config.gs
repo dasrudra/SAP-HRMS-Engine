@@ -409,7 +409,12 @@ const CONFIG = {
   TRAINER_MODULES: [
     { match: 'mamun', name: 'PP' },
     { match: 'rubel', name: 'CO' },
-    { match: 'nazma', name: 'E-Accounting' }
+    // Nazma is SD, in the Sales section. She also runs E-Accounting sessions
+    // from time to time, which is exactly why this list is a fallback and not
+    // an override: 'Trainee Feedback– E-Accounting_Nazma.xlsx' is filed as
+    // E-Accounting by its filename and never reaches this list, and only a
+    // file that names no module at all falls through to her usual one.
+    { match: 'nazma', name: 'SD' }
   ],
 
   /**
@@ -437,6 +442,27 @@ const CONFIG = {
 
   /** Shown for a session whose file names no zone. */
   ZONE_UNSPECIFIED: 'Unspecified',
+
+  /**
+   * What a quarter means, per KPI.
+   *
+   * `startMonth` is the month Q1 begins in. 1 gives plain calendar quarters —
+   * Q1 is Jan–Mar and every quarter shares its year. 4 makes the year run
+   * April to March: Q1 Apr–Jun 2026, Q2 Jul–Sep 2026, Q3 Oct–Dec 2026 and
+   * Q4 Jan–Mar 2027, which is why Q4 lands in the following calendar year.
+   *
+   * THE TWO KPIs ARE SET SEPARATELY, AND CURRENTLY DIFFER.
+   * KPI 1's quarter filter was specified as calendar quarters and is left
+   * that way. KPI 2 reports on an April–March year. That is deliberate, not an
+   * oversight — but it does mean "Quarter 1" names different months on the two
+   * screens, which is worth settling one way or the other. Set both to the
+   * same startMonth to unify them; nothing else has to change, because every
+   * quarter on both dashboards is derived from here.
+   */
+  QUARTERS: {
+    RESOLUTION: { startMonth: 1, yearFrom: 'start' },   // KPI 1 — Jan–Mar is Q1
+    FEEDBACK:   { startMonth: 4, yearFrom: 'start' }    // KPI 2 — Apr–Mar year
+  },
 
   /**
    * Plant code -> zone, checked BEFORE the filename.

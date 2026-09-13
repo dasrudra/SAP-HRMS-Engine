@@ -97,7 +97,7 @@
 
     fillMonthPicker(boot.availableMonths);
     fillScopeFilter(boot.availableMonths);
-    fillFeedbackMonths(boot.feedbackMonths);
+    fillFeedbackQuarters(boot.feedbackQuarters);
     // After fillSettings, not before: it populates the KPI selector, and which
     // months the comparison may offer depends on which KPI is selected.
     fillSettings(boot);
@@ -1135,7 +1135,7 @@
 
     fillMonthPicker(boot.availableMonths);
     fillScopeFilter(boot.availableMonths);
-    fillFeedbackMonths(boot.feedbackMonths);
+    fillFeedbackQuarters(boot.feedbackQuarters);
     fillCompareMonths(compareMonthList());
     fillSettings(boot);
     loadUploads();
@@ -1408,9 +1408,12 @@
     const wanted = (from && from === to) ? from : ALL_MONTHS;
 
     if (feedback > tickets) {
-      const months = (state.boot && state.boot.feedbackMonths) || [];
-      setValue('kpi2Month',
-        (wanted !== ALL_MONTHS && months.indexOf(wanted) !== -1) ? wanted : ALL_MONTHS);
+      // KPI 2 reports by quarter, so a one-month upload opens on the quarter
+      // that month belongs to. An upload spanning several opens on all of them
+      // — it may well straddle a quarter boundary.
+      const fromQ = quarterForMonth(from);
+      const toQ = quarterForMonth(to);
+      setValue('kpi2Month', (fromQ && fromQ === toQ) ? fromQ : ALL_MONTHS);
       showView('kpi2');
       loadKpi2();
       return;
@@ -1448,13 +1451,28 @@
     const feedback = type.indexOf('FEEDBACK') !== -1;
     const noun     = feedback ? 'training responses' : 'tickets';
 
+    // One upload can carry forty-three files. Listing every name as the
+    // headline buried the question and pushed the buttons off the screen, so
+    // the count leads and the names go in a scroller underneath.
+    const names = fileName.split('|').map(function (n) { return n.trim(); }).filter(Boolean);
+    const heading = names.length > 1
+      ? names.length + ' files'
+      : (names[0] || id);
+
     confirmDialog({
       title: 'Delete this upload?',
       subtitle: id,
       target:
-        '<span class="modal-target"><b>' + escapeHtml(fileName || id) + '</b>' +
-        '<span>' + escapeHtml(type || '—') + ' · ' + escapeHtml(rows || '0') +
-        ' stored · ' + escapeHtml(range || 'no date range') + '</span></span>',
+        '<span class="modal-target"><b>' + escapeHtml(heading) + '</b>' +
+        '<span>' + escapeHtml(type.split('|')[0].trim() || '—') + ' · ' +
+        escapeHtml(rows || '0') + ' stored · ' +
+        escapeHtml(range || 'no date range') + '</span>' +
+        (names.length > 1
+          ? '<span class="modal-files">' +
+            names.map(function (n) { return '<div>' + escapeHtml(n) + '</div>'; }).join('') +
+            '</span>'
+          : '') +
+        '</span>',
       body:
         '<p>The <strong>' + noun + '</strong> that came only from this upload are ' +
         'removed, and it disappears from the history.</p>' +
@@ -1471,7 +1489,7 @@
 
       if (row) row.classList.add('row-busy');
       button.disabled = true;
-      setStatus('Deleting ' + (fileName || id) + '…');
+      setStatus('Deleting ' + heading + '…');
 
       return withTimeout(callServer('deleteUpload', id), 120000, 'The delete')
         .then(function (result) {
@@ -1479,7 +1497,7 @@
           // answer to "did that work?" should not depend on a second round
           // trip that might itself be slow.
           if (row && row.parentNode) row.parentNode.removeChild(row);
-          setStatus(describeDeletion(fileName || id, result), 'ok');
+          setStatus(describeDeletion(heading, result), 'ok');
           return refreshAfterChange();
         })
         .catch(function (err) {
@@ -1955,7 +1973,7 @@
 
     renderOrphans();
 
-    const months = state.boot.feedbackMonths || [];
+    const months = state.boot.feedbackQuarters || [];
     if (!months.length) {
       show('kpi2Empty');
       hide('kpi2Unknown');
@@ -1999,17 +2017,38 @@
   }
 
 
+  /**
+   * The chip under the heading, naming the period on screen.
+   *
+   * It appeared only for the all-periods view before. A quarter needs it more:
+   * 'Quarter 1 (2026)' does not say which months it covers, and that is the
+   * first thing anyone reading the figure wants to know.
+   */
   function renderKpi2Period(k) {
     const box = document.getElementById('kpi2Period');
     if (!box) return;
 
-    if (!k.allMonths) { box.hidden = true; return; }
+    const quarters = (state.boot && state.boot.feedbackQuarters) || [];
+
+    if (k.allMonths) {
+      box.hidden = false;
+      box.innerHTML =
+        '<b>All quarters</b>' +
+        '<span>' + quarters.length + ' quarter' + (quarters.length === 1 ? '' : 's') +
+        ' · ' + k.monthsCovered + ' month' + (k.monthsCovered === 1 ? '' : 's') +
+        ' with training · ' + count(k.total.respondents) + ' attendees · ' +
+        count(k.total.responses) + ' responses</span>';
+      return;
+    }
+
+    const here = quarters.filter(function (q) { return q.key === k.scope; })[0];
+    if (!here) { box.hidden = true; return; }
 
     box.hidden = false;
     box.innerHTML =
-      '<b>All months</b>' +
-      '<span>' + k.monthsCovered + ' month' + (k.monthsCovered === 1 ? '' : 's') +
-      ' with training · ' + count(k.total.respondents) + ' attendees · ' +
+      '<b>' + escapeHtml(here.label) + '</b>' +
+      '<span>' + (here.months || []).map(formatMonth).join(' · ') +
+      ' · ' + count(k.total.respondents) + ' attendees · ' +
       count(k.total.responses) + ' responses</span>';
   }
 
@@ -3645,7 +3684,8 @@
         '<dt>KPI 1 · uploads logged</dt><dd>' + count(stats.ticketUploads || 0) + '</dd>' +
         '<dt>KPI 2 · responses stored</dt><dd>' +
           warn(!stats.feedback && stats.feedbackUploads, count(stats.feedback || 0)) + '</dd>' +
-        '<dt>KPI 2 · months</dt><dd>' + fMonths + '</dd>' +
+        '<dt>KPI 2 · quarters</dt><dd>' +
+          ((boot.feedbackQuarters || []).length + ' (' + fMonths + ' months)') + '</dd>' +
         '<dt>KPI 2 · uploads logged</dt><dd>' + count(stats.feedbackUploads || 0) + '</dd>' +
         (boot.orphanedFeedback
           ? '<dt>Orphaned responses</dt><dd>' +
@@ -3806,11 +3846,20 @@
    * — unlike KPI 1, where the policy reports monthly, training feedback is
    * most often read cumulatively.
    */
-  function fillFeedbackMonths(months) {
+  /**
+   * KPI 2's period picker — quarters, not months.
+   *
+   * Training runs a few times a quarter, so a month is the wrong unit to read
+   * it in: most months are empty and the ones that are not carry a rate over a
+   * handful of responses. The quarters offered are the ones the data actually
+   * has, and which months make up a quarter is settled on the server by
+   * CONFIG.QUARTER_START_MONTH — the picker only shows what it is told.
+   */
+  function fillFeedbackQuarters(quarters) {
     const select = document.getElementById('kpi2Month');
     if (!select) return;
 
-    const list = months || [];
+    const list = quarters || [];
     const previous = select.value;
 
     select.innerHTML = '';
@@ -3823,7 +3872,7 @@
 
     const all = document.createElement('option');
     all.value = ALL_MONTHS;
-    all.textContent = 'All months (' + list.length + ')';
+    all.textContent = 'All quarters (' + list.length + ')';
     select.appendChild(all);
 
     const divider = document.createElement('option');
@@ -3831,15 +3880,28 @@
     divider.textContent = '──────────';
     select.appendChild(divider);
 
-    list.forEach(function (month) {
+    list.forEach(function (q) {
       const option = document.createElement('option');
-      option.value = month;
-      option.textContent = formatMonth(month);
+      option.value = q.key;
+      option.textContent = q.label;
+      // The months behind the label, for the tooltip — 'Quarter 1 (2026)'
+      // says nothing about which months it covers until you hover it.
+      option.title = q.label + ' · ' + (q.months || []).map(formatMonth).join(', ');
       select.appendChild(option);
     });
 
-    select.value = previous && [ALL_MONTHS].concat(list).indexOf(previous) !== -1
-      ? previous : ALL_MONTHS;
+    const valid = [ALL_MONTHS].concat(list.map(function (q) { return q.key; }));
+    select.value = previous && valid.indexOf(previous) !== -1 ? previous : ALL_MONTHS;
+  }
+
+
+  /** The quarter a month falls in, as the server labelled it. */
+  function quarterForMonth(month) {
+    const list = (state.boot && state.boot.feedbackQuarters) || [];
+    for (let i = 0; i < list.length; i++) {
+      if ((list[i].months || []).indexOf(month) !== -1) return list[i].key;
+    }
+    return '';
   }
 
 

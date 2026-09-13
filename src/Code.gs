@@ -102,6 +102,12 @@ function getBootstrap() {
     feedbackMonths: (configured && typeof listFeedbackMonths === 'function')
       ? listFeedbackMonths() : [],
 
+    // KPI 2's own period unit. Training runs a few times a quarter, so the
+    // dashboard reports quarters and the month list is only kept for the
+    // comparison screen and for working out which quarters exist.
+    feedbackQuarters: (configured && typeof listFeedbackQuarters === 'function')
+      ? listFeedbackQuarters() : [],
+
     // Responses left behind by an upload that has since been deleted. Sent on
     // every bootstrap so the page can offer to clear them without the user
     // having to know they exist — they are invisible in the upload history and
