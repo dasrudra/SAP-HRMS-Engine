@@ -428,8 +428,8 @@
           <div>
             <h1>Month Comparison</h1>
             <p class="sub">
-              Compare two to four months side by side. KPI 1 is live;
-              KPI 2 joins once its data arrives.
+              Compare two to four months side by side. Pick the KPI first —
+              the months, tables and charts below all follow it.
             </p>
           </div>
         </div>
@@ -474,7 +474,7 @@
         <div class="card chart-card" id="cmpChartCard" hidden>
           <div class="chart-head">
             <div>
-              <h2>Success rate by section and month</h2>
+              <h2 id="cmpChartTitle">Success rate by section and month</h2>
               <p id="cmpChartNote">Against the 99.50% target.</p>
             </div>
           </div>
@@ -489,7 +489,7 @@
         <div class="card chart-card" id="cmpTrendCard" hidden>
           <div class="chart-head">
             <div>
-              <h2>Success rate over time — every month</h2>
+              <h2 id="cmpTrendTitle">Success rate over time — every month</h2>
               <p id="cmpTrendNote">One line per section across the whole period.</p>
             </div>
           </div>
@@ -499,31 +499,23 @@
           </div>
         </div>
 
+        <!--
+          Both tables are built from whatever the selected KPI declares in its
+          `measures` and `sectionLabel`, so the headings below are only the
+          first paint — renderComparison rewrites them for the KPI in hand.
+        -->
         <div class="card" id="cmpOverallCard" hidden>
-          <div class="card-head">KPI 1 — overall by month</div>
+          <div class="card-head" id="cmpOverallTitle">KPI 1 — overall by month</div>
           <div class="table-wrap">
             <table id="cmpOverall">
-              <thead>
-                <tr>
-                  <th>Month</th>
-                  <th class="r">Received</th>
-                  <th class="r">Completed</th>
-                  <th class="r">Delayed</th>
-                  <th class="r">Successful</th>
-                  <th class="r">Success Rate</th>
-                  <th class="r">Achievement</th>
-                  <th>Band</th>
-                  <th class="r">Headroom</th>
-                  <th class="r">Change</th>
-                </tr>
-              </thead>
+              <thead><tr></tr></thead>
               <tbody></tbody>
             </table>
           </div>
         </div>
 
         <div class="card" id="cmpSectionCard" hidden>
-          <div class="card-head">KPI 1 — success rate by section</div>
+          <div class="card-head" id="cmpSectionTitle">KPI 1 — success rate by section</div>
           <div class="table-wrap">
             <table id="cmpSections">
               <thead><tr></tr></thead>
@@ -615,6 +607,32 @@
 
     </div>
   </main>
+</div>
+
+<!--
+  Confirmation dialog.
+
+  Replaces window.confirm(), which rendered as a browser-chrome alert headed
+  "An embedded page at n-bfsldgnf5eemrr3sr7ffjtus5j2quy4jytczaoy-0lu-
+  script.googleusercontent.com says" — the app's own name nowhere in sight, and
+  no way to show what is actually about to be deleted.
+-->
+<div class="modal-backdrop" id="modalBackdrop" hidden>
+  <div class="modal" id="modal" role="alertdialog" aria-modal="true"
+       aria-labelledby="modalTitle" aria-describedby="modalBody">
+    <div class="modal-head">
+      <span class="modal-icon" id="modalIcon" aria-hidden="true"></span>
+      <div>
+        <h2 id="modalTitle"></h2>
+        <p class="modal-sub" id="modalSub"></p>
+      </div>
+    </div>
+    <div class="modal-body" id="modalBody"></div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" id="modalCancel">Cancel</button>
+      <button class="btn btn-danger" id="modalConfirm">Delete</button>
+    </div>
+  </div>
 </div>
 
 <?!= include('App'); ?>

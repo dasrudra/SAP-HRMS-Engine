@@ -98,8 +98,10 @@
     fillMonthPicker(boot.availableMonths);
     fillScopeFilter(boot.availableMonths);
     fillFeedbackMonths(boot.feedbackMonths);
-    fillCompareMonths(boot.availableMonths);
+    // After fillSettings, not before: it populates the KPI selector, and which
+    // months the comparison may offer depends on which KPI is selected.
     fillSettings(boot);
+    fillCompareMonths(compareMonthList());
 
     restoreState(function () {
       showView(state.view, { skipSave: true });
@@ -130,6 +132,35 @@
         .withFailureHandler(reject);
       runner[fnName].apply(runner, args);
     });
+  }
+
+
+  /**
+   * Gives up waiting after a while.
+   *
+   * google.script.run has no timeout: when Apps Script kills a run for
+   * exceeding its six-minute ceiling, neither handler is ever called and the
+   * promise hangs forever. On screen that looks exactly like the button
+   * having done nothing at all — which is how a delete that had in fact
+   * half-run could be pressed again and again.
+   *
+   * @param {Promise} promise
+   * @param {number} ms
+   * @param {string} what  named in the error the user is shown
+   */
+  function withTimeout(promise, ms, what) {
+    let timer;
+    return Promise.race([
+      promise.then(function (v) { clearTimeout(timer); return v; },
+                   function (e) { clearTimeout(timer); throw e; }),
+      new Promise(function (_, reject) {
+        timer = setTimeout(function () {
+          reject(new Error(what + ' did not finish in ' + Math.round(ms / 1000) +
+                           ' seconds. It may still have worked — the list ' +
+                           'below has been re-read from the database.'));
+        }, ms);
+      })
+    ]);
   }
 
 
@@ -334,7 +365,11 @@
         // options come from the month's data. Hold those until renderKpi1 has
         // built them; the comparison dropdowns are ready now.
         state.pending = params;
-        applyPendingTo(['cmpKpi', 'cmpM1', 'cmpM2', 'cmpM3', 'cmpM4', 'kpi2Month']);
+        // cmpKpi first and alone: the month dropdowns are refilled from it,
+        // and refilling would otherwise wipe the months restored beside it.
+        applyPendingTo(['cmpKpi']);
+        fillCompareMonths(compareMonthList());
+        applyPendingTo(['cmpM1', 'cmpM2', 'cmpM3', 'cmpM4', 'kpi2Month']);
       }
 
       state.restoring = false;
@@ -978,17 +1013,35 @@
 
 
   /** Re-reads what exists after any change to the stored data. */
+  /**
+   * Re-reads everything after data has been added or removed.
+   *
+   * Every cached answer is dropped, not just the screen in front of you. A
+   * delete used to leave state.trend and state.compare holding figures for
+   * rows that no longer existed, so the Comparison screen went on drawing
+   * deleted data until the tab was reloaded.
+   */
   async function refreshAfterChange() {
     const boot = await callServer('getBootstrap');
     state.boot = boot;
+
+    state.kpi2 = null;
+    state.trend = null;
+    state.compare = null;
+
     fillMonthPicker(boot.availableMonths);
     fillScopeFilter(boot.availableMonths);
     fillFeedbackMonths(boot.feedbackMonths);
-    fillCompareMonths(boot.availableMonths);
+    fillCompareMonths(compareMonthList());
     fillSettings(boot);
     loadUploads();
+
     if (state.view === 'kpi1') loadKpi1();
-    if (state.view === 'kpi2') { state.kpi2 = null; loadKpi2(); }
+    if (state.view === 'kpi2') loadKpi2();
+    if (state.view === 'compare') {
+      loadTrend();
+      if (state.compareRan) runComparison();
+    }
   }
 
 
@@ -1112,26 +1165,184 @@
     });
 
     document.querySelectorAll('[data-delete]').forEach(function (button) {
-      button.addEventListener('click', function () {
-        const id = button.dataset.delete;
-        if (!window.confirm(
-              'Delete upload ' + id + '?\n\n' +
-              'Tickets that came only from this upload are removed. Tickets ' +
-              'another upload also supplied are kept. The log entry stays as ' +
-              'audit evidence.')) return;
+      button.addEventListener('click', function () { askThenDelete(button); });
+    });
+  }
 
-        button.disabled = true;
-        callServer('deleteUpload', id)
-          .then(function (result) {
-            setStatus('Deleted ' + id + ' — ' + result.removed +
-                      ' tickets removed, ' + result.kept + ' kept.', 'ok');
-            return refreshAfterChange();
-          })
-          .catch(function (err) {
-            button.disabled = false;
-            onError(err);
-          });
-      });
+
+  /**
+   * Confirms, deletes, and puts the table back in step with the database.
+   *
+   * The old version asked with window.confirm, then relied on the server
+   * replying to refresh anything. deleteUpload could take minutes — long
+   * enough to be killed — so the reply often never came, nothing on screen
+   * moved, and the upload looked as though it had refused to be deleted.
+   *
+   * Now: the row is greyed out the moment work starts, removed from the table
+   * as soon as the server confirms, and the history is re-read either way —
+   * including after an error, because a failed call is exactly when the table
+   * on screen is most likely to be lying.
+   */
+  function askThenDelete(button) {
+    const id = button.dataset.delete;
+    const row = button.closest('tr');
+
+    const fileName = row ? row.children[1].textContent.trim() : '';
+    const type     = row ? row.children[2].textContent.trim().toUpperCase() : '';
+    const rows     = row ? row.children[5].textContent.trim() : '';
+    const range    = row ? row.children[6].textContent.trim() : '';
+    const feedback = type.indexOf('FEEDBACK') !== -1;
+    const noun     = feedback ? 'training responses' : 'tickets';
+
+    confirmDialog({
+      title: 'Delete this upload?',
+      subtitle: id,
+      target:
+        '<span class="modal-target"><b>' + escapeHtml(fileName || id) + '</b>' +
+        '<span>' + escapeHtml(type || '—') + ' · ' + escapeHtml(rows || '0') +
+        ' stored · ' + escapeHtml(range || 'no date range') + '</span></span>',
+      body:
+        '<p>The <strong>' + noun + '</strong> that came only from this upload are ' +
+        'removed, and it disappears from the history.</p>' +
+        (feedback
+          ? '<p>KPI 2 is scored live from the stored responses, so its figures ' +
+            'change as soon as this finishes.</p>'
+          : '<p>Tickets another upload also supplied are <strong>kept</strong> — ' +
+            'only this upload\'s claim on them is dropped. KPI 1 is then ' +
+            'recalculated, which takes a few seconds.</p>') +
+        '<p>This cannot be undone.</p>',
+      confirmLabel: 'Delete upload'
+    }).then(function (yes) {
+      if (!yes) return;
+
+      if (row) row.classList.add('row-busy');
+      button.disabled = true;
+      setStatus('Deleting ' + (fileName || id) + '…');
+
+      return withTimeout(callServer('deleteUpload', id), 120000, 'The delete')
+        .then(function (result) {
+          // Drop the row immediately rather than waiting on the reload. The
+          // answer to "did that work?" should not depend on a second round
+          // trip that might itself be slow.
+          if (row && row.parentNode) row.parentNode.removeChild(row);
+          setStatus(describeDeletion(fileName || id, result), 'ok');
+          return refreshAfterChange();
+        })
+        .catch(function (err) {
+          if (row) row.classList.remove('row-busy');
+          button.disabled = false;
+          onError(err);
+          // Re-read regardless: the delete may well have landed even though
+          // the reply did not, and a stale table is worse than a slow one.
+          return refreshAfterChange().catch(function () {});
+        });
+    });
+  }
+
+
+  function describeDeletion(name, result) {
+    const parts = [];
+    if (result.removed)         parts.push(count(result.removed) + ' tickets removed');
+    if (result.feedbackRemoved) parts.push(count(result.feedbackRemoved) + ' responses removed');
+    if (!parts.length)          parts.push('no stored rows belonged to it');
+    return 'Deleted ' + name + ' — ' + parts.join(', ') + '.';
+  }
+
+
+  // =========================================================================
+  // CONFIRMATION DIALOG
+  // =========================================================================
+
+  /**
+   * Asks the question and resolves true or false.
+   *
+   * window.confirm() headed its box with the googleusercontent sandbox
+   * hostname, could not name the file being deleted, and gave Delete and
+   * Cancel identical weight. This one names the target, spells out the
+   * consequence, rests focus on Cancel, and takes Esc as no.
+   *
+   * @param {Object} opts { title, subtitle, body, target, confirmLabel, tone }
+   * @return {Promise<boolean>}
+   */
+  function confirmDialog(opts) {
+    const backdrop = document.getElementById('modalBackdrop');
+    const box = document.getElementById('modal');
+    if (!backdrop || !box) return Promise.resolve(window.confirm(opts.title));
+
+    const danger = opts.tone !== 'info';
+
+    box.className = 'modal' + (danger ? '' : ' is-info');
+    document.getElementById('modalIcon').innerHTML = danger
+      ? '<svg viewBox="0 0 24 24"><path d="M4 7h16M10 7V4h4v3M6 7l1 13h10l1-13"/>' +
+        '<path d="M10 11v5M14 11v5"/></svg>'
+      : '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/>' +
+        '<path d="M12 11v5M12 8h.01"/></svg>';
+
+    document.getElementById('modalTitle').textContent = opts.title || 'Are you sure?';
+    document.getElementById('modalSub').textContent = opts.subtitle || '';
+    document.getElementById('modalBody').innerHTML =
+      (opts.target || '') + (opts.body || '');
+
+    const confirm = document.getElementById('modalConfirm');
+    const cancel = document.getElementById('modalCancel');
+    confirm.textContent = opts.confirmLabel || 'Delete';
+    confirm.className = 'btn ' + (danger ? 'btn-danger' : 'btn-primary');
+    confirm.disabled = false;
+
+    backdrop.hidden = false;
+    // Cancel takes focus, not Delete — Enter should not destroy anything.
+    // Unless there is no Cancel, which is alertDialog's one-button form.
+    (cancel.hidden ? confirm : cancel).focus();
+
+    return new Promise(function (resolve) {
+      function close(answer) {
+        backdrop.hidden = true;
+        confirm.removeEventListener('click', onYes);
+        cancel.removeEventListener('click', onNo);
+        backdrop.removeEventListener('mousedown', onOutside);
+        document.removeEventListener('keydown', onKey);
+        resolve(answer);
+      }
+      function onYes() { close(true); }
+      function onNo() { close(false); }
+      function onOutside(e) { if (e.target === backdrop) close(false); }
+      function onKey(e) {
+        if (e.key === 'Escape') { e.preventDefault(); close(false); }
+        // Keep focus inside the dialog while it is open.
+        if (e.key === 'Tab') {
+          e.preventDefault();
+          if (cancel.hidden) return confirm.focus();
+          (document.activeElement === cancel ? confirm : cancel).focus();
+        }
+      }
+
+      confirm.addEventListener('click', onYes);
+      cancel.addEventListener('click', onNo);
+      backdrop.addEventListener('mousedown', onOutside);
+      document.addEventListener('keydown', onKey);
+    });
+  }
+
+
+  /**
+   * Says something, one button, nothing to decide.
+   *
+   * Same dialog with Cancel hidden, so the last window.alert — the browser box
+   * headed with the sandbox hostname — is gone from the app too.
+   */
+  function alertDialog(opts) {
+    const cancel = document.getElementById('modalCancel');
+    if (cancel) cancel.hidden = true;
+
+    return confirmDialog({
+      title: opts.title,
+      subtitle: opts.subtitle,
+      body: opts.body,
+      tone: 'info',
+      confirmLabel: opts.confirmLabel || 'Got it'
+    }).then(function (answer) {
+      if (cancel) cancel.hidden = false;
+      return answer;
     });
   }
 
@@ -1154,7 +1365,10 @@
       document.body.removeChild(link);
       setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
     } catch (e) {
-      window.alert('Could not start the download: ' + e.message);
+      alertDialog({
+        title: 'Could not start the download',
+        body: '<p>' + escapeHtml(e.message) + '</p>'
+      });
     }
   }
 
@@ -2300,20 +2514,46 @@
    * months should not hide the other six.
    */
   function loadTrend() {
-    const months = (state.boot && state.boot.availableMonths) || [];
+    const months = compareMonthList();
+    const card = document.getElementById('cmpTrendCard');
+    const kpi = selectedKpi();
+    const id = (kpi && kpi.id) || 'KPI1';
 
     if (months.length < 2) {
-      const card = document.getElementById('cmpTrendCard');
       if (card) card.hidden = true;
       return;
     }
 
-    if (state.trend) { drawTrendChart(state.trend); return; }
+    // Cached per KPI. One shared slot meant switching to KPI 2 redrew KPI 1's
+    // trend from the cache without ever asking the server.
+    if (state.trend && state.trend.kpi === id) { drawTrendChart(state.trend); return; }
 
     // Oldest first: a trend reads left to right.
-    callServer('getKpiComparison', months.slice().sort())
+    callServer(comparisonEndpoint(id), months.slice().sort())
       .then(function (c) { state.trend = c; drawTrendChart(c); })
       .catch(onError);
+  }
+
+
+  /** Which server function scores this KPI across months? */
+  function comparisonEndpoint(kpiId) {
+    return kpiId === 'KPI2' ? 'getKpi2Comparison' : 'getKpiComparison';
+  }
+
+
+  /**
+   * The months the Comparison screen may offer.
+   *
+   * KPI 1 has a month if tickets were uploaded for it; KPI 2 if training
+   * feedback was. They are different lists, and offering ticket months for a
+   * training comparison produced four columns of "No data".
+   */
+  function compareMonthList() {
+    const boot = state.boot || {};
+    const kpi = selectedKpi();
+    return ((kpi && kpi.id === 'KPI2')
+      ? boot.feedbackMonths
+      : boot.availableMonths) || [];
   }
 
 
@@ -2327,13 +2567,18 @@
     const months = c.months.slice().sort();
     const labels = months.map(shortMonth);
 
+    // Whichever count this KPI treats as its volume — tickets completed for
+    // KPI 1, attendees trained for KPI 2.
+    const volumeKey = c.volumeKey || 'completed';
+    const volumeLabel = c.volumeLabel || 'Tickets completed';
+
     const completed = months.map(function (m) {
       const t = c.totals[m];
-      return t ? t.completed : 0;
+      return t ? (t[volumeKey] || 0) : 0;
     });
     const rates = months.map(function (m) {
       const t = c.totals[m];
-      return t && t.completed ? round2(t.rate) : null;
+      return t && t[volumeKey] ? round2(t.rate) : null;
     });
 
     // Window the rate axis. On a 0-100 scale the line would sit flat against
@@ -2342,12 +2587,17 @@
     rates.forEach(function (r) { if (r !== null) lowest = Math.min(lowest, r); });
     const floor = Math.max(0, Math.floor((lowest - 0.3) * 2) / 2);
 
+    const title = document.getElementById('cmpTrendTitle');
+    if (title) {
+      title.textContent = (c.name || 'Success rate') + ' over time — every month';
+    }
+
     const note = document.getElementById('cmpTrendNote');
     if (note) {
       note.textContent = months.length + ' months, ' + shortMonth(months[0]) + ' to ' +
         shortMonth(months[months.length - 1]) +
-        '. Bars are tickets completed (left axis); the line is the success ' +
-        'rate against the ' + c.target + '% target (right axis, starting at ' +
+        '. Bars are ' + volumeLabel.toLowerCase() + ' (left axis); the line is the ' +
+        'success rate against the ' + c.target + '% target (right axis, starting at ' +
         floor + '%).';
     }
 
@@ -2374,7 +2624,7 @@
           },
           {
             type: 'bar',
-            label: 'Tickets completed',
+            label: volumeLabel,
             data: completed,
             yAxisID: 'yVolume',
             backgroundColor: TREND_BAR,
@@ -2396,7 +2646,7 @@
           yVolume: Object.assign({
             position: 'left',
             beginAtZero: true,
-            title: { display: true, text: 'Tickets completed',
+            title: { display: true, text: volumeLabel,
                      color: TREND_BAR, font: { size: 11, weight: '600' } }
           }, gridStyle()),
           // Rate on the right, windowed, with no grid of its own — two sets of
@@ -2427,7 +2677,7 @@
                 return item.raw === null ? 'Success rate: no data'
                                          : 'Success rate: ' + fmt(item.raw) + '%';
               }
-              return 'Completed: ' + count(item.raw) + ' tickets';
+              return volumeLabel + ': ' + count(item.raw);
             }
           }), { displayColors: true, usePointStyle: true }),
           // Drawn in the LINE's colour, not the usual navy. On a two-scale
@@ -2716,9 +2966,25 @@
   function wireCompare() {
     bind('cmpRun', 'click', runComparison);
 
-    // Changing a month or the KPI without pressing Run still gets saved, so a
-    // refresh mid-selection does not throw the choices away.
-    bind('cmpKpi', 'change', saveState);
+    // Switching KPI re-points the whole screen, not just the next Compare.
+    // The month lists differ per KPI, the trend is per KPI, and any results
+    // already on screen belong to the KPI you just navigated away from.
+    bind('cmpKpi', 'change', function () {
+      // Clear the old KPI's results before anything else. If the new KPI has
+      // too few months to compare, the screen must go empty rather than leave
+      // the previous KPI's figures sitting under the new KPI's name.
+      hideComparisonResults();
+      state.compare = null;
+      state.trend = null;
+
+      fillCompareMonths(compareMonthList());
+      loadTrend();
+      if (state.compareRan) runComparison();
+      saveState();
+    });
+
+    // Changing a month without pressing Run still gets saved, so a refresh
+    // mid-selection does not throw the choices away.
     CMP_SELECTS.forEach(function (id) { bind(id, 'change', saveState); });
 
     bind('cmpClear', 'click', function () {
@@ -2727,9 +2993,7 @@
         // recent months rather than to nothing.
         setValue(id, index < 2 ? defaultMonthFor(index) : '');
       });
-      document.getElementById('cmpChartCard').hidden = true;
-      document.getElementById('cmpOverallCard').hidden = true;
-      document.getElementById('cmpSectionCard').hidden = true;
+      hideComparisonResults();
 
       // Put the prompt back. showComparisonPending() rewrites this box, so
       // without this you would clear the results and be left staring at a
@@ -2751,13 +3015,19 @@
 
 
   function defaultMonthFor(index) {
-    const months = (state.boot && state.boot.availableMonths) || [];
-    return months[index] || '';
+    return compareMonthList()[index] || '';
   }
 
 
   function fillCompareMonths(months) {
     const list = months || [];
+
+    // No two boxes may end up on the same month. Switching KPI used to do
+    // exactly that: the first box lost its month (not in the new list) and
+    // fell back to the newest, which the second box was already holding — so
+    // both read August, the two collapsed to one, and Compare refused to run
+    // while the tables sat there still showing the previous KPI.
+    const taken = {};
 
     CMP_SELECTS.forEach(function (id, index) {
       const select = document.getElementById(id);
@@ -2779,13 +3049,18 @@
 
       select.disabled = !list.length;
 
-      if (previous && list.indexOf(previous) !== -1) {
-        select.value = previous;
+      let value = '';
+      if (previous && list.indexOf(previous) !== -1 && !taken[previous]) {
+        value = previous;                        // keep what was chosen
       } else if (!optional) {
-        select.value = list[index] || '';        // newest two by default
-      } else {
-        select.value = '';
+        // Newest first, skipping anything an earlier box already holds.
+        for (let i = 0; i < list.length; i++) {
+          if (!taken[list[i]]) { value = list[i]; break; }
+        }
       }
+
+      select.value = value;
+      if (value) taken[value] = true;
     });
   }
 
@@ -2801,10 +3076,41 @@
     });
 
     if (picked.length < 2) {
-      return window.alert('Choose at least two different months to compare.');
+      const kpiNow = selectedKpi();
+      const have = compareMonthList().length;
+
+      // Put the prompt back, so the screen explains itself once the dialog is
+      // dismissed rather than showing nothing at all.
+      hideComparisonResults();
+      const box = document.getElementById('cmpEmpty');
+      box.hidden = false;
+      box.className = 'notice notice-warn';
+      box.innerHTML =
+        '<h3>Not enough months for ' +
+        escapeHtml((kpiNow && kpiNow.name) || 'this KPI') + '</h3>' +
+        '<p>' + (have < 2
+          ? 'It has data for ' + (have === 1 ? 'one month' : 'no months') +
+            ' so far. Upload another period and it can be compared.'
+          : 'Pick two different months above, then press Compare Dashboards.') +
+        '</p>';
+
+      return alertDialog({
+        title: 'Two months are needed',
+        body: have < 2
+          ? '<p><strong>' + escapeHtml((kpiNow && kpiNow.name) || 'This KPI') +
+            '</strong> has data for ' + (have === 1 ? 'only one month' : 'no months') +
+            ' so far, so there is nothing to compare it against yet.</p>' +
+            '<p>Upload another period and it will appear here.</p>'
+          : '<p>Pick two different months in the boxes above, then press ' +
+            'Compare Dashboards.</p>'
+      });
     }
     if (picked.length > MAX_COMPARE) {
-      return window.alert('Choose at most ' + MAX_COMPARE + ' months.');
+      return alertDialog({
+        title: 'Too many months',
+        body: '<p>Up to ' + MAX_COMPARE + ' months can be compared at once. ' +
+              'Clear one of the optional boxes and try again.</p>'
+      });
     }
 
     const kpi = selectedKpi();
@@ -2819,16 +3125,24 @@
     // Picking one without data shows an explanation instead.
     if (kpi && !kpi.active) return showComparisonPending(kpi);
 
-    callServer('getKpiComparison', picked).then(renderComparison).catch(onError);
+    // Route by the KPI actually chosen. This used to call KPI 1's endpoint
+    // unconditionally, so selecting Training Satisfaction re-rendered ticket
+    // figures under a training heading.
+    callServer(comparisonEndpoint(kpi && kpi.id), picked)
+      .then(renderComparison).catch(onError);
+  }
+
+
+  /** Takes the comparison results off screen. The trend is not part of them. */
+  function hideComparisonResults() {
+    ['cmpChartCard', 'cmpOverallCard', 'cmpSectionCard'].forEach(hide);
   }
 
 
   /** Explains why a KPI cannot be compared yet, in place of the results. */
   function showComparisonPending(kpi) {
     const empty = document.getElementById('cmpEmpty');
-    document.getElementById('cmpChartCard').hidden = true;
-    document.getElementById('cmpOverallCard').hidden = true;
-    document.getElementById('cmpSectionCard').hidden = true;
+    hideComparisonResults();
 
     empty.hidden = false;
     empty.className = 'notice notice-warn';
@@ -2841,6 +3155,14 @@
   }
 
 
+  /**
+   * Paints the comparison for whichever KPI produced it.
+   *
+   * Nothing here knows what a ticket is. The result object names its own
+   * count columns in `measures` and its own breakdown in `sectionLabel`, so
+   * KPI 1 and KPI 2 share one render path and KPI 3 will need no changes at
+   * all — only a comparison endpoint that fills the same fields in.
+   */
   function renderComparison(c) {
     const empty = document.getElementById('cmpEmpty');
     empty.className = 'notice notice-info';
@@ -2852,9 +3174,31 @@
     document.getElementById('cmpOverallCard').hidden = false;
     document.getElementById('cmpSectionCard').hidden = false;
 
+    const measures = c.measures || [
+      { key: 'received',   label: 'Received' },
+      { key: 'completed',  label: 'Completed' },
+      { key: 'delayed',    label: 'Delayed' },
+      { key: 'successful', label: 'Successful' }
+    ];
+    const sectionLabel = c.sectionLabel || 'Section';
+    const shortName = c.kpi === 'KPI2' ? 'KPI 2' : (c.kpi === 'KPI1' ? 'KPI 1' : (c.kpi || ''));
+
+    setText('cmpOverallTitle', shortName + ' — overall by month');
+    setText('cmpSectionTitle', shortName + ' — success rate by ' + sectionLabel.toLowerCase());
+    setText('cmpChartTitle', 'Success rate by ' + sectionLabel.toLowerCase() + ' and month');
+
     drawCompareChart(c);
 
     // ---- overall, one row per month, with month-on-month change ----
+    const overallHead = document.querySelector('#cmpOverall thead tr');
+    overallHead.innerHTML =
+      '<th>Month</th>' +
+      measures.map(function (m) {
+        return '<th class="r">' + escapeHtml(m.label) + '</th>';
+      }).join('') +
+      '<th class="r">Success Rate</th><th class="r">Achievement</th>' +
+      '<th>Band</th><th class="r">Headroom</th><th class="r">Change</th>';
+
     const body = document.querySelector('#cmpOverall tbody');
     body.innerHTML = '';
 
@@ -2865,7 +3209,8 @@
 
       if (!t) {
         tr.innerHTML = '<td>' + escapeHtml(formatMonth(month)) + '</td>' +
-                       '<td colspan="9" class="empty">No data</td>';
+                       '<td colspan="' + (measures.length + 5) +
+                       '" class="empty">No data</td>';
         body.appendChild(tr);
         return;
       }
@@ -2882,7 +3227,7 @@
 
       tr.innerHTML =
         '<td class="name">' + escapeHtml(formatMonth(month)) + '</td>' +
-        num(t.received) + num(t.completed) + num(t.delayed) + num(t.successful) +
+        measures.map(function (m) { return num(t[m.key]); }).join('') +
         '<td class="r">' + fmt(t.rate) + '%</td>' +
         '<td class="r">' + fmt(t.achievement) + '%</td>' +
         '<td>' + pill(t.band) + '</td>' +
@@ -2891,18 +3236,20 @@
       body.appendChild(tr);
     });
 
-    // ---- sections down the side, months across the top ----
+    // ---- sections (or modules) down the side, months across the top ----
     const head = document.querySelector('#cmpSections thead tr');
-    head.innerHTML = '<th>Section</th>' + c.months.map(function (m) {
-      return '<th class="r">' + escapeHtml(formatMonth(m)) + '</th>';
-    }).join('');
+    head.innerHTML = '<th>' + escapeHtml(sectionLabel) + '</th>' +
+      c.months.map(function (m) {
+        return '<th class="r">' + escapeHtml(formatMonth(m)) + '</th>';
+      }).join('');
 
     const sectionBody = document.querySelector('#cmpSections tbody');
     sectionBody.innerHTML = '';
 
     if (!c.sections.length) {
       sectionBody.innerHTML = '<tr><td colspan="' + (c.months.length + 1) +
-        '" class="empty">No section data in the selected months.</td></tr>';
+        '" class="empty">No ' + escapeHtml(sectionLabel.toLowerCase()) +
+        ' data in the selected months.</td></tr>';
       return;
     }
 
@@ -2982,6 +3329,11 @@
   function setValue(id, value) {
     const el = document.getElementById(id);
     if (el) el.value = value;
+  }
+
+  function setText(id, text) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = text;
   }
 
   /**

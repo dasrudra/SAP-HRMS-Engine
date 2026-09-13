@@ -545,7 +545,24 @@ function getKpiComparison(months) {
     sections: [],
     totals: {},        // month -> total entry
     bySection: {},     // section -> { month -> entry }
-    target: CONFIG.KPI.RESOLUTION.target
+    target: CONFIG.KPI.RESOLUTION.target,
+
+    // The Comparison screen renders whatever a KPI declares here rather than
+    // hardcoding KPI 1's columns — see getKpi2Comparison for the other side of
+    // the contract.
+    kpi: 'KPI1',
+    name: CONFIG.KPI.RESOLUTION.name || 'Error/Issue Resolution Time',
+    unit: '%',
+    sectionLabel: 'Section',
+    rateLabel: 'Success Rate',
+    volumeKey: 'completed',
+    volumeLabel: 'Tickets completed',
+    measures: [
+      { key: 'received',   label: 'Received' },
+      { key: 'completed',  label: 'Completed' },
+      { key: 'delayed',    label: 'Delayed' },
+      { key: 'successful', label: 'Successful' }
+    ]
   };
 
   const cache = sheetFor(CONFIG.SHEETS.KPI_MONTH);

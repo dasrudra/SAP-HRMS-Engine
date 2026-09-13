@@ -57,7 +57,14 @@ const COL = (function () {
  */
 function beginUpload(meta) {
   const sheet = sheetFor(CONFIG.SHEETS.UPLOADS);
-  const uploadId = 'UPL-' + Utilities.formatDate(new Date(), CONFIG_TZ(), 'yyyyMMdd-HHmmss');
+
+  // Seconds are not unique enough. Two uploads started in the same second used
+  // to share an ID, and deleting one then found two matching log rows and
+  // removed a single one — so the row appeared to survive being deleted. The
+  // suffix makes the ID the unique key that deleteUpload assumes it is.
+  const uploadId = 'UPL-' +
+    Utilities.formatDate(new Date(), CONFIG_TZ(), 'yyyyMMdd-HHmmss') + '-' +
+    Utilities.getUuid().slice(0, 4);
 
   const row = sheet.getLastRow() + 1;
 
@@ -235,7 +242,11 @@ function finishFeedbackUpload(uploadId) {
       const ids = log.getRange(2, 1, lastRow - 1, 1).getValues();
       for (let i = ids.length - 1; i >= 0; i--) {
         if (String(ids[i][0]) === uploadId) {
-          log.getRange(i + 2, 8, 1, 2).setValues([[result.kept, result.merged]]);
+          // This upload's own stored rows, not the whole tab's. Writing
+          // compactFeedback().kept here made a 15-response file report 30
+          // stored as soon as a second file existed.
+          const mine = countFeedbackOf(String(log.getRange(i + 2, 4).getValue() || ''));
+          log.getRange(i + 2, 8, 1, 2).setValues([[mine, result.merged]]);
           log.getRange(i + 2, 12).setValue('complete');
           break;
         }
@@ -247,6 +258,42 @@ function finishFeedbackUpload(uploadId) {
   } finally {
     lock.releaseLock();
   }
+}
+
+
+/**
+ * How many stored responses came from these files?
+ *
+ * @param {string} fileList  the log row's ' | '-joined filenames
+ * @return {number}
+ */
+function countFeedbackOf(fileList) {
+  const files = {};
+  fileList.split(' | ').forEach(function (name) {
+    const trimmed = name.trim();
+    if (trimmed) files[trimmed] = true;
+  });
+
+  const sheet = sheetFor(CONFIG.SHEETS.TRAINING);
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return 0;
+
+  const COL2 = trainingColumns();
+  const names = Object.keys(files);
+  const rows = sheet.getRange(2, 1, lastRow - 1, CONFIG.TRAINING_COLUMNS.length).getValues();
+
+  let mine = 0;
+  rows.forEach(function (row) {
+    const source = String(row[COL2.SOURCE] || '').trim();
+    if (source && files[source]) { mine++; return; }
+
+    const id = String(row[COL2.RESPONSE_ID] || '').trim();
+    for (let i = 0; i < names.length; i++) {
+      if (id.indexOf(names[i] + '#') === 0) { mine++; return; }
+    }
+  });
+
+  return mine;
 }
 
 
@@ -441,19 +488,31 @@ function dayString(value) {
 
 
 /**
- * Removes one upload and the tickets that came only from its files.
+ * Removes one upload and the rows that came only from its files.
  *
- * Tickets merge across uploads, so a row can carry sources from several. Only
+ * Data merges across uploads, so a ticket can carry sources from several. Only
  * rows whose ENTIRE source list belongs to this upload are deleted; rows that
  * another upload also vouched for survive, with this upload's filenames pruned
  * from their source list. Deleting them outright would silently remove data the
  * user never asked to lose.
  *
- * The upload log row is marked deleted rather than removed — policy §5.4 wants
- * the evidence trail intact.
+ * DELETES FROM BOTH SHEETS
+ * This used to touch TICKETS only, so deleting a training-feedback upload took
+ * the row out of the history and left every response of it on the TRAINING tab —
+ * KPI 2 went on reporting data the user believed they had deleted. An upload is
+ * now removed from whichever sheet it actually landed in.
+ *
+ * DOES NOT REWRITE A SHEET IT DID NOT CHANGE
+ * The old version cleared and rewrote all ~20,000 ticket rows on every delete,
+ * even when it removed nothing — several minutes of work for a feedback upload
+ * that owns no tickets at all. Past the execution limit the run was killed with
+ * its writes still buffered, so the log row came back and the browser never got
+ * a reply: the delete looked like it had done nothing, and had to be repeated.
+ * Each sheet is now touched only if this upload actually owns rows on it, and
+ * the KPI 1 cache is rebuilt only when tickets really changed.
  *
  * @param {string} uploadId
- * @return {Object} { removed, kept, months }
+ * @return {Object} { removed, kept, feedbackRemoved, feedbackKept, months, sheets }
  */
 function deleteUpload(uploadId) {
   const lock = LockService.getScriptLock();
@@ -479,49 +538,141 @@ function deleteUpload(uploadId) {
       if (trimmed) files[trimmed] = true;
     });
 
-    const tickets = sheetFor(CONFIG.SHEETS.TICKETS);
-    const lastRow = tickets.getLastRow();
-    let removed = 0;
-    let kept = 0;
-
-    if (lastRow > 1) {
-      const rows = tickets.getRange(2, 1, lastRow - 1, COL.WIDTH).getValues();
-      const survivors = [];
-
-      rows.forEach(function (row) {
-        const sources = String(row[COL.SOURCE] || '').split(' | ')
-          .map(function (s) { return s.trim(); })
-          .filter(Boolean);
-
-        const others = sources.filter(function (s) { return !files[s]; });
-
-        if (sources.length && others.length === 0) {
-          removed++;                       // came only from this upload
-          return;
-        }
-
-        if (others.length !== sources.length) {
-          row[COL.SOURCE] = others.join(' | ');
-        }
-        survivors.push(row);
-        kept++;
-      });
-
-      tickets.getRange(2, 1, rows.length, COL.WIDTH).clearContent();
-      if (survivors.length) {
-        tickets.getRange(2, 1, survivors.length, COL.WIDTH).setValues(survivors);
-      }
-    }
+    const tickets  = removeTicketsOf(files);
+    const feedback = removeFeedbackOf(files);
 
     // Remove the log row outright. Leaving a "deleted" marker behind just
     // accumulates dead rows in the history the user has to read past.
     log.deleteRow(logIndex + 2);
 
-    const months = (typeof recomputeKpiCache === 'function') ? recomputeKpiCache() : [];
-    return { removed: removed, kept: kept, months: months };
+    // Commit everything above BEFORE the expensive part. Apps Script buffers
+    // sheet writes and discards the buffer if a run is killed, which is how a
+    // deleted upload used to reappear. Flushed here, the deletion stands even
+    // if the recompute below never finishes.
+    SpreadsheetApp.flush();
+
+    // Only tickets feed the KPI 1 cache, and only a real change can move it.
+    let months = [];
+    if (tickets.changed && typeof recomputeKpiCache === 'function') {
+      months = recomputeKpiCache();
+    }
+
+    const sheets = [];
+    if (tickets.changed)  sheets.push(CONFIG.SHEETS.TICKETS);
+    if (feedback.changed) sheets.push(CONFIG.SHEETS.TRAINING);
+
+    return {
+      removed:         tickets.removed,
+      kept:            tickets.kept,
+      feedbackRemoved: feedback.removed,
+      feedbackKept:    feedback.kept,
+      months:          months,
+      sheets:          sheets
+    };
   } finally {
     lock.releaseLock();
   }
+}
+
+
+/**
+ * Drops the tickets that belong only to the given files.
+ *
+ * @param {Object} files  filename -> true
+ * @return {Object} { removed, kept, changed }
+ */
+function removeTicketsOf(files) {
+  const sheet = sheetFor(CONFIG.SHEETS.TICKETS);
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return { removed: 0, kept: 0, changed: false };
+
+  const rows = sheet.getRange(2, 1, lastRow - 1, COL.WIDTH).getValues();
+  const survivors = [];
+  let removed = 0;
+  let pruned = 0;
+
+  rows.forEach(function (row) {
+    const sources = String(row[COL.SOURCE] || '').split(' | ')
+      .map(function (s) { return s.trim(); })
+      .filter(Boolean);
+
+    const others = sources.filter(function (s) { return !files[s]; });
+
+    if (sources.length && others.length === 0) {
+      removed++;                       // came only from this upload
+      return;
+    }
+
+    if (others.length !== sources.length) {
+      row[COL.SOURCE] = others.join(' | ');
+      pruned++;
+    }
+    survivors.push(row);
+  });
+
+  // Nothing of ours is here. Writing the sheet back unchanged would cost
+  // minutes on twenty thousand rows and achieve precisely nothing.
+  if (!removed && !pruned) {
+    return { removed: 0, kept: survivors.length, changed: false };
+  }
+
+  sheet.getRange(2, 1, rows.length, COL.WIDTH).clearContent();
+  if (survivors.length) {
+    sheet.getRange(2, 1, survivors.length, COL.WIDTH).setValues(survivors);
+  }
+
+  return { removed: removed, kept: survivors.length, changed: true };
+}
+
+
+/**
+ * Drops the training responses that arrived in the given files.
+ *
+ * Simpler than the ticket case: a response belongs to exactly one file, so
+ * there is no partial ownership to reason about. Matched on Source File, and
+ * on the Response ID as a fallback — the ID is 'filename#rownumber', so a row
+ * written before Source File was populated is still identifiable.
+ *
+ * @param {Object} files  filename -> true
+ * @return {Object} { removed, kept, changed }
+ */
+function removeFeedbackOf(files) {
+  const sheet = sheetFor(CONFIG.SHEETS.TRAINING);
+  const lastRow = sheet.getLastRow();
+  const width = CONFIG.TRAINING_COLUMNS.length;
+  if (lastRow < 2) return { removed: 0, kept: 0, changed: false };
+
+  const names = Object.keys(files);
+  const COL2 = trainingColumns();
+  const rows = sheet.getRange(2, 1, lastRow - 1, width).getValues();
+
+  const survivors = [];
+  let removed = 0;
+
+  rows.forEach(function (row) {
+    const source = String(row[COL2.SOURCE] || '').trim();
+    const id = String(row[COL2.RESPONSE_ID] || '').trim();
+
+    let mine = source && files[source];
+    if (!mine && id) {
+      for (let i = 0; i < names.length; i++) {
+        if (id.indexOf(names[i] + '#') === 0) { mine = true; break; }
+      }
+    }
+
+    if (mine) { removed++; return; }
+    survivors.push(row);
+  });
+
+  if (!removed) return { removed: 0, kept: survivors.length, changed: false };
+
+  sheet.getRange(2, 1, rows.length, width).clearContent();
+  if (survivors.length) {
+    sheet.getRange(2, COL2.MONTH + 1, survivors.length, 1).setNumberFormat('@');
+    sheet.getRange(2, 1, survivors.length, width).setValues(survivors);
+  }
+
+  return { removed: removed, kept: survivors.length, changed: true };
 }
 
 

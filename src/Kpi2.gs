@@ -168,6 +168,81 @@ function getKpi2(scope) {
 }
 
 
+/**
+ * KPI 2 month by month, shaped exactly like getKpiComparison's result.
+ *
+ * The Comparison screen used to call KPI 1's endpoint whatever the "Which KPI"
+ * dropdown said, so picking Training Satisfaction re-rendered ticket figures
+ * under a training heading. Rather than fork the screen, both engines now
+ * return the same shape and describe their own columns in it — `measures` names
+ * the count columns, `sectionLabel` names the breakdown, `volumeKey` says which
+ * measure the trend chart should draw as bars. A KPI 3 that fills this in gets
+ * the whole screen for free.
+ *
+ * @param {string[]} months  'YYYY-MM'
+ * @return {Object}
+ */
+function getKpi2Comparison(months) {
+  const kpi = CONFIG.KPI.FEEDBACK;
+  const list = (months || []).slice().sort();
+
+  const result = {
+    kpi: 'KPI2',
+    name: kpi.name || 'SAP User Training Satisfaction & Feedback',
+    months: list,
+    sections: [],
+    bySection: {},
+    totals: {},
+    target: kpi.target,
+    unit: '%',
+    sectionLabel: 'Module',
+    rateLabel: 'Success Rate',
+    volumeKey: 'respondents',
+    volumeLabel: 'Attendees trained',
+    measures: [
+      { key: 'respondents', label: 'Attendees' },
+      { key: 'responses',   label: 'Responses' },
+      { key: 'positive',    label: 'Positive' },
+      { key: 'notPositive', label: 'Not positive' }
+    ]
+  };
+
+  if (!list.length) return result;
+
+  const seen = {};
+
+  list.forEach(function (month) {
+    const k = getKpi2(month);
+    if (!k.hasData) return;
+
+    result.totals[month] = comparisonEntry(k.total);
+
+    k.modules.forEach(function (m) {
+      if (!seen[m.name]) { seen[m.name] = true; result.sections.push(m.name); }
+      (result.bySection[m.name] = result.bySection[m.name] || {})[month] = comparisonEntry(m);
+    });
+  });
+
+  result.sections.sort();
+  return result;
+}
+
+
+/** One scored group, flattened into the shape the Comparison screen reads. */
+function comparisonEntry(s) {
+  return {
+    respondents: s.respondents,
+    responses:   s.responses,
+    positive:    s.positive,
+    notPositive: s.responses - s.positive,
+    rate:        s.rate,
+    achievement: s.achievement,
+    band:        s.band,
+    headroom:    s.headroom
+  };
+}
+
+
 /** The seven scored questions, in the order the form asks them. */
 const QUESTION_LABELS = [
   'Overall training session',
