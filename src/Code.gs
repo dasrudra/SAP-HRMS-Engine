@@ -85,6 +85,7 @@ function getBootstrap() {
     // read a filename with.
     trainingColumns: CONFIG.TRAINING_COLUMNS,
     trainingModules: CONFIG.TRAINING_MODULES,
+    trainerModules: CONFIG.TRAINER_MODULES,
     kpi: {
       resolution: CONFIG.KPI.RESOLUTION,
       feedback: CONFIG.KPI.FEEDBACK
@@ -154,9 +155,24 @@ function quickStats() {
     .openById(getSpreadsheetId())
     .getSheetByName(CONFIG.SHEETS.TRAINING);
 
+  // Split by which KPI they feed. "Three uploads logged and no tickets
+  // stored" is the sentence that tells you the database lost something; one
+  // combined count cannot say it.
+  let ticketUploads = 0;
+  let feedbackUploads = 0;
+  if (uploads && uploads.getLastRow() > 1) {
+    uploads.getRange(2, 5, uploads.getLastRow() - 1, 1).getValues()
+      .forEach(function (row) {
+        if (String(row[0] || '').toUpperCase().indexOf('FEEDBACK') !== -1) feedbackUploads++;
+        else ticketUploads++;
+      });
+  }
+
   return {
     tickets: tickets,
     uploads: uploads ? Math.max(0, uploads.getLastRow() - 1) : 0,
+    ticketUploads: ticketUploads,
+    feedbackUploads: feedbackUploads,
     feedback: training ? Math.max(0, training.getLastRow() - 1) : 0
   };
 }

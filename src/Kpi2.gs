@@ -105,7 +105,11 @@ function getKpi2(scope) {
     if (wanted && !wanted[month]) return;
     if (month) monthsSeen[month] = true;
 
-    const moduleName  = String(r[COL2.MODULE]  || '').trim() || '(unassigned)';
+    // Resolved here, not frozen at upload: a response stores what the form
+    // said and the file it came in, and the mapping from those to a module
+    // lives in Config. Correcting TRAINER_MODULES re-files every affected
+    // response on the next reload, with nothing to re-upload.
+    const moduleName = moduleForResponse(r[COL2.MODULE], r[COL2.SOURCE]) || '(unassigned)';
     if (moduleName === '(unassigned)') {
       const from = String(r[COL2.SOURCE] || '').trim() || '(no source file)';
       unassigned[from] = (unassigned[from] || 0) + 1;

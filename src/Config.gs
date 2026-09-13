@@ -395,6 +395,24 @@ const CONFIG = {
   ],
 
   /**
+   * Trainer -> the module they run. The LAST resort, after the form's own
+   * answer and the filename.
+   *
+   * Some files are named only after the trainer — 'Trainee Feedback– Mamun',
+   * 'Trainee Feedback–Rubel' — so there is nothing in the name to match a
+   * module against and they pooled into '(unassigned)'. These three were
+   * confirmed by the EAS team.
+   *
+   * A fallback, never an override: a filename that names its own module wins,
+   * because a trainer can run a session outside their usual module.
+   */
+  TRAINER_MODULES: [
+    { match: 'mamun', name: 'PP' },
+    { match: 'rubel', name: 'CO' },
+    { match: 'nazma', name: 'E-Accounting' }
+  ],
+
+  /**
    * The three plant zones training is reported against.
    *
    * WHERE THE ZONE COMES FROM, IN ORDER
@@ -680,6 +698,40 @@ function moduleFor(fileName) {
       if (new RegExp('(^|[^a-z0-9])' + pattern + '([^a-z0-9]|$)').test(text)) {
         return module.name;
       }
+    }
+  }
+  return '';
+}
+
+
+/**
+ * Which module does this response belong to?
+ *
+ * The form's own answer first — a Module question is being added to the form,
+ * and once a session says which module it was, nothing should second-guess it.
+ * Then the filename. Then the trainer, for the files named after nobody else.
+ *
+ * Resolved at SCORING time, like the section and the zone. Editing
+ * TRAINING_MODULES or TRAINER_MODULES and reloading re-files every response,
+ * with nothing to re-upload — which is the whole reason the raw answer is
+ * stored rather than a decision made at upload.
+ *
+ * @param {string} answered    the Module the form recorded, if it asked
+ * @param {string} sourceFile  the filename the responses arrived in
+ * @return {string} module name, or '' when nothing identifies it
+ */
+function moduleForResponse(answered, sourceFile) {
+  const said = String(answered == null ? '' : answered).trim();
+  if (said) return said;
+
+  const byName = moduleFor(sourceFile);
+  if (byName) return byName;
+
+  const text = String(sourceFile || '').toLowerCase();
+  for (let i = 0; i < CONFIG.TRAINER_MODULES.length; i++) {
+    const trainer = CONFIG.TRAINER_MODULES[i];
+    if (new RegExp('(^|[^a-z0-9])' + trainer.match + '([^a-z0-9]|$)').test(text)) {
+      return trainer.name;
     }
   }
   return '';

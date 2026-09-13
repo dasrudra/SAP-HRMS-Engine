@@ -562,10 +562,14 @@
       if (key.indexOf('employee id') !== -1 && position.empId === undefined) position.empId = i;
       if (key.indexOf('employee name') !== -1 && position.empName === undefined) position.empName = i;
       if (key.indexOf('plant') !== -1 && position.plant === undefined) position.plant = i;
-      // From this quarter the form asks which zone the training was held in.
-      // Older exports have no such column and simply leave it blank — which is
-      // the truth about them, not a gap to be guessed at.
+      // From this quarter the form asks which zone the training was held in,
+      // and a Module question is being added the same way. Older exports have
+      // neither column and simply leave them blank — which is the truth about
+      // them, not a gap to be guessed at. Both are then resolved at scoring
+      // time, so the filename remains a fallback and Config stays the place
+      // where the mapping can be corrected.
       if (key.indexOf('zone') !== -1 && position.zone === undefined) position.zone = i;
+      if (key.indexOf('module') !== -1 && position.module === undefined) position.module = i;
       if (key.indexOf('date') !== -1 && key.indexOf('time') !== -1 &&
           position.when === undefined) position.when = i;
       if (key === 'id' && position.rowId === undefined) position.rowId = i;
@@ -573,7 +577,6 @@
     });
 
     const meta = describeFeedbackFile(file.fileName);
-    const module = detectModule(file.fileName);
     const at = function (name) { return columns.indexOf(name); };
     const out = [];
 
@@ -620,7 +623,13 @@
       row[at('Response ID')]   = meta.fileName + '#' + rowId;
       row[at('Session Date')]  = date.slice(0, 10);
       row[at('Month')]         = month;
-      row[at('Module')]        = module;
+      // ONLY what the form itself said. Left blank, the module is worked out
+      // at scoring time from the filename and, failing that, the trainer —
+      // which means a mapping fixed in Config re-files the responses already
+      // stored. Writing a guess in here froze it, and a file the filename
+      // could not place stayed '(unassigned)' for good.
+      row[at('Module')]        = position.module !== undefined
+        ? String(raw[position.module] || '').trim() : '';
       row[at('Session Title')] = title;
       row[at('Trainer')]       = meta.trainer;
       row[at('Plant')]         = position.plant !== undefined ? String(raw[position.plant] || '') : '';
@@ -637,7 +646,7 @@
     });
 
     out.corrected = corrected;
-    out.moduleFound = module !== '';
+    out.moduleFound = detectModule(file.fileName) !== '';
     return out;
   }
 
@@ -714,6 +723,17 @@
         if (new RegExp('(^|[^a-z0-9])' + pattern + '([^a-z0-9]|$)').test(text)) {
           return modules[i].name;
         }
+      }
+    }
+
+    // Last resort: some files are named only after the trainer who ran the
+    // session. Mirrors moduleForResponse in Config.gs — this copy exists only
+    // so the upload summary can name the module while parsing, without a
+    // round trip to the server per file.
+    const trainers = (state.boot && state.boot.trainerModules) || [];
+    for (let i = 0; i < trainers.length; i++) {
+      if (new RegExp('(^|[^a-z0-9])' + trainers[i].match + '([^a-z0-9]|$)').test(text)) {
+        return trainers[i].name;
       }
     }
     return '';
@@ -1321,32 +1341,7 @@
 
   function wireRowActions() {
     document.querySelectorAll('[data-open]').forEach(function (button) {
-      button.addEventListener('click', function () {
-        const row = button.closest('tr');
-        if (!row) return showView('kpi1');
-
-        // The Type cell says which KPI this upload feeds, and the range cell
-        // holds 'YYYY-MM-DD → YYYY-MM-DD', whose first seven characters are
-        // the month. Sending a feedback upload to the KPI 1 screen was simply
-        // wrong — that screen has none of its data.
-        const type = row.children[2].textContent.trim().toUpperCase();
-        const range = row.children[6].textContent.trim();
-        const month = range.slice(0, 7);
-        const valid = /^\d{4}-\d{2}$/.test(month);
-
-        if (type.indexOf('FEEDBACK') !== -1) {
-          if (valid) setValue('kpi2Month', month);
-          showView('kpi2');
-          loadKpi2();
-          return;
-        }
-
-        if (valid) {
-          state.month = month;
-          syncMonthPicker();
-        }
-        showView('kpi1');
-      });
+      button.addEventListener('click', function () { openUpload(button.closest('tr')); });
     });
 
     document.querySelectorAll('[data-download]').forEach(function (button) {
@@ -1367,6 +1362,65 @@
     document.querySelectorAll('[data-delete]').forEach(function (button) {
       button.addEventListener('click', function () { askThenDelete(button); });
     });
+  }
+
+
+  /**
+   * Opens the dashboard an upload feeds, showing the whole of what it loaded.
+   *
+   * TWO THINGS THIS HAS TO GET RIGHT.
+   *
+   * Which KPI. The Type cell lists one entry per file, so a mixed drop reads
+   * 'FEEDBACK | INDIVIDUAL | …'. Testing for the word FEEDBACK anywhere sent
+   * every such upload to KPI 2. It now counts which kind the upload is mostly
+   * made of, and ticket exports win a tie because that is the older, larger
+   * pipeline.
+   *
+   * Which period. The Range cell holds 'YYYY-MM-DD → YYYY-MM-DD' and the code
+   * took the first seven characters — the FIRST month of the range. An
+   * overall export covering January to September therefore opened on January
+   * and showed one nineth of itself, or nothing at all if January happened to
+   * be thin. An upload that spans several months now opens on All months,
+   * which is the only period that shows what was actually uploaded. A month
+   * the dashboard does not list falls back to All months rather than landing
+   * on an empty screen.
+   *
+   * This is what makes overall and section-wise exports equally openable: the
+   * section files each cover one slice, the overall file covers the year, and
+   * neither has to be treated differently.
+   */
+  function openUpload(row) {
+    if (!row) return showView('kpi1');
+
+    const types = row.children[2].textContent.toUpperCase().split('|');
+    let feedback = 0;
+    let tickets = 0;
+    types.forEach(function (t) {
+      if (t.indexOf('FEEDBACK') !== -1) feedback++;
+      else if (t.trim()) tickets++;
+    });
+
+    const range = row.children[6].textContent.trim();
+    const found = range.match(/(\d{4}-\d{2})-\d{2}[^\d]*(\d{4}-\d{2})?/);
+    const from = found ? found[1] : '';
+    const to = found && found[2] ? found[2] : from;
+    // One month covered: open on it. More than one: open on all of them.
+    const wanted = (from && from === to) ? from : ALL_MONTHS;
+
+    if (feedback > tickets) {
+      const months = (state.boot && state.boot.feedbackMonths) || [];
+      setValue('kpi2Month',
+        (wanted !== ALL_MONTHS && months.indexOf(wanted) !== -1) ? wanted : ALL_MONTHS);
+      showView('kpi2');
+      loadKpi2();
+      return;
+    }
+
+    const months = (state.boot && state.boot.availableMonths) || [];
+    state.month = (wanted !== ALL_MONTHS && months.indexOf(wanted) !== -1)
+      ? wanted : ALL_MONTHS;
+    syncMonthPicker();
+    showView('kpi1');
   }
 
 
@@ -1637,6 +1691,38 @@
   }
 
 
+  /**
+   * Says why the screen is empty when the uploads say it should not be.
+   *
+   * "No data for this month" beside an upload history listing 19,946 tickets
+   * reads as a broken dashboard. It is not: the tickets are not in the
+   * database. Saying which of the two it is turns an unanswerable screen into
+   * one instruction.
+   */
+  function renderKpi1Missing() {
+    const box = document.getElementById('kpi1Missing');
+    if (!box) return;
+
+    const boot = state.boot || {};
+    const stored = (boot.stats && boot.stats.tickets) || 0;
+    const uploads = (boot.stats && boot.stats.ticketUploads) || 0;
+
+    if (stored > 0 || !uploads) { box.hidden = true; return; }
+
+    box.hidden = false;
+    box.innerHTML =
+      '<h3>No tickets are stored, though ' + uploads + ' ticket upload' +
+      (uploads === 1 ? ' is' : 's are') + ' still listed</h3>' +
+      '<p>The upload history has entries for ITSM exports, and the database ' +
+      'holds no tickets at all — so there is nothing for this screen to ' +
+      'report, on any month. That is the state left behind when a run is ' +
+      'stopped part-way: the log entry is written as the upload starts, the ' +
+      'rows only as it finishes.</p>' +
+      '<p>Go to <b>Data Uploads</b>, delete the stale entries, and upload the ' +
+      'ITSM exports again — the overall export, the section exports, or both.</p>';
+  }
+
+
   function renderKpi1(k) {
     state.kpi = k;
 
@@ -1644,6 +1730,7 @@
     const tiles = document.getElementById('kpi1Tiles');
 
     renderPeriod(k);
+    renderKpi1Missing();
 
     if (!k || !k.hasData) {
       basisBox.hidden = true;
@@ -3537,14 +3624,32 @@
     drawThresholdGauges(boot);
     fillKpiSelector(boot);
 
+    // What is actually in the database, per KPI, beside what the history
+    // claims. When the two disagree this is the screen that says so plainly
+    // instead of leaving it to be inferred from an empty dashboard.
     const info = document.getElementById('dbInfo');
     if (info) {
-      const stats = boot.stats || { tickets: 0, uploads: 0 };
+      const stats = boot.stats || {};
+      const months = (boot.availableMonths || []).length;
+      const fMonths = (boot.feedbackMonths || []).length;
+      const warn = function (bad, text) {
+        return bad ? '<span style="color:var(--red);font-weight:600">' + text + '</span>' : text;
+      };
+
       info.innerHTML =
         '<dt>Version</dt><dd>' + escapeHtml(boot.appVersion) + '</dd>' +
         '<dt>Sections</dt><dd>' + boot.departments.length + '</dd>' +
-        '<dt>Tickets stored</dt><dd>' + count(stats.tickets) + '</dd>' +
-        '<dt>Uploads logged</dt><dd>' + count(stats.uploads) + '</dd>';
+        '<dt>KPI 1 · tickets stored</dt><dd>' +
+          warn(!stats.tickets && stats.ticketUploads, count(stats.tickets || 0)) + '</dd>' +
+        '<dt>KPI 1 · months</dt><dd>' + months + '</dd>' +
+        '<dt>KPI 1 · uploads logged</dt><dd>' + count(stats.ticketUploads || 0) + '</dd>' +
+        '<dt>KPI 2 · responses stored</dt><dd>' +
+          warn(!stats.feedback && stats.feedbackUploads, count(stats.feedback || 0)) + '</dd>' +
+        '<dt>KPI 2 · months</dt><dd>' + fMonths + '</dd>' +
+        '<dt>KPI 2 · uploads logged</dt><dd>' + count(stats.feedbackUploads || 0) + '</dd>' +
+        (boot.orphanedFeedback
+          ? '<dt>Orphaned responses</dt><dd>' +
+            warn(true, count(boot.orphanedFeedback)) + '</dd>' : '');
     }
   }
 
