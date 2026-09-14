@@ -385,13 +385,17 @@ const CONFIG = {
    */
   TRAINING_MODULES: [
     { key: 'EACC', name: 'E-Accounting', match: ['e-accounting', 'e accounting', 'eaccounting'] },
-    { key: 'FITR', name: 'FI/TR',        match: ['fi_tr', 'fi-tr', 'fitr', 'fi tr'] },
+    // 'fi' folded in from what used to be a separate FI module, so a bare-FI
+    // filename lands in the same row as FI_TR rather than a row of its own.
+    // The FILES this matches are unchanged — only the name they are given.
+    // 'tr' is deliberately not here: it is safe against a short Part value but
+    // not against a filename, where too much begins with 'Tr'.
+    { key: 'FITR', name: 'FI/TR',        match: ['fi_tr', 'fi-tr', 'fitr', 'fi tr', 'fi'] },
     { key: 'MM',   name: 'MM',           match: ['inventory', 'purchase', 'mcd', 'mm'] },
     { key: 'MD',   name: 'MD',           match: ['md'] },
     { key: 'PP',   name: 'PP',           match: ['production', 'ypl', 'pp'] },
     { key: 'SD',   name: 'SD',           match: ['development', 'export', 'shipping', 'sd'] },
-    { key: 'CO',   name: 'CO',           match: ['co'] },
-    { key: 'FI',   name: 'FI',           match: ['fi'] }
+    { key: 'CO',   name: 'CO',           match: ['co'] }
   ],
 
   /**
@@ -413,14 +417,16 @@ const CONFIG = {
   TICKET_MODULES: [
     { name: 'Account',      match: ['account'] },
     { name: 'E-Accounting', match: ['e-accounting', 'e accounting', 'eaccounting'] },
-    { name: 'FI/TR',        match: ['fi/tr', 'fi_tr', 'fi-tr', 'fitr', 'fi tr'] },
+    // FI, TR and FI/TR are ONE module. The ITSM's Part column spells it both
+    // ways — 1,441 tickets as 'FI/TR' and 7 as 'FI' — and splitting them made
+    // two rows out of one team's work, the smaller of which read as a rounding
+    // error rather than as the same thing written differently.
+    { name: 'FI/TR',        match: ['fi/tr', 'fi_tr', 'fi-tr', 'fitr', 'fi tr', 'fi', 'tr'] },
     { name: 'MM',           match: ['mm', 'mm purchase', 'purchase', 'inventory', 'mcd'] },
     { name: 'MD',           match: ['md'] },
     { name: 'PP',           match: ['pp', 'production', 'ypl'] },
     { name: 'SD',           match: ['sd', 'development', 'export', 'shipping'] },
-    { name: 'CO',           match: ['co'] },
-    { name: 'FI',           match: ['fi'] },
-    { name: 'TR',           match: ['tr'] }
+    { name: 'CO',           match: ['co'] }
   ],
 
   /**
@@ -457,7 +463,9 @@ const CONFIG = {
    * which is honest rather than invented.
    */
   SECTION_MODULES: {
-    'Financial Applications':     'FI',
+    // FI/TR, not 'FI' — the same name the Part column resolves to, so a
+    // Financial person's fallback lands in the row their own tickets are in.
+    'Financial Applications':     'FI/TR',
     'Sales Applications':         'SD',
     'SCM Applications':           'MM',
     'Manufacturing Applications': 'PP'
