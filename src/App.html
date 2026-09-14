@@ -2340,6 +2340,7 @@
       setValue('fSection', ''); applySectionFilter(); saveState();
     });
 
+    bind('rebuildKpi1', 'click', rebuildKpi1);
     bind('fModuleK1', 'change', function () { applyModuleFilterK1(); saveState(); });
     bind('fModuleK1Name', 'input', function () { applyModuleFilterK1(); saveState(); });
     bind('fModuleK1Reset', 'click', function () {
@@ -2441,6 +2442,40 @@
 
 
   /**
+   * Re-scores every stored ticket against the current Config.
+   *
+   * KPI 1 is precomputed, so which section and which module a ticket is filed
+   * under is decided when the cache is built. Editing PERSON_MODULES or the
+   * roster therefore changes nothing until this runs — and before it existed,
+   * the only way to apply such an edit was to re-upload the exports.
+   */
+  function rebuildKpi1() {
+    const button = document.getElementById('rebuildKpi1');
+    const status = document.getElementById('rebuildStatus');
+    if (!button) return;
+
+    button.disabled = true;
+    if (status) status.textContent = 'Rebuilding…';
+
+    withTimeout(callServer('recomputeAfterUpload'), 300000, 'The rebuild')
+      .then(function (result) {
+        const months = (result && result.months) || [];
+        if (status) {
+          status.textContent = 'Rebuilt ' + months.length + ' month' +
+                               (months.length === 1 ? '' : 's') + '.';
+        }
+        button.disabled = false;
+        return refreshAfterChange();
+      })
+      .catch(function (err) {
+        button.disabled = false;
+        if (status) status.textContent = '';
+        onError(err);
+      });
+  }
+
+
+  /**
    * Tickets by SAP module.
    *
    * Replaces the old "Individuals carrying the delays" table. That one listed
@@ -2449,9 +2484,10 @@
    * of its own. Two tables answering one question is one table too many.
    *
    * This answers a question nothing else on the page did: which part of SAP
-   * the work sits in. Modules come from the ITSM's own Service and Part, read
-   * through the same names KPI 2 reports training against, so MM means the
-   * same thing on both screens.
+   * the work sits in. The module comes from the ITSM's Part column when that
+   * names one EAS reports on, and otherwise from whoever handled the ticket —
+   * see moduleForTicket. The names match KPI 2's, so MM means the same thing
+   * on both screens.
    */
   function applyModuleFilterK1() {
     const k = state.kpi;
@@ -2476,10 +2512,7 @@
     }
 
     fillRows('#kpi1Modules tbody', rows, function (m) {
-      return '<td class="name">' + escapeHtml(m.name) +
-             (m.parts > 1
-               ? ' <span class="muted">· ' + m.parts + ' parts</span>' : '') +
-             '</td>' +
+      return '<td class="name">' + escapeHtml(m.name) + '</td>' +
              num(m.received) + num(m.completed) + num(m.delayed) + num(m.successful) +
              '<td class="r">' + fmt(m.rate) + '%</td>' +
              '<td class="r">' + fmt(m.achievement) + '%</td>' +

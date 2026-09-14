@@ -395,6 +395,73 @@ const CONFIG = {
   ],
 
   /**
+   * The modules KPI 1 reports tickets against. A CLOSED list.
+   *
+   * The ITSM's Part column holds more than modules — Account, Monitoring,
+   * Groupware, 'PC, Monitor', Others, FRP (FastReactPlan), TexManager and
+   * Workshop Management System (WMIS) all appear there. None of them is a
+   * module EAS reports on, and letting them through made a fifteen-row table
+   * with eight rows nobody reads. Anything not on this list falls through to
+   * the person who handled the ticket.
+   *
+   * `match` is tested against the Part column at a word boundary, longest
+   * pattern first: 'FI/TR' beats the shorter 'FI', and 'CO' cannot fire inside
+   * 'Accounting'. The names are the same ones KPI 2 reports training against,
+   * so MM means one thing across the dashboard.
+   */
+  TICKET_MODULES: [
+    { name: 'E-Accounting', match: ['e-accounting', 'e accounting', 'eaccounting'] },
+    { name: 'FI/TR',        match: ['fi/tr', 'fi_tr', 'fi-tr', 'fitr', 'fi tr'] },
+    { name: 'MM',           match: ['mm', 'mm purchase', 'purchase', 'inventory', 'mcd'] },
+    { name: 'MD',           match: ['md'] },
+    { name: 'PP',           match: ['pp', 'production', 'ypl'] },
+    { name: 'SD',           match: ['sd', 'development', 'export', 'shipping'] },
+    { name: 'CO',           match: ['co'] },
+    { name: 'FI',           match: ['fi'] },
+    { name: 'TR',           match: ['tr'] }
+  ],
+
+  /**
+   * Person -> the module they work in, when it is not their section's usual.
+   *
+   * A module role and a section are different things. Rubel Das sits in
+   * Financial and works CO; Md. Abdullah Al Mamun sits in Supply Chain and
+   * works PP; Nasir Uddin and Sanjib Guha sit in Sales and work MM/MD.
+   *
+   * ONLY THE EXCEPTIONS BELONG HERE. Everyone else takes SECTION_MODULES,
+   * below. Used when the Part column does not name a module, which is the
+   * team's own rule: whoever handled the ticket, it is theirs.
+   *
+   * These are the people confirmed so far. Anyone missing shows up under
+   * '(unassigned)' on the By module table rather than being guessed at.
+   */
+  PERSON_MODULES: {
+    'Md. Nasir Uddin':        'MM',   // Sales section, MM/MD module role
+    'Sanjib Guha':            'MM',   // Sales section, MM/MD module role
+    'Nazma Begum':            'SD',   // Sales section, SD — also trains E-Accounting
+    'Md. Abdullah Al Mamun':  'PP',   // Supply Chain section, PP module
+    'Rubel Das':              'CO'    // Financial section, CO module
+  },
+
+  /**
+   * Section -> the module it usually handles, from the org chart's own
+   * headings: Financial (FI, CO +), Sales & Customer (SD +), Supply Chain
+   * (MM +), Manufacturing (PP +).
+   *
+   * A default, overridden per person by PERSON_MODULES. The pre-split sections
+   * are deliberately absent: 'Functional Applications' covered Manufacturing,
+   * Sales and SCM at once, so it cannot name one module, and a ticket from
+   * those months falls to '(unassigned)' unless its Part says otherwise —
+   * which is honest rather than invented.
+   */
+  SECTION_MODULES: {
+    'Financial Applications':     'FI',
+    'Sales Applications':         'SD',
+    'SCM Applications':           'MM',
+    'Manufacturing Applications': 'PP'
+  },
+
+  /**
    * Trainer -> the module they run. The LAST resort, after the form's own
    * answer and the filename.
    *
@@ -767,35 +834,106 @@ function moduleForResponse(answered, sourceFile) {
 /**
  * Which SAP module does a ticket belong to?
  *
- * The ITSM records a Service and a Part — 'e-Accounting' as a Part exists only
- * under the e-Accounting Service — and the pair is what KPI 1 already groups
- * on. This reads a module out of that pair using the SAME names KPI 2 reports
- * training against, so "MM" means one thing across the whole dashboard and the
- * two KPIs can be read side by side.
+ * TWO SOURCES, IN ORDER.
  *
- * A pair that matches no known module keeps its own text rather than being
- * swept into an '(unassigned)' bucket. The ITSM's own wording is more useful
- * than a label that says only "we could not place this", and nothing is lost
- * from the table.
+ * 1. The ITSM's Part column, when it names one of the modules EAS actually
+ *    reports on. That list is CLOSED — see TICKET_MODULES. The Part column
+ *    also carries things that are not modules at all (Account, Monitoring,
+ *    Groupware, PC/Monitor, Others, FRP, TexManager, WMIS), and letting those
+ *    through produced a table of fifteen rows, half of which no one reports
+ *    against.
  *
- * @param {string} key  'Service / Part', as KPI 1 already stores it
- * @return {string} module name, or the pair's own text
+ * 2. Otherwise the person in Current Activity In Charge. Whoever handled the
+ *    ticket, it belongs to their module — which is the rule the team works to,
+ *    and the only thing that can place a ticket the Part column mislabels.
+ *
+ * 3. Failing both, '(unassigned)', so it is visible rather than guessed.
+ *
+ * Resolved when the figures are computed, from the ticket's own columns.
+ * Correcting PERSON_MODULES and rebuilding re-files every affected ticket,
+ * with nothing to re-upload.
+ *
+ * @param {string} part      the Part column
+ * @param {string} inCharge  the Current Activity In Charge column
+ * @param {string} month     'YYYY-MM', for the section the person was in then
+ * @return {string} module name
  */
-function moduleForTicket(key) {
-  const text = String(key || '').trim();
-  if (!text) return '(unspecified)';
+function moduleForTicket(part, inCharge, month) {
+  return moduleFromPart(part) ||
+         moduleForPerson(inCharge, month) ||
+         '(unassigned)';
+}
 
-  const named = moduleFor(text);
-  if (named) return named;
 
-  // No match: keep what the ITSM called it. The Part is the more specific
-  // half, so it leads.
-  const half = text.split(' / ');
-  const part = (half[1] || '').trim();
-  const service = (half[0] || '').trim();
-  if (part && part !== '(none)') return part;
-  if (service && service !== '(none)') return service;
-  return '(unspecified)';
+/**
+ * A module read out of the Part column — and only one EAS reports on.
+ *
+ * Matched at a word boundary, longest pattern first, so 'FI/TR' is not
+ * claimed by the shorter 'FI' and 'CO' cannot fire inside 'Accounting'.
+ *
+ * @param {string} part
+ * @return {string} module name, or '' when the Part names none
+ */
+function moduleFromPart(part) {
+  const text = String(part || '').toLowerCase().trim();
+  if (!text) return '';
+
+  let best = '';
+  let bestLength = 0;
+
+  CONFIG.TICKET_MODULES.forEach(function (module) {
+    module.match.forEach(function (pattern) {
+      if (pattern.length <= bestLength) return;
+      const safe = pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      if (new RegExp('(^|[^a-z0-9])' + safe + '([^a-z0-9]|$)').test(text)) {
+        best = module.name;
+        bestLength = pattern.length;
+      }
+    });
+  });
+
+  return best;
+}
+
+
+/**
+ * Which module does this person work in?
+ *
+ * Their own entry first, because a module role and a section are not the same
+ * thing — Rubel Das sits in Financial and works CO, Md. Abdullah Al Mamun sits
+ * in Supply Chain and works PP. Only then the section's usual module.
+ *
+ * @param {string} name   as the ITSM spells it
+ * @param {string} month  'YYYY-MM', so a pre-split month reads the old sections
+ * @return {string} module name, or '' for someone with neither
+ */
+function moduleForPerson(name, month) {
+  const key = matchPerson(name);
+  if (!key) return '';
+
+  const own = personModuleIndex()[key];
+  if (own) return own;
+
+  // No entry of their own: the module their section usually handles. Read at
+  // the CURRENT section names, never the pre-split ones — 'Functional
+  // Applications' covered three modules at once and cannot name just one.
+  const section = sectionFor(name, null, '');
+  return CONFIG.SECTION_MODULES[section] || '';
+}
+
+
+/** PERSON_MODULES keyed the way matchPerson spells names. Built once. */
+let PERSON_MODULE_INDEX = null;
+function personModuleIndex() {
+  if (PERSON_MODULE_INDEX) return PERSON_MODULE_INDEX;
+
+  const index = {};
+  Object.keys(CONFIG.PERSON_MODULES).forEach(function (name) {
+    index[matchPerson(name)] = CONFIG.PERSON_MODULES[name];
+  });
+
+  PERSON_MODULE_INDEX = index;
+  return index;
 }
 
 

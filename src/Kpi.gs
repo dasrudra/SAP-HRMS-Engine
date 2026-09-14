@@ -94,6 +94,15 @@ function recomputeKpiCache() {
       out.push(kpiRow(month, 'PART', entry.key, entry.rows, kpi, computedAt));
     });
 
+    // Modules. Grouped HERE rather than rolled up from the Part rows above,
+    // because a Part that names no module has to fall through to the person
+    // who handled the ticket — and only the ticket row carries both columns.
+    groupByKey(scored, function (row) {
+      return moduleForTicket(row[COL.PART], row[COL.IN_CHARGE], month);
+    }).forEach(function (entry) {
+      out.push(kpiRow(month, 'MODULE', entry.key, entry.rows, kpi, computedAt));
+    });
+
     // Each individual is tagged with their department so the screen can filter
     // the individuals table by department without a second lookup.
     groupByKey(scored, function (row) {
@@ -553,6 +562,8 @@ function getKpi1(month) {
       result.departments.push(entry);
     } else if (b.scope === 'PART') {
       result.parts.push(entry);
+    } else if (b.scope === 'MODULE') {
+      result.modules.push(entry);
     } else if (b.scope === 'PERSON') {
       entry.department = b.section;
       result.people.push(entry);
@@ -565,53 +576,9 @@ function getKpi1(month) {
   result.departments.sort(byReceived);
   result.parts.sort(byReceived);
   result.people.sort(byReceived);
-  result.modules = modulesFromParts(result.parts, kpi);
+  result.modules.sort(byReceived);
 
   return result;
-}
-
-
-/**
- * Rolls the Service/Part rows up into modules.
- *
- * Derived here rather than cached as its own scope, so it works on data
- * already stored — there is no recompute to run and no re-upload to do. It is
- * safe because the part entries carry RAW COUNTS, not just rates: the counts
- * are summed and the rate recomputed from the pooled totals, never averaged.
- * Averaging the rates of two parts with very different volumes would quietly
- * invent a figure, which is the same mistake the KPI 1 all-months view and the
- * team's own workbook both made.
- *
- * @param {Object[]} parts  entries from getKpi1
- * @param {Object}   kpi    CONFIG.KPI.RESOLUTION
- * @return {Object[]} busiest first
- */
-function modulesFromParts(parts, kpi) {
-  const buckets = {};
-  const order = [];
-
-  parts.forEach(function (part) {
-    const name = moduleForTicket(part.name);
-    if (!buckets[name]) {
-      buckets[name] = { name: name, received: 0, completed: 0,
-                        delayed: 0, successful: 0, parts: 0 };
-      order.push(name);
-    }
-    const b = buckets[name];
-    b.received   += part.received;
-    b.completed  += part.completed;
-    b.delayed    += part.delayed;
-    b.successful += part.successful;
-    b.parts++;
-  });
-
-  return order.map(function (name) {
-    const entry = finaliseEntry(buckets[name], kpi);
-    // How many Service/Part rows folded into this module — the difference
-    // between a module with one busy part and one spread across six.
-    entry.parts = buckets[name].parts;
-    return entry;
-  }).sort(byReceived);
 }
 
 

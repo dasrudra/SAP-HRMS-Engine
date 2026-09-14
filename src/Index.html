@@ -629,6 +629,28 @@
           <div class="card-head">Database</div>
           <dl class="kv" id="dbInfo"></dl>
         </div>
+
+        <!--
+          KPI 1 is precomputed, so the sections and modules a ticket is filed
+          under are decided when the figures are built, not when they are read.
+          Correcting the roster or the module map therefore needs a rebuild —
+          without this the only way to apply an edit was to re-upload.
+        -->
+        <div class="card">
+          <div class="card-head">Rebuild KPI 1 figures</div>
+          <div class="notice-inline">
+            <p>
+              Re-scores every stored ticket and re-files it under the section
+              and module it belongs to now. Use it after editing
+              <code>ROSTER</code>, <code>PERSON_MODULES</code> or
+              <code>TICKET_MODULES</code> in <code>Config.gs</code>. Nothing is
+              uploaded or deleted, and KPI 2 is untouched — it scores live and
+              never needs this.
+            </p>
+            <button class="btn btn-primary" id="rebuildKpi1">↻ Rebuild now</button>
+            <span class="filter-count" id="rebuildStatus"></span>
+          </div>
+        </div>
       </section>
 
     </div>
