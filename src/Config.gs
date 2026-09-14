@@ -1026,6 +1026,60 @@ function matchZone(value) {
 
 
 /**
+ * Reads the quarter out of a feedback filename.
+ *
+ *   'Trainee Feedback- CEPZ_Q1-2026_YPL_PP - Jafar'   -> '2026-Q1'
+ *   'Trainee_Feedback- DEPZ_Q1-2026_All Plant_ PP...' -> '2026-Q1'
+ *
+ * WHY THE FILENAME AND NOT THE SESSION DATE
+ * The date on a feedback form is free text the attendee types, and Excel has
+ * already mangled a batch of it — 43 files came in reading January 1974 for
+ * sessions held in 2026. A quarter derived from that is wrong in a way nobody
+ * can see. The filename is written by the trainer who ran the session, to a
+ * convention the team agreed (Zone_Quarter-Year), so it is the one statement
+ * of the period that a spreadsheet cannot silently rewrite.
+ *
+ * It is a fallback chain, not an override: a file that names no quarter still
+ * falls back to its session date, which is exactly what happened before.
+ *
+ * Tolerant of the separators that turn up in practice — 'Q1-2026', 'Q1_2026',
+ * 'Q1 2026', 'Q1/26' and the reversed '2026-Q1' all read the same. A two-digit
+ * year is taken as 20xx.
+ *
+ * @param {*} fileName
+ * @return {string} 'YYYY-Qn', or '' when the name carries no quarter
+ */
+function quarterFromFileName(fileName) {
+  const text = String(fileName == null ? '' : fileName).trim();
+  if (!text) return '';
+
+  // 'Q1-2026'. The q must start a token, so 'FAQ1-2026' cannot fire.
+  let found = text.match(/(?:^|[^a-z0-9])q\s*([1-4])\s*[-_. \/]\s*(\d{4}|\d{2})(?!\d)/i);
+  if (found) return quarterKeyFrom(found[2], found[1]);
+
+  // '2026-Q1', written the other way round.
+  found = text.match(/(?:^|[^0-9])(\d{4}|\d{2})\s*[-_. \/]?\s*q\s*([1-4])(?!\d)/i);
+  if (found) return quarterKeyFrom(found[1], found[2]);
+
+  return '';
+}
+
+
+/**
+ * 2026 + 1 -> '2026-Q1'. Two-digit years become 20xx.
+ *
+ * @return {string} '' when the year is not a plausible one
+ */
+function quarterKeyFrom(year, quarter) {
+  let y = Number(year);
+  if (!isFinite(y) || !y) return '';
+  if (y < 100) y += 2000;
+  if (y < 2000 || y > 2099) return '';
+  return y + '-Q' + Number(quarter);
+}
+
+
+/**
  * Which band does a success rate fall into?
  *
  * Used by KPI 1 and KPI 2 both — they have different numbers but identical

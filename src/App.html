@@ -1408,11 +1408,13 @@
     const wanted = (from && from === to) ? from : ALL_MONTHS;
 
     if (feedback > tickets) {
-      // KPI 2 reports by quarter, so a one-month upload opens on the quarter
-      // that month belongs to. An upload spanning several opens on all of them
-      // — it may well straddle a quarter boundary.
-      const fromQ = quarterForMonth(from);
-      const toQ = quarterForMonth(to);
+      // KPI 2 reports by quarter. The filenames name it now, so they are asked
+      // first — the session dates behind `from` and `to` are the unreliable
+      // half of this, and an upload of files all named Q1-2026 should open on
+      // Q1 2026 whatever Excel did to the dates inside them.
+      const named = quartersInText(row.children[1].textContent);
+      const fromQ = named.length ? named[0] : quarterForMonth(from);
+      const toQ   = named.length ? named[named.length - 1] : quarterForMonth(to);
       setValue('kpi2Month', (fromQ && fromQ === toQ) ? fromQ : ALL_MONTHS);
       showView('kpi2');
       loadKpi2();
@@ -1998,12 +2000,14 @@
       emptyTable('#kpi2Modules tbody', 8, 'Nothing to show yet.');
       emptyTable('#kpi2Zones tbody', 8, 'Nothing to show yet.');
       hide('kpi2Unassigned');
+      hide('kpi2Undated');
       hide('kpi2Unknown');
       return;
     }
 
     renderKpi2Period(k);
     renderKpi2Unassigned(k);
+    renderKpi2Undated(k);
     renderKpi2Unknown(k);
     renderKpi2Tiles(k, tiles);
     drawFeedbackModuleChart(k);
@@ -2044,10 +2048,15 @@
     const here = quarters.filter(function (q) { return q.key === k.scope; })[0];
     if (!here) { box.hidden = true; return; }
 
+    // The months with training in them, or — when every session in the quarter
+    // was placed by its filename and no session date inside the quarter
+    // survived — the three months the quarter is.
+    const span = (here.months || []).length ? here.months : (here.covers || []);
+
     box.hidden = false;
     box.innerHTML =
       '<b>' + escapeHtml(here.label) + '</b>' +
-      '<span>' + (here.months || []).map(formatMonth).join(' · ') +
+      '<span>' + span.map(formatMonth).join(' · ') +
       ' · ' + count(k.total.respondents) + ' attendees · ' +
       count(k.total.responses) + ' responses</span>';
   }
@@ -2082,9 +2091,63 @@
       're-upload it, or add the wording to <code>TRAINING_MODULES</code> in ' +
       '<code>Config.gs</code> — the module is resolved at scoring time, so ' +
       'editing the list and reloading fixes it with nothing to re-upload.</p>' +
-      '<p>' + files.map(function (f) {
+      '<p>' + firstFew(files, function (f) {
         return '<code>' + escapeHtml(f.fileName) + '</code> ×' + f.respondents;
-      }).join(' &nbsp; ') + '</p>';
+      }, ' &nbsp; ') + '</p>';
+  }
+
+
+  /**
+   * Names the first few of a list and counts the rest.
+   *
+   * A notice that lists forty-three filenames is not more informative than one
+   * that lists eight and says so — it just pushes the figures off the screen.
+   * Eight is enough to recognise the pattern, which is what these notices are
+   * for: you fix the naming, not the individual file.
+   */
+  function firstFew(list, render, joiner) {
+    const LIMIT = 8;
+    const shown = list.slice(0, LIMIT).map(render).join(joiner);
+    const rest = list.length - LIMIT;
+    return rest > 0
+      ? shown + joiner + '<span class="muted">…and ' + rest + ' more</span>'
+      : shown;
+  }
+
+
+  /**
+   * Names the files whose quarter had to be guessed from the session date.
+   *
+   * The team's naming convention — Zone_Quarter-Year, as in
+   * 'Trainee Feedback- CEPZ_Q1-2026_YPL_PP - Jafar' — is what decides which
+   * quarter a session belongs to now. A file named the old way still works: it
+   * falls back to the session date, exactly as before. But the session date is
+   * the source that has already been wrong once, at scale, so a file leaning
+   * on it should say so rather than quietly landing in whichever quarter the
+   * spreadsheet happened to produce.
+   */
+  function renderKpi2Undated(k) {
+    const box = document.getElementById('kpi2Undated');
+    if (!box) return;
+
+    const files = k.undatedFiles || [];
+    if (!files.length) { box.hidden = true; return; }
+
+    const people = files.reduce(function (a, f) { return a + f.respondents; }, 0);
+
+    box.hidden = false;
+    box.innerHTML =
+      '<h3>' + files.length + ' file' + (files.length === 1 ? '' : 's') +
+      ' name' + (files.length === 1 ? 's' : '') + ' no quarter</h3>' +
+      '<p>Their ' + count(people) + ' response' + (people === 1 ? '' : 's') +
+      ' are counted in full. The quarter came from the session date inside the ' +
+      'file rather than from its name — check it reads right, and from the next ' +
+      'session name the file <code>Zone_Q1-2026_…</code> so the period is stated ' +
+      'rather than inferred.</p>' +
+      '<p>' + firstFew(files, function (f) {
+        return '<code>' + escapeHtml(f.fileName) + '</code> ×' + f.respondents +
+               (f.quarterLabel ? ' → ' + escapeHtml(f.quarterLabel) : ' → no quarter');
+      }, '<br>') + '</p>';
   }
 
 
@@ -2214,32 +2277,57 @@
   }
 
 
-  /** Satisfaction by module, banded like KPI 1's section chart. */
+  /**
+   * The headline chart, banded like KPI 1's section chart.
+   *
+   * WHAT IT PLOTS DEPENDS ON THE FILTER, AND SO IT SHOULD
+   * On a single quarter it is satisfaction by module: eight bars answering
+   * "which training landed and which did not, this quarter". On All quarters
+   * that same chart pools every quarter into one bar per module and throws
+   * away the only thing the all-quarters view is for — whether the KPI is
+   * moving. So All quarters plots one bar per quarter instead, in time order,
+   * and the trend is readable at a glance.
+   *
+   * The module breakdown is not lost on the all-quarters view: the By module
+   * table underneath still carries it, pooled across the whole period.
+   */
   function drawFeedbackModuleChart(k) {
-    if (!k.modules.length) {
-      chartMessage('chartFeedbackModule', '<p>No modules to plot.</p>');
+    const byQuarter = !!k.allMonths;
+    const rows = byQuarter ? (k.quarters || []) : (k.modules || []);
+
+    const title = document.getElementById('kpi2ModuleTitle');
+    if (title) {
+      title.textContent = byQuarter ? 'Satisfaction by quarter'
+                                    : 'Satisfaction by module';
+    }
+
+    if (!rows.length) {
+      chartMessage('chartFeedbackModule',
+        '<p>No ' + (byQuarter ? 'quarters' : 'modules') + ' to plot.</p>');
       return;
     }
     chartMessage('chartFeedbackModule', null);
 
-    const lowest = Math.min.apply(null, k.modules.map(function (m) { return m.rate; })
-                                                 .concat([k.target]));
+    const lowest = Math.min.apply(null, rows.map(function (m) { return m.rate; })
+                                            .concat([k.target]));
     const floor = Math.max(0, Math.floor((lowest - 1) / 5) * 5);
 
     const note = document.getElementById('kpi2ModuleNote');
     if (note) {
-      note.textContent = 'Against the ' + k.target + '% target. Axis starts at ' +
-                         floor + '%.';
+      note.textContent = (byQuarter
+        ? 'Every quarter loaded, in order. '
+        : '') + 'Against the ' + k.target + '% target. Axis starts at ' +
+        floor + '%.';
     }
 
     drawChart('chartFeedbackModule', {
       type: 'bar',
       data: {
-        labels: k.modules.map(function (m) { return m.name; }),
+        labels: rows.map(function (m) { return m.name; }),
         datasets: [Object.assign({
           label: 'Satisfaction',
-          data: k.modules.map(function (m) { return round2(m.rate); }),
-          backgroundColor: k.modules.map(function (m) { return bandColour(m.band); })
+          data: rows.map(function (m) { return round2(m.rate); }),
+          backgroundColor: rows.map(function (m) { return bandColour(m.band); })
         }, BAR)]
       },
       options: {
@@ -2254,10 +2342,14 @@
           legend: { display: false },
           tooltip: tooltipStyle({
             label: function (item) {
-              const m = k.modules[item.dataIndex];
-              return [fmt(m.rate) + '% · ' + m.band,
-                      m.positive + ' positive of ' + m.applicable + ' applicable',
-                      m.respondents + ' attendees'];
+              const m = rows[item.dataIndex];
+              const lines = [fmt(m.rate) + '% · ' + m.band,
+                             m.positive + ' positive of ' + m.applicable + ' applicable',
+                             m.respondents + ' attendees'];
+              if (byQuarter && m.sessions) {
+                lines.push(m.sessions + ' session' + (m.sessions === 1 ? '' : 's'));
+              }
+              return lines;
             }
           }),
           targetLine: { value: k.target, label: 'Target ' + k.target + '%' },
@@ -3958,8 +4050,11 @@
       option.value = q.key;
       option.textContent = q.label;
       // The months behind the label, for the tooltip — 'Quarter 1 (2026)'
-      // says nothing about which months it covers until you hover it.
-      option.title = q.label + ' · ' + (q.months || []).map(formatMonth).join(', ');
+      // says nothing about which months it covers until you hover it. Falls
+      // back to the quarter's own three months when every session in it was
+      // placed by its filename rather than by a usable session date.
+      const span = (q.months || []).length ? q.months : (q.covers || []);
+      option.title = q.label + ' · ' + span.map(formatMonth).join(', ');
       select.appendChild(option);
     });
 
@@ -3975,6 +4070,44 @@
       if ((list[i].months || []).indexOf(month) !== -1) return list[i].key;
     }
     return '';
+  }
+
+
+  /**
+   * Every distinct quarter named in a blob of filenames, in time order.
+   *
+   * Mirrors quarterFromFileName in Config.gs — deliberately, because this one
+   * reads the filename cell of a history row and the server never sees it. The
+   * conventions are one line each and the test suite checks both against the
+   * same list of real filenames.
+   *
+   *   'CEPZ_Q1-2026_YPL_PP, DEPZ_Q1-2026_All Plant' -> ['2026-Q1']
+   *
+   * @param {string} text
+   * @return {string[]} 'YYYY-Qn'
+   */
+  function quartersInText(text) {
+    const seen = {};
+    const out = [];
+
+    String(text || '').replace(
+      /(?:^|[^a-z0-9])q\s*([1-4])\s*[-_. \/]\s*(\d{4}|\d{2})(?!\d)/gi,
+      function (whole, q, year) { push(year, q); return whole; });
+
+    String(text || '').replace(
+      /(?:^|[^0-9])(\d{4}|\d{2})\s*[-_. \/]?\s*q\s*([1-4])(?!\d)/gi,
+      function (whole, year, q) { push(year, q); return whole; });
+
+    function push(year, q) {
+      let y = Number(year);
+      if (!isFinite(y) || !y) return;
+      if (y < 100) y += 2000;
+      if (y < 2000 || y > 2099) return;
+      const key = y + '-Q' + Number(q);
+      if (!seen[key]) { seen[key] = true; out.push(key); }
+    }
+
+    return out.sort();
   }
 
 
