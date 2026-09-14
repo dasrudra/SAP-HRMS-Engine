@@ -397,19 +397,21 @@ const CONFIG = {
   /**
    * The modules KPI 1 reports tickets against. A CLOSED list.
    *
-   * The ITSM's Part column holds more than modules — Account, Monitoring,
-   * Groupware, 'PC, Monitor', Others, FRP (FastReactPlan), TexManager and
-   * Workshop Management System (WMIS) all appear there. None of them is a
-   * module EAS reports on, and letting them through made a fifteen-row table
-   * with eight rows nobody reads. Anything not on this list falls through to
-   * the person who handled the ticket.
+   * The ITSM's Part column holds more than modules — Monitoring, Groupware,
+   * 'PC, Monitor', Others, FRP (FastReactPlan), TexManager and Workshop
+   * Management System (WMIS) all appear there. None of them is a module EAS
+   * reports on, and letting them through made a fifteen-row table with seven
+   * rows nobody reads. Anything not on this list falls through to the person
+   * who handled the ticket.
    *
    * `match` is tested against the Part column at a word boundary, longest
-   * pattern first: 'FI/TR' beats the shorter 'FI', and 'CO' cannot fire inside
-   * 'Accounting'. The names are the same ones KPI 2 reports training against,
-   * so MM means one thing across the dashboard.
+   * pattern first: 'FI/TR' beats the shorter 'FI', 'CO' cannot fire inside
+   * 'Accounting', and Account and E-Accounting stay apart — 'account' needs a
+   * word end after it, which 'E-Accounting' does not give. They are separate
+   * modules with separate ticket counts, not one misspelt twice.
    */
   TICKET_MODULES: [
+    { name: 'Account',      match: ['account'] },
     { name: 'E-Accounting', match: ['e-accounting', 'e accounting', 'eaccounting'] },
     { name: 'FI/TR',        match: ['fi/tr', 'fi_tr', 'fi-tr', 'fitr', 'fi tr'] },
     { name: 'MM',           match: ['mm', 'mm purchase', 'purchase', 'inventory', 'mcd'] },
