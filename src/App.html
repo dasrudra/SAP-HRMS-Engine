@@ -2450,25 +2450,35 @@
    * the only way to apply such an edit was to re-upload the exports.
    */
   function rebuildKpi1() {
-    const button = document.getElementById('rebuildKpi1');
+    // Two places offer this — Settings, and the By module table when it finds
+    // the stored figures predate modules. Whichever was pressed, both are
+    // disabled while it runs.
+    const buttons = ['rebuildKpi1', 'rebuildFromModules']
+      .map(function (id) { return document.getElementById(id); })
+      .filter(Boolean);
     const status = document.getElementById('rebuildStatus');
-    if (!button) return;
+    if (!buttons.length) return;
 
-    button.disabled = true;
+    // Remembered so the label goes back to whatever each button said — the two
+    // are worded differently for where they sit.
+    const labels = buttons.map(function (b) { return b.textContent; });
+    buttons.forEach(function (b) { b.disabled = true; b.textContent = 'Rebuilding…'; });
     if (status) status.textContent = 'Rebuilding…';
 
     withTimeout(callServer('recomputeAfterUpload'), 300000, 'The rebuild')
       .then(function (result) {
         const months = (result && result.months) || [];
-        if (status) {
-          status.textContent = 'Rebuilt ' + months.length + ' month' +
-                               (months.length === 1 ? '' : 's') + '.';
-        }
-        button.disabled = false;
+        const done = 'Rebuilt ' + months.length + ' month' +
+                     (months.length === 1 ? '' : 's') + '.';
+        if (status) status.textContent = done;
+        // refreshAfterChange redraws the table, which replaces these buttons.
         return refreshAfterChange();
       })
       .catch(function (err) {
-        button.disabled = false;
+        buttons.forEach(function (b, i) {
+          b.disabled = false;
+          b.textContent = labels[i];
+        });
         if (status) status.textContent = '';
         onError(err);
       });
@@ -2505,10 +2515,30 @@
 
     setCount('cModuleK1', rows.length, all.length, 'modules');
 
+    // Tickets on screen but not one module row: the stored figures were built
+    // before modules existed, so there is nothing to group. Saying "no module
+    // information" left no way to tell that from "this month had no tickets",
+    // and no hint that one button fixes it. Offer the button here, where the
+    // gap is actually visible.
+    if (!all.length) {
+      const body = document.querySelector('#kpi1Modules tbody');
+      if (body) {
+        body.innerHTML =
+          '<tr><td colspan="9" class="empty">' +
+          '<b>The stored figures were built before modules were added.</b><br>' +
+          'There are ' + count(k.total.completed) + ' tickets in this period, ' +
+          'but none of them has been filed under a module yet. Rebuilding ' +
+          're-scores every stored ticket — nothing is uploaded or deleted.' +
+          '<br><button class="btn btn-primary" id="rebuildFromModules" ' +
+          'style="margin-top:12px">↻ Rebuild KPI 1 figures</button>' +
+          '</td></tr>';
+        bind('rebuildFromModules', 'click', rebuildKpi1);
+      }
+      return;
+    }
+
     if (!rows.length) {
-      return emptyTable('#kpi1Modules tbody', 9,
-        all.length ? 'No modules match the filters.'
-                   : 'No module information in this period.');
+      return emptyTable('#kpi1Modules tbody', 9, 'No modules match the filters.');
     }
 
     fillRows('#kpi1Modules tbody', rows, function (m) {

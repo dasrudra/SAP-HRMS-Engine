@@ -880,21 +880,45 @@ function moduleFromPart(part) {
   const text = String(part || '').toLowerCase().trim();
   if (!text) return '';
 
-  let best = '';
-  let bestLength = 0;
+  // Longest first, so the first hit is the answer and the rest can be skipped.
+  const patterns = ticketModulePatterns();
+  for (let i = 0; i < patterns.length; i++) {
+    if (patterns[i].re.test(text)) return patterns[i].name;
+  }
+  return '';
+}
 
+
+/**
+ * Every ticket-module pattern, compiled once and sorted longest first.
+ *
+ * Built lazily and kept, because this runs on EVERY ticket: rebuilding the
+ * regexes inline meant roughly thirty RegExp constructions per ticket, or six
+ * hundred thousand for a twenty-thousand-ticket rebuild. Compiled once it is
+ * thirty for the whole run.
+ *
+ * Longest first is what makes 'FI/TR' beat the shorter 'FI' — with the list
+ * ordered, the first match is always the most specific one.
+ */
+let TICKET_MODULE_PATTERNS = null;
+function ticketModulePatterns() {
+  if (TICKET_MODULE_PATTERNS) return TICKET_MODULE_PATTERNS;
+
+  const out = [];
   CONFIG.TICKET_MODULES.forEach(function (module) {
     module.match.forEach(function (pattern) {
-      if (pattern.length <= bestLength) return;
       const safe = pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      if (new RegExp('(^|[^a-z0-9])' + safe + '([^a-z0-9]|$)').test(text)) {
-        best = module.name;
-        bestLength = pattern.length;
-      }
+      out.push({
+        name: module.name,
+        length: pattern.length,
+        re: new RegExp('(^|[^a-z0-9])' + safe + '([^a-z0-9]|$)')
+      });
     });
   });
 
-  return best;
+  out.sort(function (a, b) { return b.length - a.length; });
+  TICKET_MODULE_PATTERNS = out;
+  return out;
 }
 
 
