@@ -438,6 +438,7 @@ function getKpi1(month) {
     total: null,
     departments: [],
     parts: [],
+    modules: [],
     people: [],
     sources: [],
     target: kpi.target,
@@ -564,8 +565,53 @@ function getKpi1(month) {
   result.departments.sort(byReceived);
   result.parts.sort(byReceived);
   result.people.sort(byReceived);
+  result.modules = modulesFromParts(result.parts, kpi);
 
   return result;
+}
+
+
+/**
+ * Rolls the Service/Part rows up into modules.
+ *
+ * Derived here rather than cached as its own scope, so it works on data
+ * already stored — there is no recompute to run and no re-upload to do. It is
+ * safe because the part entries carry RAW COUNTS, not just rates: the counts
+ * are summed and the rate recomputed from the pooled totals, never averaged.
+ * Averaging the rates of two parts with very different volumes would quietly
+ * invent a figure, which is the same mistake the KPI 1 all-months view and the
+ * team's own workbook both made.
+ *
+ * @param {Object[]} parts  entries from getKpi1
+ * @param {Object}   kpi    CONFIG.KPI.RESOLUTION
+ * @return {Object[]} busiest first
+ */
+function modulesFromParts(parts, kpi) {
+  const buckets = {};
+  const order = [];
+
+  parts.forEach(function (part) {
+    const name = moduleForTicket(part.name);
+    if (!buckets[name]) {
+      buckets[name] = { name: name, received: 0, completed: 0,
+                        delayed: 0, successful: 0, parts: 0 };
+      order.push(name);
+    }
+    const b = buckets[name];
+    b.received   += part.received;
+    b.completed  += part.completed;
+    b.delayed    += part.delayed;
+    b.successful += part.successful;
+    b.parts++;
+  });
+
+  return order.map(function (name) {
+    const entry = finaliseEntry(buckets[name], kpi);
+    // How many Service/Part rows folded into this module — the difference
+    // between a module with one busy part and one spread across six.
+    entry.parts = buckets[name].parts;
+    return entry;
+  }).sort(byReceived);
 }
 
 

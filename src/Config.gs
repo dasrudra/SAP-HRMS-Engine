@@ -765,6 +765,41 @@ function moduleForResponse(answered, sourceFile) {
 
 
 /**
+ * Which SAP module does a ticket belong to?
+ *
+ * The ITSM records a Service and a Part — 'e-Accounting' as a Part exists only
+ * under the e-Accounting Service — and the pair is what KPI 1 already groups
+ * on. This reads a module out of that pair using the SAME names KPI 2 reports
+ * training against, so "MM" means one thing across the whole dashboard and the
+ * two KPIs can be read side by side.
+ *
+ * A pair that matches no known module keeps its own text rather than being
+ * swept into an '(unassigned)' bucket. The ITSM's own wording is more useful
+ * than a label that says only "we could not place this", and nothing is lost
+ * from the table.
+ *
+ * @param {string} key  'Service / Part', as KPI 1 already stores it
+ * @return {string} module name, or the pair's own text
+ */
+function moduleForTicket(key) {
+  const text = String(key || '').trim();
+  if (!text) return '(unspecified)';
+
+  const named = moduleFor(text);
+  if (named) return named;
+
+  // No match: keep what the ITSM called it. The Part is the more specific
+  // half, so it leads.
+  const half = text.split(' / ');
+  const part = (half[1] || '').trim();
+  const service = (half[0] || '').trim();
+  if (part && part !== '(none)') return part;
+  if (service && service !== '(none)') return service;
+  return '(unspecified)';
+}
+
+
+/**
  * Which plant zone did this training belong to?
  *
  * The form's own answer first — from this quarter the feedback form asks for

@@ -204,32 +204,39 @@
           </div>
         </div>
 
-        <!-- ---- Individuals carrying the delays (own filter) ---- -->
+        <!--
+          By module. Replaces the old "Individuals carrying the delays" table,
+          which said nothing the By individuals table below does not already
+          say — that one carries a Delayed column of its own. This asks a
+          different question: which part of SAP the work is in.
+        -->
         <div class="card">
-          <div class="card-head">Individuals carrying the delays</div>
+          <div class="card-head">By module</div>
           <div class="table-filter">
-            <select id="fDelayPerson" class="select" title="Individual">
-              <option value="">All individuals</option>
+            <select id="fModuleK1" class="select" title="Module">
+              <option value="">All modules</option>
             </select>
-            <input id="fDelayName" class="select" type="search" placeholder="Search name…">
-            <button class="btn btn-ghost" id="fDelayReset">✕ Reset</button>
-            <span class="filter-count" id="cDelay"></span>
+            <input id="fModuleK1Name" class="select" type="search" placeholder="Search module…">
+            <button class="btn btn-ghost" id="fModuleK1Reset">✕ Reset</button>
+            <span class="filter-count" id="cModuleK1"></span>
           </div>
           <div class="table-wrap">
-            <table id="kpi1People">
+            <table id="kpi1Modules">
               <thead>
                 <tr>
-                  <th>Individual</th>
-                  <th>Section</th>
-                  <th class="r">Tickets</th>
+                  <th>Module</th>
+                  <th class="r">Received</th>
                   <th class="r">Completed</th>
                   <th class="r">Delayed</th>
+                  <th class="r">Successful</th>
                   <th class="r">Success Rate</th>
+                  <th class="r">Achievement</th>
                   <th>Band</th>
+                  <th class="r">Headroom</th>
                 </tr>
               </thead>
               <tbody>
-                <tr><td colspan="7" class="empty">Nothing to show yet.</td></tr>
+                <tr><td colspan="9" class="empty">Nothing to show yet.</td></tr>
               </tbody>
             </table>
           </div>

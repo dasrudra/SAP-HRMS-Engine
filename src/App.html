@@ -268,7 +268,7 @@
    * mechanism exists to prevent.
    */
   const TRACKED_CONTROLS = [
-    'fSection', 'fDelayPerson', 'fDelayName', 'fAllScope', 'fAllPerson', 'fAllName',
+    'fSection', 'fModuleK1', 'fModuleK1Name', 'fAllScope', 'fAllPerson', 'fAllName',
     'kpi2Month', 'fModule', 'fZone',
     'cmpKpi', 'cmpM1', 'cmpM2', 'cmpM3', 'cmpM4'
   ];
@@ -1756,7 +1756,7 @@
         (k && k.allMonths ? 'No data loaded' : 'No data for this month') +
         '</span></div>';
       emptyTable('#kpi1Table tbody', 9, 'Upload an ITSM export to see results.');
-      emptyTable('#kpi1People tbody', 7, 'Nothing to show yet.');
+      emptyTable('#kpi1Modules tbody', 9, 'Nothing to show yet.');
       emptyTable('#kpi1AllPeople tbody', 8, 'Nothing to show yet.');
       fillSectionFilters([]);
       return;
@@ -1772,11 +1772,11 @@
     // The options exist now, so a filter saved before the refresh can finally
     // be put back. Has to happen here, between building the dropdowns and
     // drawing the tables — any earlier and the <select> has nothing to match.
-    applyPendingTo(['fSection', 'fDelayPerson', 'fDelayName', 'fAllScope',
+    applyPendingTo(['fSection', 'fModuleK1', 'fModuleK1Name', 'fAllScope',
                     'fAllPerson', 'fAllName']);
 
     applySectionFilter();
-    applyDelayFilter();
+    applyModuleFilterK1();
 
     // The individuals table may be pinned to a quarter — restored from the URL
     // or left over from a previous month. applyScopeFilter fetches it when
@@ -2340,11 +2340,11 @@
       setValue('fSection', ''); applySectionFilter(); saveState();
     });
 
-    bind('fDelayPerson', 'change', function () { applyDelayFilter(); saveState(); });
-    bind('fDelayName', 'input', function () { applyDelayFilter(); saveState(); });
-    bind('fDelayReset', 'click', function () {
-      setValue('fDelayPerson', ''); setValue('fDelayName', '');
-      applyDelayFilter(); saveState();
+    bind('fModuleK1', 'change', function () { applyModuleFilterK1(); saveState(); });
+    bind('fModuleK1Name', 'input', function () { applyModuleFilterK1(); saveState(); });
+    bind('fModuleK1Reset', 'click', function () {
+      setValue('fModuleK1', ''); setValue('fModuleK1Name', '');
+      applyModuleFilterK1(); saveState();
     });
 
     // ---- KPI 2 ----
@@ -2377,20 +2377,16 @@
 
 
   /**
-   * The two individuals tables filter by individual, so their dropdowns list
-   * people — the delays table only the people actually in it, the full table
-   * everyone.
+   * The individuals table filters by person; the module table by module. Both
+   * dropdowns list only what is actually in their table for the period on
+   * screen, so a choice can never select nothing.
    */
   function fillPersonFilters(k) {
-    const flagged = k.people
-      .filter(function (p) { return p.delayed > 0 || p.band !== 'GREEN'; })
-      .map(function (p) { return p.name; })
-      .sort();
-
     const everyone = k.people.map(function (p) { return p.name; }).sort();
-
-    fillSelect('fDelayPerson', 'All individuals', flagged);
     fillSelect('fAllPerson', 'All individuals', everyone);
+
+    fillSelect('fModuleK1', 'All modules',
+      (k.modules || []).map(function (m) { return m.name; }));
   }
 
 
@@ -2445,36 +2441,50 @@
 
 
   /**
-   * Only individuals with a delay or below target.
+   * Tickets by SAP module.
    *
-   * Listing all 35 would bury the three that matter. In August 2026, 32 of 35
-   * finished at 100% with zero delays.
+   * Replaces the old "Individuals carrying the delays" table. That one listed
+   * the people with a delay or a band below green — which the By individuals
+   * table underneath already shows, with its own Delayed column and a filter
+   * of its own. Two tables answering one question is one table too many.
+   *
+   * This answers a question nothing else on the page did: which part of SAP
+   * the work sits in. Modules come from the ITSM's own Service and Part, read
+   * through the same names KPI 2 reports training against, so MM means the
+   * same thing on both screens.
    */
-  function applyDelayFilter() {
+  function applyModuleFilterK1() {
     const k = state.kpi;
     if (!k || !k.hasData) return;
 
-    const flagged = k.people.filter(function (p) {
-      return p.delayed > 0 || p.band !== 'GREEN';
+    const all = k.modules || [];
+    const wanted = getValue('fModuleK1');
+    const term = getValue('fModuleK1Name').trim().toLowerCase();
+
+    const rows = all.filter(function (m) {
+      if (wanted && m.name !== wanted) return false;
+      if (term && m.name.toLowerCase().indexOf(term) === -1) return false;
+      return true;
     });
 
-    const rows = filterPeople(flagged, 'fDelayPerson', 'fDelayName')
-                   .sort(function (a, b) { return a.rate - b.rate; });
-
-    setCount('cDelay', rows.length, flagged.length, 'individuals');
+    setCount('cModuleK1', rows.length, all.length, 'modules');
 
     if (!rows.length) {
-      return emptyTable('#kpi1People tbody', 7,
-        flagged.length ? 'No individuals match the filters.'
-                       : 'Every individual at or above target, with no delays.');
+      return emptyTable('#kpi1Modules tbody', 9,
+        all.length ? 'No modules match the filters.'
+                   : 'No module information in this period.');
     }
 
-    fillRows('#kpi1People tbody', rows, function (p) {
-      return '<td class="name">' + escapeHtml(p.name) + '</td>' +
-             '<td>' + escapeHtml(p.department) + '</td>' +
-             num(p.received) + num(p.completed) + num(p.delayed) +
-             '<td class="r">' + fmt(p.rate) + '%</td>' +
-             '<td>' + pill(p.band) + '</td>';
+    fillRows('#kpi1Modules tbody', rows, function (m) {
+      return '<td class="name">' + escapeHtml(m.name) +
+             (m.parts > 1
+               ? ' <span class="muted">· ' + m.parts + ' parts</span>' : '') +
+             '</td>' +
+             num(m.received) + num(m.completed) + num(m.delayed) + num(m.successful) +
+             '<td class="r">' + fmt(m.rate) + '%</td>' +
+             '<td class="r">' + fmt(m.achievement) + '%</td>' +
+             '<td>' + pill(m.band) + '</td>' +
+             '<td class="r">' + (m.headroom > 0 ? '+' : '') + m.headroom + '</td>';
     });
   }
 
