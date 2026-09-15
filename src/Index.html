@@ -113,11 +113,18 @@
       <section class="view" id="view-kpi1" hidden>
         <div class="page-head">
           <div>
-            <h1>Error/Issue Resolution Time</h1>
+            <h1>KPI 1: Error/Issue Resolution Time</h1>
             <p class="sub">
               Ticket Resolution Success Rate across Enterprise Application Services.
               Target ≥ 99.50% monthly · Policy TVL-KPI-001 §6.3
             </p>
+            <!--
+              What the stored tickets actually cover, to the day. Always on,
+              and about the DATABASE rather than the month on screen — the
+              month picker says which slice you are reading, this says how
+              much there is to read. Set by renderCoverage().
+            -->
+            <p class="coverage-note" id="kpi1Coverage" hidden></p>
             <!-- Only appears for the All-months view. Set by renderPeriod(). -->
             <p class="period-note" id="kpi1Period" hidden></p>
           </div>
@@ -287,7 +294,7 @@
       <section class="view" id="view-kpi2" hidden>
         <div class="page-head">
           <div>
-            <h1>SAP User Training Satisfaction &amp; Feedback</h1>
+            <h1>KPI 2: SAP User Training Satisfaction &amp; Feedback</h1>
             <p class="sub">
               Positive responses as a share of applicable responses.
               Target ≥ 90.00% · Layer 3 · Service Requests
@@ -658,13 +665,26 @@
           <div class="card-head">Rebuild KPI 1 figures</div>
           <div class="notice-inline">
             <p>
-              Re-scores every stored ticket and re-files it under the section
-              and module it belongs to now. Use it after editing
-              <code>ROSTER</code>, <code>PERSON_MODULES</code> or
-              <code>TICKET_MODULES</code> in <code>Config.gs</code>. Nothing is
-              uploaded or deleted, and KPI 2 is untouched — it scores live and
-              never needs this.
+              KPI 1 is worked out once and stored, because scoring twenty
+              thousand tickets on every page load would be too slow — so an
+              edit to <code>ROSTER</code>, <code>PERSON_MODULES</code>,
+              <code>SECTION_MODULES</code> or <code>TICKET_MODULES</code> in
+              <code>Config.gs</code> changes nothing until the stored figures
+              are worked out again. This is the button that does that.
             </p>
+            <p>
+              Nothing is uploaded or deleted, and KPI 2 is untouched — it
+              scores live, so a <code>Config.gs</code> edit shows up there
+              straight away. <b>Nothing here is waiting on you:</b> this is a
+              tool for after a settings change, not a task to finish.
+            </p>
+            <!--
+              When the figures were last worked out. A permanent tool with no
+              state on it reads as an outstanding task — this is what turns
+              "the rebuild option is still there, what do I do" into a visible
+              "nothing". Set by fillSettings().
+            -->
+            <p class="coverage-note" id="rebuildWhen" hidden></p>
             <button class="btn btn-primary" id="rebuildKpi1">↻ Rebuild now</button>
             <span class="filter-count" id="rebuildStatus"></span>
           </div>

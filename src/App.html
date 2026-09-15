@@ -1750,6 +1750,7 @@
     const tiles = document.getElementById('kpi1Tiles');
 
     renderPeriod(k);
+    renderCoverage();
     renderKpi1Missing();
 
     if (!k || !k.hasData) {
@@ -1826,6 +1827,96 @@
    * they are looking at, so the aggregate labels itself and the monthly view
    * stays silent.
    */
+  /**
+   * What the stored tickets cover, to the day.
+   *
+   * 'January 2026 – September 2026' does not say whether September is a whole
+   * month or the first four days of one, and that decides whether the period's
+   * rate means anything yet — an export taken mid-month scores a month that is
+   * still running. The month picker says which slice you are reading; this
+   * says how much there is to read, which is a different question and belongs
+   * in a different line.
+   *
+   * Always on, and about the DATABASE rather than the view, so it does not
+   * change when the month picker does.
+   */
+  function renderCoverage() {
+    const box = document.getElementById('kpi1Coverage');
+    if (!box) return;
+
+    const boot = state.boot || {};
+    const from = boot.ticketFrom;
+    const to = boot.ticketTo;
+    if (!from || !to) { box.hidden = true; return; }
+
+    const tickets = (boot.stats && boot.stats.tickets) || 0;
+
+    box.hidden = false;
+    box.innerHTML =
+      'Data loaded from <b class="part">' + escapeHtml(formatDay(from)) +
+      '</b> to <b class="part">' + escapeHtml(formatDay(to)) + '</b>' +
+      (tickets ? ' · <span class="part">' + count(tickets) + ' tickets</span>' : '');
+  }
+
+
+  /**
+   * Says when KPI 1's stored figures were last worked out.
+   *
+   * A button with no state beside it is indistinguishable from an outstanding
+   * task — which is exactly how this one read. Naming the last rebuild turns
+   * "the rebuild option is still there, what do I do?" into a question the
+   * card answers by itself.
+   */
+  function renderRebuildState(boot) {
+    const box = document.getElementById('rebuildWhen');
+    if (!box) return;
+
+    const cache = (boot && boot.kpiCache) || {};
+    const when = cache.computedAt ? new Date(cache.computedAt) : null;
+
+    if (!when || isNaN(when.getTime())) {
+      // No cache at all is the one case where there IS something to do.
+      box.hidden = false;
+      box.innerHTML = (boot && boot.stats && boot.stats.tickets)
+        ? '<b>Not built yet.</b> Tickets are stored but not scored — press ' +
+          'Rebuild now to work the figures out.'
+        : '<b>Nothing to rebuild yet.</b> Upload an ITSM export first.';
+      return;
+    }
+
+    box.hidden = false;
+    box.innerHTML =
+      'Figures last built <b class="part">' + escapeHtml(formatWhen(when)) +
+      '</b>' + (cache.months
+        ? ' · <span class="part">' + cache.months + ' month' +
+          (cache.months === 1 ? '' : 's') + ' scored</span>'
+        : '');
+  }
+
+
+  /** A Date as '8 September 2026, 14:32'. */
+  function formatWhen(when) {
+    const day = when.getFullYear() + '-' +
+                String(when.getMonth() + 1).padStart(2, '0') + '-' +
+                String(when.getDate()).padStart(2, '0');
+    return formatDay(day) + ', ' +
+           String(when.getHours()).padStart(2, '0') + ':' +
+           String(when.getMinutes()).padStart(2, '0');
+  }
+
+
+  /** '2026-09-04' -> '4 September 2026'. */
+  function formatDay(key) {
+    const parts = String(key || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!parts) return String(key || '');
+
+    const names = ['January', 'February', 'March', 'April', 'May', 'June',
+                   'July', 'August', 'September', 'October', 'November', 'December'];
+    const month = names[Number(parts[2]) - 1] || parts[2];
+    return Number(parts[3]) + ' ' + month + ' ' + parts[1];
+  }
+
+
   function renderPeriod(k) {
     const box = document.getElementById('kpi1Period');
     if (!box) return;
@@ -3941,6 +4032,7 @@
 
     drawThresholdGauges(boot);
     fillKpiSelector(boot);
+    renderRebuildState(boot);
 
     // What is actually in the database, per KPI, beside what the history
     // claims. When the two disagree this is the screen that says so plainly

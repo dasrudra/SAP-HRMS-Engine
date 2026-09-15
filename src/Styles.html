@@ -217,6 +217,16 @@
   .period-note b { font-weight: 700; }
   .period-note span { color: var(--text-dim); }
 
+  /* What the database holds, to the day. Deliberately quieter than the
+     period chip beside it: that one describes the figures on screen, this
+     one describes the data behind them, and the reader should not have to
+     work out which is which. */
+  .coverage-note {
+    margin: 8px 0 0; font-size: 12px; color: var(--text-dim);
+  }
+  .coverage-note b { font-weight: 650; color: var(--navy-700); }
+  .coverage-note .part { white-space: nowrap; }
+
   /* ---------------- headline tiles ---------------- */
   /*
     Six figures across the top. Each carries a colour FAMILY rather than a

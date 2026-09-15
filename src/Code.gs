@@ -69,6 +69,10 @@ function include(filename) {
 function getBootstrap() {
   const configured = Boolean(getSpreadsheetId());
 
+  // One read of the Request Date column serves both the month picker and the
+  // coverage line under KPI 1's title.
+  const period = configured ? ticketPeriod() : { months: [], from: '', to: '' };
+
   return {
     ok: true,
     configured: configured,
@@ -95,7 +99,13 @@ function getBootstrap() {
     kpiList: CONFIG.KPI_ORDER.map(function (key) { return CONFIG.KPI[key]; }),
     // Months that actually have data, so the month picker only offers real
     // choices instead of a blank list of every month since January.
-    availableMonths: configured ? listAvailableMonths() : [],
+    availableMonths: period.months,
+
+    // The exact first and last request date in the stored tickets, so KPI 1
+    // can say what its figures actually cover. 'January – September' does not
+    // distinguish a full September from the first four days of one.
+    ticketFrom: period.from,
+    ticketTo: period.to,
 
     // KPI 2 keeps its own month list: training runs on its own calendar and a
     // month with tickets need not have had a training session, or the reverse.
@@ -115,6 +125,12 @@ function getBootstrap() {
     orphanedFeedback: (configured && typeof auditFeedback === 'function')
       ? auditFeedback().orphans : 0,
 
+    // When KPI 1's precomputed figures were last worked out. Settings shows
+    // it beside the Rebuild button so a permanent tool stops reading as an
+    // outstanding task.
+    kpiCache: (configured && typeof kpiCacheState === 'function')
+      ? kpiCacheState() : { computedAt: '', months: 0 },
+
     stats: configured ? quickStats() : null
   };
 }
@@ -127,20 +143,121 @@ function getBootstrap() {
  * @return {string[]} e.g. ['2026-08', '2026-07'] newest first
  */
 function listAvailableMonths() {
+  return ticketPeriod().months;
+}
+
+
+/**
+ * What the stored tickets actually cover — the months, and the exact first and
+ * last request date.
+ *
+ * WHY THE EXACT DATES AND NOT JUST THE MONTHS
+ * 'January 2026 – September 2026' does not say whether September is a full
+ * month or the first four days of one, and the difference decides whether the
+ * period's figure means anything yet. The export is taken on a Tuesday and
+ * the month is still running; reading the rate as final is a mistake the
+ * screen was quietly inviting.
+ *
+ * Taken from the TICKETS tab, not from the upload log, because the log has
+ * been wrong before — it records what an upload claimed, and a run killed
+ * part-way leaves the claim without the rows. This reads what is there.
+ *
+ * One column of the sheet, in one call. The same read the month list needed
+ * anyway, so this costs nothing extra.
+ *
+ * @return {Object} { months: ['YYYY-MM'] newest first, from: 'YYYY-MM-DD',
+ *                    to: 'YYYY-MM-DD' } — from/to are '' when nothing is stored
+ */
+function ticketPeriod() {
+  const empty = { months: [], from: '', to: '' };
+
   const sheet = ticketSheet();
   const lastRow = sheet.getLastRow();
-  if (lastRow < 2) return [];
+  if (lastRow < 2) return empty;
 
   const col = CONFIG.TICKET_COLUMNS.indexOf('Request Date') + 1;
   const values = sheet.getRange(2, col, lastRow - 1, 1).getValues();
 
   const months = {};
+  let from = '';
+  let to = '';
+
   values.forEach(function (row) {
     const month = monthKey(row[0]);
-    if (month) months[month] = true;
+    if (!month) return;
+    months[month] = true;
+
+    // Compared as 'YYYY-MM-DD' text, which sorts chronologically without
+    // making a Date out of every one of twenty thousand cells.
+    const day = dayKey(row[0]);
+    if (!day) return;
+    if (!from || day < from) from = day;
+    if (!to   || day > to)   to = day;
   });
 
-  return Object.keys(months).sort().reverse();
+  return { months: Object.keys(months).sort().reverse(), from: from, to: to };
+}
+
+
+/**
+ * A cell's date as 'YYYY-MM-DD', or '' if it is not one.
+ *
+ * Mirrors monthKey, which the whole engine already leans on: SheetJS is read
+ * with cellDates, so a date cell arrives as a Date, but a re-typed cell can
+ * arrive as text and has to be read as written rather than guessed at.
+ *
+ * @param {*} value
+ * @return {string}
+ */
+function dayKey(value) {
+  if (value instanceof Date && !isNaN(value.getTime())) {
+    return value.getFullYear() + '-' +
+           String(value.getMonth() + 1).padStart(2, '0') + '-' +
+           String(value.getDate()).padStart(2, '0');
+  }
+
+  const text = String(value == null ? '' : value).trim();
+  const found = text.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return found ? found[1] + '-' + found[2] + '-' + found[3] : '';
+}
+
+
+/**
+ * When the KPI 1 cache was last computed, and over how much.
+ *
+ * Answers the question the Settings card kept provoking — "the rebuild option
+ * is still there, what do I do?" A permanent tool reads as an outstanding
+ * task until it can tell you the state it is in. With this the card says when
+ * the figures were last worked out, and the answer to "what do I do" becomes
+ * visibly "nothing".
+ *
+ * @return {Object} { computedAt: ISO string or '', months: n }
+ */
+function kpiCacheState() {
+  const sheet = SpreadsheetApp.openById(getSpreadsheetId())
+    .getSheetByName(CONFIG.SHEETS.KPI_MONTH);
+  if (!sheet || sheet.getLastRow() < 2) return { computedAt: '', months: 0 };
+
+  const width = CONFIG.KPI_COLUMNS.length;
+  const rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, width).getValues();
+
+  const at = CONFIG.KPI_COLUMNS.indexOf('Computed At');
+  const months = {};
+  let latest = null;
+
+  rows.forEach(function (r) {
+    const month = monthKey(r[0]);
+    if (month) months[month] = true;
+
+    const when = r[at];
+    const time = (when instanceof Date) ? when : new Date(String(when || ''));
+    if (!isNaN(time.getTime()) && (!latest || time > latest)) latest = time;
+  });
+
+  return {
+    computedAt: latest ? latest.toISOString() : '',
+    months: Object.keys(months).length
+  };
 }
 
 
