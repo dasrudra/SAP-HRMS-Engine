@@ -1997,8 +1997,8 @@
     if (!k || !k.hasData) {
       tiles.innerHTML = '<div class="tile tile-empty"><span>No feedback for this period</span></div>';
       emptyTable('#kpi2Questions tbody', 7, 'Nothing to show yet.');
-      emptyTable('#kpi2Modules tbody', 8, 'Nothing to show yet.');
-      emptyTable('#kpi2Zones tbody', 8, 'Nothing to show yet.');
+      emptyTable('#kpi2Modules tbody', 10, 'Nothing to show yet.');
+      emptyTable('#kpi2Zones tbody', 10, 'Nothing to show yet.');
       hide('kpi2Unassigned');
       hide('kpi2Undated');
       hide('kpi2Unknown');
@@ -2234,11 +2234,15 @@
                         : k.modules;
 
     setCount('cModule', rows.length, k.modules.length, 'modules');
-    if (!rows.length) return emptyTable('#kpi2Modules tbody', 8, 'No modules match.');
+    if (!rows.length) return emptyTable('#kpi2Modules tbody', 10, 'No modules match.');
 
     fillRows('#kpi2Modules tbody', rows, function (m) {
       return '<td class="name">' + escapeHtml(m.name) + '</td>' +
              num(m.respondents) + num(m.responses) + num(m.positive) +
+             // The two tiers underneath the rate. num() greys a zero, so a
+             // module with no Poor answers recedes and the ones with some
+             // stand out — which is the whole reason for the column.
+             num(m.average) + num(m.poor) +
              '<td class="r">' + fmt(m.rate) + '%</td>' +
              '<td class="r">' + fmt(m.achievement) + '%</td>' +
              '<td>' + pill(m.band) + '</td>' +
@@ -2264,12 +2268,13 @@
     const rows = wanted ? all.filter(function (z) { return z.name === wanted; }) : all;
 
     setCount('cZone', rows.length, all.length, 'zones');
-    if (!rows.length) return emptyTable('#kpi2Zones tbody', 8, 'No zones match.');
+    if (!rows.length) return emptyTable('#kpi2Zones tbody', 10, 'No zones match.');
 
     fillRows('#kpi2Zones tbody', rows, function (z) {
       const dead = !z.respondents;
       return '<td class="name">' + escapeHtml(z.name) + '</td>' +
              num(z.sessions) + num(z.respondents) + num(z.responses) + num(z.positive) +
+             num(z.average) + num(z.poor) +
              '<td class="r">' + (dead ? '—' : fmt(z.rate) + '%') + '</td>' +
              '<td class="r">' + (dead ? '—' : fmt(z.achievement) + '%') + '</td>' +
              '<td>' + pill(z.band) + '</td>';
@@ -2557,20 +2562,33 @@
     buttons.forEach(function (b) { b.disabled = true; b.textContent = 'Rebuilding…'; });
     if (status) status.textContent = 'Rebuilding…';
 
+    // Whatever happens, the buttons go back to being buttons.
+    //
+    // This used to run only on failure, on the assumption that a success
+    // redrew them. That is true of the one inside the By module table, which
+    // refreshAfterChange re-renders — and false of the one in Settings, which
+    // is static markup. So a successful rebuild left it reading "Rebuilding…"
+    // and disabled for the rest of the session, beside a status line saying
+    // the rebuild had finished. Two contradictory statements, and the one in
+    // the bigger type was the wrong one.
+    function restore() {
+      buttons.forEach(function (b, i) {
+        b.disabled = false;
+        b.textContent = labels[i];
+      });
+    }
+
     withTimeout(callServer('recomputeAfterUpload'), 300000, 'The rebuild')
       .then(function (result) {
         const months = (result && result.months) || [];
         const done = 'Rebuilt ' + months.length + ' month' +
                      (months.length === 1 ? '' : 's') + '.';
         if (status) status.textContent = done;
-        // refreshAfterChange redraws the table, which replaces these buttons.
         return refreshAfterChange();
       })
+      .then(restore)
       .catch(function (err) {
-        buttons.forEach(function (b, i) {
-          b.disabled = false;
-          b.textContent = labels[i];
-        });
+        restore();
         if (status) status.textContent = '';
         onError(err);
       });

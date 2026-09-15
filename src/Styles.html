@@ -558,13 +558,22 @@
     text-transform: uppercase; color: var(--navy-700);
     background: var(--surface);
     display: flex; align-items: center; gap: 9px;
+    transition: background .14s ease, color .14s ease;
   }
+  /* The table's own name answers the cursor. Every other target on these
+     screens does — rows, pills, buttons, chart bars — and a title that sits
+     dead under the pointer reads as a part of the page that is switched off.
+     Background and ink both move, so it still carries in a screenshot and for
+     anyone who cannot separate the two tints. */
+  .card-head:hover { background: var(--blue-050); color: var(--blue-600); }
   /* A short accent rule in front of the label — reads as a section marker
      without adding another line of text. */
   .card-head::before {
     content: ''; width: 3px; height: 13px; border-radius: 2px;
     background: var(--blue-500); flex: 0 0 3px;
+    transition: height .14s ease;
   }
+  .card-head:hover::before { height: 17px; }
   .table-wrap { overflow-x: auto; }
   table { width: 100%; border-collapse: collapse; font-size: 13px; }
   thead th {
