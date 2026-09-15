@@ -449,8 +449,13 @@
       <section class="view" id="view-compare" hidden>
         <div class="page-head">
           <div>
-            <h1>Month Comparison</h1>
-            <p class="sub">
+            <!--
+              Month or Quarter, per KPI: relabelComparePickers rewrites both
+              of these and the four field labels below whenever the KPI
+              selector changes. KPI 1 compares months, KPI 2 quarters.
+            -->
+            <h1 id="cmpHeading">Month Comparison</h1>
+            <p class="sub" id="cmpSubhead">
               Compare two to four months side by side. Pick the KPI first —
               the months, tables and charts below all follow it.
             </p>
@@ -466,19 +471,19 @@
             </div>
             <div class="cmp-grid">
               <div class="cmp-field">
-                <label for="cmpM1">First Month</label>
+                <label for="cmpM1" id="cmpM1Label">First Month</label>
                 <select id="cmpM1" class="select"></select>
               </div>
               <div class="cmp-field">
-                <label for="cmpM2">Second Month</label>
+                <label for="cmpM2" id="cmpM2Label">Second Month</label>
                 <select id="cmpM2" class="select"></select>
               </div>
               <div class="cmp-field">
-                <label for="cmpM3">Third Month <span class="muted">(optional)</span></label>
+                <label for="cmpM3" id="cmpM3Label">Third Month <span class="muted">(optional)</span></label>
                 <select id="cmpM3" class="select"></select>
               </div>
               <div class="cmp-field">
-                <label for="cmpM4">Fourth Month <span class="muted">(optional)</span></label>
+                <label for="cmpM4" id="cmpM4Label">Fourth Month <span class="muted">(optional)</span></label>
                 <select id="cmpM4" class="select"></select>
               </div>
             </div>
@@ -491,7 +496,7 @@
 
         <div id="cmpEmpty" class="notice notice-info">
           <h3>Nothing compared yet</h3>
-          <p>Choose two or more months above and press Compare Dashboards.</p>
+          <p>Choose two or more periods above and press Compare Dashboards.</p>
         </div>
 
         <div class="card chart-card" id="cmpChartCard" hidden>

@@ -252,32 +252,46 @@ function byQuarterKey(a, b) {
 
 
 /**
- * KPI 2 month by month, shaped exactly like getKpiComparison's result.
+ * KPI 2 quarter by quarter, shaped exactly like getKpiComparison's result.
  *
  * The Comparison screen used to call KPI 1's endpoint whatever the "Which KPI"
  * dropdown said, so picking Training Satisfaction re-rendered ticket figures
  * under a training heading. Rather than fork the screen, both engines now
  * return the same shape and describe their own columns in it — `measures` names
  * the count columns, `sectionLabel` names the breakdown, `volumeKey` says which
- * measure the trend chart should draw as bars. A KPI 3 that fills this in gets
- * the whole screen for free.
+ * measure the trend chart should draw as bars, and `periodKind` says what one
+ * column of the comparison is. A KPI 3 that fills this in gets the screen free.
  *
- * @param {string[]} months  'YYYY-MM'
+ * WHY QUARTERS AND NOT MONTHS
+ * The rest of KPI 2 reports by quarter, and for a reason: a module is trained
+ * once or twice a quarter, so a month-by-month reading is mostly empty columns
+ * and the rest carry a rate over a handful of responses. Comparing two of
+ * those compares noise. It matters more now that the quarter comes off the
+ * filename — the months behind a properly named file may be mangled dates
+ * that no month picker should ever have offered.
+ *
+ * Each period is passed straight to getKpi2, which already understands a
+ * quarter key, so a month still works if one is ever passed in.
+ *
+ * @param {string[]} periods  '2026-Q1' (or 'YYYY-MM')
  * @return {Object}
  */
-function getKpi2Comparison(months) {
+function getKpi2Comparison(periods) {
   const kpi = CONFIG.KPI.FEEDBACK;
-  const list = (months || []).slice().sort();
+  const list = (periods || []).slice().sort();
 
   const result = {
     kpi: 'KPI2',
     name: kpi.name || 'SAP User Training Satisfaction & Feedback',
-    months: list,
+    periods: list,
     sections: [],
     bySection: {},
     totals: {},
     target: kpi.target,
     unit: '%',
+    periodKind: 'QUARTER',
+    periodLabel: 'Quarter',
+    periodLabelPlural: 'quarters',
     sectionLabel: 'Module',
     rateLabel: 'Success Rate',
     volumeKey: 'respondents',
@@ -294,15 +308,15 @@ function getKpi2Comparison(months) {
 
   const seen = {};
 
-  list.forEach(function (month) {
-    const k = getKpi2(month);
+  list.forEach(function (period) {
+    const k = getKpi2(period);
     if (!k.hasData) return;
 
-    result.totals[month] = comparisonEntry(k.total);
+    result.totals[period] = comparisonEntry(k.total);
 
     k.modules.forEach(function (m) {
       if (!seen[m.name]) { seen[m.name] = true; result.sections.push(m.name); }
-      (result.bySection[m.name] = result.bySection[m.name] || {})[month] = comparisonEntry(m);
+      (result.bySection[m.name] = result.bySection[m.name] || {})[period] = comparisonEntry(m);
     });
   });
 

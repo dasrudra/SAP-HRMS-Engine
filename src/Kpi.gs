@@ -612,17 +612,17 @@ function byReceived(a, b) {
  * month — six months would otherwise mean six full reads of the same tab.
  *
  * @param {string[]} months  e.g. ['2026-06','2026-07','2026-08']
- * @return {Object} { months: [...], sections: [...], rows: {month: {...}} }
+ * @return {Object} { periods: [...], sections: [...], totals: {period: {...}} }
  */
 function getKpiComparison(months) {
   const wanted = {};
   (months || []).forEach(function (m) { wanted[m] = true; });
 
   const result = {
-    months: (months || []).slice().sort(),
+    periods: (months || []).slice().sort(),
     sections: [],
-    totals: {},        // month -> total entry
-    bySection: {},     // section -> { month -> entry }
+    totals: {},        // period -> total entry
+    bySection: {},     // section -> { period -> entry }
     target: CONFIG.KPI.RESOLUTION.target,
 
     // The Comparison screen renders whatever a KPI declares here rather than
@@ -631,6 +631,15 @@ function getKpiComparison(months) {
     kpi: 'KPI1',
     name: CONFIG.KPI.RESOLUTION.name || 'Error/Issue Resolution Time',
     unit: '%',
+
+    // A KPI names its own reporting period. Tickets arrive daily, so KPI 1 is
+    // read month by month; training runs a few times a quarter, so KPI 2 is
+    // read quarter by quarter. The screen takes both from here rather than
+    // assuming months and mislabelling one of them.
+    periodKind: 'MONTH',
+    periodLabel: 'Month',
+    periodLabelPlural: 'months',
+
     sectionLabel: 'Section',
     rateLabel: 'Success Rate',
     volumeKey: 'completed',
@@ -645,7 +654,7 @@ function getKpiComparison(months) {
 
   const cache = sheetFor(CONFIG.SHEETS.KPI_MONTH);
   const lastRow = cache.getLastRow();
-  if (lastRow < 2 || !result.months.length) return result;
+  if (lastRow < 2 || !result.periods.length) return result;
 
   const rows = cache.getRange(2, 1, lastRow - 1, CONFIG.KPI_COLUMNS.length).getValues();
   const sectionSeen = {};

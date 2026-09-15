@@ -101,7 +101,7 @@
     // After fillSettings, not before: it populates the KPI selector, and which
     // months the comparison may offer depends on which KPI is selected.
     fillSettings(boot);
-    fillCompareMonths(compareMonthList());
+    fillComparePeriods(comparePeriodList());
 
     restoreState(function () {
       showView(state.view, { skipSave: true });
@@ -368,7 +368,7 @@
         // cmpKpi first and alone: the month dropdowns are refilled from it,
         // and refilling would otherwise wipe the months restored beside it.
         applyPendingTo(['cmpKpi']);
-        fillCompareMonths(compareMonthList());
+        fillComparePeriods(comparePeriodList());
         applyPendingTo(['cmpM1', 'cmpM2', 'cmpM3', 'cmpM4', 'kpi2Month']);
       }
 
@@ -1136,7 +1136,7 @@
     fillMonthPicker(boot.availableMonths);
     fillScopeFilter(boot.availableMonths);
     fillFeedbackQuarters(boot.feedbackQuarters);
-    fillCompareMonths(compareMonthList());
+    fillComparePeriods(comparePeriodList());
     fillSettings(boot);
     loadUploads();
 
@@ -3045,12 +3045,12 @@
    * months should not hide the other six.
    */
   function loadTrend() {
-    const months = compareMonthList();
+    const periods = comparePeriodList();
     const card = document.getElementById('cmpTrendCard');
     const kpi = selectedKpi();
     const id = (kpi && kpi.id) || 'KPI1';
 
-    if (months.length < 2) {
+    if (periods.length < 2) {
       if (card) card.hidden = true;
       return;
     }
@@ -3060,7 +3060,7 @@
     if (state.trend && state.trend.kpi === id) { drawTrendChart(state.trend); return; }
 
     // Oldest first: a trend reads left to right.
-    callServer(comparisonEndpoint(id), months.slice().sort())
+    callServer(comparisonEndpoint(id), periods.slice().sort())
       .then(function (c) { state.trend = c; drawTrendChart(c); })
       .catch(onError);
   }
@@ -3073,18 +3073,72 @@
 
 
   /**
-   * The months the Comparison screen may offer.
+   * The periods the Comparison screen may offer, for the KPI in hand.
    *
-   * KPI 1 has a month if tickets were uploaded for it; KPI 2 if training
-   * feedback was. They are different lists, and offering ticket months for a
-   * training comparison produced four columns of "No data".
+   * KPI 1 compares MONTHS: tickets arrive daily, so a month is a full reading.
+   * KPI 2 compares QUARTERS, like the rest of its screen — a module is trained
+   * once or twice a quarter, so month by month is mostly empty columns and the
+   * rest carry a rate over a handful of responses. Comparing two of those
+   * compares noise.
+   *
+   * They are different lists, and offering ticket months for a training
+   * comparison produced four columns of "No data".
    */
-  function compareMonthList() {
+  function comparePeriodList() {
     const boot = state.boot || {};
+    if (comparePeriodKind() === 'QUARTER') {
+      return (boot.feedbackQuarters || []).map(function (q) { return q.key; });
+    }
+    return boot.availableMonths || [];
+  }
+
+
+  /**
+   * What one column of the comparison is, for the KPI selected right now.
+   *
+   * Read from the selector rather than from the last result, because the
+   * pickers and their labels have to be right BEFORE anything is compared —
+   * and after a KPI switch the result on screen belongs to the old one.
+   */
+  function comparePeriodKind() {
     const kpi = selectedKpi();
-    return ((kpi && kpi.id === 'KPI2')
-      ? boot.feedbackMonths
-      : boot.availableMonths) || [];
+    return (kpi && kpi.id === 'KPI2') ? 'QUARTER' : 'MONTH';
+  }
+
+
+  /** 'Quarter' / 'Month', for whatever is selected. */
+  function comparePeriodWord(plural) {
+    const quarter = comparePeriodKind() === 'QUARTER';
+    return quarter ? (plural ? 'quarters' : 'quarter')
+                   : (plural ? 'months' : 'month');
+  }
+
+
+  /**
+   * '2026-Q1' -> 'Quarter 1 (2026)', '2026-08' -> 'August 2026'.
+   *
+   * One formatter for both, so every heading, header cell, legend and tooltip
+   * on the Comparison screen reads correctly whichever KPI produced it.
+   */
+  function formatPeriod(key) {
+    const text = String(key || '');
+    if (!/^\d{4}-Q[1-4]$/.test(text)) return formatMonth(text);
+
+    // The server already labels the quarters it knows about; matching it
+    // exactly keeps the comparison and the KPI 2 picker saying the same words.
+    const known = ((state.boot && state.boot.feedbackQuarters) || [])
+      .filter(function (q) { return q.key === text; })[0];
+    return known ? known.label
+                 : 'Quarter ' + text.slice(6) + ' (' + text.slice(0, 4) + ')';
+  }
+
+
+  /** The same, short enough for a chart axis: 'Q1 2026' or 'Aug 2026'. */
+  function shortPeriod(key) {
+    const text = String(key || '');
+    return /^\d{4}-Q[1-4]$/.test(text)
+      ? 'Q' + text.slice(6) + ' ' + text.slice(0, 4)
+      : shortMonth(text);
   }
 
 
@@ -3092,11 +3146,12 @@
     const card = document.getElementById('cmpTrendCard');
     if (!card) return;
 
-    if (!c || !c.months.length) { card.hidden = true; return; }
+    if (!c || !c.periods.length) { card.hidden = true; return; }
     card.hidden = false;
 
-    const months = c.months.slice().sort();
-    const labels = months.map(shortMonth);
+    const months = c.periods.slice().sort();
+    const labels = months.map(shortPeriod);
+    const word = c.periodLabelPlural || 'months';
 
     // Whichever count this KPI treats as its volume — tickets completed for
     // KPI 1, attendees trained for KPI 2.
@@ -3120,13 +3175,14 @@
 
     const title = document.getElementById('cmpTrendTitle');
     if (title) {
-      title.textContent = (c.name || 'Success rate') + ' over time — every month';
+      title.textContent = (c.name || 'Success rate') + ' over time — every ' +
+        (c.periodLabel || 'Month').toLowerCase();
     }
 
     const note = document.getElementById('cmpTrendNote');
     if (note) {
-      note.textContent = months.length + ' months, ' + shortMonth(months[0]) + ' to ' +
-        shortMonth(months[months.length - 1]) +
+      note.textContent = months.length + ' ' + word + ', ' + shortPeriod(months[0]) + ' to ' +
+        shortPeriod(months[months.length - 1]) +
         '. Bars are ' + volumeLabel.toLowerCase() + ' (left axis); the line is the ' +
         'success rate against the ' + c.target + '% target (right axis, starting at ' +
         floor + '%).';
@@ -3236,11 +3292,11 @@
     const labels = ['EAS overall'].concat(c.sections.map(shortLabel));
 
     let lowest = c.target;
-    c.months.forEach(function (month) {
-      const total = c.totals[month];
+    c.periods.forEach(function (period) {
+      const total = c.totals[period];
       if (total) lowest = Math.min(lowest, total.rate);
       c.sections.forEach(function (section) {
-        const entry = (c.bySection[section] || {})[month];
+        const entry = (c.bySection[section] || {})[period];
         if (entry) lowest = Math.min(lowest, entry.rate);
       });
     });
@@ -3252,19 +3308,19 @@
                          floor + '%.';
     }
 
-    const datasets = c.months.map(function (month, index) {
-      const total = c.totals[month];
+    const datasets = c.periods.map(function (period, index) {
+      const total = c.totals[period];
       const data = [total ? round2(total.rate) : null].concat(
         c.sections.map(function (section) {
-          const entry = (c.bySection[section] || {})[month];
+          const entry = (c.bySection[section] || {})[period];
           return entry ? round2(entry.rate) : null;
         })
       );
 
-      // Colour follows the month, never its position in the sorted result —
-      // dropping a month must not repaint the ones that remain.
+      // Colour follows the period, never its position in the sorted result —
+      // dropping one must not repaint the ones that remain.
       return Object.assign({
-        label: formatMonth(month),
+        label: formatPeriod(period),
         data: data,
         backgroundColor: SERIES[index % SERIES.length],
         // The months of one section belong together, so they sit side by side
@@ -3508,7 +3564,7 @@
       state.compare = null;
       state.trend = null;
 
-      fillCompareMonths(compareMonthList());
+      fillComparePeriods(comparePeriodList());
       loadTrend();
       if (state.compareRan) runComparison();
       saveState();
@@ -3522,7 +3578,7 @@
       CMP_SELECTS.forEach(function (id, index) {
         // The first two are required, so clearing resets them to the two most
         // recent months rather than to nothing.
-        setValue(id, index < 2 ? defaultMonthFor(index) : '');
+        setValue(id, index < 2 ? defaultPeriodFor(index) : '');
       });
       hideComparisonResults();
 
@@ -3534,7 +3590,8 @@
       empty.className = 'notice notice-info';
       empty.innerHTML =
         '<h3>Nothing compared yet</h3>' +
-        '<p>Choose two or more months above and press Compare Dashboards.</p>';
+        '<p>Choose two or more ' + comparePeriodWord(true) +
+        ' above and press Compare Dashboards.</p>';
 
       // state.trend is deliberately untouched: Clear resets the comparison,
       // and the trend is not part of it.
@@ -3545,15 +3602,21 @@
   }
 
 
-  function defaultMonthFor(index) {
-    return compareMonthList()[index] || '';
+  function defaultPeriodFor(index) {
+    return comparePeriodList()[index] || '';
   }
 
 
-  function fillCompareMonths(months) {
-    const list = months || [];
+  function fillComparePeriods(periods) {
+    const list = periods || [];
+    const word = comparePeriodWord(false);
 
-    // No two boxes may end up on the same month. Switching KPI used to do
+    // The labels above the boxes have to move with them. Leaving them reading
+    // "First Month" over a list of quarters is the same class of mistake as
+    // the screen once showing KPI 1's figures under KPI 2's name.
+    relabelComparePickers();
+
+    // No two boxes may end up on the same period. Switching KPI used to do
     // exactly that: the first box lost its month (not in the new list) and
     // fell back to the newest, which the second box was already holding — so
     // both read August, the two collapsed to one, and Compare refused to run
@@ -3569,12 +3632,12 @@
 
       select.innerHTML = optional
         ? '<option value="">— none —</option>'
-        : '<option value="">— select a month —</option>';
+        : '<option value="">— select a ' + word + ' —</option>';
 
-      list.forEach(function (month) {
+      list.forEach(function (period) {
         const option = document.createElement('option');
-        option.value = month;
-        option.textContent = formatMonth(month);
+        option.value = period;
+        option.textContent = formatPeriod(period);
         select.appendChild(option);
       });
 
@@ -3596,6 +3659,32 @@
   }
 
 
+  /**
+   * Retitles the whole picker for the KPI in hand — Month or Quarter.
+   *
+   * The page heading and the four field labels are the only places the unit is
+   * spelled out before anything has been compared, so they are the only places
+   * that can mislead you into picking the wrong thing.
+   */
+  function relabelComparePickers() {
+    const one = comparePeriodWord(false);
+    const many = comparePeriodWord(true);
+    const Title = one.charAt(0).toUpperCase() + one.slice(1);
+
+    setText('cmpHeading', Title + ' Comparison');
+    setText('cmpSubhead',
+      'Compare two to four ' + many + ' side by side. Pick the KPI first — ' +
+      'the ' + many + ', tables and charts below all follow it.');
+
+    ['First', 'Second', 'Third', 'Fourth'].forEach(function (nth, index) {
+      const label = document.getElementById('cmpM' + (index + 1) + 'Label');
+      if (!label) return;
+      label.innerHTML = nth + ' ' + Title +
+        (index >= 2 ? ' <span class="muted">(optional)</span>' : '');
+    });
+  }
+
+
   function runComparison() {
     const picked = [];
 
@@ -3606,9 +3695,12 @@
       if (value && picked.indexOf(value) === -1) picked.push(value);
     });
 
+    const one = comparePeriodWord(false);
+    const many = comparePeriodWord(true);
+
     if (picked.length < 2) {
       const kpiNow = selectedKpi();
-      const have = compareMonthList().length;
+      const have = comparePeriodList().length;
 
       // Put the prompt back, so the screen explains itself once the dialog is
       // dismissed rather than showing nothing at all.
@@ -3617,29 +3709,30 @@
       box.hidden = false;
       box.className = 'notice notice-warn';
       box.innerHTML =
-        '<h3>Not enough months for ' +
+        '<h3>Not enough ' + many + ' for ' +
         escapeHtml((kpiNow && kpiNow.name) || 'this KPI') + '</h3>' +
         '<p>' + (have < 2
-          ? 'It has data for ' + (have === 1 ? 'one month' : 'no months') +
+          ? 'It has data for ' + (have === 1 ? 'one ' + one : 'no ' + many) +
             ' so far. Upload another period and it can be compared.'
-          : 'Pick two different months above, then press Compare Dashboards.') +
+          : 'Pick two different ' + many + ' above, then press Compare Dashboards.') +
         '</p>';
 
       return alertDialog({
-        title: 'Two months are needed',
+        title: 'Two ' + many + ' are needed',
         body: have < 2
           ? '<p><strong>' + escapeHtml((kpiNow && kpiNow.name) || 'This KPI') +
-            '</strong> has data for ' + (have === 1 ? 'only one month' : 'no months') +
+            '</strong> has data for ' +
+            (have === 1 ? 'only one ' + one : 'no ' + many) +
             ' so far, so there is nothing to compare it against yet.</p>' +
             '<p>Upload another period and it will appear here.</p>'
-          : '<p>Pick two different months in the boxes above, then press ' +
+          : '<p>Pick two different ' + many + ' in the boxes above, then press ' +
             'Compare Dashboards.</p>'
       });
     }
     if (picked.length > MAX_COMPARE) {
       return alertDialog({
-        title: 'Too many months',
-        body: '<p>Up to ' + MAX_COMPARE + ' months can be compared at once. ' +
+        title: 'Too many ' + many,
+        body: '<p>Up to ' + MAX_COMPARE + ' ' + many + ' can be compared at once. ' +
               'Clear one of the optional boxes and try again.</p>'
       });
     }
@@ -3712,18 +3805,20 @@
       { key: 'successful', label: 'Successful' }
     ];
     const sectionLabel = c.sectionLabel || 'Section';
+    const periodLabel = c.periodLabel || 'Month';
+    const period = periodLabel.toLowerCase();
     const shortName = c.kpi === 'KPI2' ? 'KPI 2' : (c.kpi === 'KPI1' ? 'KPI 1' : (c.kpi || ''));
 
-    setText('cmpOverallTitle', shortName + ' — overall by month');
+    setText('cmpOverallTitle', shortName + ' — overall by ' + period);
     setText('cmpSectionTitle', shortName + ' — success rate by ' + sectionLabel.toLowerCase());
-    setText('cmpChartTitle', 'Success rate by ' + sectionLabel.toLowerCase() + ' and month');
+    setText('cmpChartTitle', 'Success rate by ' + sectionLabel.toLowerCase() + ' and ' + period);
 
     drawCompareChart(c);
 
-    // ---- overall, one row per month, with month-on-month change ----
+    // ---- overall, one row per period, with period-on-period change ----
     const overallHead = document.querySelector('#cmpOverall thead tr');
     overallHead.innerHTML =
-      '<th>Month</th>' +
+      '<th>' + escapeHtml(periodLabel) + '</th>' +
       measures.map(function (m) {
         return '<th class="r">' + escapeHtml(m.label) + '</th>';
       }).join('') +
@@ -3734,12 +3829,12 @@
     body.innerHTML = '';
 
     let previous = null;
-    c.months.forEach(function (month) {
-      const t = c.totals[month];
+    c.periods.forEach(function (period) {
+      const t = c.totals[period];
       const tr = document.createElement('tr');
 
       if (!t) {
-        tr.innerHTML = '<td>' + escapeHtml(formatMonth(month)) + '</td>' +
+        tr.innerHTML = '<td>' + escapeHtml(formatPeriod(period)) + '</td>' +
                        '<td colspan="' + (measures.length + 5) +
                        '" class="empty">No data</td>';
         body.appendChild(tr);
@@ -3757,7 +3852,7 @@
       previous = t.rate;
 
       tr.innerHTML =
-        '<td class="name">' + escapeHtml(formatMonth(month)) + '</td>' +
+        '<td class="name">' + escapeHtml(formatPeriod(period)) + '</td>' +
         measures.map(function (m) { return num(t[m.key]); }).join('') +
         '<td class="r">' + fmt(t.rate) + '%</td>' +
         '<td class="r">' + fmt(t.achievement) + '%</td>' +
@@ -3767,20 +3862,21 @@
       body.appendChild(tr);
     });
 
-    // ---- sections (or modules) down the side, months across the top ----
+    // ---- sections (or modules) down the side, periods across the top ----
     const head = document.querySelector('#cmpSections thead tr');
     head.innerHTML = '<th>' + escapeHtml(sectionLabel) + '</th>' +
-      c.months.map(function (m) {
-        return '<th class="r">' + escapeHtml(formatMonth(m)) + '</th>';
+      c.periods.map(function (m) {
+        return '<th class="r">' + escapeHtml(formatPeriod(m)) + '</th>';
       }).join('');
 
     const sectionBody = document.querySelector('#cmpSections tbody');
     sectionBody.innerHTML = '';
 
     if (!c.sections.length) {
-      sectionBody.innerHTML = '<tr><td colspan="' + (c.months.length + 1) +
+      sectionBody.innerHTML = '<tr><td colspan="' + (c.periods.length + 1) +
         '" class="empty">No ' + escapeHtml(sectionLabel.toLowerCase()) +
-        ' data in the selected months.</td></tr>';
+        ' data in the selected ' + escapeHtml(c.periodLabelPlural || 'months') +
+        '.</td></tr>';
       return;
     }
 
@@ -3788,8 +3884,8 @@
       const tr = document.createElement('tr');
       let html = '<td>' + escapeHtml(section) + '</td>';
 
-      c.months.forEach(function (month) {
-        const entry = (c.bySection[section] || {})[month];
+      c.periods.forEach(function (period) {
+        const entry = (c.bySection[section] || {})[period];
         html += entry
           ? '<td class="r">' + fmt(entry.rate) + '% ' + pill(entry.band) + '</td>'
           : '<td class="r muted">—</td>';
