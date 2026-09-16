@@ -48,10 +48,11 @@
     scopePeople: null,
     scopeKey: '',
 
-    // Which section of the organisation chart is open on Settings, '' for
-    // none. Deliberately NOT saved to the URL: it is a look at the team, not
-    // a filter on anything, so a refresh should land on the whole chart.
+    // Which card of each Settings stage is open, '' for none. Deliberately
+    // NOT saved to the URL: they are a look at the team and at the policy, not
+    // a filter on anything, so a refresh should land on the whole of each.
     orgOpen: '',
+    kpiOpen: '',
 
     // KPI 2's own result, kept so its filters redraw without a server call.
     kpi2: null,
@@ -208,14 +209,17 @@
    * the cards and a listener bound to them would go with them.
    */
   function wireOrg() {
-    bind('orgClose', 'click', closeOrgSection);
+    bind('orgClose', 'click', function () { closeStage('org'); });
+    bind('kpiStageClose', 'click', function () { closeStage('kpi'); });
 
     document.addEventListener('keydown', function (e) {
-      if (e.key !== 'Escape' || !state.orgOpen) return;
-      // The dialog owns Escape while it is up — it is in front of this.
+      if (e.key !== 'Escape') return;
+      // The dialog owns Escape while it is up — it is in front of these.
       const backdrop = document.getElementById('modalBackdrop');
       if (backdrop && !backdrop.hidden) return;
-      closeOrgSection();
+      Object.keys(STAGES).forEach(function (which) {
+        if (state[STAGES[which].key]) closeStage(which);
+      });
     });
   }
 
@@ -293,11 +297,15 @@
     // Compare button: it is the backdrop the comparison sits against.
     if (name === 'compare') loadTrend();
 
-    // The organisation stage quotes KPI 1's section figures. Landing straight
-    // on Settings — which a refresh does, since the view is in the URL — means
-    // KPI 1 never loaded, so every card read "no figure" on a database full of
-    // tickets. Fetched once, and only if nothing is held already.
-    if (name === 'settings' && !state.kpi) loadKpi1();
+    // Both Settings stages quote live readings — the sections' KPI 1 figures
+    // and each indicator's own rate. Landing straight on Settings, which a
+    // refresh does since the view is in the URL, means neither KPI ever
+    // loaded, so the cards read "no figure" on a database full of data.
+    // Fetched once each, and only if nothing is held already.
+    if (name === 'settings') {
+      if (!state.kpi) loadKpi1();
+      if (!state.kpi2) loadKpi2();
+    }
   }
 
 
@@ -2133,6 +2141,8 @@
 
   function renderKpi2(k) {
     state.kpi2 = k;
+    // The KPI thresholds stage on Settings quotes this rate on KPI 2's card.
+    updateKpiCards();
 
     const tiles = document.getElementById('kpi2Tiles');
     if (!k || !k.hasData) {
@@ -3566,13 +3576,13 @@
       const card = document.createElement('button');
       card.type = 'button';
       card.className = 'org-card';
-      card.dataset.section = section.name;
+      card.dataset.key = section.name;
       card.innerHTML = orgCardBody(section);
-      card.addEventListener('click', function () { openOrgSection(section.name); });
+      card.addEventListener('click', function () { openStage('org', section.name); });
       rows.appendChild(card);
     });
 
-    closeOrgSection();
+    closeStage('org');
     updateOrgFigures();
   }
 
@@ -3586,13 +3596,7 @@
       '</div>' +
       (section.modules
         ? '<span class="org-modules">' + escapeHtml(section.modules) + '</span>' : '') +
-      '<div class="org-head-name"><b>' + escapeHtml(section.head || '—') + '</b>' +
-        (section.interim
-          ? '<br><span class="org-interim">also heads ' +
-            escapeHtml((state.boot && state.boot.org && state.boot.org.short) || 'EAS') +
-            '</span>'
-          : '') +
-      '</div>' +
+      '<div class="org-head-name"><b>' + escapeHtml(section.head || '—') + '</b></div>' +
       '<div class="org-card-foot">' +
         '<span>' + section.size + ' ' + (section.size === 1 ? 'person' : 'people') + '</span>' +
         (figure
@@ -3632,76 +3636,271 @@
     if (!org) return;
 
     org.sections.forEach(function (section) {
-      const card = document.querySelector('.org-card[data-section="' +
+      const card = document.querySelector('#orgRows .org-card[data-key="' +
         cssEscape(section.name) + '"]');
       if (card) card.innerHTML = orgCardBody(section);
     });
 
     // The open panel quotes the same figures, so it has to move with them.
     if (state.orgOpen) renderOrgDetail(state.orgOpen);
+
+    updateKpiCards();
   }
 
 
-  /** Opens a section — or closes it, if it was already the open one. */
-  function openOrgSection(name) {
-    if (state.orgOpen === name) return closeOrgSection();
-
-    state.orgOpen = name;
-    const stage = document.getElementById('orgStage');
-    if (stage) stage.classList.add('is-open');
-
-    document.querySelectorAll('.org-card').forEach(function (card) {
-      card.classList.toggle('is-active', card.dataset.section === name);
+  /** Repaints the KPI threshold cards, which carry each KPI's live reading. */
+  function updateKpiCards() {
+    ((state.boot && state.boot.kpiList) || []).forEach(function (kpi) {
+      const card = document.querySelector('#kpiRows .org-card[data-key="' +
+        cssEscape(kpi.id) + '"]');
+      if (card) card.innerHTML = kpiCardBody(kpi);
     });
-
-    const close = document.getElementById('orgClose');
-    if (close) close.hidden = false;
-
-    renderOrgDetail(name);
-    dimBehindOrg(true);
-  }
-
-
-  function closeOrgSection() {
-    state.orgOpen = '';
-
-    const stage = document.getElementById('orgStage');
-    if (stage) stage.classList.remove('is-open');
-
-    document.querySelectorAll('.org-card').forEach(function (card) {
-      card.classList.remove('is-active');
-    });
-
-    const close = document.getElementById('orgClose');
-    if (close) close.hidden = true;
-
-    const detail = document.getElementById('orgDetail');
-    if (detail) { detail.hidden = true; detail.innerHTML = ''; }
-
-    const org = (state.boot && state.boot.org) || null;
-    setText('orgSub', org
-      ? org.sections.length + ' sections · ' + org.headcount +
-        ' people · select a section to see who is in it'
-      : '');
-
-    dimBehindOrg(false);
+    if (state.kpiOpen) renderKpiThresholdDetail(state.kpiOpen);
   }
 
 
   /**
-   * Puts everything else on the Settings screen behind glass.
+   * The KPI thresholds, as a stage rather than a table.
+   *
+   * The table made you read across seven columns to learn one indicator's
+   * bands, and the three that mattered most — target, yellow, red — were three
+   * separate cells you had to hold in your head to see as a scale. A card per
+   * KPI puts them in one place, with the formula that produces the number and
+   * whether the indicator is live yet.
+   *
+   * Same stage, same behaviour, same CSS as the organisation above it: open
+   * one, the others fall back, everything else goes to glass.
+   */
+  function renderKpiStage(boot) {
+    const rows = document.getElementById('kpiRows');
+    if (!rows) return;
+
+    const list = (boot && boot.kpiList) || [];
+    rows.innerHTML = '';
+
+    list.forEach(function (kpi) {
+      const card = document.createElement('button');
+      card.type = 'button';
+      card.className = 'org-card';
+      card.dataset.key = kpi.id;
+      card.innerHTML = kpiCardBody(kpi);
+      card.addEventListener('click', function () { openStage('kpi', kpi.id); });
+      rows.appendChild(card);
+    });
+
+    closeStage('kpi');
+  }
+
+
+  function kpiCardBody(kpi) {
+    const actual = currentValueFor(kpi);
+    const band = actual === null ? '' : bandOf(actual, kpi);
+
+    return '<div class="org-card-top">' +
+        '<span class="org-avatar">' + escapeHtml(kpiNumber(kpi.id)) + '</span>' +
+        '<h3>' + escapeHtml(kpi.shortName || kpi.name) + '</h3>' +
+      '</div>' +
+      '<span class="org-modules">Target &ge; ' + kpi.target + kpi.unit + '</span>' +
+      '<div class="org-head-name">' + escapeHtml(kpi.slaLayer || '') + '</div>' +
+      '<div class="org-card-foot">' +
+        (kpi.active ? '<span class="pill g">LIVE</span>'
+                    : '<span class="pill a">PENDING</span>') +
+        (actual === null
+          ? '<span class="org-rate is-none">' +
+            (kpi.active ? 'no period loaded' : 'awaiting data') + '</span>'
+          : '<span class="org-rate" style="color:' + bandColour(band) + '">' +
+            fmt(actual) + kpi.unit + '</span>') +
+      '</div>';
+  }
+
+
+  /** 'KPI1' -> '1', for the badge on the card. */
+  function kpiNumber(id) {
+    const found = String(id || '').match(/(\d+)/);
+    return found ? found[1] : String(id || '?').slice(0, 2);
+  }
+
+
+  /**
+   * A KPI's reading right now, or null when it has none.
+   *
+   * Read from whatever that KPI's own screen is showing rather than fetched,
+   * so this card and that screen can never quote different numbers. KPI 3 and
+   * KPI 4 have no ingest pipeline yet, which is exactly why their cards say
+   * "awaiting data" instead of a figure.
+   */
+  function currentValueFor(kpi) {
+    if (kpi.id === 'KPI1' && state.kpi && state.kpi.hasData && state.kpi.total) {
+      return state.kpi.total.rate;
+    }
+    if (kpi.id === 'KPI2' && state.kpi2 && state.kpi2.hasData && state.kpi2.total) {
+      return state.kpi2.total.rate;
+    }
+    return null;
+  }
+
+
+  /** Which band a reading falls in, for a KPI's own thresholds. */
+  function bandOf(value, kpi) {
+    if (value >= kpi.target) return 'GREEN';
+    return value >= kpi.yellowFloor ? 'YELLOW' : 'RED';
+  }
+
+
+  function renderKpiThresholdDetail(id) {
+    const box = document.getElementById('kpiDetail');
+    const list = (state.boot && state.boot.kpiList) || [];
+    const kpi = list.filter(function (k) { return k.id === id; })[0];
+    if (!box || !kpi) return;
+
+    setText('kpiStageSub', kpi.name + ' · ' +
+      (kpi.active ? 'scored from uploaded data' : 'defined, awaiting its first upload') +
+      ' · select another, or close to see all ' + list.length);
+
+    const actual = currentValueFor(kpi);
+    const period = state.month === ALL_MONTHS
+      ? 'all months loaded' : formatMonth(state.month || '');
+
+    // The three bands as one scale, in order, rather than as three cells of a
+    // row. How thin the green slice is says how tight the target is, which was
+    // the one thing the old rings showed and the table did not.
+    const bands =
+      '<div class="band-scale">' +
+        bandRow('GREEN', '&ge; ' + kpi.target + kpi.unit, 'on target') +
+        bandRow('YELLOW', kpi.yellowFloor + ' – ' + round2(kpi.target - 0.01) + kpi.unit,
+                'below target, inside tolerance') +
+        bandRow('RED', '&lt; ' + kpi.yellowFloor + kpi.unit, 'breach') +
+      '</div>';
+
+    box.hidden = false;
+    box.innerHTML =
+      '<div class="org-detail-head">' +
+        '<h3>' + escapeHtml(kpi.name) + '</h3>' +
+        (kpi.active ? '<span class="pill g">LIVE</span>'
+                    : '<span class="pill a">PENDING</span>') +
+      '</div>' +
+      '<p class="org-people-label">How it is calculated</p>' +
+      '<p class="kpi-formula">' + escapeHtml(kpi.formula || '—') + '</p>' +
+      '<p class="org-people-label">Bands</p>' +
+      bands +
+      '<p class="org-people-label">Where it sits</p>' +
+      '<p class="kpi-note">' + escapeHtml(kpi.slaLayer || '—') +
+        ' · Layer ' + (kpi.layer || '—') +
+        (actual === null
+          ? ''
+          : ' · reading now <b style="color:' + bandColour(bandOf(actual, kpi)) + '">' +
+            fmt(actual) + kpi.unit + '</b> for ' + escapeHtml(period)) +
+      '</p>';
+  }
+
+
+  function bandRow(band, range, note) {
+    return '<span class="band-row" style="--band:' + bandColour(band) + '">' +
+      '<i></i><b>' + range + '</b><small>' + escapeHtml(note) + '</small></span>';
+  }
+
+
+  /**
+   * The two stages on Settings — the organisation and the KPI thresholds.
+   *
+   * Both behave identically: cards that open, the others falling back but
+   * staying live, and everything else on the screen going to glass. Described
+   * once here rather than written twice, so they can never drift apart.
+   */
+  const STAGES = {
+    org: { id: 'orgStage', rows: 'orgRows', detail: 'orgDetail',
+           close: 'orgClose', sub: 'orgSub', key: 'orgOpen',
+           render: function (name) { renderOrgDetail(name); },
+           summary: function () {
+             const org = (state.boot && state.boot.org) || null;
+             return org
+               ? org.sections.length + ' sections · ' + org.headcount +
+                 ' people · select a section to see who is in it'
+               : '';
+           } },
+    kpi: { id: 'kpiStage', rows: 'kpiRows', detail: 'kpiDetail',
+           close: 'kpiStageClose', sub: 'kpiStageSub', key: 'kpiOpen',
+           render: function (id) { renderKpiThresholdDetail(id); },
+           summary: function () {
+             const list = ((state.boot && state.boot.kpiList) || []);
+             const live = list.filter(function (k) { return k.active; }).length;
+             return list.length + ' indicators · ' + live + ' live · ' +
+               'select one to see its formula and bands';
+           } }
+  };
+
+
+  /** Opens a card — or closes it, if it was already the open one. */
+  function openStage(which, key) {
+    const stage = STAGES[which];
+    if (!stage) return;
+    if (state[stage.key] === key) return closeStage(which);
+
+    state[stage.key] = key;
+
+    const root = document.getElementById(stage.id);
+    if (root) root.classList.add('is-open');
+
+    cardsOf(stage).forEach(function (card) {
+      card.classList.toggle('is-active', card.dataset.key === key);
+    });
+
+    const close = document.getElementById(stage.close);
+    if (close) close.hidden = false;
+
+    stage.render(key);
+
+    // Only one stage may be open at a time: two open panels would each be
+    // asking the other to go behind glass.
+    Object.keys(STAGES).forEach(function (other) {
+      if (other !== which && state[STAGES[other].key]) closeStage(other, true);
+    });
+    dimExcept(stage.id);
+  }
+
+
+  function closeStage(which, keepGlass) {
+    const stage = STAGES[which];
+    if (!stage) return;
+
+    state[stage.key] = '';
+
+    const root = document.getElementById(stage.id);
+    if (root) root.classList.remove('is-open');
+
+    cardsOf(stage).forEach(function (card) { card.classList.remove('is-active'); });
+
+    const close = document.getElementById(stage.close);
+    if (close) close.hidden = true;
+
+    const detail = document.getElementById(stage.detail);
+    if (detail) { detail.hidden = true; detail.innerHTML = ''; }
+
+    setText(stage.sub, stage.summary());
+
+    if (!keepGlass) dimExcept('');
+  }
+
+
+  function cardsOf(stage) {
+    const rows = document.getElementById(stage.rows);
+    return rows ? Array.prototype.slice.call(rows.querySelectorAll('.org-card')) : [];
+  }
+
+
+  /**
+   * Puts everything on the Settings screen behind glass except one card.
    *
    * Blur and opacity only, so nothing is unmounted and nothing moves — closing
-   * the section brings the tables back exactly where they were, with no reflow
-   * and nothing to re-render.
+   * brings the rest back exactly where it was, with no reflow and nothing to
+   * re-render. Pass '' to take the glass off entirely.
    */
-  function dimBehindOrg(on) {
+  function dimExcept(keepId) {
     const view = document.getElementById('view-settings');
     if (!view) return;
 
     Array.prototype.forEach.call(view.children, function (child) {
-      if (child.id === 'orgStage') return;
-      child.classList.toggle('org-dimmed', Boolean(on));
+      child.classList.toggle('org-dimmed', Boolean(keepId) && child.id !== keepId);
     });
   }
 
@@ -3718,22 +3917,10 @@
       (section.modules ? section.modules + ' · ' : '') +
       'select another section, or close to see all four');
 
-    const figure = orgFigureFor(section.name);
-    const period = state.month === ALL_MONTHS
-      ? 'all months loaded'
-      : formatMonth(state.month || '');
-
-    const figures = figure
-      ? '<div class="org-figures">' +
-          orgFigure('Success rate', fmt(figure.rate) + '%', figure.band + ' · ' + period) +
-          orgFigure('Received', count(figure.received), 'tickets raised') +
-          orgFigure('Completed', count(figure.completed), figure.delayed + ' delayed') +
-          orgFigure('Achievement', fmt(figure.achievement) + '%',
-                    'against the ' + (state.kpi ? state.kpi.target : 99.5) + '% target') +
-        '</div>'
-      : '<div class="org-figures">' +
-          orgFigure('Success rate', '—', 'KPI 1 has nothing for this period') +
-        '</div>';
+    // No figures panel here. It restated what the KPI 1 screen already shows,
+    // which is the same duplication that got the threshold rings removed. The
+    // card face still carries the section's rate, which is what you want at a
+    // glance; the detail is about the people.
 
     // The head leads the list, marked — he is the answer to "who do I ask",
     // and hunting for him in an alphabetical run of nine names is a task.
@@ -3752,7 +3939,6 @@
         (section.modules
           ? '<span class="org-modules">' + escapeHtml(section.modules) + '</span>' : '') +
       '</div>' +
-      figures +
       '<p class="org-people-label">The team — ' + people.length + '</p>' +
       '<div class="org-people">' +
         people.map(function (person, i) {
@@ -3763,15 +3949,6 @@
                  (person.head ? ' · head' : '') +
                  '</span>';
         }).join('') +
-      '</div>';
-  }
-
-
-  function orgFigure(label, value, note) {
-    return '<div class="org-figure">' +
-      '<span>' + escapeHtml(label) + '</span>' +
-      '<strong>' + value + '</strong>' +
-      '<small>' + escapeHtml(note) + '</small>' +
       '</div>';
   }
 
@@ -4220,25 +4397,7 @@
   // =========================================================================
 
   function fillSettings(boot) {
-    const body = document.querySelector('#settingsTable tbody');
-    if (body) {
-      body.innerHTML = '';
-      (boot.kpiList || []).forEach(function (kpi) {
-        const row = document.createElement('tr');
-        row.innerHTML =
-          '<td>' + escapeHtml(kpi.name) + '</td>' +
-          '<td style="font-size:11.5px;color:var(--text-dim)">' + escapeHtml(kpi.formula || '') + '</td>' +
-          '<td>&ge; ' + kpi.target + kpi.unit + '</td>' +
-          '<td>' + kpi.yellowFloor + '&ndash;' + kpi.target + kpi.unit + '</td>' +
-          '<td>&lt; ' + kpi.yellowFloor + kpi.unit + '</td>' +
-          '<td>' + escapeHtml(kpi.slaLayer) + '</td>' +
-          '<td>' + (kpi.active
-            ? '<span class="pill g">LIVE</span>'
-            : '<span class="pill a">PENDING</span>') + '</td>';
-        body.appendChild(row);
-      });
-    }
-
+    renderKpiStage(boot);
     renderOrg(boot);
     fillKpiSelector(boot);
     renderRebuildState(boot);

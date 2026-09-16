@@ -625,7 +625,7 @@
         <div class="page-head">
           <div>
             <h1>Settings</h1>
-            <p class="sub">KPI targets and thresholds. Policy §6 calls these provisional.</p>
+            <p class="sub">The team, and the thresholds every KPI is scored against.</p>
           </div>
         </div>
         <!--
@@ -652,16 +652,24 @@
           <div class="org-detail" id="orgDetail" hidden></div>
         </div>
 
-        <div class="card">
-          <div class="card-head">KPI thresholds</div>
-          <div class="table-wrap">
-            <table id="settingsTable">
-              <thead>
-                <tr><th>KPI</th><th>Formula</th><th>Target</th><th>Yellow</th><th>Red</th><th>SLA layer</th><th>Data</th></tr>
-              </thead>
-              <tbody></tbody>
-            </table>
+        <!--
+          THE THRESHOLDS, as a stage rather than a table — the same behaviour
+          as the organisation above it, on the other thing this screen is for.
+          A seven-column table made you read across a row to learn one KPI's
+          bands; a card per KPI puts each one's target, formula and bands in
+          one place, with the SLA layer and whether it is live.
+          Built by renderKpiStage().
+        -->
+        <div class="org-stage" id="kpiStage">
+          <div class="org-stage-head">
+            <div>
+              <h2>KPI thresholds</h2>
+              <p id="kpiStageSub">Loading the indicators…</p>
+            </div>
+            <button class="org-close" id="kpiStageClose" hidden>✕ Close</button>
           </div>
+          <div class="org-rows" id="kpiRows"></div>
+          <div class="org-detail" id="kpiDetail" hidden></div>
         </div>
         <div class="card">
           <div class="card-head">Database</div>
