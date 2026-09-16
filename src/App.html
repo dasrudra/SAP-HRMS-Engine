@@ -4161,9 +4161,7 @@
 
     // Changing a month without pressing Run still gets saved, so a refresh
     // mid-selection does not throw the choices away.
-    CMP_SELECTS.forEach(function (id) {
-      bind(id, 'change', function () { saveState(); renderCompareHint(); });
-    });
+    CMP_SELECTS.forEach(function (id) { bind(id, 'change', saveState); });
 
     bind('cmpClear', 'click', function () {
       CMP_SELECTS.forEach(function (id, index) {
@@ -4188,7 +4186,6 @@
       // and the trend is not part of it.
       state.compare = null;
       state.compareRan = false;
-      renderCompareHint();
       saveState();
     });
   }
@@ -4280,46 +4277,30 @@
 
 
   /**
-   * What the picker is currently set to do, said in words.
+   * The chosen KPI's target and SLA layer, under its selector.
    *
-   * Five dropdowns and a button gave no sense of what pressing it would
-   * produce, and the KPI selector — which decides what the period list even
-   * contains — looked like just another dropdown. The hint under it names the
-   * target and layer you have chosen; the line beside the button says how many
-   * periods are selected, or what is missing.
+   * The KPI decides what the period list even contains — pick it second and
+   * the months you just chose are thrown away — so it is worth more than a
+   * bare dropdown. This says which indicator you are on without making you
+   * read it off the results below.
+   *
+   * There was a count of the selected periods beside the button too. It went
+   * stale: applyPendingTo restores the dropdowns by assigning el.value, which
+   * fires no change event, so after a refresh the line kept the count it had
+   * before the URL's periods were put back — "2 months" over four full boxes.
+   * The comparison itself was always right, because it reads the dropdowns
+   * when the button is pressed. A caption that can disagree with the controls
+   * beside it is worse than no caption, so it is gone.
    */
   function renderCompareHint() {
     const kpi = selectedKpi();
     const hint = document.getElementById('cmpKpiHint');
+    if (!hint) return;
 
-    if (hint) {
-      hint.innerHTML = kpi
-        ? 'Target &ge; ' + kpi.target + kpi.unit + ' · ' + escapeHtml(kpi.slaLayer || '') +
-          (kpi.active ? '' : ' · <b>no data uploaded yet</b>')
-        : '';
-    }
-
-    const summary = document.getElementById('cmpSummary');
-    if (!summary) return;
-
-    const picked = {};
-    CMP_SELECTS.forEach(function (id) {
-      const value = getValue(id);
-      if (value) picked[value] = true;
-    });
-    const n = Object.keys(picked).length;
-    const many = comparePeriodWord(true);
-    const one = comparePeriodWord(false);
-    const have = comparePeriodList().length;
-
-    if (have < 2) {
-      summary.innerHTML = 'Only ' + (have === 1 ? 'one ' + one : 'no ' + many) +
-        ' of data so far — nothing to compare against yet.';
-      return;
-    }
-    summary.innerHTML = n < 2
-      ? 'Pick at least two ' + many + ' to compare.'
-      : 'Comparing <b>' + n + ' ' + (n === 1 ? one : many) + '</b> side by side.';
+    hint.innerHTML = kpi
+      ? 'Target &ge; ' + kpi.target + kpi.unit + ' · ' + escapeHtml(kpi.slaLayer || '') +
+        (kpi.active ? '' : ' · <b>no data uploaded yet</b>')
+      : '';
   }
 
 
