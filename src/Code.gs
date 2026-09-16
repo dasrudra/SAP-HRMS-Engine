@@ -125,6 +125,10 @@ function getBootstrap() {
     orphanedFeedback: (configured && typeof auditFeedback === 'function')
       ? auditFeedback().orphans : 0,
 
+    // The EAS organisation chart, people filled in from ROSTER. Settings draws
+    // it; adding a joiner to ROSTER puts them on it.
+    org: (typeof orgChart === 'function') ? orgChart() : null,
+
     // When KPI 1's precomputed figures were last worked out. Settings shows
     // it beside the Rebuild button so a permanent tool stops reading as an
     // outstanding task.

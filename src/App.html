@@ -48,6 +48,11 @@
     scopePeople: null,
     scopeKey: '',
 
+    // Which section of the organisation chart is open on Settings, '' for
+    // none. Deliberately NOT saved to the URL: it is a look at the team, not
+    // a filter on anything, so a refresh should land on the whole chart.
+    orgOpen: '',
+
     // KPI 2's own result, kept so its filters redraw without a server call.
     kpi2: null,
 
@@ -78,6 +83,7 @@
     wireFilters();
     wireCompare();
     wireUploads();
+    wireOrg();
 
     google.script.run
       .withSuccessHandler(onBootstrap)
@@ -186,6 +192,40 @@
       try {
         localStorage.setItem('easSidebar', collapsed ? 'collapsed' : 'expanded');
       } catch (e) { /* not fatal */ }
+
+      // The charts are sized to their container, and the container just
+      // changed width. Chart.js only notices on a window resize, so without
+      // this the plots keep their old width until something else redraws them.
+      resizeCharts();
+    });
+  }
+
+
+  /**
+   * Closing the org section, from the button or from Escape.
+   *
+   * Wired once at startup rather than per render, because renderOrg replaces
+   * the cards and a listener bound to them would go with them.
+   */
+  function wireOrg() {
+    bind('orgClose', 'click', closeOrgSection);
+
+    document.addEventListener('keydown', function (e) {
+      if (e.key !== 'Escape' || !state.orgOpen) return;
+      // The dialog owns Escape while it is up — it is in front of this.
+      const backdrop = document.getElementById('modalBackdrop');
+      if (backdrop && !backdrop.hidden) return;
+      closeOrgSection();
+    });
+  }
+
+
+  /** Nudges every live chart to remeasure its container. */
+  function resizeCharts() {
+    if (!window.Chart || !window.Chart.instances) return;
+    Object.keys(window.Chart.instances).forEach(function (key) {
+      const chart = window.Chart.instances[key];
+      if (chart && typeof chart.resize === 'function') chart.resize();
     });
   }
 
@@ -252,6 +292,12 @@
     // The trend is not part of the comparison and does not wait for the
     // Compare button: it is the backdrop the comparison sits against.
     if (name === 'compare') loadTrend();
+
+    // The organisation stage quotes KPI 1's section figures. Landing straight
+    // on Settings — which a refresh does, since the view is in the URL — means
+    // KPI 1 never loaded, so every card read "no figure" on a database full of
+    // tickets. Fetched once, and only if nothing is held already.
+    if (name === 'settings' && !state.kpi) loadKpi1();
   }
 
 
@@ -1762,6 +1808,9 @@
       emptyTable('#kpi1Modules tbody', 9, 'Nothing to show yet.');
       emptyTable('#kpi1AllPeople tbody', 8, 'Nothing to show yet.');
       fillSectionFilters([]);
+      // The org cards quote these figures, so they have to hear about an
+      // empty period too — otherwise they keep showing the last one's.
+      updateOrgFigures();
       return;
     }
 
@@ -1786,8 +1835,9 @@
     // needed and falls through to applyAllFilter either way.
     if (getValue('fAllScope')) applyScopeFilter(); else applyAllFilter();
 
-    // The settings rings show the selected month's figure, so they follow it.
-    updateGaugeCentres();
+    // The organisation stage quotes KPI 1's section figures, so it follows
+    // the month picker rather than sitting on whatever was loaded first.
+    updateOrgFigures();
   }
 
 
@@ -3475,134 +3525,285 @@
 
 
   /**
-   * One ring per KPI showing its green / yellow / red bands, drawn to scale.
+   * The EAS organisation, as a stage you can open a section of.
    *
-   * The bands are plotted on a WINDOWED axis, not 0-100. On a full scale the
-   * red band swallows the ring — for Incident Management red is everything
-   * below 99.50, which is 99.5% of the circle, and the green band that
-   * actually matters becomes an invisible sliver. The window starts a little
-   * below the red boundary so all three bands stay legible, and the exact
-   * numbers are printed underneath so the compression cannot mislead.
+   * WHAT THIS REPLACED, AND WHY
+   * Four threshold rings used to sit here. They restated the KPI thresholds
+   * table directly underneath them — same targets, same bands, same numbers —
+   * so the page said one thing twice and neither copy said anything the other
+   * did not. This says something the dashboard could not say at all: who EAS
+   * is, and how each section is doing against KPI 1 right now.
    *
-   * Where a KPI has a figure for the selected month, it sits in the middle
-   * coloured by the band it falls in.
+   * Sections first, people on demand. Thirty-seven names laid out at once is a
+   * directory, not a chart — you cannot see the shape of the team through it.
+   * Four cards you can read in a glance, each opening to its own people, is
+   * the same information with the structure left visible.
    */
-  function drawThresholdGauges(boot) {
-    const grid = document.getElementById('gaugeGrid');
-    if (!grid) return;
+  function renderOrg(boot) {
+    const stage = document.getElementById('orgStage');
+    const rows = document.getElementById('orgRows');
+    if (!stage || !rows) return;
 
-    const list = boot.kpiList || [];
-    grid.innerHTML = '';
+    const org = (boot && boot.org) || null;
+    if (!org || !org.sections || !org.sections.length) {
+      stage.hidden = true;
+      return;
+    }
+    stage.hidden = false;
 
-    list.forEach(function (kpi, index) {
-      const cell = document.createElement('div');
-      cell.className = 'gauge-cell';
-      cell.innerHTML =
-        '<h3>' + escapeHtml(kpi.shortName || kpi.name) + '</h3>' +
-        '<span class="gauge-layer">' + escapeHtml(kpi.slaLayer) + '</span>' +
-        '<div class="gauge-canvas">' +
-          '<canvas id="gauge' + index + '"></canvas>' +
-          '<div class="gauge-centre" id="gaugeCentre' + index + '"></div>' +
-        '</div>' +
-        // A swatch beside each row, so the band a number belongs to is
-        // readable without matching it back to a slice by colour alone.
-        '<div class="gauge-bands">' +
-          '<span><i style="background:' + bandColour('GREEN') + '"></i>' +
-            '<b>&ge; ' + kpi.target + kpi.unit + '</b> green</span>' +
-          '<span><i style="background:' + bandColour('YELLOW') + '"></i>' +
-            '<b>' + kpi.yellowFloor + ' – ' + (round2(kpi.target - 0.01)) +
-            kpi.unit + '</b> yellow</span>' +
-          '<span><i style="background:' + bandColour('RED') + '"></i>' +
-            '<b>&lt; ' + kpi.yellowFloor + kpi.unit + '</b> red</span>' +
+    setText('orgTitle', org.name);
+    const lead = document.getElementById('orgLead');
+    if (lead && org.head) {
+      lead.hidden = false;
+      lead.innerHTML =
+        '<span class="org-avatar">' + escapeHtml(initials(org.head)) + '</span>' +
+        '<b>' + escapeHtml(org.head) + '</b>' +
+        '<span>Head of ' + escapeHtml(org.short || 'EAS') + '</span>';
+    }
+
+    rows.innerHTML = '';
+    org.sections.forEach(function (section) {
+      const card = document.createElement('button');
+      card.type = 'button';
+      card.className = 'org-card';
+      card.dataset.section = section.name;
+      card.innerHTML = orgCardBody(section);
+      card.addEventListener('click', function () { openOrgSection(section.name); });
+      rows.appendChild(card);
+    });
+
+    closeOrgSection();
+    updateOrgFigures();
+  }
+
+
+  function orgCardBody(section) {
+    const figure = orgFigureFor(section.name);
+
+    return '<div class="org-card-top">' +
+        '<span class="org-avatar">' + escapeHtml(initials(section.label)) + '</span>' +
+        '<h3>' + escapeHtml(section.label) + '</h3>' +
+      '</div>' +
+      (section.modules
+        ? '<span class="org-modules">' + escapeHtml(section.modules) + '</span>' : '') +
+      '<div class="org-head-name"><b>' + escapeHtml(section.head || '—') + '</b>' +
+        (section.interim
+          ? '<br><span class="org-interim">also heads ' +
+            escapeHtml((state.boot && state.boot.org && state.boot.org.short) || 'EAS') +
+            '</span>'
+          : '') +
+      '</div>' +
+      '<div class="org-card-foot">' +
+        '<span>' + section.size + ' ' + (section.size === 1 ? 'person' : 'people') + '</span>' +
+        (figure
+          ? '<span class="org-rate" style="color:' + bandColour(figure.band) + '">' +
+            fmt(figure.rate) + '%</span>'
+          : '<span class="org-rate is-none">no figure</span>') +
+      '</div>';
+  }
+
+
+  /**
+   * A section's KPI 1 figures for whatever period KPI 1 is showing.
+   *
+   * Read from state.kpi rather than fetched: the figure is the one on the KPI 1
+   * screen, and two screens quoting different numbers for the same section is
+   * worse than one screen quoting none. Null until KPI 1 has loaded, which is
+   * why the cards are rebuilt by updateOrgFigures when it does.
+   */
+  function orgFigureFor(name) {
+    const k = state.kpi;
+    if (!k || !k.hasData || !k.departments) return null;
+
+    const rows = k.departments.filter(function (d) { return d.name === name; });
+    return rows.length ? rows[0] : null;
+  }
+
+
+  /**
+   * Repaints the figures on the cards once KPI 1 has data.
+   *
+   * The stage is built from the bootstrap, before any month has loaded, so
+   * every card would read "no figure" forever without this. Rewrites the card
+   * bodies only — the open section, the rail and the glass are untouched.
+   */
+  function updateOrgFigures() {
+    const org = (state.boot && state.boot.org) || null;
+    if (!org) return;
+
+    org.sections.forEach(function (section) {
+      const card = document.querySelector('.org-card[data-section="' +
+        cssEscape(section.name) + '"]');
+      if (card) card.innerHTML = orgCardBody(section);
+    });
+
+    // The open panel quotes the same figures, so it has to move with them.
+    if (state.orgOpen) renderOrgDetail(state.orgOpen);
+  }
+
+
+  /** Opens a section — or closes it, if it was already the open one. */
+  function openOrgSection(name) {
+    if (state.orgOpen === name) return closeOrgSection();
+
+    state.orgOpen = name;
+    const stage = document.getElementById('orgStage');
+    if (stage) stage.classList.add('is-open');
+
+    document.querySelectorAll('.org-card').forEach(function (card) {
+      card.classList.toggle('is-active', card.dataset.section === name);
+    });
+
+    const close = document.getElementById('orgClose');
+    if (close) close.hidden = false;
+
+    renderOrgDetail(name);
+    dimBehindOrg(true);
+  }
+
+
+  function closeOrgSection() {
+    state.orgOpen = '';
+
+    const stage = document.getElementById('orgStage');
+    if (stage) stage.classList.remove('is-open');
+
+    document.querySelectorAll('.org-card').forEach(function (card) {
+      card.classList.remove('is-active');
+    });
+
+    const close = document.getElementById('orgClose');
+    if (close) close.hidden = true;
+
+    const detail = document.getElementById('orgDetail');
+    if (detail) { detail.hidden = true; detail.innerHTML = ''; }
+
+    const org = (state.boot && state.boot.org) || null;
+    setText('orgSub', org
+      ? org.sections.length + ' sections · ' + org.headcount +
+        ' people · select a section to see who is in it'
+      : '');
+
+    dimBehindOrg(false);
+  }
+
+
+  /**
+   * Puts everything else on the Settings screen behind glass.
+   *
+   * Blur and opacity only, so nothing is unmounted and nothing moves — closing
+   * the section brings the tables back exactly where they were, with no reflow
+   * and nothing to re-render.
+   */
+  function dimBehindOrg(on) {
+    const view = document.getElementById('view-settings');
+    if (!view) return;
+
+    Array.prototype.forEach.call(view.children, function (child) {
+      if (child.id === 'orgStage') return;
+      child.classList.toggle('org-dimmed', Boolean(on));
+    });
+  }
+
+
+  function renderOrgDetail(name) {
+    const box = document.getElementById('orgDetail');
+    const org = (state.boot && state.boot.org) || null;
+    if (!box || !org) return;
+
+    const section = org.sections.filter(function (s) { return s.name === name; })[0];
+    if (!section) { box.hidden = true; return; }
+
+    setText('orgSub', section.size + ' people · ' +
+      (section.modules ? section.modules + ' · ' : '') +
+      'select another section, or close to see all four');
+
+    const figure = orgFigureFor(section.name);
+    const period = state.month === ALL_MONTHS
+      ? 'all months loaded'
+      : formatMonth(state.month || '');
+
+    const figures = figure
+      ? '<div class="org-figures">' +
+          orgFigure('Success rate', fmt(figure.rate) + '%', figure.band + ' · ' + period) +
+          orgFigure('Received', count(figure.received), 'tickets raised') +
+          orgFigure('Completed', count(figure.completed), figure.delayed + ' delayed') +
+          orgFigure('Achievement', fmt(figure.achievement) + '%',
+                    'against the ' + (state.kpi ? state.kpi.target : 99.5) + '% target') +
+        '</div>'
+      : '<div class="org-figures">' +
+          orgFigure('Success rate', '—', 'KPI 1 has nothing for this period') +
         '</div>';
-      grid.appendChild(cell);
 
-      const span = kpi.target - kpi.yellowFloor;
-      const floor = Math.max(0, kpi.yellowFloor - span * 0.35);
+    // The head leads the list, marked — he is the answer to "who do I ask",
+    // and hunting for him in an alphabetical run of nine names is a task.
+    const people = [];
+    if (section.head) {
+      people.push({ name: section.head, head: true });
+    }
+    section.members.forEach(function (person) {
+      people.push({ name: person, head: false });
+    });
 
-      const redWidth = kpi.yellowFloor - floor;
-      const yellowWidth = kpi.target - kpi.yellowFloor;
-      const greenWidth = 100 - kpi.target;
+    box.hidden = false;
+    box.innerHTML =
+      '<div class="org-detail-head">' +
+        '<h3>' + escapeHtml(section.label) + '</h3>' +
+        (section.modules
+          ? '<span class="org-modules">' + escapeHtml(section.modules) + '</span>' : '') +
+      '</div>' +
+      figures +
+      '<p class="org-people-label">The team — ' + people.length + '</p>' +
+      '<div class="org-people">' +
+        people.map(function (person, i) {
+          return '<span class="org-person' + (person.head ? ' is-head' : '') +
+                 '" style="--i:' + Math.min(i, 9) + '">' +
+                 '<span class="org-avatar">' + escapeHtml(initials(person.name)) + '</span>' +
+                 escapeHtml(person.name) +
+                 (person.head ? ' · head' : '') +
+                 '</span>';
+        }).join('') +
+      '</div>';
+  }
 
-      drawChart('gauge' + index, {
-        type: 'doughnut',
-        data: {
-          labels: ['Red — below ' + kpi.yellowFloor + kpi.unit,
-                   'Yellow — ' + kpi.yellowFloor + ' to ' + kpi.target + kpi.unit,
-                   'Green — ' + kpi.target + kpi.unit + ' and above'],
-          datasets: [{
-            data: [redWidth, yellowWidth, greenWidth],
-            backgroundColor: [bandColour('RED'), bandColour('YELLOW'), bandColour('GREEN')],
-            borderColor: '#ffffff',
-            borderWidth: 2,           // 2px surface gap between segments
-            circumference: 270,       // a gauge, opening at the bottom
-            rotation: 225
-          }]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          cutout: '70%',
-          plugins: {
-            legend: { display: false },   // the numbers below are the legend
-            tooltip: {
-              callbacks: {
-                label: function (item) { return item.label; }
-              }
-            }
-          }
-        }
+
+  function orgFigure(label, value, note) {
+    return '<div class="org-figure">' +
+      '<span>' + escapeHtml(label) + '</span>' +
+      '<strong>' + value + '</strong>' +
+      '<small>' + escapeHtml(note) + '</small>' +
+      '</div>';
+  }
+
+
+  /**
+   * 'Md. Abdullah Al Mamun' -> 'AM'. Two letters, skipping the honorifics and
+   * initials that start half the names on this team and would otherwise make
+   * a dozen avatars read 'MD'.
+   */
+  function initials(name) {
+    const words = String(name || '').replace(/[^A-Za-z& ]/g, ' ').split(/\s+/)
+      .filter(function (w) {
+        if (!w) return false;
+        const lower = w.toLowerCase();
+        return lower !== 'md' && lower !== 'mohammad' && lower !== 'muhammad' &&
+               lower !== 'mohd' && lower !== 'syed' && lower !== 'and' && w !== '&' &&
+               w.length > 1;
       });
 
-    });
-
-    updateGaugeCentres();
+    if (!words.length) return String(name || '?').slice(0, 2).toUpperCase();
+    if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+    return (words[0][0] + words[words.length - 1][0]).toUpperCase();
   }
 
 
-  /**
-   * Writes the reading in the middle of each ring.
-   *
-   * Split out of drawThresholdGauges because the two run at different times:
-   * the rings are built once from the bootstrap, before any month has loaded,
-   * so every centre would sit on "no month loaded" forever. This runs again
-   * whenever KPI 1 data arrives, and only rewrites four small divs rather than
-   * destroying and rebuilding four canvases.
-   */
-  function updateGaugeCentres() {
-    const list = (state.boot && state.boot.kpiList) || [];
-
-    list.forEach(function (kpi, index) {
-      const centre = document.getElementById('gaugeCentre' + index);
-      if (!centre) return;
-
-      const actual = currentValueFor(kpi);
-
-      if (actual === null) {
-        centre.innerHTML = '<strong style="color:var(--text-mut)">—</strong>' +
-                           '<span>' + (kpi.active ? 'no month loaded' : 'awaiting data') + '</span>';
-        return;
-      }
-
-      const band = actual >= kpi.target ? 'GREEN'
-                 : (actual >= kpi.yellowFloor ? 'YELLOW' : 'RED');
-      centre.innerHTML =
-        '<strong style="color:' + bandColour(band) + '">' + fmt(actual) + kpi.unit + '</strong>' +
-        '<span>' + escapeHtml(formatMonth(state.month || '')) + '</span>';
-    });
+  /** CSS.escape, for the browsers that have it and a safe fallback for the rest. */
+  function cssEscape(value) {
+    const text = String(value == null ? '' : value);
+    return (window.CSS && window.CSS.escape) ? window.CSS.escape(text)
+                                             : text.replace(/["\\]/g, '\\$&');
   }
 
-
-  /**
-   * The selected month's figure for a KPI, or null.
-   * Only KPI 1 has an ingest pipeline today.
-   */
-  function currentValueFor(kpi) {
-    if (kpi.id === 'KPI1' && state.kpi && state.kpi.hasData && state.kpi.total) {
-      return state.kpi.total.rate;
-    }
-    return null;
-  }
 
 
   /** 'Manufacturing Applications' -> 'Manufacturing', so axis labels fit. */
@@ -3918,7 +4119,8 @@
     const period = periodLabel.toLowerCase();
     const shortName = c.kpi === 'KPI2' ? 'KPI 2' : (c.kpi === 'KPI1' ? 'KPI 1' : (c.kpi || ''));
 
-    setText('cmpOverallTitle', shortName + ' — overall by ' + period);
+    setText('cmpOverallTitle', shortName + ' — overall by ' + period +
+      ' · Change is percentage points against the ' + period + ' above');
     setText('cmpSectionTitle', shortName + ' — success rate by ' + sectionLabel.toLowerCase());
     setText('cmpChartTitle', 'Success rate by ' + sectionLabel.toLowerCase() + ' and ' + period);
 
@@ -3932,7 +4134,14 @@
         return '<th class="r">' + escapeHtml(m.label) + '</th>';
       }).join('') +
       '<th class="r">Success Rate</th><th class="r">Achievement</th>' +
-      '<th>Band</th><th class="r">Headroom</th><th class="r">Change</th>';
+      '<th>Band</th><th class="r">Headroom</th>' +
+      // Spelled out in the header's tooltip and in the card title, because
+      // "▲ 0.38" is unreadable without knowing what it is 0.38 OF — it is
+      // percentage POINTS of success rate against the row above, not a
+      // percentage change and not a change in ticket volume.
+      '<th class="r" title="Success rate against the ' + period +
+        ' above, in percentage points. ' +
+        'A rate of 99.09% followed by 99.47% shows as ▲ 0.38.">Change</th>';
 
     const body = document.querySelector('#cmpOverall tbody');
     body.innerHTML = '';
@@ -4030,7 +4239,7 @@
       });
     }
 
-    drawThresholdGauges(boot);
+    renderOrg(boot);
     fillKpiSelector(boot);
     renderRebuildState(boot);
 

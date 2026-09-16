@@ -23,6 +23,13 @@
     --blue-600: #1d4ed8;
     --blue-050: #eff6ff;
 
+    /* Layout widths, kept here because two rules have to agree about them:
+       the sidebar's own width and how much the content cap grows when the
+       sidebar is minimised. */
+    --sidebar-w: 214px;
+    --sidebar-w-min: 58px;
+    --content-max: 1680px;
+
     /* ---- surfaces & ink ---- */
     --page:      #f2f5f9;
     --surface:   #ffffff;
@@ -87,7 +94,7 @@
     full height by default, which leaves nothing for sticky to slide within.
   */
   .sidebar {
-    width: 214px; flex: 0 0 214px;
+    width: var(--sidebar-w); flex: 0 0 var(--sidebar-w);
     background: linear-gradient(180deg, var(--navy-900) 0%, #111c31 100%);
     transition: width .16s ease, flex-basis .16s ease;
   }
@@ -96,7 +103,9 @@
     height: 100vh; overflow-y: auto;
     display: flex; flex-direction: column;
   }
-  .app.is-collapsed .sidebar { width: 58px; flex-basis: 58px; }
+  .app.is-collapsed .sidebar {
+    width: var(--sidebar-w-min); flex-basis: var(--sidebar-w-min);
+  }
   .app.is-collapsed .brand-text,
   .app.is-collapsed .nav-group-label,
   .app.is-collapsed .nav-item span.nav-text { display: none; }
@@ -188,7 +197,22 @@
     font-size: 10px; font-weight: 700; letter-spacing: .07em;
   }
 
-  .content { padding: 24px; flex: 1; max-width: 1680px; width: 100%; }
+  /*
+    The reading width is capped so a table row never runs the whole span of an
+    ultrawide monitor — but the cap was ABSOLUTE, so minimising the sidebar
+    handed its 156px back to the margin rather than to the content, and the
+    page just grew a gap on the right. Collapsing the sidebar now widens the
+    cap by exactly what the sidebar gave up, so the space goes where the
+    gesture asked for it.
+  */
+  .content {
+    padding: 24px; flex: 1; width: 100%;
+    max-width: var(--content-max);
+    transition: max-width .16s ease;
+  }
+  .app.is-collapsed .content {
+    max-width: calc(var(--content-max) + var(--sidebar-w) - var(--sidebar-w-min));
+  }
 
   /* ---------------- page header ---------------- */
   .page-head {
@@ -402,36 +426,236 @@
   }
   .chart-empty p { margin: 0; font-size: 12.5px; color: var(--text-dim); max-width: 34ch; line-height: 1.5; }
 
-  /* One threshold ring per KPI — four across on a wide screen. */
-  .gauge-grid {
-    display: grid; gap: 14px; padding: 16px 18px 18px;
-    grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  /* ---------------- the organisation stage ---------------- */
+  /*
+    A dark stage for the one thing on this page that is about people rather
+    than thresholds. Dark on purpose: everything else here is a white card, so
+    the stage reads as a different KIND of thing at a glance, and a light card
+    would have made it one more table to scan past.
+
+    Four section cards; click one and it opens. The others fall back to a rail
+    down the side, still live so you can move between sections without closing,
+    and the cards below the stage go to glass. Every motion is transform and
+    opacity, which the compositor can do on its own — no layout is recalculated
+    mid-animation, so it stays smooth on a laptop driving an external monitor.
+  */
+  .org-stage {
+    position: relative; overflow: hidden;
+    border-radius: var(--radius);
+    background:
+      radial-gradient(900px 420px at 18% -10%, rgba(37,99,235,.30), transparent 62%),
+      radial-gradient(760px 420px at 88% 8%, rgba(12,163,12,.16), transparent 60%),
+      linear-gradient(180deg, #16233c 0%, #0e1830 100%);
+    box-shadow: var(--shadow-lg);
+    padding: 22px 24px 26px;
+    margin-bottom: 18px;
+    color: #e8eef8;
   }
-  .gauge-cell {
-    border: 1px solid var(--border); border-radius: var(--radius-sm);
-    padding: 16px 14px; text-align: center; background: var(--surface-2);
+  /* A slow sheen across the top edge, so the stage is not a flat rectangle. */
+  .org-stage::before {
+    content: ''; position: absolute; left: 0; right: 0; top: 0; height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(124,177,255,.75), transparent);
   }
-  .gauge-cell h3 { margin: 0 0 2px; font-size: 13px; font-weight: 700; }
-  .gauge-cell .gauge-layer {
-    font-size: 10.5px; color: var(--text-mut); display: block; margin-bottom: 10px;
+
+  .org-stage-head {
+    display: flex; align-items: flex-start; justify-content: space-between;
+    gap: 16px; margin-bottom: 18px; position: relative; z-index: 2;
   }
-  .gauge-canvas { position: relative; height: 150px; }
-  .gauge-centre {
-    position: absolute; inset: 0;
-    display: flex; flex-direction: column; align-items: center; justify-content: center;
-    pointer-events: none;
+  .org-stage-head h2 {
+    margin: 0; font-size: 17px; font-weight: 700; letter-spacing: -.01em; color: #fff;
   }
-  .gauge-centre strong { font-size: 20px; font-weight: 700; letter-spacing: -.02em; line-height: 1.1; }
-  .gauge-centre span { font-size: 10px; color: var(--text-mut); }
-  .gauge-bands {
-    margin-top: 12px; font-size: 11px; color: var(--text-dim);
-    display: flex; flex-direction: column; gap: 4px;
+  .org-stage-head p {
+    margin: 4px 0 0; font-size: 12.5px; color: #93a9c9; line-height: 1.5;
   }
-  .gauge-bands span { display: flex; align-items: center; gap: 7px; justify-content: center; }
-  .gauge-bands i {
-    width: 8px; height: 8px; border-radius: 2px; flex: 0 0 8px; font-style: normal;
+  .org-close {
+    flex: 0 0 auto;
+    background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.18);
+    color: #dce7f7; border-radius: 999px; padding: 7px 15px;
+    font-family: inherit; font-size: 12px; font-weight: 600; cursor: pointer;
+    transition: background .14s ease, color .14s ease, transform .14s ease;
   }
-  .gauge-bands b { font-variant-numeric: tabular-nums; }
+  .org-close:hover { background: rgba(255,255,255,.2); color: #fff; transform: translateY(-1px); }
+  .org-close:focus-visible { outline: 2px solid #7cb1ff; outline-offset: 2px; }
+
+  /* The EAS lead, above the sections — the root of the chart. */
+  .org-lead {
+    display: inline-flex; align-items: center; gap: 11px;
+    padding: 9px 16px 9px 10px; margin-bottom: 16px;
+    background: rgba(255,255,255,.07);
+    border: 1px solid rgba(255,255,255,.14);
+    border-radius: 999px;
+    position: relative; z-index: 2;
+  }
+  .org-lead .org-avatar { width: 30px; height: 30px; flex: 0 0 30px; font-size: 11px; }
+  .org-lead b { font-size: 13px; color: #fff; font-weight: 650; }
+  .org-lead span { font-size: 11.5px; color: #93a9c9; }
+
+  /* The four sections. A grid, so opening one is a column-template change
+     the browser can animate rather than a reflow of absolute positions. */
+  .org-rows {
+    display: grid; gap: 14px; position: relative; z-index: 2;
+    grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+    transition: grid-template-columns .28s ease;
+  }
+  .org-stage.is-open .org-rows {
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+  }
+
+  .org-card {
+    text-align: left; font-family: inherit; cursor: pointer;
+    background: rgba(255,255,255,.055);
+    border: 1px solid rgba(255,255,255,.12);
+    border-radius: var(--radius);
+    padding: 16px 16px 14px;
+    color: inherit;
+    display: flex; flex-direction: column; gap: 10px;
+    transition: transform .22s ease, background .22s ease, border-color .22s ease,
+                box-shadow .22s ease, opacity .22s ease, filter .22s ease;
+  }
+  .org-card:hover {
+    transform: translateY(-3px);
+    background: rgba(255,255,255,.1);
+    border-color: rgba(124,177,255,.5);
+    box-shadow: 0 18px 40px -22px rgba(0,0,0,.9), 0 0 0 1px rgba(124,177,255,.18) inset;
+  }
+  .org-card:focus-visible { outline: 2px solid #7cb1ff; outline-offset: 2px; }
+
+  /* The one you opened: lit, lifted, and holding its accent. */
+  .org-card.is-active {
+    background: linear-gradient(160deg, rgba(37,99,235,.42), rgba(37,99,235,.12));
+    border-color: rgba(124,177,255,.72);
+    box-shadow: 0 0 0 1px rgba(124,177,255,.3) inset,
+                0 22px 50px -26px rgba(37,99,235,.95);
+  }
+  /* The ones you did not: pushed back, not hidden — the video keeps them in
+     shot, and being able to switch sections without closing is the point. */
+  .org-stage.is-open .org-card:not(.is-active) {
+    opacity: .42; filter: saturate(.45); transform: scale(.965);
+  }
+  .org-stage.is-open .org-card:not(.is-active):hover {
+    opacity: .85; filter: none; transform: scale(.985) translateY(-2px);
+  }
+
+  .org-card-top { display: flex; align-items: center; gap: 10px; }
+  .org-avatar {
+    width: 34px; height: 34px; flex: 0 0 34px; border-radius: 50%;
+    display: grid; place-items: center;
+    font-size: 12px; font-weight: 700; letter-spacing: .02em; color: #fff;
+    background: linear-gradient(150deg, #2563eb, #1b3f8f);
+    box-shadow: 0 4px 14px -6px rgba(37,99,235,.9);
+  }
+  .org-card h3 {
+    margin: 0; font-size: 13.5px; font-weight: 650; color: #fff; line-height: 1.3;
+  }
+  .org-modules {
+    display: inline-block; align-self: flex-start;
+    padding: 2px 9px; border-radius: 999px;
+    background: rgba(124,177,255,.16); border: 1px solid rgba(124,177,255,.3);
+    font-size: 10px; font-weight: 700; letter-spacing: .06em; color: #a9c9ff;
+  }
+  .org-head-name { font-size: 12px; color: #b9cbe4; line-height: 1.45; }
+  .org-head-name b { color: #e8eef8; font-weight: 600; }
+  .org-interim {
+    font-size: 10px; color: #f3c969; font-weight: 600;
+    letter-spacing: .04em; text-transform: uppercase;
+  }
+  .org-card-foot {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    margin-top: auto; padding-top: 10px;
+    border-top: 1px solid rgba(255,255,255,.1);
+    font-size: 11.5px; color: #93a9c9;
+  }
+  .org-rate { font-weight: 700; font-size: 14px; font-variant-numeric: tabular-nums; }
+  .org-rate.is-none { color: #7e91ab; font-weight: 600; font-size: 12px; }
+
+  /* The opened section's people and figures. */
+  .org-detail {
+    margin-top: 16px; position: relative; z-index: 2;
+    background: rgba(255,255,255,.05);
+    border: 1px solid rgba(255,255,255,.12);
+    border-radius: var(--radius);
+    padding: 18px 20px 20px;
+    animation: orgRise .3s ease both;
+  }
+  @keyframes orgRise {
+    from { opacity: 0; transform: translateY(10px) scale(.99); }
+    to   { opacity: 1; transform: none; }
+  }
+  .org-detail-head {
+    display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px 14px;
+    margin-bottom: 14px;
+  }
+  .org-detail-head h3 { margin: 0; font-size: 15px; font-weight: 700; color: #fff; }
+  .org-detail-head .org-modules { align-self: center; }
+
+  .org-figures {
+    display: grid; gap: 10px; margin-bottom: 16px;
+    grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
+  }
+  .org-figure {
+    background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.1);
+    border-radius: var(--radius-sm); padding: 11px 13px;
+  }
+  .org-figure span {
+    display: block; font-size: 9.5px; font-weight: 700; letter-spacing: .11em;
+    text-transform: uppercase; color: #7f95b4; margin-bottom: 4px;
+  }
+  .org-figure strong {
+    font-size: 17px; font-weight: 700; letter-spacing: -.01em; color: #fff;
+    font-variant-numeric: tabular-nums;
+  }
+  .org-figure small { display: block; margin-top: 3px; font-size: 10.5px; color: #8fa5c2; }
+
+  .org-people-label {
+    font-size: 9.5px; font-weight: 700; letter-spacing: .11em;
+    text-transform: uppercase; color: #7f95b4; margin: 0 0 9px;
+  }
+  .org-people {
+    display: grid; gap: 8px;
+    grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  }
+  .org-person {
+    display: flex; align-items: center; gap: 9px;
+    padding: 7px 11px 7px 8px;
+    background: rgba(255,255,255,.045);
+    border: 1px solid rgba(255,255,255,.09);
+    border-radius: 999px;
+    font-size: 12px; color: #d7e2f2;
+    /* Each name arrives just after the one before it, so the section fills in
+       rather than appearing all at once. Capped at nine steps so a large
+       section does not take a second and a half to finish. */
+    animation: orgRise .26s ease both;
+    animation-delay: calc(var(--i) * 28ms);
+  }
+  .org-person .org-avatar {
+    width: 24px; height: 24px; flex: 0 0 24px; font-size: 9.5px;
+    background: linear-gradient(150deg, #3f6fd8, #24417e);
+    box-shadow: none;
+  }
+  .org-person.is-head {
+    background: rgba(124,177,255,.16); border-color: rgba(124,177,255,.34);
+    color: #fff; font-weight: 600;
+  }
+  .org-person.is-head .org-avatar {
+    background: linear-gradient(150deg, #2563eb, #14337a);
+  }
+
+  /*
+    Glass. Everything else on the screen goes back while a section is open —
+    which is what "the background tables fade" asks for, done with blur and
+    opacity so nothing moves and nothing is unmounted.
+  */
+  .org-dimmed {
+    filter: blur(3px) saturate(.6); opacity: .4;
+    pointer-events: none; user-select: none;
+    transition: filter .3s ease, opacity .3s ease;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .org-card, .org-rows, .org-close, .content { transition: none; }
+    .org-detail, .org-person { animation: none; }
+  }
 
   /* ---------------- comparison picker ---------------- */
   .cmp-picker { padding: 20px 22px 22px; }

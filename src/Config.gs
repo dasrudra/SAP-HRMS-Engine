@@ -153,6 +153,46 @@ const CONFIG = {
   },
 
   /**
+   * The EAS organisation chart, as the team currently stands.
+   *
+   * Only what ROSTER cannot say: who heads each section, which SAP modules the
+   * section owns, and the wording the printed chart uses. The people come from
+   * ROSTER, so a joiner is added in one place and appears in both.
+   *
+   * `name` must match the ROSTER and DEPARTMENTS key exactly — that is how a
+   * section finds its members and its KPI 1 figures.
+   *
+   * `interim: true` marks a section whose head is holding it alongside another
+   * role. Utpal Biswas leads EAS and is covering Supply Chain, which is worth
+   * saying on the chart rather than leaving his name to appear twice with no
+   * explanation.
+   */
+  ORG: {
+    name: 'Enterprise Applications Services',
+    short: 'EAS',
+    head: 'Utpal Biswas',
+    sections: [
+      { name: 'Financial Applications',
+        label: 'Financial Applications',
+        modules: 'FI, CO +',
+        head: 'Abul Bashar' },
+      { name: 'Sales Applications',
+        label: 'Sales & Customer Applications',
+        modules: 'SD +',
+        head: 'Muhammad Abul Masum Siddique' },
+      { name: 'SCM Applications',
+        label: 'Supply Chain Applications',
+        modules: 'MM +',
+        head: 'Utpal Biswas',
+        interim: true },
+      { name: 'Manufacturing Applications',
+        label: 'Manufacturing Applications',
+        modules: 'PP +',
+        head: 'Pradip Kumar Nath' }
+    ]
+  },
+
+  /**
    * Where each current section's people sat before the August split.
    *
    * Financial and EAS were already their own sections, so they map to
@@ -1022,6 +1062,68 @@ function matchZone(value) {
     }
   }
   return '';
+}
+
+
+/**
+ * The organisation chart, with its people filled in from ROSTER.
+ *
+ * Assembled here rather than in the browser so the head-is-first convention in
+ * ROSTER stays a fact about Config and nothing else has to know it. The head
+ * is lifted out of the member list — he is named separately on the chart, and
+ * printing him twice in his own section reads as a duplicate.
+ *
+ * @return {Object} { name, short, head, sections: [{ name, label, modules,
+ *                    head, interim, members: [...], size }] }
+ */
+function orgChart() {
+  const org = CONFIG.ORG || { sections: [] };
+
+  const sections = (org.sections || []).map(function (section) {
+    const roster = (CONFIG.ROSTER && CONFIG.ROSTER[section.name]) || [];
+    const headKey = matchPerson(section.head);
+
+    const members = roster.filter(function (person) {
+      return matchPerson(person) !== headKey;
+    });
+
+    return {
+      name: section.name,
+      label: section.label || section.name,
+      modules: section.modules || '',
+      head: section.head || '',
+      interim: Boolean(section.interim),
+      members: members,
+      // The head counts as one of the section's people even though he is
+      // listed apart from them.
+      size: members.length + (section.head ? 1 : 0)
+    };
+  });
+
+  // Counted by person, not by seat. Utpal Biswas leads EAS and covers Supply
+  // Chain, so summing the section sizes would report one more person than the
+  // team has.
+  const seen = {};
+  let headcount = 0;
+  function countPerson(name) {
+    const key = matchPerson(name);
+    if (!key || seen[key]) return;
+    seen[key] = true;
+    headcount++;
+  }
+  countPerson(org.head);
+  sections.forEach(function (s) {
+    countPerson(s.head);
+    s.members.forEach(countPerson);
+  });
+
+  return {
+    name: org.name || 'Enterprise Application Services',
+    short: org.short || 'EAS',
+    head: org.head || '',
+    sections: sections,
+    headcount: headcount
+  };
 }
 
 

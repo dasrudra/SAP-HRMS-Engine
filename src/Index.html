@@ -628,15 +628,28 @@
             <p class="sub">KPI targets and thresholds. Policy §6 calls these provisional.</p>
           </div>
         </div>
-        <div class="card chart-card">
-          <div class="chart-head">
-            <h2>Performance thresholds</h2>
-            <p>
-              Each ring is one KPI's green / yellow / red bands, drawn to scale.
-              How thin the green slice is tells you how tight the target is.
-            </p>
+        <!--
+          THE ORGANISATION, replacing the threshold rings.
+          The rings restated the KPI thresholds table underneath them, number
+          for number, so the page said the same thing twice. This says
+          something the dashboard could not say at all: who EAS is, and how
+          each section is performing against KPI 1 right now.
+
+          Click a section and it opens: the others fall back to a rail, the
+          cards below go to glass, and the section's people and figures come
+          forward. Built by renderOrg().
+        -->
+        <div class="org-stage" id="orgStage">
+          <div class="org-stage-head">
+            <div>
+              <h2 id="orgTitle">Enterprise Applications Services</h2>
+              <p id="orgSub">Loading the team…</p>
+            </div>
+            <button class="org-close" id="orgClose" hidden>✕ Close</button>
           </div>
-          <div class="gauge-grid" id="gaugeGrid"></div>
+          <div class="org-lead" id="orgLead" hidden></div>
+          <div class="org-rows" id="orgRows"></div>
+          <div class="org-detail" id="orgDetail" hidden></div>
         </div>
 
         <div class="card">
