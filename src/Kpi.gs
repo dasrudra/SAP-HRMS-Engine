@@ -317,6 +317,23 @@ function monthsInScope(scope, scheme) {
   const text = String(scope || '').trim();
   if (!text || text === ALL_MONTHS) return null;
 
+  // A comma-separated list is several months at once — 'compare January and
+  // August without the seven months between them', which neither a single
+  // month nor a quarter can express. Each part is resolved on its own, so a
+  // list may mix months and quarters, and a list containing ALL collapses to
+  // every month, because "all of them plus August" is just all of them.
+  if (text.indexOf(',') !== -1) {
+    const wanted = {};
+    const parts = text.split(',');
+
+    for (let i = 0; i < parts.length; i++) {
+      const one = monthsInScope(parts[i], scheme);
+      if (one === null) return null;                 // ALL was in the list
+      Object.keys(one).forEach(function (m) { wanted[m] = true; });
+    }
+    return wanted;
+  }
+
   const quarter = text.match(/^(\d{4})-Q([1-4])$/);
   if (quarter) {
     const wanted = {};

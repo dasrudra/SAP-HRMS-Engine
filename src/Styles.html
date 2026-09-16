@@ -238,6 +238,73 @@
     border-radius: 999px;
     font-size: 12px; color: var(--navy-700);
   }
+  /* The SLA layer, beside the indicator's name. Small, so it reads as a
+     qualifier on the title rather than as part of it. */
+  .layer-pill {
+    display: inline-block; vertical-align: middle;
+    margin-left: 10px; padding: 4px 11px;
+    background: var(--blue-050); border: 1px solid #cfe0f8;
+    border-radius: 999px;
+    font-size: 11px; font-weight: 700; letter-spacing: .04em;
+    text-transform: uppercase; color: var(--blue-600);
+    position: relative; top: -2px;
+  }
+
+  /*
+    The month picker — a button and a panel of checkboxes rather than a
+    <select>, because several months at once is the thing it has to express
+    and a <select multiple> can only do that by ctrl-clicking a list box.
+  */
+  .picker { position: relative; }
+  .picker-btn {
+    display: inline-flex; align-items: center; gap: 10px;
+    min-width: 190px; text-align: left; cursor: pointer;
+    font-family: inherit;
+  }
+  .picker-btn::after {
+    content: ''; margin-left: auto;
+    width: 0; height: 0; flex: 0 0 auto;
+    border-left: 4px solid transparent; border-right: 4px solid transparent;
+    border-top: 5px solid var(--text-dim);
+  }
+  .picker-menu {
+    position: absolute; right: 0; top: calc(100% + 6px); z-index: 30;
+    min-width: 240px; max-height: 340px; overflow-y: auto;
+    padding: 6px;
+    background: var(--surface);
+    border: 1px solid var(--border-str); border-radius: var(--radius-sm);
+    box-shadow: var(--shadow-lg);
+  }
+  .picker-rule { height: 1px; margin: 5px 4px; background: var(--border); }
+  .picker-option {
+    display: flex; align-items: center; gap: 10px;
+    width: 100%; padding: 8px 10px;
+    background: none; border: 0; border-radius: 5px;
+    font-family: inherit; font-size: 13px; color: var(--text);
+    text-align: left; cursor: pointer;
+    transition: background .12s ease;
+  }
+  .picker-option:hover { background: var(--blue-050); }
+  .picker-option:focus-visible { outline: 2px solid var(--blue-500); outline-offset: -2px; }
+  .picker-option.is-on { color: var(--blue-600); font-weight: 600; }
+  .picker-tick {
+    width: 15px; height: 15px; flex: 0 0 15px; border-radius: 4px;
+    border: 1.5px solid var(--border-str); background: var(--surface);
+    position: relative; transition: background .12s ease, border-color .12s ease;
+  }
+  .picker-option.is-on .picker-tick {
+    background: var(--blue-500); border-color: var(--blue-500);
+  }
+  /* The check itself, drawn rather than fetched — nothing here loads. */
+  .picker-option.is-on .picker-tick::after {
+    content: ''; position: absolute; left: 4px; top: 1px;
+    width: 4px; height: 8px;
+    border: solid #fff; border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+  }
+  /* All months is the exclusive one, and reads as a heading over the rest. */
+  .picker-option.is-all { font-weight: 650; }
+
   .period-note b { font-weight: 700; }
   .period-note span { color: var(--text-dim); }
 

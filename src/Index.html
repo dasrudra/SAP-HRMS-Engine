@@ -113,7 +113,13 @@
       <section class="view" id="view-kpi1" hidden>
         <div class="page-head">
           <div>
-            <h1>KPI 1: Error/Issue Resolution Time</h1>
+            <!--
+              The SLA layer belongs with the name: "Layer 3" is how the policy
+              refers to this indicator, and it was only visible on Settings.
+              Filled by renderKpiHeads() so it cannot drift from CONFIG.
+            -->
+            <h1>KPI 1: Error/Issue Resolution Time
+              <span class="layer-pill" id="kpi1Layer" hidden></span></h1>
             <p class="sub">
               Ticket Resolution Success Rate across Enterprise Application Services.
               Target ≥ 99.50% monthly · Policy TVL-KPI-001 §6.3
@@ -129,7 +135,20 @@
             <p class="period-note" id="kpi1Period" hidden></p>
           </div>
           <div class="page-actions">
-            <select id="monthPicker" class="select"></select>
+            <!--
+              Several months at once, which a <select> cannot express without
+              ctrl-clicking a list box. A button and a panel of checkboxes can,
+              and All months stays exclusive inside it. Built by
+              fillMonthPicker(); the chosen months live in state.month as a
+              comma list, which is also what getKpi1 takes.
+            -->
+            <div class="picker" id="monthPickerWrap">
+              <button type="button" class="select picker-btn" id="monthPicker"
+                      aria-haspopup="listbox" aria-expanded="false">
+                <span id="monthPickerLabel">All months</span>
+              </button>
+              <div class="picker-menu" id="monthPickerMenu" role="listbox" hidden></div>
+            </div>
             <button class="btn btn-ghost" id="refreshKpi1">↻ Refresh</button>
           </div>
         </div>
@@ -294,10 +313,13 @@
       <section class="view" id="view-kpi2" hidden>
         <div class="page-head">
           <div>
-            <h1>KPI 2: SAP User Training Satisfaction &amp; Feedback</h1>
+            <h1>KPI 2: SAP User Training Satisfaction &amp; Feedback
+              <span class="layer-pill" id="kpi2Layer" hidden></span></h1>
+            <!-- The layer moved to the pill beside the heading; repeating it
+                 here would be the page saying it twice. -->
             <p class="sub">
               Positive responses as a share of applicable responses.
-              Target ≥ 90.00% · Layer 3 · Service Requests
+              Target ≥ 90.00% per quarter
             </p>
             <p class="period-note" id="kpi2Period" hidden></p>
           </div>

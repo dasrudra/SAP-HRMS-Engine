@@ -108,6 +108,7 @@
     // After fillSettings, not before: it populates the KPI selector, and which
     // months the comparison may offer depends on which KPI is selected.
     fillSettings(boot);
+    renderKpiHeads(boot);
     fillComparePeriods(comparePeriodList());
 
     restoreState(function () {
@@ -245,14 +246,7 @@
       });
     });
 
-    const picker = document.getElementById('monthPicker');
-    if (picker) {
-      picker.addEventListener('change', function () {
-        state.month = picker.value;
-        saveState();
-        loadKpi1();
-      });
-    }
+    wireMonthPicker();
 
     const refresh = document.getElementById('refreshKpi1');
     if (refresh) refresh.addEventListener('click', function () { loadKpi1(); });
@@ -410,8 +404,11 @@
         if (params.view) state.view = params.view;
         if (params.month) {
           state.month = params.month;
-          const picker = document.getElementById('monthPicker');
-          if (picker) picker.value = params.month;
+          // The menu was built before this ran, from a state.month that was
+          // still empty — so it is showing the default, not what the URL says.
+          // Quietly, because restoreState is mid-flight and saving now would
+          // write back a half-applied state.
+          syncMonthPicker(true);
         }
         state.compareRan = params.ran === '1';
 
@@ -1192,6 +1189,7 @@
     fillFeedbackQuarters(boot.feedbackQuarters);
     fillComparePeriods(comparePeriodList());
     fillSettings(boot);
+    renderKpiHeads(boot);
     loadUploads();
 
     if (state.view === 'kpi1') loadKpi1();
@@ -1816,48 +1814,178 @@
    * view you choose, not the one you land on.
    */
   function fillMonthPicker(months) {
-    const picker = document.getElementById('monthPicker');
-    if (!picker) return;
+    const button = document.getElementById('monthPicker');
+    const menu = document.getElementById('monthPickerMenu');
+    if (!button || !menu) return;
 
     if (!months || !months.length) {
-      picker.innerHTML = '<option value="">No data loaded</option>';
-      picker.disabled = true;
+      setText('monthPickerLabel', 'No data loaded');
+      button.disabled = true;
+      menu.innerHTML = '';
       return;
     }
+    button.disabled = false;
 
-    const valid = [ALL_MONTHS].concat(months);
-    if (!state.month || valid.indexOf(state.month) === -1) state.month = months[0];
+    // Drop anything the data no longer has, then fall back rather than
+    // showing a period nothing can be scored for.
+    const chosen = selectedMonths().filter(function (m) {
+      return m === ALL_MONTHS || months.indexOf(m) !== -1;
+    });
+    state.month = chosen.length ? chosen.join(',') : months[0];
 
-    picker.innerHTML = '';
-    picker.disabled = false;
+    menu.innerHTML = '';
+    menu.appendChild(monthOption(ALL_MONTHS,
+      'All months (' + months.length + ')', 'is-all'));
 
-    const all = document.createElement('option');
-    all.value = ALL_MONTHS;
-    all.textContent = 'All months (' + months.length + ')';
-    picker.appendChild(all);
-
-    // A rule between the aggregate and the individual months, so the first
-    // real month is not mistaken for part of the same group.
-    const divider = document.createElement('option');
-    divider.disabled = true;
-    divider.textContent = '──────────';
-    picker.appendChild(divider);
+    const rule = document.createElement('div');
+    rule.className = 'picker-rule';
+    menu.appendChild(rule);
 
     months.forEach(function (month) {
-      const option = document.createElement('option');
-      option.value = month;
-      option.textContent = formatMonth(month);
-      picker.appendChild(option);
+      menu.appendChild(monthOption(month, formatMonth(month), ''));
     });
 
-    picker.value = state.month;
+    syncMonthPicker(true);
   }
 
 
-  function syncMonthPicker() {
-    const picker = document.getElementById('monthPicker');
-    if (picker && picker.value !== state.month) picker.value = state.month;
-    saveState();
+  /** One row of the month menu. */
+  function monthOption(value, label, extra) {
+    const row = document.createElement('button');
+    row.type = 'button';
+    row.className = 'picker-option' + (extra ? ' ' + extra : '');
+    row.dataset.month = value;
+    row.setAttribute('role', 'option');
+    row.innerHTML = '<span class="picker-tick" aria-hidden="true"></span>' +
+                    '<span>' + escapeHtml(label) + '</span>';
+    row.addEventListener('click', function () { toggleMonth(value); });
+    return row;
+  }
+
+
+  /** The months currently chosen, as a list. ALL_MONTHS is one of them. */
+  function selectedMonths() {
+    return String(state.month || '').split(',')
+      .map(function (m) { return m.trim(); })
+      .filter(Boolean);
+  }
+
+
+  /**
+   * Adds or removes one month from the selection.
+   *
+   * All months is EXCLUSIVE: choosing it clears the rest, and choosing any
+   * month clears it. "Everything, plus August" is just everything, and a
+   * control that lets you ask for it invites you to read the answer as
+   * something narrower than it is.
+   *
+   * Unticking the last month falls back to All months rather than leaving the
+   * screen scoped to nothing.
+   */
+  function toggleMonth(value) {
+    const chosen = selectedMonths();
+
+    if (value === ALL_MONTHS) {
+      state.month = ALL_MONTHS;
+    } else {
+      const without = chosen.filter(function (m) {
+        return m !== value && m !== ALL_MONTHS;
+      });
+      const next = (without.length === chosen.filter(function (m) {
+        return m !== ALL_MONTHS;
+      }).length) ? without.concat([value]) : without;
+
+      // Newest first, matching the order they are listed in.
+      next.sort().reverse();
+      state.month = next.length ? next.join(',') : ALL_MONTHS;
+    }
+
+    syncMonthPicker();
+    loadKpi1();
+  }
+
+
+  /**
+   * Paints the picker from state.month.
+   *
+   * @param {boolean} quiet  true while building, so it does not re-save state
+   *                         that restoreState is still in the middle of applying
+   */
+  function syncMonthPicker(quiet) {
+    const menu = document.getElementById('monthPickerMenu');
+    const chosen = selectedMonths();
+
+    if (menu) {
+      Array.prototype.forEach.call(menu.querySelectorAll('.picker-option'),
+        function (row) {
+          row.classList.toggle('is-on', chosen.indexOf(row.dataset.month) !== -1);
+        });
+    }
+
+    setText('monthPickerLabel', monthPickerLabel(chosen));
+    if (!quiet) saveState();
+  }
+
+
+  function monthPickerLabel(chosen) {
+    const months = (state.boot && state.boot.availableMonths) || [];
+    if (!chosen.length || chosen.indexOf(ALL_MONTHS) !== -1) {
+      return 'All months (' + months.length + ')';
+    }
+    if (chosen.length === 1) return formatMonth(chosen[0]);
+    return chosen.length + ' months selected';
+  }
+
+
+  /** Opens and closes the month menu. */
+  function wireMonthPicker() {
+    const button = document.getElementById('monthPicker');
+    const menu = document.getElementById('monthPickerMenu');
+    if (!button || !menu) return;
+
+    button.addEventListener('click', function (e) {
+      e.stopPropagation();
+      const open = menu.hidden;
+      menu.hidden = !open;
+      button.setAttribute('aria-expanded', open ? 'true' : 'false');
+    });
+
+    // Anywhere outside closes it — including a click on the page behind.
+    document.addEventListener('click', function (e) {
+      if (menu.hidden) return;
+      if (menu.contains(e.target) || button.contains(e.target)) return;
+      menu.hidden = true;
+      button.setAttribute('aria-expanded', 'false');
+    });
+
+    document.addEventListener('keydown', function (e) {
+      if (e.key !== 'Escape' || menu.hidden) return;
+      menu.hidden = true;
+      button.setAttribute('aria-expanded', 'false');
+      button.focus();
+    });
+  }
+
+
+  /**
+   * The SLA layer, beside each indicator's name.
+   *
+   * "Layer 3" is how the policy refers to these, and it was visible only on
+   * Settings. Read from CONFIG through the bootstrap rather than written into
+   * the markup, so the heading cannot drift from the definition it names.
+   */
+  function renderKpiHeads(boot) {
+    const list = (boot && boot.kpiList) || [];
+
+    [['KPI1', 'kpi1Layer'], ['KPI2', 'kpi2Layer']].forEach(function (pair) {
+      const el = document.getElementById(pair[1]);
+      if (!el) return;
+
+      const kpi = list.filter(function (k) { return k.id === pair[0]; })[0];
+      const layer = kpi && kpi.slaLayer;
+      el.hidden = !layer;
+      if (layer) el.textContent = layer;
+    });
   }
 
 
@@ -2081,9 +2209,26 @@
     const box = document.getElementById('kpi1Period');
     if (!box) return;
 
-    if (!k || !k.allMonths) { box.hidden = true; return; }
+    const chosen = selectedMonths();
+    const several = chosen.length > 1 && chosen.indexOf(ALL_MONTHS) === -1;
+
+    // A single month needs no chip: the picker beside the heading already
+    // names it, and the figure IS the monthly reported one.
+    if (!k || (!k.allMonths && !several)) { box.hidden = true; return; }
 
     const months = (state.boot && state.boot.availableMonths) || [];
+
+    if (several) {
+      // Named rather than counted. Four months picked out of nine is a
+      // deliberate selection, and which four is the whole point of it.
+      box.hidden = false;
+      box.innerHTML =
+        '<b>' + chosen.length + ' months</b>' +
+        '<span>' + chosen.slice().sort().map(formatMonth).join(' · ') + '</span>' +
+        '<span>combined · an aggregate, not the monthly reported figure</span>';
+      return;
+    }
+
     const span = months.length
       ? formatMonth(months[months.length - 1]) + ' – ' + formatMonth(months[0])
       : '';
@@ -2179,7 +2324,12 @@
       tile({
         label: 'Received', icon: 'inbox', tone: 'blue',
         value: count(t.received),
-        note: k.allMonths ? 'tickets across all months' : 'tickets this month'
+        // "this month" would be a lie over a three-month selection, and the
+        // tile is the first thing read on the screen.
+        note: k.allMonths ? 'tickets across all months'
+            : (selectedMonths().length > 1
+                ? 'tickets across ' + selectedMonths().length + ' months'
+                : 'tickets this month')
       }) +
       tile({
         label: 'Completed', icon: 'check', tone: 'teal',
