@@ -113,8 +113,13 @@ function appendTicketBatch(uploadId, rows) {
 
   try {
     const sheet = sheetFor(CONFIG.SHEETS.TICKETS);
-    const stamp = new Date();
+    const stamp = uploadStamp(uploadId);
 
+    // Stamped with the UPLOAD's time, not this batch's. An upload arrives in
+    // batches of 500 seconds apart, and mergeRows decides which of two rows
+    // for the same ticket is newer by comparing these — so two files of the
+    // same upload have to carry the same stamp, or the last batch to land
+    // would outrank the first for no reason. See uploadStamp().
     const clean = rows.map(function (row) {
       const out = row.slice(0, COL.WIDTH);
       while (out.length < COL.WIDTH) out.push('');   // pad short rows
@@ -609,14 +614,41 @@ function rewrite(sheet, survivors, before, width) {
 /**
  * Merges two rows describing the same ticket.
  *
- * Rules:
- *   - a non-empty value beats an empty one
- *   - when both are non-empty the existing value stands (first write wins,
- *     so a re-upload cannot quietly rewrite history)
- *   - the two "In ... Report" flags are OR'd, since a ticket can legitimately
- *     appear in both the overall export and a department export
- *   - Source Files accumulates, so the audit trail shows every file that
- *     contributed
+ * TWO DIFFERENT KINDS OF DUPLICATE, AND THEY NEED OPPOSITE RULES
+ *
+ * The first is two files of the SAME upload: the Service/Part export and a
+ * department export describe many of the same tickets from one snapshot, and
+ * each leaves blank what the other fills in. Neither is more current, so they
+ * complete each other — a non-blank beats a blank, and where both have a value
+ * the one already stored stands.
+ *
+ * The second is a RE-EXPORT taken later. Download January to September, upload
+ * it, then download September onward and upload that too: the overlap is the
+ * same tickets seen at two different times, and the later view is simply more
+ * true. A ticket open on the 8th and completed on the 12th comes back with a
+ * Completion Date and a real Delay Days.
+ *
+ * Under one rule those two cases cannot both be right, and the old rule got
+ * the second one badly wrong. Delay Days is 0 on an open ticket — not blank,
+ * zero — so "the stored value stands" kept the 0 and threw away the 5 that
+ * says the ticket finished five days late. The KPI then scored it as on time.
+ * Quietly, with no way to see it.
+ *
+ * So recency decides. Every row carries the timestamp of the upload it came
+ * in on:
+ *   - incoming from a LATER upload: its non-blank values win
+ *   - same upload: the old rule, which is the right one for that case
+ *   - incoming older: the stored row stands
+ *
+ * A blank in the newer row never erases a known value — an overall export
+ * omits Status entirely, and a refresh of it should not wipe the Status a
+ * department export supplied. That also means a re-opened ticket keeps its
+ * Completion Date rather than silently un-completing; correcting that is a
+ * delete and re-upload, which is visible, which is the point.
+ *
+ * The two "In ... Report" flags are always OR'd — a ticket can legitimately
+ * appear in both kinds of export — and Source Files accumulates, so the audit
+ * trail shows every file that contributed.
  *
  * @param {Array} existing
  * @param {Array} incoming
@@ -624,10 +656,12 @@ function rewrite(sheet, survivors, before, width) {
  */
 function mergeRows(existing, incoming) {
   const out = existing.slice();
+  const newer = stampOf(incoming) > stampOf(existing);
 
   for (let i = 0; i < COL.WIDTH; i++) {
     if (i === COL.IN_OVERALL || i === COL.IN_DEPT || i === COL.SOURCE) continue;
-    if (isBlank(out[i]) && !isBlank(incoming[i])) out[i] = incoming[i];
+    if (isBlank(incoming[i])) continue;
+    if (isBlank(out[i]) || newer) out[i] = incoming[i];
   }
 
   out[COL.IN_OVERALL] = truthy(existing[COL.IN_OVERALL]) || truthy(incoming[COL.IN_OVERALL]);
@@ -641,6 +675,45 @@ function mergeRows(existing, incoming) {
   }).join(' | ');
 
   return out;
+}
+
+
+/**
+ * A row's upload time, as a number, for comparing two rows of the same ticket.
+ *
+ * @return {number} 0 when the row carries no readable stamp, which sorts it
+ *                  oldest — the safe answer, since it cannot then overwrite
+ *                  anything on a recency claim it has not made.
+ */
+function stampOf(row) {
+  const value = row && row[COL.UPDATED];
+  if (value instanceof Date) return value.getTime();
+
+  const text = String(value == null ? '' : value).trim();
+  if (!text) return 0;
+
+  const time = new Date(text).getTime();
+  return isNaN(time) ? 0 : time;
+}
+
+
+/**
+ * The time an upload started, taken from its own ID.
+ *
+ * 'UPL-20260916-103455-a1b2' -> that moment. Every batch of one upload then
+ * stamps its rows identically, which is what lets mergeRows tell "the other
+ * file of this upload" apart from "a later re-export".
+ *
+ * @param {string} uploadId
+ * @return {Date} now, when the ID is not one of ours
+ */
+function uploadStamp(uploadId) {
+  const found = String(uploadId || '')
+    .match(/^UPL-(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})/);
+  if (!found) return new Date();
+
+  return new Date(Number(found[1]), Number(found[2]) - 1, Number(found[3]),
+                  Number(found[4]), Number(found[5]), Number(found[6]));
 }
 
 
