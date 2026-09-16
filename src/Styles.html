@@ -439,7 +439,7 @@
     opacity, which the compositor can do on its own — no layout is recalculated
     mid-animation, so it stays smooth on a laptop driving an external monitor.
   */
-  .org-stage {
+  .org-stage, .cmp-stage {
     position: relative; overflow: hidden;
     border-radius: var(--radius);
     background:
@@ -452,7 +452,7 @@
     color: #e8eef8;
   }
   /* A slow sheen across the top edge, so the stage is not a flat rectangle. */
-  .org-stage::before {
+  .org-stage::before, .cmp-stage::before {
     content: ''; position: absolute; left: 0; right: 0; top: 0; height: 1px;
     background: linear-gradient(90deg, transparent, rgba(124,177,255,.75), transparent);
   }
@@ -693,22 +693,81 @@
   }
 
   /* ---------------- comparison picker ---------------- */
-  .cmp-picker { padding: 20px 22px 22px; }
-  .cmp-grid {
-    display: grid; gap: 16px;
-    grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  /*
+    Two numbered steps, not one block of five dropdowns. Which KPI decides
+    what the period list contains — pick it second and the months you just
+    chose are thrown away — so it is genuinely first and is drawn that way.
+  */
+  .cmp-steps {
+    display: grid; gap: 18px; position: relative; z-index: 2;
+    grid-template-columns: minmax(260px, 340px) 1fr;
+    align-items: start;
   }
-  .cmp-field { display: flex; flex-direction: column; gap: 6px; }
+  @media (max-width: 1080px) {
+    .cmp-steps { grid-template-columns: 1fr; }
+  }
+  .cmp-step { display: flex; gap: 13px; align-items: flex-start; }
+  .cmp-step-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 9px; }
+  .cmp-step-no {
+    width: 26px; height: 26px; flex: 0 0 26px; border-radius: 50%;
+    display: grid; place-items: center;
+    background: linear-gradient(150deg, #2563eb, #1b3f8f); color: #fff;
+    font-size: 12px; font-weight: 700;
+    box-shadow: 0 4px 14px -6px rgba(37,99,235,.9);
+    margin-top: 2px;
+  }
+  /* The step's own heading. Its four field labels sit a tier below it. */
+  .cmp-step-body > label {
+    font-size: 11px; font-weight: 700; color: #a9c9ff;
+    letter-spacing: .09em; text-transform: uppercase;
+  }
+  .cmp-hint { margin: 1px 0 0; font-size: 11.5px; color: #93a9c9; line-height: 1.5; }
+
+  /* Four across wherever they fit, two when they do not — never three and a
+     stray, which is what auto-fit at a wider minimum produced. */
+  .cmp-grid {
+    display: grid; gap: 12px; margin-top: 3px;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  }
+  .cmp-field { display: flex; flex-direction: column; gap: 5px; }
   .cmp-field label {
-    font-size: 11px; font-weight: 700; color: var(--navy-700);
-    letter-spacing: .05em; text-transform: uppercase;
+    font-size: 10px; font-weight: 700; color: #8fa5c2;
+    letter-spacing: .07em; text-transform: uppercase;
   }
   .cmp-field .muted { font-weight: 400; text-transform: none; letter-spacing: 0; }
-  .cmp-field .select { width: 100%; padding: 10px 12px; }
-  .cmp-actions {
-    display: flex; align-items: center; justify-content: center; gap: 10px;
-    margin-top: 20px;
+  .cmp-field .select { width: 100%; }
+
+  /* The selects wear the stage rather than the page. */
+  .cmp-stage .select {
+    padding: 10px 12px; width: 100%;
+    background: rgba(255,255,255,.07);
+    border: 1px solid rgba(255,255,255,.16);
+    color: #e8eef8;
+    transition: border-color .14s ease, background .14s ease;
   }
+  .cmp-stage .select:hover:not(:disabled) {
+    background: rgba(255,255,255,.12); border-color: rgba(124,177,255,.5);
+  }
+  .cmp-stage .select:focus-visible { outline: 2px solid #7cb1ff; outline-offset: 1px; }
+  .cmp-stage .select:disabled { opacity: .45; }
+  /* The dropdown list itself is drawn by the OS, so its options need ink that
+     works on the white the browser gives them. */
+  .cmp-stage .select option { background: #ffffff; color: var(--text); }
+
+  .cmp-actions {
+    display: flex; align-items: center; justify-content: flex-end; gap: 12px;
+    margin-top: 20px; padding-top: 18px;
+    border-top: 1px solid rgba(255,255,255,.1);
+    position: relative; z-index: 2;
+  }
+  .cmp-summary { margin-right: auto; font-size: 12.5px; color: #93a9c9; }
+  .cmp-summary b { color: #fff; font-weight: 650; }
+  .cmp-stage .btn-ghost {
+    background: rgba(255,255,255,.08); border-color: rgba(255,255,255,.18);
+    color: #dce7f7;
+  }
+  .cmp-stage .btn-ghost:hover { background: rgba(255,255,255,.18); color: #fff; }
+
   .btn-lg { padding: 11px 26px; font-size: 14px; font-weight: 700; border-radius: 8px; }
 
   /* ---------------- upload row actions ---------------- */
@@ -868,6 +927,25 @@
     transition: transform .16s ease;
   }
   tbody tr:hover td:first-child::before { transform: scaleY(1); }
+  /*
+    Upload history cells. One upload can carry forty-three files, and printing
+    them all made a row a thousand pixels tall. The cell shows the first name
+    on one line and counts the rest; the full list is in the tooltip and in the
+    delete dialog, which is where you check before removing anything.
+  */
+  td.nowrap, th.nowrap { white-space: nowrap; }
+  .cell-files { display: block; max-width: 320px; }
+  .cell-files b {
+    display: block; font-weight: 600;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .cell-more {
+    display: inline-block; margin-top: 3px; padding: 1px 7px;
+    background: var(--surface-2); border: 1px solid var(--border);
+    border-radius: 999px;
+    font-size: 10.5px; font-weight: 600; color: var(--text-dim);
+    white-space: nowrap;
+  }
   /* A column of zeros should recede — the non-zero values are the signal. */
   td.zero { color: var(--text-mut); }
   td.empty { text-align: center; color: var(--text-mut); padding: 30px; font-style: italic; background: var(--surface) !important; }

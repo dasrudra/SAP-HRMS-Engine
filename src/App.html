@@ -1326,14 +1326,29 @@
         const deleted = /^deleted/.test(h.notes || '');
         const tr = document.createElement('tr');
 
+        // The full values live on the row, not in the cells.
+        //
+        // A forty-three file upload printed every filename, then the word
+        // FEEDBACK forty-three times, then its module forty-three times — one
+        // row a thousand pixels tall that you had to scroll past to reach the
+        // next. The cells are summaries now, and Open Dashboard and Delete
+        // read these instead, which they should have been doing anyway:
+        // driving logic off displayed text breaks the moment the display
+        // changes, as it just did.
+        tr.dataset.files = h.fileName || '';
+        tr.dataset.types = h.reportType || '';
+        tr.dataset.range = (h.dateFrom || '') + ' → ' + (h.dateTo || '');
+        tr.dataset.rows = String(h.rowsKept);
+
         tr.innerHTML =
-          '<td>' + escapeHtml(String(h.uploadedAt).slice(0, 16).replace('T', ' ')) + '</td>' +
-          '<td style="max-width:340px">' + escapeHtml(h.fileName) + '</td>' +
-          '<td>' + escapeHtml(h.reportType) + '</td>' +
-          '<td>' + escapeHtml(h.department) + '</td>' +
-          '<td class="r">' + h.rowsInFile + '</td>' +
-          '<td class="r">' + h.rowsKept + '</td>' +
-          '<td>' + escapeHtml(h.dateFrom + ' → ' + h.dateTo) + '</td>' +
+          '<td class="nowrap">' +
+            escapeHtml(String(h.uploadedAt).slice(0, 16).replace('T', ' ')) + '</td>' +
+          '<td>' + summariseFiles(h.fileName) + '</td>' +
+          '<td class="nowrap">' + summariseRepeats(h.reportType) + '</td>' +
+          '<td>' + summariseRepeats(h.department) + '</td>' +
+          '<td class="r">' + count(h.rowsInFile) + '</td>' +
+          '<td class="r">' + count(h.rowsKept) + '</td>' +
+          '<td class="nowrap">' + summariseRange(h) + '</td>' +
           '<td>' + (deleted
             ? '<span class="pill a">' + escapeHtml(h.notes) + '</span>'
             : rowActions(h.uploadId)) + '</td>';
@@ -1343,6 +1358,93 @@
 
       wireRowActions();
     }).catch(onError);
+  }
+
+
+  /**
+   * One upload's filenames, in a cell you can read at a glance.
+   *
+   * The whole list is still there — on the row's dataset, in the tooltip, and
+   * in the delete dialog, which is where you actually want to check it before
+   * removing something. What the table needs is the one fact that identifies
+   * the upload: what it was, and how much of it.
+   */
+  function summariseFiles(value) {
+    const files = splitList(value);
+    if (!files.length) return '<span class="muted">—</span>';
+
+    const first = files[0];
+    const rest = files.length - 1;
+    const all = files.join('\n');
+
+    return '<span class="cell-files" title="' + escapeHtml(all) + '">' +
+      '<b>' + escapeHtml(first) + '</b>' +
+      (rest > 0 ? '<span class="cell-more">+' + rest + ' more</span>' : '') +
+      '</span>';
+  }
+
+
+  /**
+   * 'FEEDBACK | FEEDBACK | FEEDBACK' -> 'FEEDBACK ×3'.
+   *
+   * A pipe-joined column that repeats one value forty-three times is saying
+   * one thing forty-three times. Distinct values, counted, say the same thing
+   * in a line — and where they genuinely differ you can still see that they do.
+   */
+  function summariseRepeats(value) {
+    const items = splitList(value);
+    if (!items.length) return '<span class="muted">—</span>';
+
+    const counts = {};
+    const order = [];
+    items.forEach(function (item) {
+      if (!counts[item]) { counts[item] = 0; order.push(item); }
+      counts[item]++;
+    });
+
+    const LIMIT = 3;
+    const shown = order.slice(0, LIMIT).map(function (item) {
+      return escapeHtml(item) + (counts[item] > 1 ? ' ×' + counts[item] : '');
+    }).join(', ');
+    const rest = order.length - LIMIT;
+
+    return '<span title="' + escapeHtml(order.map(function (item) {
+      return item + (counts[item] > 1 ? ' ×' + counts[item] : '');
+    }).join('\n')) + '">' + shown +
+      (rest > 0 ? '<span class="cell-more">+' + rest + ' more</span>' : '') + '</span>';
+  }
+
+
+  /**
+   * What period an upload covers.
+   *
+   * For feedback, the quarter its filenames name — the session dates inside
+   * those files are the ones Excel mangled, and a range reading
+   * "1984-06-15 → 2026-07-04" says nothing true about a Q1 2026 upload. The
+   * raw range is still on the row and in the delete dialog.
+   */
+  function summariseRange(h) {
+    const feedback = String(h.reportType || '').toUpperCase().indexOf('FEEDBACK') !== -1;
+    const named = feedback ? quartersInText(h.fileName) : [];
+
+    if (named.length) {
+      const label = named.length === 1
+        ? formatPeriod(named[0])
+        : formatPeriod(named[0]) + ' – ' + formatPeriod(named[named.length - 1]);
+      return '<span title="Dates in the files: ' +
+        escapeHtml((h.dateFrom || '') + ' → ' + (h.dateTo || '')) + '">' +
+        escapeHtml(label) + '</span>';
+    }
+
+    return escapeHtml((h.dateFrom || '') + ' → ' + (h.dateTo || ''));
+  }
+
+
+  /** Splits a ' | ' joined column into its trimmed, non-empty parts. */
+  function splitList(value) {
+    return String(value == null ? '' : value).split('|')
+      .map(function (part) { return part.trim(); })
+      .filter(Boolean);
   }
 
 
@@ -1446,7 +1548,7 @@
   function openUpload(row) {
     if (!row) return showView('kpi1');
 
-    const types = row.children[2].textContent.toUpperCase().split('|');
+    const types = String(row.dataset.types || '').toUpperCase().split('|');
     let feedback = 0;
     let tickets = 0;
     types.forEach(function (t) {
@@ -1454,7 +1556,7 @@
       else if (t.trim()) tickets++;
     });
 
-    const range = row.children[6].textContent.trim();
+    const range = String(row.dataset.range || '').trim();
     const found = range.match(/(\d{4}-\d{2})-\d{2}[^\d]*(\d{4}-\d{2})?/);
     const from = found ? found[1] : '';
     const to = found && found[2] ? found[2] : from;
@@ -1466,7 +1568,7 @@
       // first — the session dates behind `from` and `to` are the unreliable
       // half of this, and an upload of files all named Q1-2026 should open on
       // Q1 2026 whatever Excel did to the dates inside them.
-      const named = quartersInText(row.children[1].textContent);
+      const named = quartersInText(row.dataset.files);
       const fromQ = named.length ? named[0] : quarterForMonth(from);
       const toQ   = named.length ? named[named.length - 1] : quarterForMonth(to);
       setValue('kpi2Month', (fromQ && fromQ === toQ) ? fromQ : ALL_MONTHS);
@@ -1500,10 +1602,10 @@
     const id = button.dataset.delete;
     const row = button.closest('tr');
 
-    const fileName = row ? row.children[1].textContent.trim() : '';
-    const type     = row ? row.children[2].textContent.trim().toUpperCase() : '';
-    const rows     = row ? row.children[5].textContent.trim() : '';
-    const range    = row ? row.children[6].textContent.trim() : '';
+    const fileName = row ? String(row.dataset.files || '').trim() : '';
+    const type     = row ? String(row.dataset.types || '').trim().toUpperCase() : '';
+    const rows     = row ? String(row.dataset.rows || '').trim() : '';
+    const range    = row ? String(row.dataset.range || '').trim() : '';
     const feedback = type.indexOf('FEEDBACK') !== -1;
     const noun     = feedback ? 'training responses' : 'tickets';
 
@@ -4059,7 +4161,9 @@
 
     // Changing a month without pressing Run still gets saved, so a refresh
     // mid-selection does not throw the choices away.
-    CMP_SELECTS.forEach(function (id) { bind(id, 'change', saveState); });
+    CMP_SELECTS.forEach(function (id) {
+      bind(id, 'change', function () { saveState(); renderCompareHint(); });
+    });
 
     bind('cmpClear', 'click', function () {
       CMP_SELECTS.forEach(function (id, index) {
@@ -4084,6 +4188,7 @@
       // and the trend is not part of it.
       state.compare = null;
       state.compareRan = false;
+      renderCompareHint();
       saveState();
     });
   }
@@ -4163,12 +4268,60 @@
       'Compare two to four ' + many + ' side by side. Pick the KPI first — ' +
       'the ' + many + ', tables and charts below all follow it.');
 
+    setText('cmpPeriodLabel', 'Which ' + many);
+
     ['First', 'Second', 'Third', 'Fourth'].forEach(function (nth, index) {
       const label = document.getElementById('cmpM' + (index + 1) + 'Label');
       if (!label) return;
       label.innerHTML = nth + ' ' + Title +
         (index >= 2 ? ' <span class="muted">(optional)</span>' : '');
     });
+
+    renderCompareHint();
+  }
+
+
+  /**
+   * What the picker is currently set to do, said in words.
+   *
+   * Five dropdowns and a button gave no sense of what pressing it would
+   * produce, and the KPI selector — which decides what the period list even
+   * contains — looked like just another dropdown. The hint under it names the
+   * target and layer you have chosen; the line beside the button says how many
+   * periods are selected, or what is missing.
+   */
+  function renderCompareHint() {
+    const kpi = selectedKpi();
+    const hint = document.getElementById('cmpKpiHint');
+
+    if (hint) {
+      hint.innerHTML = kpi
+        ? 'Target &ge; ' + kpi.target + kpi.unit + ' · ' + escapeHtml(kpi.slaLayer || '') +
+          (kpi.active ? '' : ' · <b>no data uploaded yet</b>')
+        : '';
+    }
+
+    const summary = document.getElementById('cmpSummary');
+    if (!summary) return;
+
+    const picked = {};
+    CMP_SELECTS.forEach(function (id) {
+      const value = getValue(id);
+      if (value) picked[value] = true;
+    });
+    const n = Object.keys(picked).length;
+    const many = comparePeriodWord(true);
+    const one = comparePeriodWord(false);
+    const have = comparePeriodList().length;
+
+    if (have < 2) {
+      summary.innerHTML = 'Only ' + (have === 1 ? 'one ' + one : 'no ' + many) +
+        ' of data so far — nothing to compare against yet.';
+      return;
+    }
+    summary.innerHTML = n < 2
+      ? 'Pick at least two ' + many + ' to compare.'
+      : 'Comparing <b>' + n + ' ' + (n === 1 ? one : many) + '</b> side by side.';
   }
 
 
