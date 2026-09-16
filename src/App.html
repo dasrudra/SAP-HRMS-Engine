@@ -4268,8 +4268,6 @@
       'Compare two to four ' + many + ' side by side. Pick the KPI first — ' +
       'the ' + many + ', tables and charts below all follow it.');
 
-    setText('cmpPeriodLabel', 'Which ' + many);
-
     ['First', 'Second', 'Third', 'Fourth'].forEach(function (nth, index) {
       const label = document.getElementById('cmpM' + (index + 1) + 'Label');
       if (!label) return;

@@ -480,55 +480,44 @@
         </div>
 
         <!--
-          The picker, as two numbered steps rather than one undifferentiated
-          block of dropdowns. Which KPI decides what the period list even
-          contains, so it is genuinely first and is drawn that way — and the
-          dark stage matches the ones on Settings, so the two screens read as
-          the same product.
+          The original layout, with colour that carries meaning rather than
+          decoration: each period field wears the colour that period will be
+          drawn in on the chart below, so the legend is readable before the
+          chart exists. The swatches come from SERIES in App.html.
         -->
-        <div class="cmp-stage">
-          <div class="cmp-steps">
-            <div class="cmp-step">
-              <span class="cmp-step-no">1</span>
-              <div class="cmp-step-body">
-                <label for="cmpKpi">Which KPI</label>
-                <select id="cmpKpi" class="select"></select>
-                <!-- The chosen KPI's target and layer. Set by renderCompareHint(). -->
-                <p class="cmp-hint" id="cmpKpiHint"></p>
+        <div class="card">
+          <div class="card-head">Select dashboards</div>
+          <div class="cmp-picker">
+            <div class="cmp-field cmp-field-kpi">
+              <label for="cmpKpi">Which KPI</label>
+              <select id="cmpKpi" class="select"></select>
+              <!-- The chosen KPI's target and layer. Set by renderCompareHint(). -->
+              <p class="cmp-hint" id="cmpKpiHint"></p>
+            </div>
+            <div class="cmp-grid">
+              <div class="cmp-field" style="--slot:0">
+                <label for="cmpM1" id="cmpM1Label">First Month</label>
+                <select id="cmpM1" class="select"></select>
+              </div>
+              <div class="cmp-field" style="--slot:1">
+                <label for="cmpM2" id="cmpM2Label">Second Month</label>
+                <select id="cmpM2" class="select"></select>
+              </div>
+              <div class="cmp-field" style="--slot:2">
+                <label for="cmpM3" id="cmpM3Label">Third Month <span class="muted">(optional)</span></label>
+                <select id="cmpM3" class="select"></select>
+              </div>
+              <div class="cmp-field" style="--slot:3">
+                <label for="cmpM4" id="cmpM4Label">Fourth Month <span class="muted">(optional)</span></label>
+                <select id="cmpM4" class="select"></select>
               </div>
             </div>
-
-            <div class="cmp-step cmp-step-wide">
-              <span class="cmp-step-no">2</span>
-              <div class="cmp-step-body">
-                <label id="cmpPeriodLabel">Which months</label>
-                <div class="cmp-grid">
-                  <div class="cmp-field">
-                    <label for="cmpM1" id="cmpM1Label">First Month</label>
-                    <select id="cmpM1" class="select"></select>
-                  </div>
-                  <div class="cmp-field">
-                    <label for="cmpM2" id="cmpM2Label">Second Month</label>
-                    <select id="cmpM2" class="select"></select>
-                  </div>
-                  <div class="cmp-field">
-                    <label for="cmpM3" id="cmpM3Label">Third Month <span class="muted">(optional)</span></label>
-                    <select id="cmpM3" class="select"></select>
-                  </div>
-                  <div class="cmp-field">
-                    <label for="cmpM4" id="cmpM4Label">Fourth Month <span class="muted">(optional)</span></label>
-                    <select id="cmpM4" class="select"></select>
-                  </div>
-                </div>
-              </div>
+            <div class="cmp-actions">
+              <button class="btn btn-primary btn-lg" id="cmpRun">Compare Dashboards</button>
+              <button class="btn btn-ghost" id="cmpClear">✕ Clear</button>
             </div>
-          </div>
-
-          <div class="cmp-actions">
-            <!-- What pressing the button will actually do. Set by renderCompareHint(). -->
-            <span class="cmp-summary" id="cmpSummary"></span>
-            <button class="btn btn-primary btn-lg" id="cmpRun">Compare Dashboards</button>
-            <button class="btn btn-ghost" id="cmpClear">✕ Clear</button>
+            <!-- What pressing the button will do. Set by renderCompareHint(). -->
+            <p class="cmp-summary" id="cmpSummary"></p>
           </div>
         </div>
 
