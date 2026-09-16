@@ -698,26 +698,62 @@
 
     COLOUR THAT MEANS SOMETHING
     Each period field wears a swatch in the colour that period is drawn in on
-    the chart below — first is blue, second orange, third green, fourth purple,
+    the chart below — first blue, second orange, third green, fourth purple,
     the same four SERIES colours the legend uses. So the pairing is readable
     while you are still choosing, and the chart's legend confirms a mapping you
     already know rather than teaching you one.
 
-    Everything else is a light wash and a blue accent: this is a form on a
-    white page, and it should look like one.
+    The rest is the brand blue, kept LIGHT: a blue header bar, a blue-tinted
+    body, and fields that are white tiles on it. This is a form on a white
+    page and it stays one — the blue frames it rather than swallowing it.
+
+    HOVER
+    Each field answers the cursor the way the section cards on Settings do —
+    it lifts, its border takes the accent, and its swatch grows. Which field
+    you are about to change is then never in question, and on a row of four
+    near-identical dropdowns that is the one thing worth signalling.
   */
+  .card-blue > .card-head {
+    background: linear-gradient(90deg, var(--navy-700) 0%, var(--blue-600) 100%);
+    color: #fff; border-bottom-color: transparent;
+  }
+  .card-blue > .card-head::before { background: #7cb1ff; }
+  .card-blue > .card-head:hover {
+    background: linear-gradient(90deg, var(--navy-800) 0%, var(--blue-500) 100%);
+    color: #fff;
+  }
+
   .cmp-picker {
     padding: 20px 22px 18px;
-    background: linear-gradient(180deg, #f6faff 0%, var(--surface) 64%);
-    border-top: 1px solid #e4eefb;
+    background: linear-gradient(180deg, #e9f1fd 0%, #f7fbff 58%, var(--surface) 100%);
   }
-  .cmp-field-kpi { max-width: 360px; margin-bottom: 18px; }
+
+  .cmp-field {
+    display: flex; flex-direction: column; gap: 6px;
+    padding: 12px 13px 13px;
+    background: var(--surface);
+    border: 1px solid #d8e6f9;
+    border-radius: var(--radius-sm);
+    box-shadow: 0 1px 2px rgba(20,32,46,.04);
+    transition: transform .16s ease, border-color .16s ease, box-shadow .16s ease;
+  }
+  .cmp-field:hover {
+    transform: translateY(-2px);
+    border-color: var(--blue-500);
+    box-shadow: 0 10px 22px -14px rgba(37,99,235,.85),
+                0 0 0 1px rgba(37,99,235,.14);
+  }
+  /* Keyboard users get the same signal, without needing a pointer. */
+  .cmp-field:focus-within {
+    border-color: var(--blue-500);
+    box-shadow: 0 0 0 3px rgba(37,99,235,.16);
+  }
+  .cmp-field-kpi { max-width: 380px; margin-bottom: 18px; }
 
   .cmp-grid {
     display: grid; gap: 14px;
     grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
   }
-  .cmp-field { display: flex; flex-direction: column; gap: 6px; }
   .cmp-field label {
     display: flex; align-items: center; gap: 7px;
     font-size: 11px; font-weight: 700; color: var(--blue-600);
@@ -728,6 +764,11 @@
   .cmp-grid .cmp-field label::before {
     content: ''; width: 9px; height: 9px; flex: 0 0 9px; border-radius: 2px;
     background: var(--slot-colour, var(--blue-500));
+    transition: transform .16s ease, box-shadow .16s ease;
+  }
+  .cmp-grid .cmp-field:hover label::before {
+    transform: scale(1.35);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--slot-colour) 22%, transparent);
   }
   .cmp-field[style*="--slot:0"] { --slot-colour: #2a78d6; }
   .cmp-field[style*="--slot:1"] { --slot-colour: #eb6834; }
@@ -736,17 +777,16 @@
 
   .cmp-field .muted { font-weight: 400; text-transform: none; letter-spacing: 0; }
   .cmp-field .select {
-    width: 100%; padding: 10px 12px;
-    background: var(--surface); border-color: #cfe0f8;
-    transition: border-color .14s ease, box-shadow .14s ease;
+    width: 100%; padding: 9px 11px;
+    background: #f9fcff; border-color: #cfe0f8;
+    transition: border-color .14s ease, background .14s ease;
   }
+  .cmp-field:hover .select { background: var(--surface); border-color: #b9d4f6; }
   .cmp-field .select:hover:not(:disabled) { border-color: var(--blue-500); }
-  .cmp-field .select:focus-visible {
-    border-color: var(--blue-500);
-    box-shadow: 0 0 0 3px rgba(37,99,235,.16);
-  }
+  .cmp-field .select:focus-visible { border-color: var(--blue-500); outline: none; }
+
   .cmp-hint {
-    margin: 2px 0 0; font-size: 11.5px; color: var(--text-dim); line-height: 1.5;
+    margin: 4px 0 0; font-size: 11.5px; color: var(--text-dim); line-height: 1.5;
   }
   .cmp-hint b { color: var(--amber-ink); font-weight: 650; }
 
@@ -754,11 +794,27 @@
     display: flex; align-items: center; justify-content: center; gap: 10px;
     margin-top: 20px;
   }
+  /* The primary action lifts too, so the whole panel behaves the same way. */
+  .cmp-actions .btn-primary {
+    box-shadow: 0 6px 18px -10px rgba(37,99,235,.9);
+    transition: transform .16s ease, box-shadow .16s ease, background .12s;
+  }
+  .cmp-actions .btn-primary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 12px 26px -12px rgba(37,99,235,.95);
+  }
   .cmp-summary {
     margin: 11px 0 0; text-align: center;
     font-size: 12.5px; color: var(--text-dim);
   }
   .cmp-summary b { color: var(--navy-700); font-weight: 650; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .cmp-field, .cmp-actions .btn-primary, .cmp-grid .cmp-field label::before {
+      transition: none;
+    }
+    .cmp-field:hover, .cmp-actions .btn-primary:hover { transform: none; }
+  }
 
   .btn-lg { padding: 11px 26px; font-size: 14px; font-weight: 700; border-radius: 8px; }
 
