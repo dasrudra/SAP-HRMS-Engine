@@ -48,11 +48,10 @@
     scopePeople: null,
     scopeKey: '',
 
-    // Which card of each Settings stage is open, '' for none. Deliberately
-    // NOT saved to the URL: they are a look at the team and at the policy, not
-    // a filter on anything, so a refresh should land on the whole of each.
-    orgOpen: '',
-    kpiOpen: '',
+    // Which section the organisation carousel has in front, by index.
+    // Deliberately NOT saved to the URL: it is a look at the team, not a
+    // filter on anything, so a refresh should land back at the first section.
+    orgFocus: 0,
 
     // KPI 2's own result, kept so its filters redraw without a server call.
     kpi2: null,
@@ -204,24 +203,26 @@
 
 
   /**
-   * Closing the org section, from the button or from Escape.
+   * Moving the organisation carousel — the arrows, the dots and the keyboard.
    *
    * Wired once at startup rather than per render, because renderOrg replaces
-   * the cards and a listener bound to them would go with them.
+   * the cards and a listener bound to them would go with them. The arrows and
+   * the stage itself survive every render, so these hold.
    */
   function wireOrg() {
-    bind('orgClose', 'click', function () { closeStage('org'); });
-    bind('kpiStageClose', 'click', function () { closeStage('kpi'); });
+    bind('orgPrev', 'click', function () { focusSection(state.orgFocus - 1); });
+    bind('orgNext', 'click', function () { focusSection(state.orgFocus + 1); });
 
-    document.addEventListener('keydown', function (e) {
-      if (e.key !== 'Escape') return;
-      // The dialog owns Escape while it is up — it is in front of these.
-      const backdrop = document.getElementById('modalBackdrop');
-      if (backdrop && !backdrop.hidden) return;
-      Object.keys(STAGES).forEach(function (which) {
-        if (state[STAGES[which].key]) closeStage(which);
+    // Left and right anywhere inside the stage, which is where a keyboard user
+    // already is once they have tabbed onto a card or an arrow.
+    const stage = document.getElementById('orgStage');
+    if (stage) {
+      stage.addEventListener('keydown', function (e) {
+        if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+        e.preventDefault();
+        focusSection(state.orgFocus + (e.key === 'ArrowLeft' ? -1 : 1));
       });
-    });
+    }
   }
 
 
@@ -291,10 +292,10 @@
     // Compare button: it is the backdrop the comparison sits against.
     if (name === 'compare') loadTrend();
 
-    // Both Settings stages quote live readings — the sections' KPI 1 figures
-    // and each indicator's own rate. Landing straight on Settings, which a
-    // refresh does since the view is in the URL, means neither KPI ever
-    // loaded, so the cards read "no figure" on a database full of data.
+    // Both halves of Settings quote live readings — the sections' KPI 1
+    // figures and each indicator's own rate. Landing straight on Settings,
+    // which a refresh does since the view is in the URL, means neither KPI
+    // ever loaded, so the cards read "no figure" on a database full of data.
     // Fetched once each, and only if nothing is held already.
     if (name === 'settings') {
       if (!state.kpi) loadKpi1();
@@ -2393,8 +2394,8 @@
 
   function renderKpi2(k) {
     state.kpi2 = k;
-    // The KPI thresholds stage on Settings quotes this rate on KPI 2's card.
-    updateKpiCards();
+    // The KPI thresholds table on Settings quotes this rate in KPI 2's row.
+    updateKpiTable();
 
     const tiles = document.getElementById('kpi2Tiles');
     if (!k || !k.hasData) {
@@ -3787,24 +3788,25 @@
 
 
   /**
-   * The EAS organisation, as a stage you can open a section of.
+   * The EAS organisation, as a carousel.
    *
    * WHAT THIS REPLACED, AND WHY
-   * Four threshold rings used to sit here. They restated the KPI thresholds
-   * table directly underneath them — same targets, same bands, same numbers —
-   * so the page said one thing twice and neither copy said anything the other
-   * did not. This says something the dashboard could not say at all: who EAS
-   * is, and how each section is doing against KPI 1 right now.
+   * First the threshold rings, which restated the thresholds table directly
+   * underneath them — same targets, same numbers — so the page said one thing
+   * twice. Then four equal cards that opened on a click, which said something
+   * new but said it only to whoever guessed the cards were clickable: nothing
+   * about four identical tiles announces that thirty-seven names are behind
+   * them, and nothing was on screen until one was clicked.
    *
-   * Sections first, people on demand. Thirty-seven names laid out at once is a
-   * directory, not a chart — you cannot see the shape of the team through it.
-   * Four cards you can read in a glance, each opening to its own people, is
-   * the same information with the structure left visible.
+   * So: one section in front, always, with its people under it. The other
+   * three sit back to either side, smaller and turned away but legible, and
+   * the arrows move between them. Nothing is hidden and nothing needs
+   * discovering — the only question left is which section you are looking at.
    */
   function renderOrg(boot) {
     const stage = document.getElementById('orgStage');
-    const rows = document.getElementById('orgRows');
-    if (!stage || !rows) return;
+    const track = document.getElementById('orgRows');
+    if (!stage || !track) return;
 
     const org = (boot && boot.org) || null;
     if (!org || !org.sections || !org.sections.length) {
@@ -3823,19 +3825,101 @@
         '<span>Head of ' + escapeHtml(org.short || 'EAS') + '</span>';
     }
 
-    rows.innerHTML = '';
-    org.sections.forEach(function (section) {
+    track.innerHTML = '';
+    org.sections.forEach(function (section, i) {
       const card = document.createElement('button');
       card.type = 'button';
       card.className = 'org-card';
       card.dataset.key = section.name;
       card.innerHTML = orgCardBody(section);
-      card.addEventListener('click', function () { openStage('org', section.name); });
-      rows.appendChild(card);
+      // Clicking a card that is already in front does nothing, rather than
+      // toggling it away: there is no "closed" state to toggle to.
+      card.addEventListener('click', function () { focusSection(i); });
+      track.appendChild(card);
     });
 
-    closeStage('org');
+    // One dot per section, so the number of them and which one you are on are
+    // both readable without counting cards that are half off the stage.
+    const dots = document.getElementById('orgDots');
+    if (dots) {
+      dots.innerHTML = '';
+      org.sections.forEach(function (section, i) {
+        const dot = document.createElement('button');
+        dot.type = 'button';
+        dot.className = 'org-dot';
+        dot.title = section.label;
+        dot.setAttribute('aria-label', section.label);
+        dot.addEventListener('click', function () { focusSection(i); });
+        dots.appendChild(dot);
+      });
+    }
+
+    focusSection(state.orgFocus);
     updateOrgFigures();
+  }
+
+
+  /**
+   * Brings a section to the front.
+   *
+   * Wrapped, not clamped: past the last section you land on the first. With
+   * four of them a clamp left the first and last sections looking broken —
+   * every card fanned out to one side and a dead arrow on the other — where a
+   * wrap keeps a card on each side of the front one whichever is chosen.
+   */
+  function focusSection(index) {
+    const org = (state.boot && state.boot.org) || null;
+    if (!org || !org.sections || !org.sections.length) return;
+
+    const total = org.sections.length;
+    state.orgFocus = ((Number(index) || 0) % total + total) % total;
+
+    layoutOrg();
+    renderOrgDetail(org.sections[state.orgFocus].name);
+  }
+
+
+  /**
+   * Ranks the cards by how far each one is from the front.
+   *
+   * That is all this does. Every card gets its signed distance as --off and
+   * its unsigned distance as data-dist, and the stylesheet turns those two
+   * into the position, the scale, the fade and the turn. Nothing here reads a
+   * width or writes a pixel, so the whole look stays in one file and the
+   * carousel lays itself out correctly even while Settings is still hidden.
+   */
+  function layoutOrg() {
+    const track = document.getElementById('orgRows');
+    if (!track) return;
+
+    const cards = Array.prototype.slice.call(track.querySelectorAll('.org-card'));
+    if (!cards.length) return;
+
+    const total = cards.length;
+    const focus = ((state.orgFocus || 0) % total + total) % total;
+
+    cards.forEach(function (card, i) {
+      // Distance the short way round, so the card before the first one is on
+      // its left rather than three places to its right. With four sections
+      // that leaves one either side and one parked off-stage.
+      const raw = ((i - focus) % total + total) % total;
+      const off = raw > total / 2 ? raw - total : raw;
+      const dist = Math.abs(off);
+
+      card.style.setProperty('--off', String(off));
+      card.dataset.dist = String(dist);
+      // The parked card is out of the tab order too — tabbing to something you
+      // cannot see is worse than not being able to reach it.
+      card.tabIndex = dist > 1 ? -1 : 0;
+      card.setAttribute('aria-current', off === 0 ? 'true' : 'false');
+    });
+
+    const dots = document.getElementById('orgDots');
+    if (dots) {
+      Array.prototype.forEach.call(dots.children, function (dot, i) {
+        dot.classList.toggle('is-on', i === focus);
+      });
+    }
   }
 
 
@@ -3881,7 +3965,8 @@
    *
    * The stage is built from the bootstrap, before any month has loaded, so
    * every card would read "no figure" forever without this. Rewrites the card
-   * bodies only — the open section, the rail and the glass are untouched.
+   * bodies only — which section is in front, and how the rest are ranked
+   * around it, are left exactly as they were.
    */
   function updateOrgFigures() {
     const org = (state.boot && state.boot.org) || null;
@@ -3893,80 +3978,154 @@
       if (card) card.innerHTML = orgCardBody(section);
     });
 
-    // The open panel quotes the same figures, so it has to move with them.
-    if (state.orgOpen) renderOrgDetail(state.orgOpen);
-
-    updateKpiCards();
-  }
-
-
-  /** Repaints the KPI threshold cards, which carry each KPI's live reading. */
-  function updateKpiCards() {
-    ((state.boot && state.boot.kpiList) || []).forEach(function (kpi) {
-      const card = document.querySelector('#kpiRows .org-card[data-key="' +
-        cssEscape(kpi.id) + '"]');
-      if (card) card.innerHTML = kpiCardBody(kpi);
-    });
-    if (state.kpiOpen) renderKpiThresholdDetail(state.kpiOpen);
+    updateKpiTable();
   }
 
 
   /**
-   * The KPI thresholds, as a stage rather than a table.
+   * The KPI thresholds, as a table.
    *
-   * The table made you read across seven columns to learn one indicator's
-   * bands, and the three that mattered most — target, yellow, red — were three
-   * separate cells you had to hold in your head to see as a scale. A card per
-   * KPI puts them in one place, with the formula that produces the number and
-   * whether the indicator is live yet.
+   * WHAT THIS REPLACED, AND WHY
+   * A card per KPI, which put one indicator's target, formula and bands in one
+   * place — and hid the other three behind a click. But the question this
+   * section answers is a comparison: which targets are tight, which are loose,
+   * which are live. You cannot compare four things one at a time. That is what
+   * a table is for, and it was a table before.
    *
-   * Same stage, same behaviour, same CSS as the organisation above it: open
-   * one, the others fall back, everything else goes to glass.
+   * What it has that the plain seven-column version did not is the BANDS
+   * COLUMN. Target, yellow and red used to be three separate cells you had to
+   * hold in your head to see as a scale; here they are one bar, drawn in
+   * proportion. See bandBar() for what that bar does and does not promise.
    */
-  function renderKpiStage(boot) {
-    const rows = document.getElementById('kpiRows');
-    if (!rows) return;
+  function renderKpiTable(boot) {
+    const body = document.querySelector('#settingsTable tbody');
+    if (!body) return;
 
     const list = (boot && boot.kpiList) || [];
-    rows.innerHTML = '';
+    body.innerHTML = '';
 
     list.forEach(function (kpi) {
-      const card = document.createElement('button');
-      card.type = 'button';
-      card.className = 'org-card';
-      card.dataset.key = kpi.id;
-      card.innerHTML = kpiCardBody(kpi);
-      card.addEventListener('click', function () { openStage('kpi', kpi.id); });
-      rows.appendChild(card);
+      const row = document.createElement('tr');
+      row.className = 'thr-row';
+      row.dataset.key = kpi.id;
+      row.innerHTML = kpiRowBody(kpi);
+      body.appendChild(row);
     });
 
-    closeStage('kpi');
+    const live = list.filter(function (k) { return k.active; }).length;
+    setText('kpiTableNote', list.length + ' indicators · ' + live + ' live · ' +
+      (list.length - live) + ' awaiting a pipeline');
   }
 
 
-  function kpiCardBody(kpi) {
+  /**
+   * Repaints the readings, which are the only cells that move.
+   *
+   * The table is built from the bootstrap, before any period has loaded, so
+   * every live KPI would read "no period loaded" forever without this. Called
+   * whenever KPI 1 or KPI 2 finishes.
+   */
+  function updateKpiTable() {
+    ((state.boot && state.boot.kpiList) || []).forEach(function (kpi) {
+      const row = document.querySelector('#settingsTable tbody tr[data-key="' +
+        cssEscape(kpi.id) + '"]');
+      if (row) row.innerHTML = kpiRowBody(kpi);
+    });
+  }
+
+
+  function kpiRowBody(kpi) {
     const actual = currentValueFor(kpi);
     const band = actual === null ? '' : bandOf(actual, kpi);
 
-    return '<div class="org-card-top">' +
-        '<span class="org-avatar">' + escapeHtml(kpiNumber(kpi.id)) + '</span>' +
-        '<h3>' + escapeHtml(kpi.shortName || kpi.name) + '</h3>' +
-      '</div>' +
-      '<span class="org-modules">Target &ge; ' + kpi.target + kpi.unit + '</span>' +
-      '<div class="org-head-name">' + escapeHtml(kpi.slaLayer || '') + '</div>' +
-      '<div class="org-card-foot">' +
-        (kpi.active ? '<span class="pill g">LIVE</span>'
-                    : '<span class="pill a">PENDING</span>') +
+    // 'Layer 3: Service Requests' with an L3 badge beside it reads the layer
+    // twice. The badge carries the number, the text carries the name.
+    const layerName = String(kpi.slaLayer || '').replace(/^Layer\s*\d+\s*:\s*/, '');
+
+    return '<td class="thr-no"><span class="thr-badge' +
+        (kpi.active ? ' is-live' : '') + '">' + escapeHtml(kpiNumber(kpi.id)) + '</span></td>' +
+
+      '<td class="thr-what">' +
+        '<span class="thr-name">' + escapeHtml(kpi.name) +
+          (kpi.active ? '<span class="pill g">LIVE</span>'
+                      : '<span class="pill a">PENDING</span>') +
+        '</span>' +
+        '<span class="thr-formula">' + escapeHtml(kpi.formula || '—') + '</span>' +
+      '</td>' +
+
+      '<td class="r"><span class="thr-target">' + kpi.target +
+        '<i>' + escapeHtml(kpi.unit) + '</i></span></td>' +
+
+      '<td class="thr-bands">' + bandBar(kpi) + '</td>' +
+
+      '<td class="thr-layer" title="' + escapeHtml(kpi.slaLayer || '') + '">' +
+        '<span class="thr-lyr">L' + escapeHtml(String(kpi.layer || '?')) + '</span> ' +
+        escapeHtml(layerName) +
+      '</td>' +
+
+      '<td class="r thr-now">' +
         (actual === null
-          ? '<span class="org-rate is-none">' +
+          ? '<span class="thr-read is-none">' +
             (kpi.active ? 'no period loaded' : 'awaiting data') + '</span>'
-          : '<span class="org-rate" style="color:' + bandColour(band) + '">' +
-            fmt(actual) + kpi.unit + '</span>') +
-      '</div>';
+          : '<span class="thr-read" style="color:' + bandColour(band) + '">' +
+              fmt(actual) + escapeHtml(kpi.unit) + '</span>' +
+            '<small>' + escapeHtml(kpiPeriodLabel(kpi)) + '</small>') +
+      '</td>';
   }
 
 
-  /** 'KPI1' -> '1', for the badge on the card. */
+  /**
+   * The three bands as one bar, plus the numbers under it.
+   *
+   * Drawn in proportion across the whole 0–100 scale the percentage lives on,
+   * which is what makes the widths mean something: on every one of these
+   * indicators nearly the entire range is a breach and the window you have to
+   * land in is a sliver at the top, and that is the thing worth seeing before
+   * any number is read. Each segment gets a floor of a few pixels so none of
+   * them vanishes — a band you cannot see reads as a band that does not
+   * exist — which does cost the thinnest slivers their exact width. The
+   * figures are printed underneath, so nothing rests on the drawing.
+   */
+  function bandBar(kpi) {
+    const red = Math.max(0, kpi.yellowFloor);
+    const amber = Math.max(0, kpi.target - kpi.yellowFloor);
+    const green = Math.max(0, 100 - kpi.target);
+
+    const seg = function (cls, grow, label) {
+      return '<span class="thr-seg ' + cls + '" style="flex-grow:' + grow +
+        '" title="' + escapeHtml(label) + '"></span>';
+    };
+
+    const top = round2(kpi.target - 0.01);
+
+    return '<span class="thr-bar">' +
+        seg('r', red, 'Red · below ' + kpi.yellowFloor + kpi.unit) +
+        seg('a', amber, 'Yellow · ' + kpi.yellowFloor + ' to ' + top + kpi.unit) +
+        seg('g', green, 'Green · ' + kpi.target + kpi.unit + ' and above') +
+      '</span>' +
+      '<span class="thr-chips">' +
+        '<b class="thr-chip g">&ge; ' + kpi.target + kpi.unit + '</b>' +
+        '<b class="thr-chip a">' + kpi.yellowFloor + ' – ' + top + kpi.unit + '</b>' +
+        '<b class="thr-chip r">&lt; ' + kpi.yellowFloor + kpi.unit + '</b>' +
+      '</span>';
+  }
+
+
+  /** Which period the reading in the table is for, in that KPI's own units. */
+  function kpiPeriodLabel(kpi) {
+    if (kpi.id === 'KPI2') {
+      const scope = getValue('kpi2Month') || ALL_MONTHS;
+      return scope === ALL_MONTHS ? 'all quarters' : formatPeriod(scope);
+    }
+
+    const chosen = selectedMonths();
+    if (!chosen.length || chosen.indexOf(ALL_MONTHS) !== -1) return 'all months';
+    return chosen.length === 1 ? formatMonth(chosen[0])
+                               : chosen.length + ' months combined';
+  }
+
+
+  /** 'KPI1' -> '1', for the badge at the start of the row. */
   function kpiNumber(id) {
     const found = String(id || '').match(/(\d+)/);
     return found ? found[1] : String(id || '?').slice(0, 2);
@@ -3977,8 +4136,8 @@
    * A KPI's reading right now, or null when it has none.
    *
    * Read from whatever that KPI's own screen is showing rather than fetched,
-   * so this card and that screen can never quote different numbers. KPI 3 and
-   * KPI 4 have no ingest pipeline yet, which is exactly why their cards say
+   * so this table and that screen can never quote different numbers. KPI 3 and
+   * KPI 4 have no ingest pipeline yet, which is exactly why their rows say
    * "awaiting data" instead of a figure.
    */
   function currentValueFor(kpi) {
@@ -3999,164 +4158,6 @@
   }
 
 
-  function renderKpiThresholdDetail(id) {
-    const box = document.getElementById('kpiDetail');
-    const list = (state.boot && state.boot.kpiList) || [];
-    const kpi = list.filter(function (k) { return k.id === id; })[0];
-    if (!box || !kpi) return;
-
-    setText('kpiStageSub', kpi.name + ' · ' +
-      (kpi.active ? 'scored from uploaded data' : 'defined, awaiting its first upload') +
-      ' · select another, or close to see all ' + list.length);
-
-    const actual = currentValueFor(kpi);
-    const period = state.month === ALL_MONTHS
-      ? 'all months loaded' : formatMonth(state.month || '');
-
-    // The three bands as one scale, in order, rather than as three cells of a
-    // row. How thin the green slice is says how tight the target is, which was
-    // the one thing the old rings showed and the table did not.
-    const bands =
-      '<div class="band-scale">' +
-        bandRow('GREEN', '&ge; ' + kpi.target + kpi.unit, 'on target') +
-        bandRow('YELLOW', kpi.yellowFloor + ' – ' + round2(kpi.target - 0.01) + kpi.unit,
-                'below target, inside tolerance') +
-        bandRow('RED', '&lt; ' + kpi.yellowFloor + kpi.unit, 'breach') +
-      '</div>';
-
-    box.hidden = false;
-    box.innerHTML =
-      '<div class="org-detail-head">' +
-        '<h3>' + escapeHtml(kpi.name) + '</h3>' +
-        (kpi.active ? '<span class="pill g">LIVE</span>'
-                    : '<span class="pill a">PENDING</span>') +
-      '</div>' +
-      '<p class="org-people-label">How it is calculated</p>' +
-      '<p class="kpi-formula">' + escapeHtml(kpi.formula || '—') + '</p>' +
-      '<p class="org-people-label">Bands</p>' +
-      bands +
-      '<p class="org-people-label">Where it sits</p>' +
-      '<p class="kpi-note">' + escapeHtml(kpi.slaLayer || '—') +
-        ' · Layer ' + (kpi.layer || '—') +
-        (actual === null
-          ? ''
-          : ' · reading now <b style="color:' + bandColour(bandOf(actual, kpi)) + '">' +
-            fmt(actual) + kpi.unit + '</b> for ' + escapeHtml(period)) +
-      '</p>';
-  }
-
-
-  function bandRow(band, range, note) {
-    return '<span class="band-row" style="--band:' + bandColour(band) + '">' +
-      '<i></i><b>' + range + '</b><small>' + escapeHtml(note) + '</small></span>';
-  }
-
-
-  /**
-   * The two stages on Settings — the organisation and the KPI thresholds.
-   *
-   * Both behave identically: cards that open, the others falling back but
-   * staying live, and everything else on the screen going to glass. Described
-   * once here rather than written twice, so they can never drift apart.
-   */
-  const STAGES = {
-    org: { id: 'orgStage', rows: 'orgRows', detail: 'orgDetail',
-           close: 'orgClose', sub: 'orgSub', key: 'orgOpen',
-           render: function (name) { renderOrgDetail(name); },
-           summary: function () {
-             const org = (state.boot && state.boot.org) || null;
-             return org
-               ? org.sections.length + ' sections · ' + org.headcount +
-                 ' people · select a section to see who is in it'
-               : '';
-           } },
-    kpi: { id: 'kpiStage', rows: 'kpiRows', detail: 'kpiDetail',
-           close: 'kpiStageClose', sub: 'kpiStageSub', key: 'kpiOpen',
-           render: function (id) { renderKpiThresholdDetail(id); },
-           summary: function () {
-             const list = ((state.boot && state.boot.kpiList) || []);
-             const live = list.filter(function (k) { return k.active; }).length;
-             return list.length + ' indicators · ' + live + ' live · ' +
-               'select one to see its formula and bands';
-           } }
-  };
-
-
-  /** Opens a card — or closes it, if it was already the open one. */
-  function openStage(which, key) {
-    const stage = STAGES[which];
-    if (!stage) return;
-    if (state[stage.key] === key) return closeStage(which);
-
-    state[stage.key] = key;
-
-    const root = document.getElementById(stage.id);
-    if (root) root.classList.add('is-open');
-
-    cardsOf(stage).forEach(function (card) {
-      card.classList.toggle('is-active', card.dataset.key === key);
-    });
-
-    const close = document.getElementById(stage.close);
-    if (close) close.hidden = false;
-
-    stage.render(key);
-
-    // Only one stage may be open at a time: two open panels would each be
-    // asking the other to go behind glass.
-    Object.keys(STAGES).forEach(function (other) {
-      if (other !== which && state[STAGES[other].key]) closeStage(other, true);
-    });
-    dimExcept(stage.id);
-  }
-
-
-  function closeStage(which, keepGlass) {
-    const stage = STAGES[which];
-    if (!stage) return;
-
-    state[stage.key] = '';
-
-    const root = document.getElementById(stage.id);
-    if (root) root.classList.remove('is-open');
-
-    cardsOf(stage).forEach(function (card) { card.classList.remove('is-active'); });
-
-    const close = document.getElementById(stage.close);
-    if (close) close.hidden = true;
-
-    const detail = document.getElementById(stage.detail);
-    if (detail) { detail.hidden = true; detail.innerHTML = ''; }
-
-    setText(stage.sub, stage.summary());
-
-    if (!keepGlass) dimExcept('');
-  }
-
-
-  function cardsOf(stage) {
-    const rows = document.getElementById(stage.rows);
-    return rows ? Array.prototype.slice.call(rows.querySelectorAll('.org-card')) : [];
-  }
-
-
-  /**
-   * Puts everything on the Settings screen behind glass except one card.
-   *
-   * Blur and opacity only, so nothing is unmounted and nothing moves — closing
-   * brings the rest back exactly where it was, with no reflow and nothing to
-   * re-render. Pass '' to take the glass off entirely.
-   */
-  function dimExcept(keepId) {
-    const view = document.getElementById('view-settings');
-    if (!view) return;
-
-    Array.prototype.forEach.call(view.children, function (child) {
-      child.classList.toggle('org-dimmed', Boolean(keepId) && child.id !== keepId);
-    });
-  }
-
-
   function renderOrgDetail(name) {
     const box = document.getElementById('orgDetail');
     const org = (state.boot && state.boot.org) || null;
@@ -4165,9 +4166,13 @@
     const section = org.sections.filter(function (s) { return s.name === name; })[0];
     if (!section) { box.hidden = true; return; }
 
-    setText('orgSub', section.size + ' people · ' +
-      (section.modules ? section.modules + ' · ' : '') +
-      'select another section, or close to see all four');
+    // The subtitle carries the whole department AND the section in front, so
+    // the numbers that used to need a close button to get back to are always
+    // on screen: how big EAS is, and how big the part of it you are looking at.
+    setText('orgSub', org.sections.length + ' sections · ' + org.headcount +
+      ' people · in front: ' + section.label + ' · ' + section.size +
+      (section.size === 1 ? ' person' : ' people') +
+      (section.modules ? ' · ' + section.modules : ''));
 
     // No figures panel here. It restated what the KPI 1 screen already shows,
     // which is the same duplication that got the threshold rings removed. The
@@ -4679,7 +4684,7 @@
   // =========================================================================
 
   function fillSettings(boot) {
-    renderKpiStage(boot);
+    renderKpiTable(boot);
     renderOrg(boot);
     fillKpiSelector(boot);
     renderRebuildState(boot);

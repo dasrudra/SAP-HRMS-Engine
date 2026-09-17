@@ -659,15 +659,21 @@
           </div>
         </div>
         <!--
-          THE ORGANISATION, replacing the threshold rings.
-          The rings restated the KPI thresholds table underneath them, number
-          for number, so the page said the same thing twice. This says
-          something the dashboard could not say at all: who EAS is, and how
-          each section is performing against KPI 1 right now.
+          THE ORGANISATION, as a carousel.
 
-          Click a section and it opens: the others fall back to a rail, the
-          cards below go to glass, and the section's people and figures come
-          forward. Built by renderOrg().
+          One section is in front at a time: lit, full size, with its people
+          listed underneath. The other three recede to either side, smaller and
+          turned away but still readable and still clickable, and the arrows
+          move between them.
+
+          WHAT THIS REPLACED, AND WHY
+          Four equal cards that showed nothing at all until you clicked one.
+          Nothing about them said they could be clicked, so for most people the
+          thirty-seven names behind them may as well not have existed. Now the
+          section in front always has its people on screen, and reaching the
+          next one is one arrow press rather than a click, a read and a close.
+
+          Built by renderOrg(); positioned by layoutOrg().
         -->
         <div class="org-stage" id="orgStage">
           <div class="org-stage-head">
@@ -675,31 +681,56 @@
               <h2 id="orgTitle">Enterprise Applications Services</h2>
               <p id="orgSub">Loading the team…</p>
             </div>
-            <button class="org-close" id="orgClose" hidden>✕ Close</button>
+            <div class="org-lead" id="orgLead" hidden></div>
           </div>
-          <div class="org-lead" id="orgLead" hidden></div>
-          <div class="org-rows" id="orgRows"></div>
-          <div class="org-detail" id="orgDetail" hidden></div>
+          <div class="org-carousel">
+            <button class="org-arrow" id="orgPrev" type="button"
+                    aria-label="Previous section">&#8249;</button>
+            <div class="org-viewport">
+              <div class="org-track" id="orgRows"></div>
+            </div>
+            <button class="org-arrow" id="orgNext" type="button"
+                    aria-label="Next section">&#8250;</button>
+          </div>
+          <div class="org-dots" id="orgDots"></div>
+          <div class="org-detail" id="orgDetail"></div>
         </div>
 
         <!--
-          THE THRESHOLDS, as a stage rather than a table — the same behaviour
-          as the organisation above it, on the other thing this screen is for.
-          A seven-column table made you read across a row to learn one KPI's
-          bands; a card per KPI puts each one's target, formula and bands in
-          one place, with the SLA layer and whether it is live.
-          Built by renderKpiStage().
+          THE THRESHOLDS, back as a table.
+
+          A card per KPI put one indicator's numbers together but hid the other
+          three behind a click, and the question this section actually answers
+          is a comparison: which targets are tight, which are loose, which are
+          live. That is a table. What it gained over the plain seven-column
+          version is the BANDS COLUMN — red, yellow and green drawn as one bar
+          across the whole 0–100 the percentage lives on, which says the thing
+          three separate number cells never could: nearly the entire range is a
+          breach, and the window you have to land in is a sliver at the top.
+          The exact figures are printed under the bar, because the thinnest
+          slivers are held to a minimum width to stay visible at all.
+          Built by renderKpiTable().
         -->
-        <div class="org-stage" id="kpiStage">
-          <div class="org-stage-head">
-            <div>
-              <h2>KPI thresholds</h2>
-              <p id="kpiStageSub">Loading the indicators…</p>
-            </div>
-            <button class="org-close" id="kpiStageClose" hidden>✕ Close</button>
+        <div class="card card-blue">
+          <div class="card-head">
+            KPI thresholds
+            <span class="head-note" id="kpiTableNote"></span>
           </div>
-          <div class="org-rows" id="kpiRows"></div>
-          <div class="org-detail" id="kpiDetail" hidden></div>
+          <div class="table-wrap">
+            <table id="settingsTable" class="thr-table">
+              <thead>
+                <tr>
+                  <th class="thr-no">#</th>
+                  <th>Indicator</th>
+                  <th class="r">Target</th>
+                  <th>Performance bands</th>
+                  <th>SLA layer</th>
+                  <th class="r">Reading now</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
         </div>
         <div class="card">
           <div class="card-head">Database</div>

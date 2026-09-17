@@ -500,11 +500,9 @@
     the stage reads as a different KIND of thing at a glance, and a light card
     would have made it one more table to scan past.
 
-    Four section cards; click one and it opens. The others fall back to a rail
-    down the side, still live so you can move between sections without closing,
-    and the cards below the stage go to glass. Every motion is transform and
-    opacity, which the compositor can do on its own — no layout is recalculated
-    mid-animation, so it stays smooth on a laptop driving an external monitor.
+    Four section cards on a carousel: one in front, the rest fanned back to
+    either side. Nothing opens and nothing closes — the section in front always
+    has its people listed underneath it, and the arrows move between them.
   */
   .org-stage {
     position: relative; overflow: hidden;
@@ -534,20 +532,13 @@
   .org-stage-head p {
     margin: 4px 0 0; font-size: 12.5px; color: #93a9c9; line-height: 1.5;
   }
-  .org-close {
-    flex: 0 0 auto;
-    background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.18);
-    color: #dce7f7; border-radius: 999px; padding: 7px 15px;
-    font-family: inherit; font-size: 12px; font-weight: 600; cursor: pointer;
-    transition: background .14s ease, color .14s ease, transform .14s ease;
-  }
-  .org-close:hover { background: rgba(255,255,255,.2); color: #fff; transform: translateY(-1px); }
-  .org-close:focus-visible { outline: 2px solid #7cb1ff; outline-offset: 2px; }
 
-  /* The EAS lead, above the sections — the root of the chart. */
+  /* The EAS lead, beside the title — the root of the chart. Where the Close
+     button used to sit, which is space this no longer needs. */
   .org-lead {
+    flex: 0 0 auto;
     display: inline-flex; align-items: center; gap: 11px;
-    padding: 9px 16px 9px 10px; margin-bottom: 16px;
+    padding: 9px 16px 9px 10px;
     background: rgba(255,255,255,.07);
     border: 1px solid rgba(255,255,255,.14);
     border-radius: 999px;
@@ -557,52 +548,123 @@
   .org-lead b { font-size: 13px; color: #fff; font-weight: 650; }
   .org-lead span { font-size: 11.5px; color: #93a9c9; }
 
-  /* The four sections. A grid, so opening one is a column-template change
-     the browser can animate rather than a reflow of absolute positions. */
-  .org-rows {
-    display: grid; gap: 14px; position: relative; z-index: 2;
-    grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
-    transition: grid-template-columns .28s ease;
+  /*
+    THE CAROUSEL.
+
+    One card in front, one to each side turned away from you, and the fourth
+    parked off-stage waiting to come round. Everything about where a card sits
+    is decided here, from two custom properties the layout code sets: --off,
+    the signed distance from the front, and data-dist, the unsigned one.
+
+    Absolutely positioned about the middle rather than laid out in a row. A row
+    would have to be measured and slid, which needs the stage to be on screen
+    to measure — and Settings is built while it is still hidden. Positioning
+    every card from the centre outwards is correct before it is ever displayed.
+
+    Everything that moves is transform and opacity, which the compositor
+    animates on its own thread. No layout is recalculated mid-slide, so it
+    stays smooth on a laptop driving an external monitor.
+  */
+  .org-carousel {
+    display: flex; align-items: center; gap: 6px;
+    position: relative; z-index: 2;
   }
-  .org-stage.is-open .org-rows {
-    grid-template-columns: repeat(4, 1fr);
-    gap: 10px;
+  .org-viewport {
+    flex: 1 1 auto; min-width: 0;
+    overflow: hidden;
+    /* Depth, so the cards to the sides turn away rather than merely shrink.
+       Deep enough to read as perspective and not as a fisheye. */
+    perspective: 1500px;
+    padding: 6px 0;
+  }
+  .org-track {
+    position: relative;
+    /* The cards are absolute, so the rail has to carry the height itself. */
+    height: 200px;
   }
 
+  /* The arrows. Deliberately plain circles: the cards are the thing to look
+     at, and an arrow competing with them for attention is noise. */
+  .org-arrow {
+    flex: 0 0 auto; width: 38px; height: 38px; border-radius: 50%;
+    display: grid; place-items: center;
+    background: rgba(255,255,255,.08);
+    border: 1px solid rgba(255,255,255,.18);
+    color: #dce7f7; font-family: inherit; font-size: 20px; line-height: 1;
+    cursor: pointer;
+    transition: background .16s ease, border-color .16s ease,
+                color .16s ease, transform .16s ease;
+  }
+  .org-arrow:hover {
+    background: rgba(124,177,255,.26); border-color: rgba(124,177,255,.6);
+    color: #fff; transform: scale(1.1);
+  }
+  .org-arrow:focus-visible { outline: 2px solid #7cb1ff; outline-offset: 2px; }
+
   .org-card {
+    position: absolute; left: 50%; top: 50%;
+    width: 262px;
+    /* Fixed, so four cards of different name lengths still fan evenly and the
+       rail's height never depends on which section is in front. */
+    height: 176px;
     text-align: left; font-family: inherit; cursor: pointer;
     background: rgba(255,255,255,.055);
     border: 1px solid rgba(255,255,255,.12);
     border-radius: var(--radius);
     padding: 16px 16px 14px;
     color: inherit;
-    display: flex; flex-direction: column; gap: 10px;
-    transition: transform .22s ease, background .22s ease, border-color .22s ease,
-                box-shadow .22s ease, opacity .22s ease, filter .22s ease;
-  }
-  .org-card:hover {
-    transform: translateY(-3px);
-    background: rgba(255,255,255,.1);
-    border-color: rgba(124,177,255,.5);
-    box-shadow: 0 18px 40px -22px rgba(0,0,0,.9), 0 0 0 1px rgba(124,177,255,.18) inset;
+    display: flex; flex-direction: column; gap: 9px;
+    /* --step is how far apart the cards sit; the rest is the fan. */
+    --step: 246px;
+    transform: translate(-50%, -50%)
+               translateX(calc(var(--off, 0) * var(--step)))
+               rotateY(calc(var(--off, 0) * -9deg))
+               scale(.86);
+    transition: transform .44s cubic-bezier(.22,.61,.36,1), opacity .44s ease,
+                background .22s ease, border-color .22s ease,
+                box-shadow .22s ease, filter .44s ease;
   }
   .org-card:focus-visible { outline: 2px solid #7cb1ff; outline-offset: 2px; }
 
-  /* The one you opened: lit, lifted, and holding its accent. */
-  .org-card.is-active {
+  /* The one in front: square on, full size, lit and lifted clear of the rest. */
+  .org-card[data-dist="0"] {
+    z-index: 5; opacity: 1; filter: none;
+    transform: translate(-50%, -50%) scale(1);
     background: linear-gradient(160deg, rgba(37,99,235,.42), rgba(37,99,235,.12));
     border-color: rgba(124,177,255,.72);
-    box-shadow: 0 0 0 1px rgba(124,177,255,.3) inset,
-                0 22px 50px -26px rgba(37,99,235,.95);
+    box-shadow: 0 0 0 1px rgba(124,177,255,.32) inset,
+                0 26px 54px -26px rgba(37,99,235,.95);
   }
-  /* The ones you did not: pushed back, not hidden — the video keeps them in
-     shot, and being able to switch sections without closing is the point. */
-  .org-stage.is-open .org-card:not(.is-active) {
-    opacity: .42; filter: saturate(.45); transform: scale(.965);
+  /* Either side: back, smaller, turned, and dimmed to about half. Still
+     perfectly readable — the reference keeps them in shot, and being able to
+     see where you are going is the difference between a carousel and a slide. */
+  .org-card[data-dist="1"] { z-index: 4; opacity: .55; filter: saturate(.55); }
+  /* The far one, on its way round. Nearly gone rather than gone, so the fan
+     has an edge that fades instead of a card that pops out of nothing. */
+  .org-card[data-dist="2"] {
+    z-index: 3; opacity: .12; filter: saturate(.2);
+    --step: 292px;
   }
-  .org-stage.is-open .org-card:not(.is-active):hover {
-    opacity: .85; filter: none; transform: scale(.985) translateY(-2px);
+  /* Answering the cursor on a card that is behind says it can be brought
+     forward, which is the one thing about this you might not guess. */
+  .org-card[data-dist="1"]:hover {
+    opacity: .95; filter: none;
+    border-color: rgba(124,177,255,.55);
   }
+
+  /* One dot per section, under the fan. */
+  .org-dots {
+    display: flex; justify-content: center; gap: 7px;
+    margin-top: 10px; position: relative; z-index: 2;
+  }
+  .org-dot {
+    width: 7px; height: 7px; padding: 0; border-radius: 50%;
+    background: rgba(255,255,255,.22); border: 0; cursor: pointer;
+    transition: background .18s ease, width .18s ease;
+  }
+  .org-dot:hover { background: rgba(255,255,255,.45); }
+  .org-dot.is-on { background: #7cb1ff; width: 20px; border-radius: 999px; }
+  .org-dot:focus-visible { outline: 2px solid #7cb1ff; outline-offset: 3px; }
 
   .org-card-top { display: flex; align-items: center; gap: 10px; }
   .org-avatar {
@@ -623,10 +685,6 @@
   }
   .org-head-name { font-size: 12px; color: #b9cbe4; line-height: 1.45; }
   .org-head-name b { color: #e8eef8; font-weight: 600; }
-  .org-interim {
-    font-size: 10px; color: #f3c969; font-weight: 600;
-    letter-spacing: .04em; text-transform: uppercase;
-  }
   .org-card-foot {
     display: flex; align-items: center; justify-content: space-between; gap: 10px;
     margin-top: auto; padding-top: 10px;
@@ -636,14 +694,13 @@
   .org-rate { font-weight: 700; font-size: 14px; font-variant-numeric: tabular-nums; }
   .org-rate.is-none { color: #7e91ab; font-weight: 600; font-size: 12px; }
 
-  /* The opened section's people and figures. */
+  /* The section in front: its people, always on screen. */
   .org-detail {
-    margin-top: 16px; position: relative; z-index: 2;
+    margin-top: 18px; position: relative; z-index: 2;
     background: rgba(255,255,255,.05);
     border: 1px solid rgba(255,255,255,.12);
     border-radius: var(--radius);
     padding: 18px 20px 20px;
-    animation: orgRise .3s ease both;
   }
   @keyframes orgRise {
     from { opacity: 0; transform: translateY(10px) scale(.99); }
@@ -655,59 +712,6 @@
   }
   .org-detail-head h3 { margin: 0; font-size: 15px; font-weight: 700; color: #fff; }
   .org-detail-head .org-modules { align-self: center; }
-
-  .org-figures {
-    display: grid; gap: 10px; margin-bottom: 16px;
-    grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
-  }
-  .org-figure {
-    background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.1);
-    border-radius: var(--radius-sm); padding: 11px 13px;
-  }
-  .org-figure span {
-    display: block; font-size: 9.5px; font-weight: 700; letter-spacing: .11em;
-    text-transform: uppercase; color: #7f95b4; margin-bottom: 4px;
-  }
-  .org-figure strong {
-    font-size: 17px; font-weight: 700; letter-spacing: -.01em; color: #fff;
-    font-variant-numeric: tabular-nums;
-  }
-  .org-figure small { display: block; margin-top: 3px; font-size: 10.5px; color: #8fa5c2; }
-
-  /* The formula, set in the mono face so the division reads as arithmetic. */
-  .kpi-formula {
-    margin: 0 0 16px; padding: 11px 14px;
-    background: rgba(0,0,0,.24); border: 1px solid rgba(255,255,255,.1);
-    border-radius: var(--radius-sm);
-    font-family: var(--mono); font-size: 12.5px; color: #cfe0f8;
-  }
-  .kpi-note { margin: 0; font-size: 12.5px; color: #b9cbe4; line-height: 1.6; }
-  .kpi-note b { font-variant-numeric: tabular-nums; }
-
-  /*
-    The three bands as one scale rather than three cells of a table row. Read
-    top to bottom they are a continuum — which is the thing a row of separate
-    Target / Yellow / Red columns could not show.
-  */
-  .band-scale { display: grid; gap: 7px; margin-bottom: 16px; }
-  .band-row {
-    display: flex; align-items: center; gap: 11px;
-    padding: 9px 13px;
-    background: rgba(255,255,255,.045);
-    border: 1px solid rgba(255,255,255,.09);
-    border-left: 3px solid var(--band);
-    border-radius: var(--radius-sm);
-    font-size: 12.5px; color: #b9cbe4;
-  }
-  .band-row i {
-    width: 9px; height: 9px; flex: 0 0 9px; border-radius: 2px;
-    background: var(--band);
-  }
-  .band-row b {
-    color: #fff; font-weight: 650; font-variant-numeric: tabular-nums;
-    min-width: 120px;
-  }
-  .band-row small { color: #8fa5c2; font-size: 11.5px; }
 
   .org-people-label {
     font-size: 9.5px; font-weight: 700; letter-spacing: .11em;
@@ -743,20 +747,18 @@
     background: linear-gradient(150deg, #2563eb, #14337a);
   }
 
-  /*
-    Glass. Everything else on the screen goes back while a section is open —
-    which is what "the background tables fade" asks for, done with blur and
-    opacity so nothing moves and nothing is unmounted.
-  */
-  .org-dimmed {
-    filter: blur(3px) saturate(.6); opacity: .4;
-    pointer-events: none; user-select: none;
-    transition: filter .3s ease, opacity .3s ease;
+  @media (prefers-reduced-motion: reduce) {
+    .org-card, .org-track, .org-arrow, .org-dot, .content { transition: none; }
+    .org-person { animation: none; }
   }
 
-  @media (prefers-reduced-motion: reduce) {
-    .org-card, .org-rows, .org-close, .content { transition: none; }
-    .org-detail, .org-person { animation: none; }
+  /* Narrow screens: a tighter fan, and the head stacks rather than squeezes.
+     The breakpoint allows for the sidebar, which takes 214px off the window
+     before the stage sees any of it. */
+  @media (max-width: 1024px) {
+    .org-card { width: 216px; --step: 150px; }
+    .org-card[data-dist="2"] { --step: 190px; }
+    .org-stage-head { flex-direction: column; }
   }
 
   /* ---------------- comparison picker ---------------- */
@@ -1070,6 +1072,104 @@
   .pill.g { background: var(--green-bg); color: var(--green-ink); }
   .pill.a { background: var(--amber-bg); color: var(--amber-ink); }
   .pill.r { background: var(--red-bg);   color: var(--red-ink); }
+
+  /* ---------------- the KPI thresholds table ---------------- */
+  /*
+    Six columns, and the one that earns its place is the bands.
+
+    Target, yellow floor and red used to be three separate cells. Three numbers
+    in a row do not add up to a scale in anybody's head — you have to subtract
+    them from each other to see the shape. Drawn as one bar across the whole
+    0–100 the percentage lives on, the shape is the first thing you see, and on
+    all four indicators it says the same striking thing: nearly the entire
+    range is a breach, and the window you have to land in is a sliver at the
+    very top. The exact figures are printed under the bar, because a bar you
+    cannot read values off is decoration — and because the floor below keeps
+    the thinnest slivers visible at the cost of their exact width.
+  */
+  .head-note {
+    margin-left: auto; text-transform: none; letter-spacing: 0;
+    font-size: 11px; font-weight: 600; color: var(--text-dim);
+  }
+  .card-blue > .card-head .head-note { color: rgba(255,255,255,.72); }
+
+  .thr-table td { vertical-align: middle; padding: 12px 16px; }
+
+  .thr-no, th.thr-no { width: 44px; padding-right: 0 !important; }
+  .thr-badge {
+    display: grid; place-items: center;
+    width: 26px; height: 26px; border-radius: 8px;
+    background: var(--surface-2); border: 1px solid var(--border-str);
+    font-size: 12px; font-weight: 700; color: var(--text-dim);
+    font-variant-numeric: tabular-nums;
+    transition: background .16s ease, color .16s ease, transform .16s ease;
+  }
+  /* The ones with data behind them wear the accent; the ones still waiting on
+     an export stay grey, so which two are real is visible down the column. */
+  .thr-badge.is-live {
+    background: linear-gradient(150deg, var(--blue-500), #1b3f8f);
+    border-color: transparent; color: #fff;
+    box-shadow: 0 4px 12px -6px rgba(37,99,235,.9);
+  }
+  tbody tr:hover .thr-badge { transform: scale(1.08); }
+
+  .thr-what { min-width: 330px; }
+  .thr-name {
+    display: flex; align-items: center; flex-wrap: wrap; gap: 8px;
+    font-size: 13px; font-weight: 650; color: var(--text); line-height: 1.35;
+  }
+  .thr-formula {
+    display: block; margin-top: 4px;
+    font-family: var(--mono); font-size: 11px; color: var(--text-mut);
+    line-height: 1.45;
+  }
+
+  .thr-target {
+    font-size: 19px; font-weight: 700; letter-spacing: -.02em;
+    color: var(--navy-700); font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .thr-target i { font-size: 12px; font-style: normal; color: var(--text-mut); }
+
+  .thr-bands { width: 26%; min-width: 280px; }
+  .thr-bar {
+    display: flex; gap: 2px; height: 8px; margin-bottom: 7px;
+    border-radius: 999px; overflow: hidden;
+    background: var(--surface-2);
+  }
+  /* flex-grow carries the proportion; the floor keeps a band from vanishing,
+     because a band you cannot see reads as a band that does not exist. */
+  .thr-seg { flex-basis: 0; min-width: 10px; transition: filter .16s ease; }
+  .thr-seg.r { background: var(--red); }
+  .thr-seg.a { background: var(--amber); }
+  .thr-seg.g { background: var(--green); }
+  tbody tr:hover .thr-seg { filter: saturate(1.35); }
+
+  .thr-chips { display: flex; flex-wrap: wrap; gap: 5px; }
+  .thr-chip {
+    padding: 2px 7px; border-radius: 5px;
+    font-size: 10.5px; font-weight: 700; font-variant-numeric: tabular-nums;
+    white-space: nowrap; border: 1px solid transparent;
+  }
+  .thr-chip.g { background: var(--green-bg); color: var(--green-ink); border-color: #bfe8bf; }
+  .thr-chip.a { background: var(--amber-bg); color: var(--amber-ink); border-color: #f4dfae; }
+  .thr-chip.r { background: var(--red-bg);   color: var(--red-ink);   border-color: #f2c3c3; }
+
+  .thr-layer { font-size: 12px; color: var(--text-dim); white-space: nowrap; }
+  .thr-lyr {
+    display: inline-block; margin-right: 7px; padding: 2px 6px;
+    border-radius: 5px; background: var(--blue-050);
+    border: 1px solid #c9ddfb;
+    font-size: 10px; font-weight: 700; letter-spacing: .04em; color: var(--blue-600);
+  }
+
+  .thr-now { white-space: nowrap; }
+  .thr-read {
+    display: block; font-size: 16px; font-weight: 700; letter-spacing: -.01em;
+    font-variant-numeric: tabular-nums;
+  }
+  .thr-read.is-none { font-size: 11.5px; font-weight: 600; color: var(--text-mut); }
+  .thr-now small { display: block; margin-top: 2px; font-size: 10.5px; color: var(--text-mut); }
 
   /* ---------------- notices ---------------- */
   .notice {
