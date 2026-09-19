@@ -116,13 +116,22 @@
             <!--
               The SLA layer belongs with the name: "Layer 3" is how the policy
               refers to this indicator, and it was only visible on Settings.
-              Filled by renderKpiHeads() so it cannot drift from CONFIG.
+              Beside it, whether the indicator is passing right now — the
+              status the signed sheet's Assessment column names. Both filled
+              by renderKpiHeads() / updateKpiTracks() so they cannot drift
+              from CONFIG or from the figure on screen.
             -->
             <h1>KPI 1: Error/Issue Resolution Time
-              <span class="layer-pill" id="kpi1Layer" hidden></span></h1>
-            <p class="sub">
-              Ticket Resolution Success Rate across Enterprise Application Services.
-              Target ≥ 99.50% monthly · Policy TVL-KPI-001 §6.3
+              <span class="layer-pill" id="kpi1Layer" hidden></span>
+              <span class="track-pill" id="kpi1Track" hidden></span></h1>
+            <!--
+              The formula itself, not a paraphrase of it. Written here as a
+              fallback only; renderKpiHeads() replaces it from CONFIG, so the
+              screen and the scoring engine quote the same definition.
+            -->
+            <p class="sub" id="kpi1Sub">
+              Ticket Resolution Success Rate (%) =
+              (Completed Successfully ÷ Total Completed) × 100
             </p>
             <!--
               What the stored tickets actually cover, to the day. Always on,
@@ -314,12 +323,14 @@
         <div class="page-head">
           <div>
             <h1>KPI 2: SAP User Training Satisfaction &amp; Feedback
-              <span class="layer-pill" id="kpi2Layer" hidden></span></h1>
+              <span class="layer-pill" id="kpi2Layer" hidden></span>
+              <span class="track-pill" id="kpi2Track" hidden></span></h1>
             <!-- The layer moved to the pill beside the heading; repeating it
-                 here would be the page saying it twice. -->
-            <p class="sub">
-              Positive responses as a share of applicable responses.
-              Target ≥ 90.00% per quarter
+                 here would be the page saying it twice. Replaced from CONFIG
+                 by renderKpiHeads() — this copy is the fallback. -->
+            <p class="sub" id="kpi2Sub">
+              Actual Success Rate (%) =
+              (Total Positive Responses ÷ Total Applicable Responses) × 100
             </p>
             <p class="period-note" id="kpi2Period" hidden></p>
           </div>
@@ -725,6 +736,13 @@
                   <th class="r">Target</th>
                   <th>Performance bands</th>
                   <th>SLA layer</th>
+                  <!--
+                    The signed definition sheet for each indicator. The link
+                    lives in CONFIG.KPI.<key>.policyUrl; until one is set the
+                    button is greyed and says so, rather than being absent and
+                    leaving you to wonder whether the document exists.
+                  -->
+                  <th class="thr-doc">Definition</th>
                   <th class="r">Reading now</th>
                 </tr>
               </thead>

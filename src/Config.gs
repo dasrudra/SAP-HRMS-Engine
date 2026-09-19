@@ -230,7 +230,16 @@ const CONFIG = {
       shortName: 'Resolution Time',
       layer: 3,
       slaLayer: 'Layer 3: Service Requests',
+      // The left-hand side of the formula, exactly as the signed sheet names
+      // it. Printed under the heading as `measure = formula`, so the screen
+      // quotes the policy rather than paraphrasing it.
+      measure: 'Ticket Resolution Success Rate (%)',
       formula: '(Completed Successfully ÷ Total Completed) × 100',
+      // Link to the signed definition PDF. Upload it to Drive, share it with
+      // the team, and paste the link here — the Settings table turns it into
+      // the button beside this row. Must start http:// or https://; anything
+      // else is ignored and the button stays greyed out.
+      policyUrl: '',
       target: 99.50,        // green at or above this
       yellowFloor: 89.55,   // below this is red
       unit: '%',
@@ -248,7 +257,9 @@ const CONFIG = {
       // the signed definition sheet replaces it with a positive-response ratio,
       // and resolves the old contradictory thresholds (<90 yellow AND <60 red)
       // into a clean 81.00–89.99 band.
+      measure: 'Actual Success Rate (%)',
       formula: '(Total Positive Responses ÷ Total Applicable Responses) × 100',
+      policyUrl: '',
       target: 90.00,
       yellowFloor: 81.00,
       unit: '%',
@@ -262,7 +273,11 @@ const CONFIG = {
       shortName: 'Incident Mgmt',
       layer: 1,
       slaLayer: 'Layer 1: Incident & Emergency Management',
+      // Not yet confirmed against the signed sheet — the Layer 1 PDF has not
+      // been supplied. Check the wording when it arrives.
+      measure: 'Actual Success Rate (%)',
       formula: '(Incidents Resolved Within Target ÷ Total Incidents) × 100',
+      policyUrl: '',
       // The strictest of the four: the yellow floor sits at 99.60%
       // achievement rather than the 90% the other three use.
       target: 99.90,
@@ -278,7 +293,9 @@ const CONFIG = {
       shortName: 'Server Availability',
       layer: 2,
       slaLayer: 'Layer 2: Service Availability',
+      measure: 'SAP Availability (%)',
       formula: '(Scheduled Time − Unplanned Downtime) ÷ Scheduled Time × 100',
+      policyUrl: '',
       target: 99.50,
       yellowFloor: 89.55,
       unit: '%',

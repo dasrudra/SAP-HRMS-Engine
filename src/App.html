@@ -1969,24 +1969,109 @@
 
 
   /**
-   * The SLA layer, beside each indicator's name.
+   * The SLA layer and the formula, at the top of each indicator's screen.
    *
    * "Layer 3" is how the policy refers to these, and it was visible only on
-   * Settings. Read from CONFIG through the bootstrap rather than written into
-   * the markup, so the heading cannot drift from the definition it names.
+   * Settings. The subtitle used to be a paraphrase of the formula with the
+   * target bolted on; it is now the formula itself, because a paraphrase is
+   * one more thing that can disagree with the sheet everyone signed.
+   *
+   * Both read from CONFIG through the bootstrap rather than written into the
+   * markup, so the heading cannot drift from the definition it names — or
+   * from the arithmetic the engine actually performs.
    */
   function renderKpiHeads(boot) {
     const list = (boot && boot.kpiList) || [];
 
-    [['KPI1', 'kpi1Layer'], ['KPI2', 'kpi2Layer']].forEach(function (pair) {
-      const el = document.getElementById(pair[1]);
-      if (!el) return;
+    [['KPI1', 'kpi1Layer', 'kpi1Sub'], ['KPI2', 'kpi2Layer', 'kpi2Sub']]
+      .forEach(function (row) {
+        const kpi = list.filter(function (k) { return k.id === row[0]; })[0];
 
-      const kpi = list.filter(function (k) { return k.id === pair[0]; })[0];
-      const layer = kpi && kpi.slaLayer;
-      el.hidden = !layer;
-      if (layer) el.textContent = layer;
-    });
+        const pill = document.getElementById(row[1]);
+        if (pill) {
+          const layer = kpi && kpi.slaLayer;
+          pill.hidden = !layer;
+          if (layer) pill.textContent = layer;
+        }
+
+        const sub = document.getElementById(row[2]);
+        // The expression in the mono face so the division reads as arithmetic;
+        // the name of the measure beside it in the body face, because it is a
+        // label rather than a term. Left as the markup's fallback if CONFIG
+        // carries no formula, so the line is never blank.
+        if (sub && kpi && kpi.formula) {
+          // The 74ch cap on .sub is right for a sentence and wrong for a
+          // formula — it broke this line in two between the name and the
+          // expression, which is the one place it must not break.
+          sub.classList.add('is-formula');
+          sub.innerHTML =
+            (kpi.measure
+              ? '<span class="f-name">' + escapeHtml(kpi.measure) + '</span> ' +
+                '<span class="f-eq">=</span> '
+              : '') +
+            '<code class="f-expr">' + escapeHtml(kpi.formula) + '</code>';
+        }
+      });
+
+    updateKpiTracks();
+  }
+
+
+  /**
+   * Whether each indicator is passing, beside its name.
+   *
+   * The band was on the screen already — on a tile, halfway down, beside the
+   * rate. But "is this KPI OK right now" is the question the heading should
+   * answer, and it is the question anyone opening the page came with.
+   *
+   * The wording is the signed sheet's own Assessment column for the two bad
+   * states, so the dashboard and the policy say the same words. GREEN reads
+   * "On Track" rather than "Target Met / Exceeded" because it sits beside a
+   * heading, not in a table of outcomes.
+   */
+  const TRACK_STATES = {
+    GREEN:  { text: 'On Track',        cls: 'g' },
+    YELLOW: { text: 'Needs Attention', cls: 'a' },
+    RED:    { text: 'Action Required', cls: 'r' }
+  };
+
+
+  function updateKpiTracks() {
+    setTrack('kpi1Track', 'KPI1', state.kpi);
+    setTrack('kpi2Track', 'KPI2', state.kpi2);
+  }
+
+
+  /**
+   * One heading's status pill.
+   *
+   * Hidden rather than neutral when there is no period loaded: a grey "no
+   * data" chip beside a heading reads as a state the indicator is in, and it
+   * is not — it is the absence of a reading.
+   */
+  function setTrack(elementId, kpiId, result) {
+    const el = document.getElementById(elementId);
+    if (!el) return;
+
+    const total = result && result.hasData ? result.total : null;
+    const mark = total ? TRACK_STATES[total.band] : null;
+
+    if (!mark) {
+      el.hidden = true;
+      el.textContent = '';
+      return;
+    }
+
+    const kpi = ((state.boot && state.boot.kpiList) || [])
+      .filter(function (k) { return k.id === kpiId; })[0];
+
+    el.hidden = false;
+    el.className = 'track-pill is-' + mark.cls;
+    el.textContent = mark.text;
+    // The pill is a judgement, so it says on hover what it judged.
+    el.title = fmt(total.rate) + '% against a ' +
+      (kpi ? kpi.target : '') + '% target' +
+      (kpi ? ' · achievement ' + fmt(total.achievement) + '%' : '');
   }
 
 
@@ -2030,6 +2115,11 @@
 
   function renderKpi1(k) {
     state.kpi = k;
+    // The pill beside the heading says whether this indicator is passing, and
+    // the Settings table quotes the same rate. Both before the early return,
+    // so an empty period clears them instead of leaving the last one's state.
+    updateKpiTracks();
+    updateKpiTable();
 
     const basisBox = document.getElementById('kpi1Basis');
     const tiles = document.getElementById('kpi1Tiles');
@@ -2339,9 +2429,33 @@
       }) +
       tile({
         label: 'Delayed', icon: 'clock', tone: t.delayed ? 'a' : 'g',
-        value: count(t.delayed),
-        note: count(t.successful) + ' completed on time'
+        value: delayRateText(t),
+        note: count(t.delayed) + ' delayed · ' +
+              count(t.successful) + ' completed on time'
       });
+  }
+
+
+  /**
+   * Delayed tickets as a share of completed ones.
+   *
+   * Computed from the two counts rather than as 100 minus the success rate.
+   * The two are arithmetically identical today — successful + delayed is
+   * completed, by definition — but deriving it from the counts on the tile
+   * means the tile cannot start disagreeing with itself if the rate is ever
+   * defined differently upstream.
+   *
+   * Rounds to two places like every other rate here, with one exception: a
+   * handful of delays in twenty thousand tickets rounds to 0.00%, and a tile
+   * reading 0.00% above the words "85 delayed" is a contradiction. Below that
+   * it says "<0.01%" instead, which is true and does not claim none.
+   */
+  function delayRateText(t) {
+    if (!t.completed) return '—';
+    if (!t.delayed) return '0%';
+
+    const rate = (t.delayed / t.completed) * 100;
+    return rate < 0.005 ? '<0.01%' : fmt(rate) + '%';
   }
 
 
@@ -2394,7 +2508,9 @@
 
   function renderKpi2(k) {
     state.kpi2 = k;
-    // The KPI thresholds table on Settings quotes this rate in KPI 2's row.
+    // The KPI thresholds table on Settings quotes this rate in KPI 2's row,
+    // and the pill beside the heading says whether it is passing.
+    updateKpiTracks();
     updateKpiTable();
 
     const tiles = document.getElementById('kpi2Tiles');
@@ -4063,6 +4179,8 @@
         escapeHtml(layerName) +
       '</td>' +
 
+      '<td class="thr-doc">' + policyLink(kpi) + '</td>' +
+
       '<td class="r thr-now">' +
         (actual === null
           ? '<span class="thr-read is-none">' +
@@ -4108,6 +4226,40 @@
         '<b class="thr-chip a">' + kpi.yellowFloor + ' – ' + top + kpi.unit + '</b>' +
         '<b class="thr-chip r">&lt; ' + kpi.yellowFloor + kpi.unit + '</b>' +
       '</span>';
+  }
+
+
+  /**
+   * The button to the signed definition sheet for one indicator.
+   *
+   * An <a target="_blank">, not a button calling window.open: an Apps Script
+   * web app runs inside a sandboxed iframe, where a scripted window.open is
+   * liable to be blocked but a plain link with a target is not.
+   *
+   * Only http and https are accepted. Config.gs is edited by hand, and a
+   * mistyped or pasted `javascript:` URL in a field that becomes an href is
+   * the one way this table could do something other than open a document.
+   *
+   * With no link set the button is still drawn, greyed, saying so. Leaving
+   * the cell empty would read as "this indicator has no definition sheet",
+   * which is the opposite of true — it has one, nobody has linked it yet.
+   */
+  function policyLink(kpi) {
+    const url = String(kpi.policyUrl || '').trim();
+
+    if (!/^https?:\/\//i.test(url)) {
+      return '<span class="doc-btn is-off" title="No document linked yet — ' +
+        'paste the file\u2019s link into policyUrl for this KPI in Config.gs">' +
+        'Not linked</span>';
+    }
+
+    return '<a class="doc-btn" href="' + escapeHtml(url) + '" ' +
+      'target="_blank" rel="noopener noreferrer" ' +
+      'title="Open the signed definition for ' + escapeHtml(kpi.name) + '">' +
+      '<svg viewBox="0 0 16 16" aria-hidden="true">' +
+        '<path d="M9.4 1.9H4.2a1.2 1.2 0 0 0-1.2 1.2v9.8a1.2 1.2 0 0 0 1.2 1.2h7.6a1.2 1.2 0 0 0 1.2-1.2V5.5z"/>' +
+        '<path d="M9.4 1.9v3.6H13"/>' +
+      '</svg>PDF</a>';
   }
 
 

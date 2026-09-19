@@ -251,6 +251,50 @@
   }
 
   /*
+    Whether the indicator is passing, beside the layer. Same shape as the
+    layer pill so the two read as one pair of qualifiers on the title, but in
+    the band's own colour with a filled dot in front — the dot is what carries
+    at a glance and in a screenshot, and it survives being printed in grey.
+  */
+  .track-pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    vertical-align: middle;
+    margin-left: 7px; padding: 4px 12px 4px 10px;
+    border: 1px solid transparent; border-radius: 999px;
+    font-size: 11px; font-weight: 700; letter-spacing: .04em;
+    text-transform: uppercase;
+    position: relative; top: -2px;
+    cursor: default;
+  }
+  .track-pill::before {
+    content: ''; width: 7px; height: 7px; border-radius: 50%;
+    background: currentColor; flex: 0 0 7px;
+  }
+  .track-pill.is-g { background: var(--green-bg); color: var(--green-ink); border-color: #bfe8bf; }
+  .track-pill.is-a { background: var(--amber-bg); color: var(--amber-ink); border-color: #f4dfae; }
+  .track-pill.is-r { background: var(--red-bg);   color: var(--red-ink);   border-color: #f2c3c3; }
+
+  /*
+    The formula under the heading, in place of a sentence describing it. The
+    name of the measure stays in the body face because it is a label; the
+    expression goes to mono, because a division set in a proportional face
+    reads as prose and this one is arithmetic that people check.
+  */
+  .sub.is-formula {
+    max-width: none;
+    display: flex; align-items: baseline; flex-wrap: wrap; gap: 2px 0;
+  }
+  .sub .f-name { font-weight: 600; color: var(--text); }
+  .sub .f-eq { margin: 0 3px; color: var(--text-mut); }
+  .sub .f-expr {
+    font-family: var(--mono); font-size: 12.5px;
+    padding: 2px 8px; border-radius: 5px;
+    background: var(--surface-2); border: 1px solid var(--border);
+    color: var(--navy-700);
+    white-space: nowrap;
+  }
+
+  /*
     The month picker — a button and a panel of checkboxes rather than a
     <select>, because several months at once is the thing it has to express
     and a <select multiple> can only do that by ctrl-clicking a list box.
@@ -1113,14 +1157,14 @@
   }
   tbody tr:hover .thr-badge { transform: scale(1.08); }
 
-  .thr-what { min-width: 330px; }
+  .thr-what { min-width: 290px; }
   .thr-name {
     display: flex; align-items: center; flex-wrap: wrap; gap: 8px;
     font-size: 13px; font-weight: 650; color: var(--text); line-height: 1.35;
   }
   .thr-formula {
     display: block; margin-top: 4px;
-    font-family: var(--mono); font-size: 11px; color: var(--text-mut);
+    font-family: var(--mono); font-size: 10.5px; color: var(--text-mut);
     line-height: 1.45;
   }
 
@@ -1131,7 +1175,7 @@
   }
   .thr-target i { font-size: 12px; font-style: normal; color: var(--text-mut); }
 
-  .thr-bands { width: 26%; min-width: 280px; }
+  .thr-bands { width: 22%; min-width: 236px; }
   .thr-bar {
     display: flex; gap: 2px; height: 8px; margin-bottom: 7px;
     border-radius: 999px; overflow: hidden;
@@ -1155,12 +1199,45 @@
   .thr-chip.a { background: var(--amber-bg); color: var(--amber-ink); border-color: #f4dfae; }
   .thr-chip.r { background: var(--red-bg);   color: var(--red-ink);   border-color: #f2c3c3; }
 
-  .thr-layer { font-size: 12px; color: var(--text-dim); white-space: nowrap; }
+  .thr-layer { font-size: 12px; color: var(--text-dim); }
   .thr-lyr {
     display: inline-block; margin-right: 7px; padding: 2px 6px;
     border-radius: 5px; background: var(--blue-050);
     border: 1px solid #c9ddfb;
     font-size: 10px; font-weight: 700; letter-spacing: .04em; color: var(--blue-600);
+  }
+
+  /*
+    The link to the signed definition sheet. A real link styled as a button,
+    because an Apps Script web app lives in a sandboxed iframe where an
+    anchor with target="_blank" opens and a scripted window.open may not.
+  */
+  .thr-doc { white-space: nowrap; width: 1%; }
+  .doc-btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 5px 11px; border-radius: 7px;
+    border: 1px solid var(--border-str); background: var(--surface);
+    font-size: 11.5px; font-weight: 650; color: var(--blue-600);
+    text-decoration: none; white-space: nowrap;
+    transition: background .14s ease, border-color .14s ease,
+                color .14s ease, transform .14s ease, box-shadow .14s ease;
+  }
+  .doc-btn svg {
+    width: 13px; height: 13px; flex: 0 0 13px;
+    fill: none; stroke: currentColor; stroke-width: 1.4;
+    stroke-linecap: round; stroke-linejoin: round;
+  }
+  a.doc-btn:hover {
+    background: var(--blue-500); border-color: var(--blue-500); color: #fff;
+    transform: translateY(-1px);
+    box-shadow: 0 8px 18px -10px rgba(37,99,235,.9);
+  }
+  a.doc-btn:focus-visible { outline: 2px solid var(--blue-500); outline-offset: 2px; }
+  /* No link set yet. Drawn rather than omitted: an empty cell would read as
+     "this indicator has no definition sheet", which is not what it means. */
+  .doc-btn.is-off {
+    color: var(--text-mut); border-style: dashed; cursor: help;
+    font-weight: 600;
   }
 
   .thr-now { white-space: nowrap; }
