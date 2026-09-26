@@ -368,11 +368,10 @@
     flat accent: a soft wash in the corner, a tinted icon chip, and a rule
     that draws itself across the top on hover.
 
-    The tone is meaning, not decoration. Success Rate, KPI Achievement,
-    Headroom and Delayed take the reserved status hues because those four
-    have a state. Received and Completed are plain counts with no good or bad
-    about them, so they take blue and teal — families that can never be
-    mistaken for a band.
+    The tone is meaning, not decoration. Success Rate, Headroom and Delayed
+    take the reserved status hues because those three have a state. Received
+    and Completed are plain counts with no good or bad about them, so they
+    take blue and teal — families that can never be mistaken for a band.
   */
   .tiles {
     display: grid; gap: 12px; margin-bottom: 16px;
@@ -390,11 +389,22 @@
                 box-shadow .2s ease, border-color .2s ease;
   }
 
-  /* The wash. Sits behind the content via z-index, hence `isolation`. */
+  /*
+    The wash. Sits behind the content via z-index, hence `isolation`.
+
+    Carried across the whole tile rather than fading out two-thirds of the
+    way: the tint is what tells the six apart at a glance, and at a third of
+    a tile it read as a smudge rather than as a colour. Three stops, ending
+    just off-white, so the card still reads as paper and not as a block of
+    colour with text on it.
+  */
   .tile::after {
     content: ''; position: absolute; inset: 0; z-index: -1;
-    background: linear-gradient(145deg, var(--tone-wash) 0%, transparent 68%);
-    opacity: .85; transition: opacity .2s ease;
+    background: linear-gradient(150deg,
+                  var(--tone-wash) 0%,
+                  var(--tone-wash-2) 52%,
+                  #ffffff 100%);
+    opacity: 1; transition: opacity .2s ease;
   }
   /* The top rule, drawn left-to-right on hover. */
   .tile::before {
@@ -443,6 +453,13 @@
     font-size: 11.5px; color: var(--text-dim); margin-top: 7px;
     line-height: 1.35; min-height: 16px;
   }
+  /* The target, under the figure it is a target FOR. It used to sit under KPI
+     Achievement, whose own target is 100% — so the page printed 99.5% beneath
+     a number that 99.5% says nothing about. */
+  .tile-target {
+    display: block; margin-top: 5px;
+    font-variant-numeric: tabular-nums;
+  }
   /* Only Headroom carries one: the delay budget, drawn to scale. */
   .tile-bar {
     margin-top: 11px; height: 4px; border-radius: 999px;
@@ -454,32 +471,43 @@
     transition: width .45s cubic-bezier(.4,0,.2,1);
   }
 
-  /* ---- tone families ---- */
+  /*
+    ---- tone families ----
+    Two wash stops per family now. The first carries the colour, the second
+    hands it off to white. Held deliberately short of saturated: these sit
+    under black text all day, and a tint you notice twice is a tint you stop
+    reading past on the third day.
+  */
   .tile.t-g {
     --tone: #0ca30c; --tone-ink: #046804;
-    --tone-wash: #e9f8e9; --tone-chip: #d4f2d4; --tone-edge: #a5e0a5;
+    --tone-wash: #cdefcd; --tone-wash-2: #e9f8e9;
+    --tone-chip: #bdeabd; --tone-edge: #8fd68f;
   }
   .tile.t-a {
     --tone: #eda100; --tone-ink: #8a5d00;
-    --tone-wash: #fef6e4; --tone-chip: #fdeac2; --tone-edge: #f3ce85;
+    --tone-wash: #fce6b4; --tone-wash-2: #fef5e0;
+    --tone-chip: #fbdfa4; --tone-edge: #f0c56c;
   }
   .tile.t-r {
     --tone: #d03b3b; --tone-ink: #a01f1f;
-    --tone-wash: #fdeeee; --tone-chip: #fadada; --tone-edge: #efb0b0;
+    --tone-wash: #f9d3d3; --tone-wash-2: #fdeded;
+    --tone-chip: #f6c4c4; --tone-edge: #eb9e9e;
   }
   .tile.t-blue {
     --tone: #2a78d6; --tone-ink: #1a4f92;
-    --tone-wash: #eaf3fd; --tone-chip: #d5e7fa; --tone-edge: #a5c8ef;
+    --tone-wash: #cfe3fa; --tone-wash-2: #e9f2fd;
+    --tone-chip: #bed8f7; --tone-edge: #93bdec;
   }
   .tile.t-teal {
     --tone: #1baf7a; --tone-ink: #0d7050;
-    --tone-wash: #e7f8f2; --tone-chip: #cdf0e3; --tone-edge: #96ddc2;
+    --tone-wash: #c2ecdc; --tone-wash-2: #e5f7f0;
+    --tone-chip: #b0e6d2; --tone-edge: #82d5b7;
   }
 
   .tile-empty {
     grid-column: 1 / -1; color: var(--text-mut);
     display: grid; place-items: center; min-height: 88px;
-    --tone: var(--border-str); --tone-wash: transparent;
+    --tone: var(--border-str); --tone-wash: transparent; --tone-wash-2: transparent;
     --tone-chip: var(--surface-2); --tone-edge: var(--border-str);
   }
   .tile-empty:hover { transform: none; }
@@ -1157,7 +1185,7 @@
   }
   tbody tr:hover .thr-badge { transform: scale(1.08); }
 
-  .thr-what { min-width: 290px; }
+  .thr-what { min-width: 244px; }
   .thr-name {
     display: flex; align-items: center; flex-wrap: wrap; gap: 8px;
     font-size: 13px; font-weight: 650; color: var(--text); line-height: 1.35;
@@ -1175,7 +1203,7 @@
   }
   .thr-target i { font-size: 12px; font-style: normal; color: var(--text-mut); }
 
-  .thr-bands { width: 22%; min-width: 236px; }
+  .thr-bands { width: 19%; min-width: 228px; }
   .thr-bar {
     display: flex; gap: 2px; height: 8px; margin-bottom: 7px;
     border-radius: 999px; overflow: hidden;
@@ -1189,10 +1217,13 @@
   .thr-seg.g { background: var(--green); }
   tbody tr:hover .thr-seg { filter: saturate(1.35); }
 
-  .thr-chips { display: flex; flex-wrap: wrap; gap: 5px; }
+  /* One row of three, always. The column is narrower since KPI Achievement
+     joined the table, and chips that wrap to a second line make every row
+     taller than the one piece of information they carry is worth. */
+  .thr-chips { display: flex; flex-wrap: nowrap; gap: 4px; }
   .thr-chip {
-    padding: 2px 7px; border-radius: 5px;
-    font-size: 10.5px; font-weight: 700; font-variant-numeric: tabular-nums;
+    padding: 2px 6px; border-radius: 5px;
+    font-size: 10px; font-weight: 700; font-variant-numeric: tabular-nums;
     white-space: nowrap; border: 1px solid transparent;
   }
   .thr-chip.g { background: var(--green-bg); color: var(--green-ink); border-color: #bfe8bf; }
@@ -1238,6 +1269,22 @@
   .doc-btn.is-off {
     color: var(--text-mut); border-style: dashed; cursor: help;
     font-weight: 600;
+  }
+
+  /*
+    KPI Achievement. 100% means on target whatever the target is, which is
+    what makes this column comparable down its length when the four targets
+    are 99.5, 90, 99.9 and 99.5. The caption says so once per row rather than
+    leaving it to be worked out.
+  */
+  .thr-ach { white-space: nowrap; }
+  .thr-ach-val {
+    display: block; font-size: 15px; font-weight: 700; letter-spacing: -.01em;
+    font-variant-numeric: tabular-nums;
+  }
+  .thr-ach-none { color: var(--text-mut); font-weight: 600; }
+  td.thr-ach small {
+    display: block; margin-top: 2px; font-size: 10px; color: var(--text-mut);
   }
 
   .thr-now { white-space: nowrap; }

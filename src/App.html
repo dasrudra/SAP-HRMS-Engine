@@ -271,7 +271,9 @@
       kpi2: 'KPI 2 · Training',
       compare: 'Comparison',
       uploads: 'Data Uploads',
-      settings: 'Settings'
+      // The internal name stays `settings`, so every saved link and bookmark
+      // with ?view=settings keeps working. Only what people read changes.
+      settings: 'Summary'
     };
     document.getElementById('viewLabel').textContent = labels[name] || name;
 
@@ -2397,12 +2399,13 @@
       tile({
         label: 'Success Rate', icon: 'target', tone: band,
         value: fmt(t.rate) + '%',
-        note: '<span class="pill ' + band + '">' + escapeHtml(t.band) + '</span>'
-      }) +
-      tile({
-        label: 'KPI Achievement', icon: 'trend', tone: band,
-        value: fmt(t.achievement) + '%',
-        note: escapeHtml('target ' + k.target + '% · ' + gapText)
+        // The target belongs here, not on an achievement tile: 99.5% is the
+        // target for THIS number. Achievement's own target is 100%, and
+        // printing 99.5% under it said the wrong thing about the wrong figure.
+        // Achievement itself now lives on the Summary screen, beside the layer.
+        note: '<span class="pill ' + band + '">' + escapeHtml(t.band) + '</span>' +
+              '<span class="tile-target">target ' + k.target + '% · ' +
+              escapeHtml(gapText) + '</span>'
       }) +
       tile({
         label: 'Headroom', icon: 'shield', tone: headroomTone,
@@ -2711,10 +2714,9 @@
     container.innerHTML =
       tile({ label: 'Success Rate', icon: 'target', tone: band,
              value: fmt(t.rate) + '%',
-             note: '<span class="pill ' + band + '">' + escapeHtml(t.band) + '</span>' }) +
-      tile({ label: 'KPI Achievement', icon: 'trend', tone: band,
-             value: fmt(t.achievement) + '%',
-             note: escapeHtml('target ' + k.target + '% · ' + gapText) }) +
+             note: '<span class="pill ' + band + '">' + escapeHtml(t.band) + '</span>' +
+                   '<span class="tile-target">target ' + k.target + '% · ' +
+                   escapeHtml(gapText) + '</span>' }) +
       tile({ label: 'Headroom', icon: 'shield',
              tone: t.headroom > 0 ? 'g' : (t.headroom === 0 ? 'a' : 'r'),
              value: (t.headroom > 0 ? '+' : '') + t.headroom,
@@ -4179,6 +4181,8 @@
         escapeHtml(layerName) +
       '</td>' +
 
+      '<td class="r thr-ach">' + achievementCell(kpi) + '</td>' +
+
       '<td class="thr-doc">' + policyLink(kpi) + '</td>' +
 
       '<td class="r thr-now">' +
@@ -4226,6 +4230,50 @@
         '<b class="thr-chip a">' + kpi.yellowFloor + ' – ' + top + kpi.unit + '</b>' +
         '<b class="thr-chip r">&lt; ' + kpi.yellowFloor + kpi.unit + '</b>' +
       '</span>';
+  }
+
+
+  /**
+   * KPI Achievement, beside the layer on the Summary screen.
+   *
+   * It used to be a tile on each indicator's own page, where it sat next to
+   * the success rate saying almost the same thing twice — and where its note
+   * printed the SUCCESS RATE target under it, which is a target for the other
+   * number. Here it is one column across all four, which is the comparison it
+   * was always for: not "how did KPI 1 do" but "which indicators are ahead".
+   *
+   * 100% means exactly on target, by definition, whatever the target is. That
+   * is what makes the column comparable down its length when the four targets
+   * are 99.5, 90, 99.9 and 99.5.
+   */
+  function achievementCell(kpi) {
+    const achievement = currentAchievementFor(kpi);
+    const actual = currentValueFor(kpi);
+
+    if (achievement === null || actual === null) {
+      return '<span class="thr-ach-none">—</span>';
+    }
+
+    return '<span class="thr-ach-val" style="color:' +
+             bandColour(bandOf(actual, kpi)) + '">' + fmt(achievement) + '%</span>' +
+           '<small>100% = on target</small>';
+  }
+
+
+  /**
+   * A KPI's achievement right now, or null when it has none.
+   *
+   * Read from the server's own figure rather than recomputed from the rate,
+   * so this column and that indicator's screen can never round differently.
+   */
+  function currentAchievementFor(kpi) {
+    if (kpi.id === 'KPI1' && state.kpi && state.kpi.hasData && state.kpi.total) {
+      return state.kpi.total.achievement;
+    }
+    if (kpi.id === 'KPI2' && state.kpi2 && state.kpi2.hasData && state.kpi2.total) {
+      return state.kpi2.total.achievement;
+    }
+    return null;
   }
 
 
