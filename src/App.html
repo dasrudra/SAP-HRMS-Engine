@@ -184,12 +184,71 @@
         .login(user, pass);
     });
 
+    /**
+     * Signing out.
+     *
+     * NOT a page reload. An Apps Script web app runs inside a sandboxed
+     * iframe whose address is a one-shot googleusercontent.com URL — asking
+     * the browser to load it again gives a blank white page, which is exactly
+     * what happened here. There is nothing to navigate to, so we do not
+     * navigate: the server forgets the session, and the page puts the sign-in
+     * card back over itself.
+     */
     bind('signOut', 'click', function () {
+      const button = document.getElementById('signOut');
+      if (button) { button.disabled = true; button.textContent = 'Signing out…'; }
+
+      const finish = function () {
+        if (button) { button.disabled = false; button.textContent = 'Sign out'; }
+        showSignIn();
+      };
+
       google.script.run
-        .withSuccessHandler(function () { window.location.reload(); })
-        .withFailureHandler(function () { window.location.reload(); })
+        .withSuccessHandler(finish)
+        .withFailureHandler(finish)   // server unreachable — lock the screen anyway
         .logout();
     });
+  }
+
+
+  /**
+   * Puts the sign-in card back and forgets what was on screen.
+   *
+   * The held results go too. Leaving last month's figures in memory behind a
+   * sign-in card means the next person to sign in sees the previous person's
+   * period for the moment before their own data arrives.
+   */
+  function showSignIn() {
+    state.role = '';
+    state.boot = null;
+    state.kpi = null;
+    state.kpi2 = null;
+    state.kpi2All = null;
+    state.trend = null;
+    state.compare = null;
+    state.scopePeople = null;
+
+    // And what is already drawn. Hiding the app would be enough to stop it
+    // being read, but leaving a month of figures sitting in the page behind a
+    // sign-in card is not what "signed out" should mean.
+    document.querySelectorAll('.tiles').forEach(function (box) {
+      box.innerHTML = '<div class="tile tile-empty"><span>No data loaded yet</span></div>';
+    });
+    document.querySelectorAll('.view tbody').forEach(function (body) {
+      body.innerHTML = '';
+    });
+
+    const root = document.getElementById('appRoot');
+    if (root) root.hidden = true;
+    hide('loader');
+    show('loginScreen');
+
+    setValue('loginPass', '');
+    const box = document.getElementById('loginError');
+    if (box) box.hidden = true;
+
+    const field = document.getElementById('loginUser');
+    if (field) field.focus();
   }
 
 
@@ -211,11 +270,25 @@
     const readOnly = document.getElementById('uploadReadOnly');
     if (readOnly) readOnly.hidden = isAdmin;
 
+    // DEV means the /dev URL, which only script editors can open and which
+    // never asks for a login. Saying so removes the guesswork about whether
+    // you are looking at the deployed version or at your latest save.
+    const isDev = Boolean(state.boot && state.boot.mode === 'DEV');
+
     const badge = document.getElementById('roleBadge');
     if (badge) {
-      badge.textContent = isAdmin ? 'ADMIN' : 'VIEWER';
+      badge.textContent = isDev ? 'DEV · ADMIN' : (isAdmin ? 'ADMIN' : 'VIEWER');
       badge.classList.toggle('is-admin', isAdmin);
+      badge.classList.toggle('is-dev', isDev);
+      badge.title = isDev
+        ? 'The development link. Only people with edit access to the script can ' +
+          'open it, so it does not ask for a login.'
+        : '';
     }
+
+    // Nothing to sign out of on /dev.
+    const out = document.getElementById('signOut');
+    if (out) out.hidden = isDev;
 
     setText('operatorName',
       (state.boot && state.boot.username) ? state.boot.username :

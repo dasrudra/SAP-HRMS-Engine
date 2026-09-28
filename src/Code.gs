@@ -86,6 +86,9 @@ function getBootstrap() {
     // a viewer uploading or deleting.
     role: session.role,
     username: session.username,
+    // DEV or EXEC. The interface says which, so it is never a guess whether
+    // you are looking at the deployed version or at your latest save.
+    mode: session.mode,
 
     appName: CONFIG.APP_NAME,
     appVersion: CONFIG.APP_VERSION,

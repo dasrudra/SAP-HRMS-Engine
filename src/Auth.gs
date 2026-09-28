@@ -33,6 +33,30 @@
  */
 
 
+/**
+ * Is this request coming through the /dev URL?
+ *
+ * /dev is already locked down by Google to people with EDIT ACCESS to the
+ * script project — you cannot open it otherwise. That is a stronger control
+ * than any password here, so asking a developer to sign in on top of it adds
+ * nothing and gets in the way. /dev is always admin.
+ *
+ * /exec is the opposite: it is the link the whole team uses, and that is
+ * where the two roles matter.
+ *
+ * FAILS CLOSED. If the URL cannot be read for any reason we treat it as
+ * production and ask for the login, because the failure that costs something
+ * is handing out admin by accident — not making a developer type a password.
+ */
+function isDevUrl() {
+  try {
+    return /\/dev\/?$/.test(ScriptApp.getService().getUrl() || '');
+  } catch (e) {
+    return false;
+  }
+}
+
+
 /** Roles, in increasing order of what they may do. */
 const ROLE_USER  = 'USER';
 const ROLE_ADMIN = 'ADMIN';
@@ -218,8 +242,9 @@ function logout() {
 function getSession() {
   const session = currentSession();
   return session
-    ? { signedIn: true, role: session.r, username: session.u }
-    : { signedIn: false, role: '', username: '' };
+    ? { signedIn: true, role: session.r, username: session.u,
+        mode: session.dev ? 'DEV' : 'EXEC' }
+    : { signedIn: false, role: '', username: '', mode: 'EXEC' };
 }
 
 
@@ -299,6 +324,13 @@ function currentRole() {
  * an admin session sitting there for anyone who opens the browser next.
  */
 function currentSession() {
+  // On /dev, everyone is an admin and nobody signs in. Deciding it here means
+  // requireSignedIn() and requireAdmin() both follow automatically — there is
+  // no second copy of this rule to forget about.
+  if (isDevUrl()) {
+    return { u: 'developer', r: ROLE_ADMIN, at: Date.now(), dev: true };
+  }
+
   const raw = PropertiesService.getUserProperties().getProperty(SESSION_KEY);
   if (!raw) return null;
 
