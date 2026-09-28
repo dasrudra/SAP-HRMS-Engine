@@ -11,7 +11,57 @@
 <!-- Apps Script cannot <link> a local stylesheet, so we inline it. -->
 <?!= include('Styles'); ?>
 
-<div class="app" id="appRoot">
+<!--
+  THE SIGN-IN SCREEN.
+
+  Covers everything until getSession() says somebody is signed in. Two roles:
+  admin, who can upload, delete and rebuild, and viewer, who can read and
+  filter everything but change nothing.
+
+  Worth being clear about what this is. Who can REACH this page at all is
+  decided by the deployment's access setting — that is Google's sign-in, and
+  it is the real perimeter. This card decides what they may DO once inside.
+  The actual enforcement is in Auth.gs, on the server; hiding buttons here is
+  a courtesy to the person, not a control on them.
+-->
+<div class="login-screen" id="loginScreen" hidden>
+  <div class="login-card">
+    <div class="login-brand">
+      <div class="brand-mark">EAS</div>
+      <div>
+        <strong><?= appName ?></strong>
+        <span><?= appVersion ?></span>
+      </div>
+    </div>
+
+    <h1>Sign in</h1>
+    <p class="login-sub">Enterprise Applications Services &middot; KPI reporting</p>
+
+    <form id="loginForm" autocomplete="on">
+      <label class="login-field">
+        <span>Username</span>
+        <input type="text" id="loginUser" name="username" autocomplete="username"
+               autocapitalize="none" spellcheck="false" required>
+      </label>
+      <label class="login-field">
+        <span>Password</span>
+        <input type="password" id="loginPass" name="password"
+               autocomplete="current-password" required>
+      </label>
+
+      <div class="login-error" id="loginError" hidden></div>
+
+      <button type="submit" class="btn btn-primary login-go" id="loginGo">Sign in</button>
+    </form>
+
+    <p class="login-note">
+      Viewers can read every screen, filter and compare. Uploading, deleting
+      and rebuilding need the admin login.
+    </p>
+  </div>
+</div>
+
+<div class="app" id="appRoot" hidden>
 
   <!-- ===================== SIDEBAR ===================== -->
   <aside class="sidebar">
@@ -66,15 +116,18 @@
 
     <header class="topbar">
       <div class="topbar-left">
-        <span class="topbar-label">OPERATOR:</span>
-        <strong id="operatorName">Display</strong>
+        <span class="topbar-label">SIGNED IN:</span>
+        <strong id="operatorName">&mdash;</strong>
       </div>
       <div class="topbar-right">
         <span id="viewLabel">KPI 1 · ITSM</span>
         <span class="topbar-sep"></span>
         <span class="dot" id="liveDot"></span>
         <span class="live-text" id="liveText">Live</span>
-        <span class="badge">USER</span>
+        <!-- Which login is in use. Set by applyRole(); ADMIN is marked, so
+             nobody deletes an upload thinking they were only looking. -->
+        <span class="badge" id="roleBadge">USER</span>
+        <button class="signout-btn" id="signOut" title="Sign out">Sign out</button>
       </div>
     </header>
 
@@ -623,13 +676,25 @@
           </div>
         </div>
 
+        <!-- Shown to viewers in place of the upload card, so its absence
+             reads as a permission rather than as a missing feature. -->
+        <div class="notice notice-info" id="uploadReadOnly" hidden>
+          <h3>You are signed in as a viewer</h3>
+          <p>
+            You can read every screen, filter and compare. Uploading and
+            deleting need the admin login.
+          </p>
+        </div>
+
         <!-- Left-behind responses, with the button that clears them. -->
         <div id="uploadOrphans" class="notice notice-warn" hidden></div>
 
         <!-- An upload is logged but its rows are not in the database. -->
         <div id="uploadMissing" class="notice notice-error" hidden></div>
 
-        <div class="card">
+        <!-- Admin only. Hidden for viewers by applyRole(); the server refuses
+             the upload calls regardless of what is on screen. -->
+        <div class="card" data-admin-only>
           <div class="card-head">Upload ITSM exports</div>
           <div class="dropzone" id="dropzone">
             <div class="dropzone-inner">
@@ -772,7 +837,7 @@
           Correcting the roster or the module map therefore needs a rebuild —
           without this the only way to apply an edit was to re-upload.
         -->
-        <div class="card">
+        <div class="card" data-admin-only>
           <div class="card-head">Rebuild KPI 1 figures</div>
           <div class="notice-inline">
             <p>

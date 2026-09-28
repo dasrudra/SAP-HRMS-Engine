@@ -56,6 +56,10 @@
     // KPI 2's own result, kept so its filters redraw without a server call.
     kpi2: null,
 
+    // ADMIN or USER, from the server. Decides what the interface offers —
+    // NOT what the server allows, which is decided again on every call.
+    role: '',
+
     // Filter values read back from the URL before the dropdowns they belong to
     // exist. Applied once the data lands and the options are built.
     pending: null,
@@ -84,17 +88,146 @@
     wireCompare();
     wireUploads();
     wireOrg();
+    wireLogin();
+
+    // Who is this, before anything else. Every other server call needs a
+    // session, so asking for data first would only produce an error dialog.
+    google.script.run
+      .withSuccessHandler(onSession)
+      .withFailureHandler(onError)
+      .getSession();
+  });
+
+
+  /**
+   * The answer to "who is signed in".
+   *
+   * Signed in — start the app. Not — show the sign-in card and stop. Nothing
+   * else is requested in the meantime, so a signed-out page holds no data at
+   * all rather than holding it behind a screen.
+   */
+  function onSession(session) {
+    if (session && session.signedIn) {
+      state.role = session.role;
+      startApp();
+      return;
+    }
+
+    hide('loader');
+    show('loginScreen');
+    const field = document.getElementById('loginUser');
+    if (field) field.focus();
+  }
+
+
+  function startApp() {
+    hide('loginScreen');
+    const root = document.getElementById('appRoot');
+    if (root) root.hidden = false;
+    show('loader');
 
     google.script.run
       .withSuccessHandler(onBootstrap)
       .withFailureHandler(onError)
       .getBootstrap();
-  });
+  }
+
+
+  /**
+   * The sign-in card.
+   *
+   * The button is disabled while the call is out — a second press would send
+   * a second attempt and burn one of the eight the server allows.
+   */
+  function wireLogin() {
+    const form = document.getElementById('loginForm');
+    if (!form) return;
+
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+
+      const button = document.getElementById('loginGo');
+      const box = document.getElementById('loginError');
+      const user = getValue('loginUser').trim();
+      const pass = getValue('loginPass');
+
+      if (box) box.hidden = true;
+      if (button) { button.disabled = true; button.textContent = 'Signing in…'; }
+
+      const done = function () {
+        if (button) { button.disabled = false; button.textContent = 'Sign in'; }
+      };
+
+      google.script.run
+        .withSuccessHandler(function (result) {
+          done();
+          if (result && result.ok) {
+            state.role = result.role;
+            setValue('loginPass', '');
+            startApp();
+            return;
+          }
+          if (box) {
+            box.hidden = false;
+            box.textContent = (result && result.message) ||
+              'That username and password do not match.';
+          }
+        })
+        .withFailureHandler(function (err) {
+          done();
+          if (box) {
+            box.hidden = false;
+            box.textContent = (err && err.message) ? err.message :
+              'Could not reach the server. Check your connection and try again.';
+          }
+        })
+        .login(user, pass);
+    });
+
+    bind('signOut', 'click', function () {
+      google.script.run
+        .withSuccessHandler(function () { window.location.reload(); })
+        .withFailureHandler(function () { window.location.reload(); })
+        .logout();
+    });
+  }
+
+
+  /**
+   * Shows the interface the signed-in role can actually use.
+   *
+   * Everything marked data-admin-only disappears for a viewer. This is a
+   * courtesy, not a control: Auth.gs checks the role again inside every
+   * function that writes, because in Apps Script any global function can be
+   * called straight from the browser console whatever the page displays.
+   */
+  function applyRole() {
+    const isAdmin = state.role === 'ADMIN';
+
+    document.querySelectorAll('[data-admin-only]').forEach(function (el) {
+      el.hidden = !isAdmin;
+    });
+
+    const readOnly = document.getElementById('uploadReadOnly');
+    if (readOnly) readOnly.hidden = isAdmin;
+
+    const badge = document.getElementById('roleBadge');
+    if (badge) {
+      badge.textContent = isAdmin ? 'ADMIN' : 'VIEWER';
+      badge.classList.toggle('is-admin', isAdmin);
+    }
+
+    setText('operatorName',
+      (state.boot && state.boot.username) ? state.boot.username :
+      (isAdmin ? 'admin' : 'viewer'));
+  }
 
 
   function onBootstrap(boot) {
     state.boot = boot;
+    if (boot && boot.role) state.role = boot.role;
     hide('loader');
+    applyRole();
 
     if (!boot.configured) {
       show('notConfigured');
@@ -1259,9 +1392,14 @@
         'no way to see where ' + (n === 1 ? 'it' : 'they') + ' came from. ' +
         'Earlier versions removed the history entry without removing the ' +
         'responses; that is fixed, but what was already orphaned is still here.</p>' +
-        '<p><button class="btn btn-danger" data-purge="1">' +
-        'Remove ' + count(n) + ' orphaned response' + (n === 1 ? '' : 's') +
-        '</button></p>';
+        // The warning is worth showing everybody — the button that acts on it
+        // is not, because removing responses changes KPI 2 for everyone.
+        (state.role === 'ADMIN'
+          ? '<p><button class="btn btn-danger" data-purge="1">' +
+            'Remove ' + count(n) + ' orphaned response' + (n === 1 ? '' : 's') +
+            '</button></p>'
+          : '<p class="muted">Signed in as a viewer — clearing these needs the ' +
+            'admin login.</p>');
     });
 
     document.querySelectorAll('[data-purge]').forEach(function (button) {
@@ -1490,8 +1628,12 @@
       '<button class="btn-open" data-open="' + id + '">Open Dashboard</button>' +
       '<button class="btn-icon is-primary" data-download="' + id + '" title="Download CSV">' +
         '<svg viewBox="0 0 16 16"><path d="M8 2v8M5 7l3 3 3-3M3 13h10"/></svg></button>' +
-      '<button class="btn-icon is-danger" data-delete="' + id + '" title="Delete this upload">' +
-        '<svg viewBox="0 0 16 16"><path d="M2.5 4h11M6 4V2.5h4V4M4 4l.6 9.5h6.8L12 4"/></svg></button>' +
+      // Deleting is admin-only. A viewer keeps Open and Download, because
+      // reading an upload back is not a change to anything.
+      (state.role === 'ADMIN'
+        ? '<button class="btn-icon is-danger" data-delete="' + id + '" title="Delete this upload">' +
+          '<svg viewBox="0 0 16 16"><path d="M2.5 4h11M6 4V2.5h4V4M4 4l.6 9.5h6.8L12 4"/></svg></button>'
+        : '') +
       '</div>';
   }
 

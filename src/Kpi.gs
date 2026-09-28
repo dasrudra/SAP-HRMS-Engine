@@ -447,6 +447,8 @@ function quarterLabel(key) {
  * @return {Object}
  */
 function getKpi1(month) {
+  // Needs a session — see Auth.gs.
+  requireSignedIn();
   const kpi = CONFIG.KPI.RESOLUTION;
   const everyMonth = (month === ALL_MONTHS);
 
@@ -632,6 +634,8 @@ function byReceived(a, b) {
  * @return {Object} { periods: [...], sections: [...], totals: {period: {...}} }
  */
 function getKpiComparison(months) {
+  // Needs a session — see Auth.gs.
+  requireSignedIn();
   const wanted = {};
   (months || []).forEach(function (m) { wanted[m] = true; });
 

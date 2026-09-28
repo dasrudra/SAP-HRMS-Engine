@@ -32,6 +32,8 @@
  * @return {Object}
  */
 function getKpi2(scope) {
+  // Needs a session — see Auth.gs.
+  requireSignedIn();
   const kpi = CONFIG.KPI.FEEDBACK;
   const wanted = monthsInScope(scope, 'FEEDBACK');
 
@@ -277,6 +279,8 @@ function byQuarterKey(a, b) {
  * @return {Object}
  */
 function getKpi2Comparison(periods) {
+  // Needs a session — see Auth.gs.
+  requireSignedIn();
   const kpi = CONFIG.KPI.FEEDBACK;
   const list = (periods || []).slice().sort();
 

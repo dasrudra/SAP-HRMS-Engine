@@ -56,6 +56,8 @@ const COL = (function () {
  * @return {Object} { uploadId, startedAt }
  */
 function beginUpload(meta) {
+  // Admin only — see Auth.gs. Checked here, not just in the interface.
+  requireAdmin();
   const sheet = sheetFor(CONFIG.SHEETS.UPLOADS);
 
   // Seconds are not unique enough. Two uploads started in the same second used
@@ -104,6 +106,8 @@ function beginUpload(meta) {
  * @return {Object} { appended, totalRows }
  */
 function appendTicketBatch(uploadId, rows) {
+  // Admin only — see Auth.gs. Checked here, not just in the interface.
+  requireAdmin();
   if (!rows || !rows.length) return { appended: 0, totalRows: 0 };
 
   // A lock stops two uploads interleaving their writes and corrupting the
@@ -154,6 +158,8 @@ function appendTicketBatch(uploadId, rows) {
  * @return {Object} { appended, totalRows }
  */
 function appendFeedbackBatch(uploadId, rows) {
+  // Admin only — see Auth.gs. Checked here, not just in the interface.
+  requireAdmin();
   if (!rows || !rows.length) return { appended: 0, totalRows: 0 };
 
   const lock = LockService.getScriptLock();
@@ -196,6 +202,8 @@ function appendFeedbackBatch(uploadId, rows) {
  * @return {Object} { kept, merged }
  */
 function compactFeedback() {
+  // Editor-only maintenance, tied to the owning account — see Auth.gs.
+  requireOwner();
   const sheet = sheetFor(CONFIG.SHEETS.TRAINING);
   const lastRow = sheet.getLastRow();
   const width = CONFIG.TRAINING_COLUMNS.length;
@@ -236,6 +244,8 @@ function compactFeedback() {
  * @return {Object} summary
  */
 function finishFeedbackUpload(uploadId) {
+  // Admin only — see Auth.gs. Checked here, not just in the interface.
+  requireAdmin();
   const lock = LockService.getScriptLock();
   lock.waitLock(60000);
 
@@ -349,6 +359,8 @@ function auditFeedback() {
  * @return {Object} { removed, kept, files }
  */
 function purgeOrphanedFeedback() {
+  // Admin only — see Auth.gs. Checked here, not just in the interface.
+  requireAdmin();
   const lock = LockService.getScriptLock();
   lock.waitLock(60000);
 
@@ -463,6 +475,8 @@ function countFeedbackOf(fileList) {
  * @return {Object} summary
  */
 function finishUpload(uploadId) {
+  // Admin only — see Auth.gs. Checked here, not just in the interface.
+  requireAdmin();
   const lock = LockService.getScriptLock();
   lock.waitLock(60000);
 
@@ -501,6 +515,8 @@ function finishUpload(uploadId) {
  * @return {Object} { months }
  */
 function recomputeAfterUpload() {
+  // Admin only — see Auth.gs. Checked here, not just in the interface.
+  requireAdmin();
   const lock = LockService.getScriptLock();
   lock.waitLock(60000);
 
@@ -532,6 +548,8 @@ function recomputeAfterUpload() {
  * @return {Object} { before, kept, merged }
  */
 function compactTickets() {
+  // Editor-only maintenance, tied to the owning account — see Auth.gs.
+  requireOwner();
   const sheet = sheetFor(CONFIG.SHEETS.TICKETS);
   const lastRow = sheet.getLastRow();
   if (lastRow < 3) {
@@ -723,6 +741,8 @@ function uploadStamp(uploadId) {
  * @return {Object[]}
  */
 function getUploadHistory() {
+  // Needs a session — see Auth.gs.
+  requireSignedIn();
   const sheet = sheetFor(CONFIG.SHEETS.UPLOADS);
   const lastRow = sheet.getLastRow();
   if (lastRow < 2) return [];
@@ -794,6 +814,8 @@ function dayString(value) {
  * @return {Object} { removed, kept, feedbackRemoved, feedbackKept, months, sheets }
  */
 function deleteUpload(uploadId) {
+  // Admin only — see Auth.gs. Checked here, not just in the interface.
+  requireAdmin();
   const lock = LockService.getScriptLock();
   lock.waitLock(60000);
 
@@ -958,6 +980,8 @@ function removeFeedbackOf(files) {
  * @return {Object} { fileName, csv, rows }
  */
 function getUploadCsv(uploadId) {
+  // Needs a session — see Auth.gs.
+  requireSignedIn();
   const log = sheetFor(CONFIG.SHEETS.UPLOADS);
   const lastLogRow = log.getLastRow();
   if (lastLogRow < 2) throw new Error('No uploads recorded.');
@@ -1023,6 +1047,8 @@ function csvCell(value) {
  * Run by hand from the editor when you want a clean slate.
  */
 function clearAllTickets() {
+  // Editor-only maintenance, tied to the owning account — see Auth.gs.
+  requireOwner();
   const sheet = sheetFor(CONFIG.SHEETS.TICKETS);
   const lastRow = sheet.getLastRow();
   if (lastRow > 1) {

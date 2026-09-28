@@ -67,15 +67,26 @@ function include(filename) {
  * @return {Object} config and current state for the client
  */
 function getBootstrap() {
+  // Needs a session — see Auth.gs.
+  requireSignedIn();
   const configured = Boolean(getSpreadsheetId());
 
   // One read of the Request Date column serves both the month picker and the
   // coverage line under KPI 1's title.
   const period = configured ? ticketPeriod() : { months: [], from: '', to: '' };
 
+  const session = getSession();
+
   return {
     ok: true,
     configured: configured,
+
+    // Who is asking, so the interface can hide what they cannot use. This is
+    // for tidiness, not for safety — the server guards are what actually stop
+    // a viewer uploading or deleting.
+    role: session.role,
+    username: session.username,
+
     appName: CONFIG.APP_NAME,
     appVersion: CONFIG.APP_VERSION,
     departments: CONFIG.DEPARTMENTS,

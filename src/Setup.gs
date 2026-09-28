@@ -151,6 +151,8 @@ function saveSpreadsheetIdToProperties() {
  * Forgets the stored spreadsheet. Only needed to point at a different one.
  */
 function clearStoredSpreadsheetId() {
+  // Editor-only maintenance, tied to the owning account — see Auth.gs.
+  requireOwner();
   PropertiesService.getScriptProperties().deleteProperty(SPREADSHEET_ID_KEY);
   Logger.log('Stored spreadsheet ID cleared.');
 }
