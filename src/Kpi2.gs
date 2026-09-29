@@ -1,5 +1,5 @@
 /**
- * Kpi2.gs — the calculation engine for KPI 2, SAP User Training Satisfaction
+ * Kpi2.gs - the calculation engine for KPI 2, SAP User Training Satisfaction
  * & Feedback.
  *
  * THE FORMULA (Layer 3 TVL-EAS KPI, SAP User Training Feedback, signed)
@@ -15,8 +15,8 @@
  * THE UNIT OF MEASUREMENT IS A RESPONSE, NOT A RESPONDENT
  * Each attendee answers seven scored questions, so fifteen attendees produce
  * one hundred and five responses. The rate is over responses. That is how the
- * existing Overall_Feedback workbook counts — its "Total Responses" column is
- * respondents x 7 — and this engine reproduces its figures exactly.
+ * existing Overall_Feedback workbook counts - its "Total Responses" column is
+ * respondents x 7 - and this engine reproduces its figures exactly.
  *
  * NO CACHE
  * KPI 1 precomputes into KPI_MONTHLY because it scores tens of thousands of
@@ -31,9 +31,9 @@
  * @param {string} scope  'ALL', a month 'YYYY-MM', or a quarter '2026-Q3'
  * @return {Object}
  */
-function getKpi2(scope) {
-  // Needs a session — see Auth.gs.
-  requireSignedIn();
+function getKpi2(token, scope) {
+  // Needs a session - see Auth.gs.
+  requireSignedIn(token);
   const kpi = CONFIG.KPI.FEEDBACK;
   const wanted = monthsInScope(scope, 'FEEDBACK');
 
@@ -58,7 +58,7 @@ function getKpi2(scope) {
     sessions: [],
     questions: [],
     trainers: [],
-    // Answers no one anticipated. Surfaced rather than swallowed — a new form
+    // Answers no one anticipated. Surfaced rather than swallowed - a new form
     // wording that silently counted as positive would move the KPI without
     // anyone noticing.
     unknownAnswers: [],
@@ -105,7 +105,7 @@ function getKpi2(scope) {
   const byQuestion = QUESTION_LABELS.map(function (label) { return blank(label); });
 
   // Zones are a fixed, known set, so they are seeded rather than discovered.
-  // A zone with no training in the period stays on the table showing zero —
+  // A zone with no training in the period stays on the table showing zero -
   // "KEPZ ran nothing this month" is a finding, and a row that vanishes hides
   // it. Unspecified is added only if something actually lands there.
   const byZone = {}, zoneOrder = [];
@@ -121,7 +121,7 @@ function getKpi2(scope) {
     const month = monthKey(r[COL2.MONTH]) || monthKey(r[COL2.SESSION_DATE]);
 
     // Resolved here rather than stored, like the module and the zone: renaming
-    // a file and re-uploading is not needed, and neither is a new column —
+    // a file and re-uploading is not needed, and neither is a new column -
     // correcting the convention re-files every affected response on reload.
     const namedQuarter = quarterFromFileName(r[COL2.SOURCE]);
     const quarterKey = namedQuarter || quarterOf(month, 'FEEDBACK');
@@ -199,7 +199,7 @@ function getKpi2(scope) {
                                .sort(byRespondents);
   result.sessions = sessionOrder.map(function (k) { return scoreFeedback(bySession[k], kpi); })
                                 .sort(byRespondents);
-  // Zones keep their configured order — KEPZ, CEPZ, DEPZ — with Unspecified
+  // Zones keep their configured order - KEPZ, CEPZ, DEPZ - with Unspecified
   // last, because the reader is comparing three known places, not ranking them.
   result.zones = zoneOrder.map(function (k) {
     const scored = scoreFeedback(byZone[k], kpi);
@@ -208,7 +208,7 @@ function getKpi2(scope) {
   });
   result.trainers = trainerOrder.map(function (k) { return scoreFeedback(byTrainer[k], kpi); })
                                 .sort(byRespondents);
-  // Quarters read left to right in time, never by size — a trend is the whole
+  // Quarters read left to right in time, never by size - a trend is the whole
   // point of the grouping, and sorting it by volume destroys one.
   result.quarters = quarterOrder.slice().sort(byQuarterKey).map(function (k) {
     const scored = scoreFeedback(byQuarter[k], kpi);
@@ -216,7 +216,7 @@ function getKpi2(scope) {
     scored.sessions = Object.keys(byQuarter[k].sessionsSeen || {}).length;
     return scored;
   });
-  // Questions keep their form order — Q1 to Q7 is how the survey reads.
+  // Questions keep their form order - Q1 to Q7 is how the survey reads.
   result.questions = byQuestion.map(function (q) { return scoreFeedback(q, kpi); });
 
   result.unknownAnswers = Object.keys(unknown).map(function (text) {
@@ -259,7 +259,7 @@ function byQuarterKey(a, b) {
  * The Comparison screen used to call KPI 1's endpoint whatever the "Which KPI"
  * dropdown said, so picking Training Satisfaction re-rendered ticket figures
  * under a training heading. Rather than fork the screen, both engines now
- * return the same shape and describe their own columns in it — `measures` names
+ * return the same shape and describe their own columns in it - `measures` names
  * the count columns, `sectionLabel` names the breakdown, `volumeKey` says which
  * measure the trend chart should draw as bars, and `periodKind` says what one
  * column of the comparison is. A KPI 3 that fills this in gets the screen free.
@@ -269,7 +269,7 @@ function byQuarterKey(a, b) {
  * once or twice a quarter, so a month-by-month reading is mostly empty columns
  * and the rest carry a rate over a handful of responses. Comparing two of
  * those compares noise. It matters more now that the quarter comes off the
- * filename — the months behind a properly named file may be mangled dates
+ * filename - the months behind a properly named file may be mangled dates
  * that no month picker should ever have offered.
  *
  * Each period is passed straight to getKpi2, which already understands a
@@ -278,9 +278,9 @@ function byQuarterKey(a, b) {
  * @param {string[]} periods  '2026-Q1' (or 'YYYY-MM')
  * @return {Object}
  */
-function getKpi2Comparison(periods) {
-  // Needs a session — see Auth.gs.
-  requireSignedIn();
+function getKpi2Comparison(token, periods) {
+  // Needs a session - see Auth.gs.
+  requireSignedIn(token);
   const kpi = CONFIG.KPI.FEEDBACK;
   const list = (periods || []).slice().sort();
 
@@ -313,7 +313,7 @@ function getKpi2Comparison(periods) {
   const seen = {};
 
   list.forEach(function (period) {
-    const k = getKpi2(period);
+    const k = getKpi2(token, period);
     if (!k.hasData) return;
 
     result.totals[period] = comparisonEntry(k.total);
@@ -360,7 +360,7 @@ const QUESTION_LABELS = [
  * Turns counted responses into the KPI.
  *
  * The denominator is the decision worth understanding. CONFIG.COUNT_NON_RESPONSES
- * decides whether a skipped question counts against the rate — see that
+ * decides whether a skipped question counts against the rate - see that
  * setting for why it defaults to counting them.
  *
  * An UNKNOWN answer always counts in the denominator and never in the
@@ -441,7 +441,7 @@ function listFeedbackMonths() {
     if (!month) return;
 
     // A month the file's own name contradicts is not a month anything was
-    // trained in — it is a mangled date. The Comparison screen builds its
+    // trained in - it is a mangled date. The Comparison screen builds its
     // pickers from this list, and offering 'January 1974' invites a comparison
     // of a period the dashboard itself does not believe happened.
     const named = quarterFromFileName(r[COL2.SOURCE]);
@@ -481,7 +481,7 @@ function listFeedbackQuarters() {
 
     const month = monthKey(r[COL2.MONTH]) || monthKey(r[COL2.SESSION_DATE]);
     // Same resolution as getKpi2, or the picker offers a quarter the figures
-    // do not have — and lands on an empty screen when it is chosen.
+    // do not have - and lands on an empty screen when it is chosen.
     const key = quarterFromFileName(r[COL2.SOURCE]) || quarterOf(month, 'FEEDBACK');
     if (!key) return;
 
@@ -491,7 +491,7 @@ function listFeedbackQuarters() {
 
   return order.sort().reverse().map(function (key) {
     const covers = monthsOfQuarter(key, 'FEEDBACK');
-    // Only the months that actually have training, not all three — the
+    // Only the months that actually have training, not all three - the
     // picker's tooltip should say what is in the quarter, not what could be.
     //
     // And only the ones that fall INSIDE it. A file named Q1-2026 whose dates
@@ -511,11 +511,11 @@ function listFeedbackQuarters() {
  * Prints KPI 2 to the Execution log.
  *
  * Open Kpi2.gs, pick runKpi2SelfTest in the function dropdown, press Run.
- * Checks the stored numbers without involving the browser at all — if the UI
+ * Checks the stored numbers without involving the browser at all - if the UI
  * and this disagree, the bug is in the UI.
  */
 function runKpi2SelfTest() {
-  const k = getKpi2(ALL_MONTHS);
+  const k = getKpi2(null, ALL_MONTHS);   // run from the editor: the /dev shortcut covers it
 
   if (!k.hasData) {
     Logger.log('No training feedback loaded.');
@@ -523,7 +523,7 @@ function runKpi2SelfTest() {
   }
 
   const t = k.total;
-  Logger.log('KPI 2 — SAP User Training Satisfaction & Feedback');
+  Logger.log('KPI 2 \u2014 SAP User Training Satisfaction & Feedback');
   Logger.log('  months covered   : %s', k.monthsCovered);
   Logger.log('  respondents      : %s', t.respondents);
   Logger.log('  responses        : %s  (%s x 7 questions)', t.responses, t.respondents);
@@ -541,20 +541,20 @@ function runKpi2SelfTest() {
   Logger.log('');
   Logger.log('  by module:');
   k.modules.forEach(function (m) {
-    Logger.log('    %s — %s respondents, %s%% (%s)',
+    Logger.log('    %s \u2014 %s respondents, %s%% (%s)',
                m.name, m.respondents, m.rate, m.band);
   });
 
   Logger.log('');
   Logger.log('  by zone:');
   k.zones.forEach(function (z) {
-    Logger.log('    %s — %s sessions, %s attendees, %s%% (%s)',
+    Logger.log('    %s \u2014 %s sessions, %s attendees, %s%% (%s)',
                z.name, z.sessions, z.respondents, z.rate, z.band);
   });
 
   if (k.unknownAnswers.length) {
     Logger.log('');
-    Logger.log('  UNRECOGNISED ANSWERS — add these to CONFIG.FEEDBACK_ANSWERS:');
+    Logger.log('  UNRECOGNISED ANSWERS \u2014 add these to CONFIG.FEEDBACK_ANSWERS:');
     k.unknownAnswers.forEach(function (u) {
       Logger.log('    "%s" x%s', u.answer, u.count);
     });

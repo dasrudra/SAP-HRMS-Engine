@@ -1,5 +1,5 @@
 <!--
-  Index.html — the page shell.
+  Index.html - the page shell.
 
   This is the ONLY page the app ever serves. The sidebar does not navigate
   anywhere; it shows and hides the <section class="view"> blocks below. That is
@@ -19,7 +19,7 @@
   filter everything but change nothing.
 
   Worth being clear about what this is. Who can REACH this page at all is
-  decided by the deployment's access setting — that is Google's sign-in, and
+  decided by the deployment's access setting - that is Google's sign-in, and
   it is the real perimeter. This card decides what they may DO once inside.
   The actual enforcement is in Auth.gs, on the server; hiding buttons here is
   a courtesy to the person, not a control on them.
@@ -38,10 +38,10 @@
     <p class="login-sub">Enterprise Applications Services &middot; KPI reporting</p>
 
     <!--
-      A deployment setting that makes the sign-in meaningless, said out loud.
-      Filled by onSession() from getSession().notice and hidden the rest of
-      the time. It sits ABOVE the form because when it is showing, no password
-      will be accepted — signing in is not the next thing to try.
+      Why you are looking at this card, when that is not obvious. Filled by
+      setLoginNote(), and empty when you simply opened the link. Its one real
+      job is the two-hour expiry: a dashboard that turns into a login box
+      mid-task reads as a crash unless something says otherwise.
     -->
     <div class="login-alert" id="loginAlert" hidden></div>
 
@@ -93,13 +93,13 @@
         a button here and a section there.
       -->
       <div class="nav-group-label">Indicators</div>
-      <button class="nav-item is-active" data-view="kpi1" title="KPI 1 · ITSM">
+      <button class="nav-item is-active" data-view="kpi1" title="KPI 1 &#xB7; ITSM">
         <svg viewBox="0 0 16 16"><path d="M2 14h12M4.5 11V6M8 11V3M11.5 11V8"/></svg>
-        <span class="nav-text">KPI 1 · ITSM</span>
+        <span class="nav-text">KPI 1 &#xB7; ITSM</span>
       </button>
-      <button class="nav-item" data-view="kpi2" title="KPI 2 · Training">
+      <button class="nav-item" data-view="kpi2" title="KPI 2 &#xB7; Training">
         <svg viewBox="0 0 16 16"><path d="M14 9.5A1.5 1.5 0 0 1 12.5 11H6l-3.5 3V4.5A1.5 1.5 0 0 1 4 3h8.5A1.5 1.5 0 0 1 14 4.5z"/></svg>
-        <span class="nav-text">KPI 2 · Training</span>
+        <span class="nav-text">KPI 2 &#xB7; Training</span>
       </button>
       <button class="nav-item" data-view="compare" title="Comparison">
         <svg viewBox="0 0 16 16"><path d="M2.5 3h4v10h-4zM9.5 3h4v7h-4z"/></svg>
@@ -128,7 +128,7 @@
         <strong id="operatorName">&mdash;</strong>
       </div>
       <div class="topbar-right">
-        <span id="viewLabel">KPI 1 · ITSM</span>
+        <span id="viewLabel">KPI 1 &#xB7; ITSM</span>
         <span class="topbar-sep"></span>
         <span class="dot" id="liveDot"></span>
         <span class="live-text" id="liveText">Live</span>
@@ -144,7 +144,7 @@
       <!-- Shown until the first server call returns. -->
       <div id="loader" class="loader">
         <div class="spinner"></div>
-        <p>Starting up…</p>
+        <p>Starting up&#x2026;</p>
       </div>
 
       <!-- Shown if CONFIG.SPREADSHEET_ID has not been set yet. -->
@@ -159,7 +159,7 @@
         </p>
         <p style="margin-top:8px">
           <strong>Starting fresh:</strong> run <code>setupDatabase()</code> from
-          <code>Setup.gs</code> — it creates the spreadsheet and stores the ID
+          <code>Setup.gs</code> &#x2014; it creates the spreadsheet and stores the ID
           for you. Reload this page afterwards.
         </p>
       </div>
@@ -177,7 +177,7 @@
             <!--
               The SLA layer belongs with the name: "Layer 3" is how the policy
               refers to this indicator, and it was only visible on Settings.
-              Beside it, whether the indicator is passing right now — the
+              Beside it, whether the indicator is passing right now - the
               status the signed sheet's Assessment column names. Both filled
               by renderKpiHeads() / updateKpiTracks() so they cannot drift
               from CONFIG or from the figure on screen.
@@ -192,11 +192,11 @@
             -->
             <p class="sub" id="kpi1Sub">
               Ticket Resolution Success Rate (%) =
-              (Completed Successfully ÷ Total Completed) × 100
+              (Completed Successfully &#xF7; Total Completed) &#xD7; 100
             </p>
             <!--
               What the stored tickets actually cover, to the day. Always on,
-              and about the DATABASE rather than the month on screen — the
+              and about the DATABASE rather than the month on screen - the
               month picker says which slice you are reading, this says how
               much there is to read. Set by renderCoverage().
             -->
@@ -219,12 +219,12 @@
               </button>
               <div class="picker-menu" id="monthPickerMenu" role="listbox" hidden></div>
             </div>
-            <button class="btn btn-ghost" id="refreshKpi1">↻ Refresh</button>
+            <button class="btn btn-ghost" id="refreshKpi1">&#x21BB; Refresh</button>
           </div>
         </div>
 
         <!--
-          Only appears when the month was scored from the WRONG population —
+          Only appears when the month was scored from the WRONG population -
           i.e. no section exports were loaded, so the figure includes work by
           people outside EAS. The healthy case says nothing: a banner that is
           always on screen stops being read, and this one carries a warning.
@@ -275,7 +275,7 @@
             <select id="fSection" class="select" title="Section">
               <option value="">All sections</option>
             </select>
-            <button class="btn btn-ghost" id="fSectionReset">✕ Reset</button>
+            <button class="btn btn-ghost" id="fSectionReset">&#x2715; Reset</button>
             <span class="filter-count" id="cSection"></span>
           </div>
           <div class="table-wrap">
@@ -303,7 +303,7 @@
         <!--
           By module. Replaces the old "Individuals carrying the delays" table,
           which said nothing the By individuals table below does not already
-          say — that one carries a Delayed column of its own. This asks a
+          say - that one carries a Delayed column of its own. This asks a
           different question: which part of SAP the work is in.
         -->
         <div class="card">
@@ -312,8 +312,8 @@
             <select id="fModuleK1" class="select" title="Module">
               <option value="">All modules</option>
             </select>
-            <input id="fModuleK1Name" class="select" type="search" placeholder="Search module…">
-            <button class="btn btn-ghost" id="fModuleK1Reset">✕ Reset</button>
+            <input id="fModuleK1Name" class="select" type="search" placeholder="Search module&#x2026;">
+            <button class="btn btn-ghost" id="fModuleK1Reset">&#x2715; Reset</button>
             <span class="filter-count" id="cModuleK1"></span>
           </div>
           <div class="table-wrap">
@@ -353,8 +353,8 @@
             <select id="fAllPerson" class="select" title="Individual">
               <option value="">All individuals</option>
             </select>
-            <input id="fAllName" class="select" type="search" placeholder="Search name…">
-            <button class="btn btn-ghost" id="fAllReset">✕ Reset</button>
+            <input id="fAllName" class="select" type="search" placeholder="Search name&#x2026;">
+            <button class="btn btn-ghost" id="fAllReset">&#x2715; Reset</button>
             <span class="filter-count" id="cAll"></span>
           </div>
           <div class="table-wrap">
@@ -388,16 +388,16 @@
               <span class="track-pill" id="kpi2Track" hidden></span></h1>
             <!-- The layer moved to the pill beside the heading; repeating it
                  here would be the page saying it twice. Replaced from CONFIG
-                 by renderKpiHeads() — this copy is the fallback. -->
+                 by renderKpiHeads() - this copy is the fallback. -->
             <p class="sub" id="kpi2Sub">
               Actual Success Rate (%) =
-              (Total Positive Responses ÷ Total Applicable Responses) × 100
+              (Total Positive Responses &#xF7; Total Applicable Responses) &#xD7; 100
             </p>
             <p class="period-note" id="kpi2Period" hidden></p>
           </div>
           <div class="page-actions">
             <select id="kpi2Month" class="select"></select>
-            <button class="btn btn-ghost" id="refreshKpi2">↻ Refresh</button>
+            <button class="btn btn-ghost" id="refreshKpi2">&#x21BB; Refresh</button>
           </div>
         </div>
 
@@ -423,7 +423,7 @@
           <p>
             Drop a training feedback export on the Data Uploads screen and it
             is scored here automatically. Ticket exports go to KPI 1 and
-            feedback forms come here — the file's own columns decide, so there
+            feedback forms come here &#x2014; the file's own columns decide, so there
             is nothing to choose.
           </p>
         </div>
@@ -467,7 +467,7 @@
             <select id="fModule" class="select" title="Module">
               <option value="">All modules</option>
             </select>
-            <button class="btn btn-ghost" id="fModuleReset">✕ Reset</button>
+            <button class="btn btn-ghost" id="fModuleReset">&#x2715; Reset</button>
             <span class="filter-count" id="cModule"></span>
           </div>
           <div class="table-wrap">
@@ -481,7 +481,7 @@
                   <!--
                     The tiers the rate is made of. Positive alone says how
                     high the number is; Average and Poor say what is underneath
-                    it — a module at 95% carrying three Poor answers is a
+                    it - a module at 95% carrying three Poor answers is a
                     different conversation from one carrying none.
                   -->
                   <th class="r">Average</th>
@@ -529,7 +529,7 @@
             <select id="fZone" class="select" title="Zone">
               <option value="">All zones</option>
             </select>
-            <button class="btn btn-ghost" id="fZoneReset">✕ Reset</button>
+            <button class="btn btn-ghost" id="fZoneReset">&#x2715; Reset</button>
             <span class="filter-count" id="cZone"></span>
           </div>
           <div class="table-wrap">
@@ -567,7 +567,7 @@
             -->
             <h1 id="cmpHeading">Month Comparison</h1>
             <p class="sub" id="cmpSubhead">
-              Compare two to four months side by side. Pick the KPI first —
+              Compare two to four months side by side. Pick the KPI first &#x2014;
               the months, tables and charts below all follow it.
             </p>
           </div>
@@ -608,7 +608,7 @@
             </div>
             <div class="cmp-actions">
               <button class="btn btn-primary btn-lg" id="cmpRun">Compare Dashboards</button>
-              <button class="btn btn-ghost" id="cmpClear">✕ Clear</button>
+              <button class="btn btn-ghost" id="cmpClear">&#x2715; Clear</button>
             </div>
           </div>
         </div>
@@ -629,14 +629,14 @@
         </div>
 
         <!--
-          The trend. Deliberately NOT governed by the month pickers above —
+          The trend. Deliberately NOT governed by the month pickers above -
           it always plots every month uploaded, so the selection can narrow
           the comparison without losing sight of the shape of the year.
         -->
         <div class="card chart-card" id="cmpTrendCard" hidden>
           <div class="chart-head">
             <div>
-              <h2 id="cmpTrendTitle">Success rate over time — every month</h2>
+              <h2 id="cmpTrendTitle">Success rate over time &#x2014; every month</h2>
               <p id="cmpTrendNote">One line per section across the whole period.</p>
             </div>
           </div>
@@ -649,10 +649,10 @@
         <!--
           Both tables are built from whatever the selected KPI declares in its
           `measures` and `sectionLabel`, so the headings below are only the
-          first paint — renderComparison rewrites them for the KPI in hand.
+          first paint - renderComparison rewrites them for the KPI in hand.
         -->
         <div class="card" id="cmpOverallCard" hidden>
-          <div class="card-head" id="cmpOverallTitle">KPI 1 — overall by month</div>
+          <div class="card-head" id="cmpOverallTitle">KPI 1 &#x2014; overall by month</div>
           <div class="table-wrap">
             <table id="cmpOverall">
               <thead><tr></tr></thead>
@@ -662,7 +662,7 @@
         </div>
 
         <div class="card" id="cmpSectionCard" hidden>
-          <div class="card-head" id="cmpSectionTitle">KPI 1 — success rate by section</div>
+          <div class="card-head" id="cmpSectionTitle">KPI 1 &#x2014; success rate by section</div>
           <div class="table-wrap">
             <table id="cmpSections">
               <thead><tr></tr></thead>
@@ -679,7 +679,7 @@
             <h1>Data Uploads</h1>
             <p class="sub">
               Upload the Service/Part overall export, the section exports, or
-              both — in one go or one at a time.
+              both &#x2014; in one go or one at a time.
             </p>
           </div>
         </div>
@@ -706,9 +706,9 @@
           <div class="card-head">Upload ITSM exports</div>
           <div class="dropzone" id="dropzone">
             <div class="dropzone-inner">
-              <div class="dropzone-ico">↥</div>
+              <div class="dropzone-ico">&#x21A5;</div>
               <p><strong>Drop .xlsx files here</strong></p>
-              <p class="muted">or click to choose — several at once is fine</p>
+              <p class="muted">or click to choose &#x2014; several at once is fine</p>
             </div>
             <input type="file" id="fileInput" multiple accept=".xlsx" hidden>
           </div>
@@ -766,7 +766,7 @@
           <div class="org-stage-head">
             <div>
               <h2 id="orgTitle">Enterprise Applications Services</h2>
-              <p id="orgSub">Loading the team…</p>
+              <p id="orgSub">Loading the team&#x2026;</p>
             </div>
             <div class="org-lead" id="orgLead" hidden></div>
           </div>
@@ -790,8 +790,8 @@
           three behind a click, and the question this section actually answers
           is a comparison: which targets are tight, which are loose, which are
           live. That is a table. What it gained over the plain seven-column
-          version is the BANDS COLUMN — red, yellow and green drawn as one bar
-          across the whole 0–100 the percentage lives on, which says the thing
+          version is the BANDS COLUMN - red, yellow and green drawn as one bar
+          across the whole 0-100 the percentage lives on, which says the thing
           three separate number cells never could: nearly the entire range is a
           breach, and the window you have to land in is a sliver at the top.
           The exact figures are printed under the bar, because the thinnest
@@ -816,7 +816,7 @@
                     KPI Achievement. It was a tile on each indicator's own
                     page, next to the success rate, saying nearly the same
                     thing twice. One column across all four is the comparison
-                    it was always for — and 100% means on target whatever the
+                    it was always for - and 100% means on target whatever the
                     target is, so the column reads straight down.
                   -->
                   <th class="r thr-ach">KPI Achievement</th>
@@ -842,7 +842,7 @@
         <!--
           KPI 1 is precomputed, so the sections and modules a ticket is filed
           under are decided when the figures are built, not when they are read.
-          Correcting the roster or the module map therefore needs a rebuild —
+          Correcting the roster or the module map therefore needs a rebuild -
           without this the only way to apply an edit was to re-upload.
         -->
         <div class="card" data-admin-only>
@@ -850,26 +850,26 @@
           <div class="notice-inline">
             <p>
               KPI 1 is worked out once and stored, because scoring twenty
-              thousand tickets on every page load would be too slow — so an
+              thousand tickets on every page load would be too slow &#x2014; so an
               edit to <code>ROSTER</code>, <code>PERSON_MODULES</code>,
               <code>SECTION_MODULES</code> or <code>TICKET_MODULES</code> in
               <code>Config.gs</code> changes nothing until the stored figures
               are worked out again. This is the button that does that.
             </p>
             <p>
-              Nothing is uploaded or deleted, and KPI 2 is untouched — it
+              Nothing is uploaded or deleted, and KPI 2 is untouched &#x2014; it
               scores live, so a <code>Config.gs</code> edit shows up there
               straight away. <b>Nothing here is waiting on you:</b> this is a
               tool for after a settings change, not a task to finish.
             </p>
             <!--
               When the figures were last worked out. A permanent tool with no
-              state on it reads as an outstanding task — this is what turns
+              state on it reads as an outstanding task - this is what turns
               "the rebuild option is still there, what do I do" into a visible
               "nothing". Set by fillSettings().
             -->
             <p class="coverage-note" id="rebuildWhen" hidden></p>
-            <button class="btn btn-primary" id="rebuildKpi1">↻ Rebuild now</button>
+            <button class="btn btn-primary" id="rebuildKpi1">&#x21BB; Rebuild now</button>
             <span class="filter-count" id="rebuildStatus"></span>
           </div>
         </div>
@@ -884,7 +884,7 @@
 
   Replaces window.confirm(), which rendered as a browser-chrome alert headed
   "An embedded page at n-bfsldgnf5eemrr3sr7ffjtus5j2quy4jytczaoy-0lu-
-  script.googleusercontent.com says" — the app's own name nowhere in sight, and
+  script.googleusercontent.com says" - the app's own name nowhere in sight, and
   no way to show what is actually about to be deleted.
 -->
 <div class="modal-backdrop" id="modalBackdrop" hidden>

@@ -1,5 +1,5 @@
 <!--
-  App.html — all browser-side JavaScript.
+  App.html - all browser-side JavaScript.
 
   Remember the two worlds: nothing in this file can touch a spreadsheet. When it
   needs data it asks the server through google.script.run, and the server
@@ -12,7 +12,7 @@
 -->
 
 <!--
-  SheetJS reads .xlsx in the browser. Pinned to an exact version on purpose —
+  SheetJS reads .xlsx in the browser. Pinned to an exact version on purpose -
   "latest" means your app can break overnight because someone else shipped.
 -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -38,7 +38,7 @@
     // re-run it instead of dropping you on an empty panel.
     compareRan: false,
 
-    // Every month, for the trend chart. Fetched once — it only changes when
+    // Every month, for the trend chart. Fetched once - it only changes when
     // something is uploaded, and the uploads screen reloads the page anyway.
     trend: null,
 
@@ -56,7 +56,7 @@
     // KPI 2's own result, kept so its filters redraw without a server call.
     kpi2: null,
 
-    // ADMIN or USER, from the server. Decides what the interface offers —
+    // ADMIN or USER, from the server. Decides what the interface offers -
     // NOT what the server allows, which is decided again on every call.
     role: '',
 
@@ -73,7 +73,7 @@
   };
 
   /**
-   * The month picker's "every month" value. Must match ALL_MONTHS in Kpi.gs —
+   * The month picker's "every month" value. Must match ALL_MONTHS in Kpi.gs -
    * the string travels to the server as the month argument.
    */
   const ALL_MONTHS = 'ALL';
@@ -96,19 +96,131 @@
     wireOrg();
     wireLogin();
 
-    // Who is this, before anything else. Every other server call needs a
-    // session, so asking for data first would only produce an error dialog.
-    google.script.run
-      .withSuccessHandler(onSession)
-      .withFailureHandler(onError)
-      .getSession();
+    // Find the token before anything is asked of the server, since every call
+    // carries it. Reading it is asynchronous, so the session check waits.
+    loadToken(function () {
+      google.script.run
+        .withSuccessHandler(onSession)
+        .withFailureHandler(onError)
+        .getSession(AUTH.token);
+    });
   });
+
+
+  // =========================================================================
+  // THE SIGN-IN TOKEN
+  // =========================================================================
+
+  /**
+   * What the browser is holding, and where it keeps it.
+   *
+   * WHY THE ADDRESS BAR
+   * There is nowhere else that survives a reload here. An Apps Script web app
+   * runs in a sandboxed iframe served from a googleusercontent.com address
+   * that is regenerated on every load, so sessionStorage written on one load
+   * often cannot be read back on the next. The address bar is the one place
+   * the browser is guaranteed to carry across a refresh, and this page
+   * already keeps the view and every filter there for exactly that reason.
+   *
+   * WHAT THAT BUYS, AND WHAT IT COSTS
+   * Refreshing keeps you signed in, which is the point. Opening the plain
+   * /exec link again has no token on it, so it asks for the sign-in - also
+   * the point. The cost is that the token is visible in the address bar, so
+   * copying the whole URL out of it and sending that to somebody hands them
+   * the session until it expires. Share the plain /exec link instead.
+   *
+   * sessionStorage is written as well, and read first when it happens to
+   * work. It costs nothing and means one less round trip through the URL on
+   * the browsers where it does survive.
+   */
+  const AUTH = { token: '' };
+  const TOKEN_PARAM = 'k';
+  const TOKEN_STORE = 'easKpiToken';
+
+
+  /**
+   * Finds the token, then calls back. Never fails - no token is a valid answer.
+   *
+   * The ADDRESS BAR IS ASKED FIRST and storage only after it. The URL is what
+   * this page load actually is; storage is a leftover from whatever was open
+   * before. Reading storage first would mean a link opened with one person's
+   * token handing back the previous person's session instead.
+   */
+  function loadToken(done) {
+    const fallBackToStorage = function () {
+      try {
+        AUTH.token = sessionStorage.getItem(TOKEN_STORE) || '';
+      } catch (e) {
+        AUTH.token = '';   // blocked or private mode - nothing to recover
+      }
+      done();
+    };
+
+    try {
+      if (window.google && google.script && google.script.url) {
+        let answered = false;
+        google.script.url.getLocation(function (location) {
+          if (answered) return;
+          answered = true;
+          const p = (location && location.parameter) || {};
+
+          // ?login=1 means "ask me for the sign-in", so it has to throw away
+          // whatever is being held as well. Without this it would only take
+          // effect for somebody who was already signed out, which is the one
+          // person who did not need it.
+          if (p.login === '1') {
+            AUTH.token = '';
+            try { sessionStorage.removeItem(TOKEN_STORE); } catch (e) { /* fine */ }
+            return done();
+          }
+
+          if (p[TOKEN_PARAM]) { AUTH.token = p[TOKEN_PARAM]; return done(); }
+          fallBackToStorage();
+        });
+        // getLocation can simply never call back inside the sandbox. Without
+        // this the page would sit on a blank screen forever rather than
+        // showing the sign-in card, which is the safe thing to do anyway.
+        setTimeout(function () {
+          if (answered) return;
+          answered = true;
+          fallBackToStorage();
+        }, 1500);
+        return;
+      }
+    } catch (e) { /* fall through to storage */ }
+
+    fallBackToStorage();
+  }
+
+
+  /** Holds on to a freshly issued token, in both carriers. */
+  function keepToken(token) {
+    AUTH.token = token || '';
+    try { sessionStorage.setItem(TOKEN_STORE, AUTH.token); } catch (e) { /* not fatal */ }
+    saveState();   // writes it into the address bar along with the view
+  }
+
+
+  /** Throws the token away. Called on sign-out and whenever one is refused. */
+  function dropToken() {
+    AUTH.token = '';
+    try { sessionStorage.removeItem(TOKEN_STORE); } catch (e) { /* not fatal */ }
+
+    // Not saveState(), which does nothing while the page is restoring itself -
+    // and an expiry noticed DURING the restore is exactly when a dead token
+    // would otherwise be left sitting in the address bar for the next reload
+    // to pick up and be bounced by again.
+    const was = state.restoring;
+    state.restoring = false;
+    saveState();
+    state.restoring = was;
+  }
 
 
   /**
    * The answer to "who is signed in".
    *
-   * Signed in — start the app. Not — show the sign-in card and stop. Nothing
+   * Signed in - start the app. Not - show the sign-in card and stop. Nothing
    * else is requested in the meantime, so a signed-out page holds no data at
    * all rather than holding it behind a screen.
    */
@@ -121,14 +233,10 @@
       return;
     }
 
-    // A configuration problem the person looking at this is the one who can
-    // fix it. Shown instead of leaving them to guess why nothing works.
-    const alert = document.getElementById('loginAlert');
-    if (alert) {
-      const notice = (session && session.notice) || '';
-      alert.hidden = !notice;
-      alert.textContent = notice;
-    }
+    // Opening the link fresh is the ordinary way to arrive here, so there is
+    // nothing to explain. Only an expiry mid-session gets a note, and that is
+    // set by whoever noticed it.
+    setLoginNote('');
 
     hide('loader');
     show('loginScreen');
@@ -145,21 +253,21 @@
 
     // Badge and name now, not when the figures arrive. The session already
     // said who this is, and a top bar that reads "USER" for the second it
-    // takes to load — to somebody who just signed in as admin — is the page
+    // takes to load - to somebody who just signed in as admin - is the page
     // telling them something untrue.
     applyRole();
 
     google.script.run
       .withSuccessHandler(onBootstrap)
       .withFailureHandler(onError)
-      .getBootstrap();
+      .getBootstrap(AUTH.token);
   }
 
 
   /**
    * The sign-in card.
    *
-   * The button is disabled while the call is out — a second press would send
+   * The button is disabled while the call is out - a second press would send
    * a second attempt and burn one of the eight the server allows.
    */
   function wireLogin() {
@@ -175,7 +283,7 @@
       const pass = getValue('loginPass');
 
       if (box) box.hidden = true;
-      if (button) { button.disabled = true; button.textContent = 'Signing in…'; }
+      if (button) { button.disabled = true; button.textContent = 'Signing in\u2026'; }
 
       const done = function () {
         if (button) { button.disabled = false; button.textContent = 'Sign in'; }
@@ -188,6 +296,8 @@
             state.role = result.role;
             state.username = result.username || '';
             state.mode = 'EXEC';   // a login was asked for, so this is not /dev
+            // Before startApp(), which immediately calls the server with it.
+            keepToken(result.token);
             setValue('loginPass', '');
             startApp();
             return;
@@ -213,7 +323,7 @@
      * Signing out.
      *
      * NOT a page reload. An Apps Script web app runs inside a sandboxed
-     * iframe whose address is a one-shot googleusercontent.com URL — asking
+     * iframe whose address is a one-shot googleusercontent.com URL - asking
      * the browser to load it again gives a blank white page, which is exactly
      * what happened here. There is nothing to navigate to, so we do not
      * navigate: the server forgets the session, and the page puts the sign-in
@@ -221,16 +331,20 @@
      */
     bind('signOut', 'click', function () {
       const button = document.getElementById('signOut');
-      if (button) { button.disabled = true; button.textContent = 'Signing out…'; }
+      if (button) { button.disabled = true; button.textContent = 'Signing out\u2026'; }
 
       const finish = function () {
         if (button) { button.disabled = false; button.textContent = 'Sign out'; }
+        // The token is what actually grants access, so throwing it away is
+        // the sign-out. Done here rather than only on success: if the server
+        // is unreachable, letting go of it is still the right answer.
+        dropToken();
         showSignIn();
       };
 
       google.script.run
         .withSuccessHandler(finish)
-        .withFailureHandler(finish)   // server unreachable — lock the screen anyway
+        .withFailureHandler(finish)   // server unreachable - lock the screen anyway
         .logout();
     });
   }
@@ -243,7 +357,23 @@
    * sign-in card means the next person to sign in sees the previous person's
    * period for the moment before their own data arrives.
    */
-  function showSignIn() {
+  /**
+   * A line above the sign-in form, or '' to clear it.
+   *
+   * Used for the one thing a blank card cannot say for itself: that you WERE
+   * signed in a moment ago and the session ran out. Without it, a dashboard
+   * replaced mid-task by a login box reads as the app having crashed.
+   */
+  function setLoginNote(text) {
+    const box = document.getElementById('loginAlert');
+    if (!box) return;
+    box.hidden = !text;
+    box.textContent = text || '';
+  }
+
+
+  function showSignIn(note) {
+    setLoginNote(note || '');
     state.role = '';
     state.username = '';
     state.mode = 'EXEC';
@@ -297,8 +427,8 @@
     const readOnly = document.getElementById('uploadReadOnly');
     if (readOnly) readOnly.hidden = isAdmin;
 
-    // DEV means the script is running with the developer's own permissions —
-    // the /dev link, or the owner on /exec — which is why no login was asked
+    // DEV means the script is running with the developer's own permissions -
+    // the /dev link, or the owner on /exec - which is why no login was asked
     // for. Saying so removes the guesswork about whether you are looking at
     // the deployed version or at your latest save.
     //
@@ -309,11 +439,11 @@
 
     const badge = document.getElementById('roleBadge');
     if (badge) {
-      badge.textContent = isDev ? 'DEV · ADMIN' : (isAdmin ? 'ADMIN' : 'VIEWER');
+      badge.textContent = isDev ? 'DEV \u00b7 ADMIN' : (isAdmin ? 'ADMIN' : 'VIEWER');
       badge.classList.toggle('is-admin', isAdmin);
       badge.classList.toggle('is-dev', isDev);
       badge.title = isDev
-        ? 'Running with your own permissions — the development link, or the ' +
+        ? 'Running with your own permissions \u2014 the development link, or the ' +
           'owner opening the live link. That is why no sign-in was asked for. ' +
           'Add ?login=1 to the address to be asked anyway.'
         : '';
@@ -357,6 +487,16 @@
 
 
   function onError(err) {
+    // A session that ran out is not an error to report, it is a sign-in to
+    // ask for. The direct getSession/getBootstrap calls do not go through
+    // callServer, so the same rule is applied here too.
+    if (err && /session has ended/i.test(String(err.message || err))) {
+      dropToken();
+      showSignIn('Your session has ended. Sign-ins last two hours; ' +
+                 'please sign in again to carry on.');
+      return;
+    }
+
     hide('loader');
     document.getElementById('errorText').textContent =
       (err && err.message) ? err.message : String(err);
@@ -376,8 +516,22 @@
     return new Promise(function (resolve, reject) {
       const runner = google.script.run
         .withSuccessHandler(resolve)
-        .withFailureHandler(reject);
-      runner[fnName].apply(runner, args);
+        .withFailureHandler(function (err) {
+          // A dead session looks like any other failure from here, and the
+          // useful response is not an error box but the sign-in card. Caught
+          // in one place so no individual call has to remember to.
+          if (err && /session has ended/i.test(String(err.message || err))) {
+            dropToken();
+            showSignIn('Your session has ended. Sign-ins last two hours; ' +
+                       'please sign in again to carry on.');
+            return;
+          }
+          reject(err);
+        });
+      // Every guarded endpoint takes the token first. Injected here rather
+      // than at each call site, so a new server call cannot be added without
+      // one by forgetting.
+      runner[fnName].apply(runner, [AUTH.token].concat(args));
     });
   }
 
@@ -388,7 +542,7 @@
    * google.script.run has no timeout: when Apps Script kills a run for
    * exceeding its six-minute ceiling, neither handler is ever called and the
    * promise hangs forever. On screen that looks exactly like the button
-   * having done nothing at all — which is how a delete that had in fact
+   * having done nothing at all - which is how a delete that had in fact
    * half-run could be pressed again and again.
    *
    * @param {Promise} promise
@@ -403,7 +557,7 @@
       new Promise(function (_, reject) {
         timer = setTimeout(function () {
           reject(new Error(what + ' did not finish in ' + Math.round(ms / 1000) +
-                           ' seconds. It may still have worked — the list ' +
+                           ' seconds. It may still have worked \u2014 the list ' +
                            'below has been re-read from the database.'));
         }, ms);
       })
@@ -425,7 +579,7 @@
       if (localStorage.getItem('easSidebar') === 'collapsed') {
         root.classList.add('is-collapsed');
       }
-    } catch (e) { /* storage blocked — start expanded */ }
+    } catch (e) { /* storage blocked - start expanded */ }
 
     button.addEventListener('click', function () {
       const collapsed = root.classList.toggle('is-collapsed');
@@ -443,7 +597,7 @@
 
 
   /**
-   * Moving the organisation carousel — the arrows, the dots and the keyboard.
+   * Moving the organisation carousel - the arrows, the dots and the keyboard.
    *
    * Wired once at startup rather than per render, because renderOrg replaces
    * the cards and a listener bound to them would go with them. The arrows and
@@ -507,8 +661,8 @@
     });
 
     const labels = {
-      kpi1: 'KPI 1 · ITSM',
-      kpi2: 'KPI 2 · Training',
+      kpi1: 'KPI 1 \u00b7 ITSM',
+      kpi2: 'KPI 2 \u00b7 Training',
       compare: 'Comparison',
       uploads: 'Data Uploads',
       // The internal name stays `settings`, so every saved link and bookmark
@@ -526,7 +680,7 @@
 
     // A comparison that was on screen before the refresh gets rebuilt. Guarded
     // on state.compare being empty so this costs a server call once and not
-    // every time you tab back — the rendered tables are still in the DOM,
+    // every time you tab back - the rendered tables are still in the DOM,
     // hidden rather than destroyed.
     if (name === 'compare' && state.compareRan && !state.compare) runComparison();
 
@@ -534,7 +688,7 @@
     // Compare button: it is the backdrop the comparison sits against.
     if (name === 'compare') loadTrend();
 
-    // Both halves of Settings quote live readings — the sections' KPI 1
+    // Both halves of Settings quote live readings - the sections' KPI 1
     // figures and each indicator's own rate. Landing straight on Settings,
     // which a refresh does since the view is in the URL, means neither KPI
     // ever loaded, so the cards read "no figure" on a database full of data.
@@ -547,7 +701,7 @@
 
 
   // =========================================================================
-  // STATE PERSISTENCE  —  the refresh fix
+  // STATE PERSISTENCE  -  the refresh fix
   // =========================================================================
 
   /**
@@ -555,7 +709,7 @@
    *
    * Persisting only the view and month was not enough: filters and the
    * comparison selection live in the same throwaway browser memory, so a
-   * reload silently reset them — the exact complaint the whole URL-state
+   * reload silently reset them - the exact complaint the whole URL-state
    * mechanism exists to prevent.
    */
   const TRACKED_CONTROLS = [
@@ -569,6 +723,12 @@
 
     const params = { view: state.view };
     if (state.month) params.month = state.month;
+
+    // The sign-in token rides along with the view and the filters, because
+    // the address bar is the only thing here that survives a reload - see
+    // AUTH above. Omitted when there is none, so a signed-out page carries a
+    // clean URL and signing out genuinely clears it.
+    if (AUTH.token) params[TOKEN_PARAM] = AUTH.token;
 
     TRACKED_CONTROLS.forEach(function (id) {
       // A control belonging to a screen that has not been drawn yet reads back
@@ -585,11 +745,11 @@
       if (window.google && google.script && google.script.history) {
         google.script.history.replace(null, params);
       }
-    } catch (e) { /* iframe restrictions — fall through to storage */ }
+    } catch (e) { /* iframe restrictions - fall through to storage */ }
 
     try {
       sessionStorage.setItem('easKpiState', JSON.stringify(params));
-    } catch (e) { /* private mode or blocked storage — not fatal */ }
+    } catch (e) { /* private mode or blocked storage - not fatal */ }
   }
 
 
@@ -601,7 +761,7 @@
    * be restored immediately; the section and individual dropdowns are built
    * from the selected month's tickets, which have not arrived yet.
    *
-   * Each id is CONSUMED on the way through. Restoring is a one-time event —
+   * Each id is CONSUMED on the way through. Restoring is a one-time event -
    * leaving the values in state.pending would make an old filter reappear
    * every time the month changed.
    *
@@ -648,14 +808,14 @@
         if (params.month) {
           state.month = params.month;
           // The menu was built before this ran, from a state.month that was
-          // still empty — so it is showing the default, not what the URL says.
+          // still empty - so it is showing the default, not what the URL says.
           // Quietly, because restoreState is mid-flight and saving now would
           // write back a half-applied state.
           syncMonthPicker(true);
         }
         state.compareRan = params.ran === '1';
 
-        // The section and individual dropdowns are not populated yet — their
+        // The section and individual dropdowns are not populated yet - their
         // options come from the month's data. Hold those until renderKpi1 has
         // built them; the comparison dropdowns are ready now.
         state.pending = params;
@@ -711,7 +871,7 @@
       reader.onload = function (event) {
         try {
           // cellDates is not optional here. The ITSM exports store dates as
-          // TEXT, so they parse either way — but the feedback form stores them
+          // TEXT, so they parse either way - but the feedback form stores them
           // as real date cells, and without this SheetJS hands back the Excel
           // serial number instead. '2026-05-20' arrives as 46162, no month can
           // be read from it, and the KPI 2 screen goes blank while the data
@@ -753,10 +913,10 @@
    * Decided from the HEADERS, never the filename. A file can be renamed;
    * its columns are what it is.
    *
-   *   FEEDBACK   — a training feedback form export. Routed to KPI 2.
-   *   INDIVIDUAL — an ITSM Individual Performance export. KPI 1, with the
+   *   FEEDBACK   - a training feedback form export. Routed to KPI 2.
+   *   INDIVIDUAL - an ITSM Individual Performance export. KPI 1, with the
    *                per-engineer man-hour columns.
-   *   OVERALL    — the ITSM Service/Part export. KPI 1, no man-hours.
+   *   OVERALL    - the ITSM Service/Part export. KPI 1, no man-hours.
    *
    * FEEDBACK is tested first because it shares nothing with either ITSM
    * export: no Ticket ID, and its questions are unmistakable.
@@ -773,7 +933,7 @@
    * Matched on a distinctive phrase rather than on position or exact text.
    * The forms carry a Bangla translation inside brackets and the wording has
    * drifted between batches, so 'How would you rate the overall training
-   * session? [সামগ্রিক...]' has to resolve on 'overall training session'
+   * session? [????????...]' has to resolve on 'overall training session'
    * alone. Order follows the survey, not the spreadsheet.
    */
   const FEEDBACK_QUESTIONS = [
@@ -807,7 +967,7 @@
    * boilerplate ('Trainee Feedback'), the trailing extension goes, and what
    * is left is split on the last underscore or dash into title and trainer.
    *
-   * A guess, and labelled as one on screen — the stored Session Title lets a
+   * A guess, and labelled as one on screen - the stored Session Title lets a
    * human check it against the real training record.
    */
   function describeFeedbackFile(fileName) {
@@ -815,13 +975,13 @@
 
     // Drop the 'Trainee Feedback' / 'Training Feedback' prefix and whatever
     // punctuation follows it.
-    text = text.replace(/^\s*train(ee|ing)[ _-]*feedback[ _–—-]*/i, '').trim();
-    text = text.replace(/^[_\-–—\s]+/, '').trim();
+    text = text.replace(/^\s*train(ee|ing)[ _-]*feedback[ _\u2013\u2014-]*/i, '').trim();
+    text = text.replace(/^[_\-\u2013\u2014\s]+/, '').trim();
 
     // The trainer tends to sit last, after an underscore or a dash.
     let title = text;
     let trainer = '';
-    const split = text.match(/^(.*?)[ _]*[-–—_][ _]*([A-Za-z .&']{2,40})$/);
+    const split = text.match(/^(.*?)[ _]*[-\u2013\u2014_][ _]*([A-Za-z .&']{2,40})$/);
     if (split) {
       title = split[1].trim();
       trainer = split[2].trim();
@@ -836,7 +996,7 @@
 
 
   /**
-   * Turns a feedback export into TRAINING rows — one per respondent.
+   * Turns a feedback export into TRAINING rows \u2014 one per respondent.
    *
    * The seven answers are stored as the RAW TEXT the attendee chose. Deciding
    * positive from average happens at scoring time, so the classification in
@@ -858,7 +1018,7 @@
       if (key.indexOf('plant') !== -1 && position.plant === undefined) position.plant = i;
       // From this quarter the form asks which zone the training was held in,
       // and a Module question is being added the same way. Older exports have
-      // neither column and simply leave them blank — which is the truth about
+      // neither column and simply leave them blank \u2014 which is the truth about
       // them, not a gap to be guessed at. Both are then resolved at scoring
       // time, so the filename remains a fallback and Config stays the place
       // where the mapping can be corrected.
@@ -906,7 +1066,7 @@
       if (parts.corrected) corrected++;
       const month = (date.match(/^(\d{4})-(\d{2})/) || []).slice(1, 3).join('-');
       const title = manySessions && date
-        ? meta.title + ' · ' + date.slice(0, 10)
+        ? meta.title + ' \u00b7 ' + date.slice(0, 10)
         : meta.title;
 
       const rowId = position.rowId !== undefined && raw[position.rowId] !== undefined
@@ -918,7 +1078,7 @@
       row[at('Session Date')]  = date.slice(0, 10);
       row[at('Month')]         = month;
       // ONLY what the form itself said. Left blank, the module is worked out
-      // at scoring time from the filename and, failing that, the trainer —
+      // at scoring time from the filename and, failing that, the trainer -
       // which means a mapping fixed in Config re-files the responses already
       // stored. Writing a guess in here froze it, and a file the filename
       // could not place stayed '(unassigned)' for good.
@@ -950,7 +1110,7 @@
    *
    * TWO SOURCES, AND ONLY ONE OF THEM IS TRUSTWORTHY ON ITS OWN.
    * 'Date & Time' is typed by the attendee, so it carries whatever they wrote
-   * and whatever Excel then made of it — a session held in June 2026 came
+   * and whatever Excel then made of it - a session held in June 2026 came
    * through as January 1974, June 1984, March 1993 and September 2003 across
    * the real files, because a two-digit year typed into a text box is read as
    * a date by Excel when the sheet is opened and saved. 'Completion time' is
@@ -958,8 +1118,8 @@
    * wrong.
    *
    * So the typed date is used only when it agrees with the submission to
-   * within FEEDBACK_DATE_TOLERANCE_DAYS — feedback is filled in at the session
-   * or within days of it — and the submission timestamp is used otherwise.
+   * within FEEDBACK_DATE_TOLERANCE_DAYS - feedback is filled in at the session
+   * or within days of it - and the submission timestamp is used otherwise.
    * That is self-calibrating: no hardcoded earliest year to maintain, and it
    * catches a date typed wrong in either direction.
    *
@@ -992,7 +1152,7 @@
   }
 
 
-  /** A cell as 'YYYY-MM-DD…', whether it arrived as a Date or as text. */
+  /** A cell as 'YYYY-MM-DD...', whether it arrived as a Date or as text. */
   function asDate(value) {
     if (value instanceof Date) return formatDate(value);
     const text = String(value === null || value === undefined ? '' : value).trim();
@@ -1021,7 +1181,7 @@
     }
 
     // Last resort: some files are named only after the trainer who ran the
-    // session. Mirrors moduleForResponse in Config.gs — this copy exists only
+    // session. Mirrors moduleForResponse in Config.gs - this copy exists only
     // so the upload summary can name the module while parsing, without a
     // round trip to the server per file.
     const trainers = (state.boot && state.boot.trainerModules) || [];
@@ -1038,7 +1198,7 @@
   /**
    * Guesses a section from the filename.
    *
-   * A hint, not the answer — the section that ends up on the dashboard comes
+   * A hint, not the answer - the section that ends up on the dashboard comes
    * from the roster, keyed on who handled each ticket. This only matters for
    * an individual the org chart does not list, where the filename is the last
    * thing left to go on.
@@ -1077,7 +1237,7 @@
 
     const idIndex = position['Ticket ID'];
     if (idIndex === undefined) {
-      throw new Error(file.fileName + ' has no "Ticket ID" column — is it an ITSM export?');
+      throw new Error(file.fileName + ' has no "Ticket ID" column \u2014 is it an ITSM export?');
     }
 
     const out = [];
@@ -1103,7 +1263,7 @@
 
         if (columnName === 'Details') {
           value = String(value);
-          return value.length > DETAILS_LIMIT ? value.slice(0, DETAILS_LIMIT) + '…' : value;
+          return value.length > DETAILS_LIMIT ? value.slice(0, DETAILS_LIMIT) + '\u2026' : value;
         }
         if (value instanceof Date) return formatDate(value);
 
@@ -1228,13 +1388,13 @@
    * Reads every dropped file, then sends each kind down its own pipeline.
    *
    * ONE DROPZONE, TWO KPIs. A ticket export scores KPI 1 and a training
-   * feedback form scores KPI 2, and the two share nothing — different sheets,
+   * feedback form scores KPI 2, and the two share nothing - different sheets,
    * different merge keys, different maths. Rather than ask which is which,
    * the headers are read and each file is routed on what it actually is. Drop
    * both kinds together and both land correctly.
    */
   async function runUpload(files) {
-    setStatus('Reading ' + files.length + ' file(s)…');
+    setStatus('Reading ' + files.length + ' file(s)\u2026');
 
     const read = [];
     const summary = [];
@@ -1244,7 +1404,7 @@
       const type = detectReportType(parsed.headers);
       read.push({ parsed: parsed, type: type });
       summary.push({ name: parsed.fileName, type: type, dept: '', rows: parsed.rows.length });
-      setStatus('Read ' + (i + 1) + ' of ' + files.length + ' file(s)…', null, summary);
+      setStatus('Read ' + (i + 1) + ' of ' + files.length + ' file(s)\u2026', null, summary);
     }
 
     const tickets = read.filter(function (f) { return f.type !== 'FEEDBACK'; });
@@ -1257,7 +1417,7 @@
   }
 
 
-  /** KPI 2 — training feedback forms. */
+  /** KPI 2 - training feedback forms. */
   async function uploadFeedback(files, summary) {
     const columns = state.boot.trainingColumns;
     const meta = { fileNames: [], reportTypes: [], departments: [], totalRows: 0,
@@ -1309,7 +1469,7 @@
     rows.forEach(function (r) { if (r[monthAt]) months[r[monthAt]] = true; });
 
     setStatus('Read ' + rows.length + ' feedback responses across ' +
-              Object.keys(months).length + ' month(s). Uploading…', null, summary);
+              Object.keys(months).length + ' month(s). Uploading\u2026', null, summary);
 
     const begun = await callServer('beginUpload', meta);
 
@@ -1317,7 +1477,7 @@
       await callServer('appendFeedbackBatch', begun.uploadId,
                        rows.slice(start, start + BATCH_SIZE));
       const done = Math.min(start + BATCH_SIZE, rows.length);
-      setStatus('Uploading… ' + done + ' of ' + rows.length + ' responses (' +
+      setStatus('Uploading\u2026 ' + done + ' of ' + rows.length + ' responses (' +
                 Math.round((done / rows.length) * 100) + '%)', null, summary);
     }
 
@@ -1326,11 +1486,11 @@
     const notes = [];
     if (corrected) {
       notes.push(' ' + corrected + ' response' + (corrected === 1 ? ' had its' : 's had their') +
-                 ' typed session date replaced with the submission date — see below.');
+                 ' typed session date replaced with the submission date \u2014 see below.');
     }
     if (unnamed.length) {
       notes.push(' ' + unnamed.length + ' file' + (unnamed.length === 1 ? '' : 's') +
-                 ' could not be placed in a module — see below.');
+                 ' could not be placed in a module \u2014 see below.');
     }
 
     setStatus('Done. ' + result.kept + ' feedback responses stored for KPI 2' +
@@ -1340,7 +1500,7 @@
   }
 
 
-  /** KPI 1 — ITSM ticket exports. Unchanged behaviour, now behind a router. */
+  /** KPI 1 - ITSM ticket exports. Unchanged behaviour, now behind a router. */
   async function uploadTickets(files, summary) {
     const columns = state.boot.ticketColumns;
 
@@ -1355,7 +1515,7 @@
       // A filename with no section in it is no longer an error. Every section
       // is resolved from the individual who handled the ticket (see
       // sectionFor in Config.gs), so one combined export of all four sections
-      // works exactly as well as four separate ones — and the filename is
+      // works exactly as well as four separate ones - and the filename is
       // only ever a hint for people who are not on the org chart.
 
       const rows = normalizeRows(parsed, type, section);
@@ -1383,7 +1543,7 @@
     meta.dateTo = dates[dates.length - 1] || '';
 
     setStatus('Merged ' + meta.totalRows + ' rows into ' + merged.length +
-              ' unique tickets (' + meta.dateFrom + ' to ' + meta.dateTo + '). Uploading…',
+              ' unique tickets (' + meta.dateFrom + ' to ' + meta.dateTo + '). Uploading\u2026',
               null, summary);
 
     const begun = await callServer('beginUpload', meta);
@@ -1391,17 +1551,17 @@
     for (let start = 0; start < merged.length; start += BATCH_SIZE) {
       await callServer('appendTicketBatch', begun.uploadId, merged.slice(start, start + BATCH_SIZE));
       const done = Math.min(start + BATCH_SIZE, merged.length);
-      setStatus('Uploading… ' + done + ' of ' + merged.length + ' tickets (' +
+      setStatus('Uploading\u2026 ' + done + ' of ' + merged.length + ' tickets (' +
                 Math.round((done / merged.length) * 100) + '%)', null, summary);
     }
 
     // Two calls, not one. Consolidating and re-scoring together used to run
     // past the server's six-minute ceiling on a large upload, and the run was
     // killed part-way through rewriting the sheet.
-    setStatus('Consolidating ' + merged.length + ' tickets…', null, summary);
+    setStatus('Consolidating ' + merged.length + ' tickets\u2026', null, summary);
     const result = await callServer('finishUpload', begun.uploadId);
 
-    setStatus('Stored ' + result.kept + ' tickets. Recomputing KPI 1…', null, summary);
+    setStatus('Stored ' + result.kept + ' tickets. Recomputing KPI 1\u2026', null, summary);
     await callServer('recomputeAfterUpload');
 
     setStatus('Done. ' + result.kept + ' tickets stored' +
@@ -1459,8 +1619,8 @@
     if (files && files.length) {
       html += '<div style="margin-top:8px" class="muted">';
       files.forEach(function (f) {
-        html += escapeHtml(f.name) + ' — ' + f.type +
-                (f.dept ? ' · ' + escapeHtml(f.dept) : '') + ' · ' + f.rows + ' rows<br>';
+        html += escapeHtml(f.name) + ' \u2014 ' + f.type +
+                (f.dept ? ' \u00b7 ' + escapeHtml(f.dept) : '') + ' \u00b7 ' + f.rows + ' rows<br>';
       });
       html += '</div>';
     }
@@ -1474,7 +1634,7 @@
    *
    * These are the wreckage of the old delete, which removed the log row and
    * the tickets and left the TRAINING tab alone. They cannot be seen in the
-   * upload history — there is nothing left to see — but KPI 2 still counts
+   * upload history - there is nothing left to see - but KPI 2 still counts
    * them, which is why a deleted feedback file went on showing attendees.
    *
    * Drawn on both the KPI 2 and Data Uploads screens: one is where the wrong
@@ -1499,13 +1659,13 @@
         'no way to see where ' + (n === 1 ? 'it' : 'they') + ' came from. ' +
         'Earlier versions removed the history entry without removing the ' +
         'responses; that is fixed, but what was already orphaned is still here.</p>' +
-        // The warning is worth showing everybody — the button that acts on it
+        // The warning is worth showing everybody - the button that acts on it
         // is not, because removing responses changes KPI 2 for everyone.
         (state.role === 'ADMIN'
           ? '<p><button class="btn btn-danger" data-purge="1">' +
             'Remove ' + count(n) + ' orphaned response' + (n === 1 ? '' : 's') +
             '</button></p>'
-          : '<p class="muted">Signed in as a viewer — clearing these needs the ' +
+          : '<p class="muted">Signed in as a viewer \u2014 clearing these needs the ' +
             'admin login.</p>');
     });
 
@@ -1534,12 +1694,12 @@
       if (!yes) return;
 
       button.disabled = true;
-      setStatus('Removing ' + count(n) + ' orphaned responses…');
+      setStatus('Removing ' + count(n) + ' orphaned responses\u2026');
 
       return withTimeout(callServer('purgeOrphanedFeedback'), 120000, 'The cleanup')
         .then(function (result) {
           setStatus('Removed ' + count(result.removed) + ' orphaned response' +
-                    (result.removed === 1 ? '' : 's') + ' — ' +
+                    (result.removed === 1 ? '' : 's') + ' \u2014 ' +
                     count(result.kept) + ' kept.', 'ok');
           return refreshAfterChange();
         })
@@ -1575,7 +1735,7 @@
         // The full values live on the row, not in the cells.
         //
         // A forty-three file upload printed every filename, then the word
-        // FEEDBACK forty-three times, then its module forty-three times — one
+        // FEEDBACK forty-three times, then its module forty-three times - one
         // row a thousand pixels tall that you had to scroll past to reach the
         // next. The cells are summaries now, and Open Dashboard and Delete
         // read these instead, which they should have been doing anyway:
@@ -1583,7 +1743,7 @@
         // changes, as it just did.
         tr.dataset.files = h.fileName || '';
         tr.dataset.types = h.reportType || '';
-        tr.dataset.range = (h.dateFrom || '') + ' → ' + (h.dateTo || '');
+        tr.dataset.range = (h.dateFrom || '') + ' \u2192 ' + (h.dateTo || '');
         tr.dataset.rows = String(h.rowsKept);
 
         tr.innerHTML =
@@ -1610,14 +1770,14 @@
   /**
    * One upload's filenames, in a cell you can read at a glance.
    *
-   * The whole list is still there — on the row's dataset, in the tooltip, and
+   * The whole list is still there - on the row's dataset, in the tooltip, and
    * in the delete dialog, which is where you actually want to check it before
    * removing something. What the table needs is the one fact that identifies
    * the upload: what it was, and how much of it.
    */
   function summariseFiles(value) {
     const files = splitList(value);
-    if (!files.length) return '<span class="muted">—</span>';
+    if (!files.length) return '<span class="muted">\u2014</span>';
 
     const first = files[0];
     const rest = files.length - 1;
@@ -1631,15 +1791,15 @@
 
 
   /**
-   * 'FEEDBACK | FEEDBACK | FEEDBACK' -> 'FEEDBACK ×3'.
+   * 'FEEDBACK | FEEDBACK | FEEDBACK' -> 'FEEDBACK x3'.
    *
    * A pipe-joined column that repeats one value forty-three times is saying
    * one thing forty-three times. Distinct values, counted, say the same thing
-   * in a line — and where they genuinely differ you can still see that they do.
+   * in a line - and where they genuinely differ you can still see that they do.
    */
   function summariseRepeats(value) {
     const items = splitList(value);
-    if (!items.length) return '<span class="muted">—</span>';
+    if (!items.length) return '<span class="muted">\u2014</span>';
 
     const counts = {};
     const order = [];
@@ -1650,12 +1810,12 @@
 
     const LIMIT = 3;
     const shown = order.slice(0, LIMIT).map(function (item) {
-      return escapeHtml(item) + (counts[item] > 1 ? ' ×' + counts[item] : '');
+      return escapeHtml(item) + (counts[item] > 1 ? ' \u00d7' + counts[item] : '');
     }).join(', ');
     const rest = order.length - LIMIT;
 
     return '<span title="' + escapeHtml(order.map(function (item) {
-      return item + (counts[item] > 1 ? ' ×' + counts[item] : '');
+      return item + (counts[item] > 1 ? ' \u00d7' + counts[item] : '');
     }).join('\n')) + '">' + shown +
       (rest > 0 ? '<span class="cell-more">+' + rest + ' more</span>' : '') + '</span>';
   }
@@ -1664,9 +1824,9 @@
   /**
    * What period an upload covers.
    *
-   * For feedback, the quarter its filenames name — the session dates inside
+   * For feedback, the quarter its filenames name - the session dates inside
    * those files are the ones Excel mangled, and a range reading
-   * "1984-06-15 → 2026-07-04" says nothing true about a Q1 2026 upload. The
+   * "1984-06-15 -> 2026-07-04" says nothing true about a Q1 2026 upload. The
    * raw range is still on the row and in the delete dialog.
    */
   function summariseRange(h) {
@@ -1676,13 +1836,13 @@
     if (named.length) {
       const label = named.length === 1
         ? formatPeriod(named[0])
-        : formatPeriod(named[0]) + ' – ' + formatPeriod(named[named.length - 1]);
+        : formatPeriod(named[0]) + ' \u2013 ' + formatPeriod(named[named.length - 1]);
       return '<span title="Dates in the files: ' +
-        escapeHtml((h.dateFrom || '') + ' → ' + (h.dateTo || '')) + '">' +
+        escapeHtml((h.dateFrom || '') + ' \u2192 ' + (h.dateTo || '')) + '">' +
         escapeHtml(label) + '</span>';
     }
 
-    return escapeHtml((h.dateFrom || '') + ' → ' + (h.dateTo || ''));
+    return escapeHtml((h.dateFrom || '') + ' \u2192 ' + (h.dateTo || ''));
   }
 
 
@@ -1724,7 +1884,7 @@
       'is written when the upload starts, the rows only as it finishes.</p>' +
       '<p>KPI 1 has nothing to report until the exports are uploaded again. ' +
       'Delete the ' + claimed.length + ' row' + (claimed.length === 1 ? '' : 's') +
-      ' below and re-upload the files — the history entries describe data ' +
+      ' below and re-upload the files \u2014 the history entries describe data ' +
       'that no longer exists, so leaving them only makes this harder to read.</p>';
   }
 
@@ -1777,13 +1937,13 @@
    * TWO THINGS THIS HAS TO GET RIGHT.
    *
    * Which KPI. The Type cell lists one entry per file, so a mixed drop reads
-   * 'FEEDBACK | INDIVIDUAL | …'. Testing for the word FEEDBACK anywhere sent
+   * 'FEEDBACK | INDIVIDUAL | ...'. Testing for the word FEEDBACK anywhere sent
    * every such upload to KPI 2. It now counts which kind the upload is mostly
    * made of, and ticket exports win a tie because that is the older, larger
    * pipeline.
    *
-   * Which period. The Range cell holds 'YYYY-MM-DD → YYYY-MM-DD' and the code
-   * took the first seven characters — the FIRST month of the range. An
+   * Which period. The Range cell holds 'YYYY-MM-DD -> YYYY-MM-DD' and the code
+   * took the first seven characters - the FIRST month of the range. An
    * overall export covering January to September therefore opened on January
    * and showed one nineth of itself, or nothing at all if January happened to
    * be thin. An upload that spans several months now opens on All months,
@@ -1815,7 +1975,7 @@
 
     if (feedback > tickets) {
       // KPI 2 reports by quarter. The filenames name it now, so they are asked
-      // first — the session dates behind `from` and `to` are the unreliable
+      // first - the session dates behind `from` and `to` are the unreliable
       // half of this, and an upload of files all named Q1-2026 should open on
       // Q1 2026 whatever Excel did to the dates inside them.
       const named = quartersInText(row.dataset.files);
@@ -1839,12 +1999,12 @@
    * Confirms, deletes, and puts the table back in step with the database.
    *
    * The old version asked with window.confirm, then relied on the server
-   * replying to refresh anything. deleteUpload could take minutes — long
-   * enough to be killed — so the reply often never came, nothing on screen
+   * replying to refresh anything. deleteUpload could take minutes - long
+   * enough to be killed - so the reply often never came, nothing on screen
    * moved, and the upload looked as though it had refused to be deleted.
    *
    * Now: the row is greyed out the moment work starts, removed from the table
-   * as soon as the server confirms, and the history is re-read either way —
+   * as soon as the server confirms, and the history is re-read either way -
    * including after an error, because a failed call is exactly when the table
    * on screen is most likely to be lying.
    */
@@ -1872,8 +2032,8 @@
       subtitle: id,
       target:
         '<span class="modal-target"><b>' + escapeHtml(heading) + '</b>' +
-        '<span>' + escapeHtml(type.split('|')[0].trim() || '—') + ' · ' +
-        escapeHtml(rows || '0') + ' stored · ' +
+        '<span>' + escapeHtml(type.split('|')[0].trim() || '\u2014') + ' \u00b7 ' +
+        escapeHtml(rows || '0') + ' stored \u00b7 ' +
         escapeHtml(range || 'no date range') + '</span>' +
         (names.length > 1
           ? '<span class="modal-files">' +
@@ -1887,7 +2047,7 @@
         (feedback
           ? '<p>KPI 2 is scored live from the stored responses, so its figures ' +
             'change as soon as this finishes.</p>'
-          : '<p>Tickets another upload also supplied are <strong>kept</strong> — ' +
+          : '<p>Tickets another upload also supplied are <strong>kept</strong> \u2014 ' +
             'only this upload\'s claim on them is dropped. KPI 1 is then ' +
             'recalculated, which takes a few seconds.</p>') +
         '<p>This cannot be undone.</p>',
@@ -1897,7 +2057,7 @@
 
       if (row) row.classList.add('row-busy');
       button.disabled = true;
-      setStatus('Deleting ' + heading + '…');
+      setStatus('Deleting ' + heading + '\u2026');
 
       return withTimeout(callServer('deleteUpload', id), 120000, 'The delete')
         .then(function (result) {
@@ -1925,7 +2085,7 @@
     if (result.removed)         parts.push(count(result.removed) + ' tickets removed');
     if (result.feedbackRemoved) parts.push(count(result.feedbackRemoved) + ' responses removed');
     if (!parts.length)          parts.push('no stored rows belonged to it');
-    return 'Deleted ' + name + ' — ' + parts.join(', ') + '.';
+    return 'Deleted ' + name + ' \u2014 ' + parts.join(', ') + '.';
   }
 
 
@@ -1970,7 +2130,7 @@
     confirm.disabled = false;
 
     backdrop.hidden = false;
-    // Cancel takes focus, not Delete — Enter should not destroy anything.
+    // Cancel takes focus, not Delete - Enter should not destroy anything.
     // Unless there is no Cancel, which is alertDialog's one-button form.
     (cancel.hidden ? confirm : cancel).focus();
 
@@ -2007,8 +2167,8 @@
   /**
    * Says something, one button, nothing to decide.
    *
-   * Same dialog with Cancel hidden, so the last window.alert — the browser box
-   * headed with the sandbox hostname — is gone from the app too.
+   * Same dialog with Cancel hidden, so the last window.alert - the browser box
+   * headed with the sandbox hostname - is gone from the app too.
    */
   function alertDialog(opts) {
     const cancel = document.getElementById('modalCancel');
@@ -2030,7 +2190,7 @@
   /**
    * Hands the browser a file to save.
    *
-   * A Blob URL rather than a data: URI — data: URIs have length limits that a
+   * A Blob URL rather than a data: URI - data: URIs have length limits that a
    * few thousand ticket rows would blow straight past.
    */
   function downloadText(fileName, text) {
@@ -2060,7 +2220,7 @@
   /**
    * The month picker, with an "All months" option at the top.
    *
-   * All months is a real aggregate, not an average of the monthly rates —
+   * All months is a real aggregate, not an average of the monthly rates -
    * see getKpi1() in Kpi.gs for why those differ. The default stays the newest
    * single month, because the KPI itself is reported monthly; all-time is a
    * view you choose, not the one you land on.
@@ -2202,7 +2362,7 @@
       button.setAttribute('aria-expanded', open ? 'true' : 'false');
     });
 
-    // Anywhere outside closes it — including a click on the page behind.
+    // Anywhere outside closes it - including a click on the page behind.
     document.addEventListener('click', function (e) {
       if (menu.hidden) return;
       if (menu.contains(e.target) || button.contains(e.target)) return;
@@ -2228,7 +2388,7 @@
    * one more thing that can disagree with the sheet everyone signed.
    *
    * Both read from CONFIG through the bootstrap rather than written into the
-   * markup, so the heading cannot drift from the definition it names — or
+   * markup, so the heading cannot drift from the definition it names - or
    * from the arithmetic the engine actually performs.
    */
   function renderKpiHeads(boot) {
@@ -2252,7 +2412,7 @@
         // carries no formula, so the line is never blank.
         if (sub && kpi && kpi.formula) {
           // The 74ch cap on .sub is right for a sentence and wrong for a
-          // formula — it broke this line in two between the name and the
+          // formula - it broke this line in two between the name and the
           // expression, which is the one place it must not break.
           sub.classList.add('is-formula');
           sub.innerHTML =
@@ -2271,7 +2431,7 @@
   /**
    * Whether each indicator is passing, beside its name.
    *
-   * The band was on the screen already — on a tile, halfway down, beside the
+   * The band was on the screen already - on a tile, halfway down, beside the
    * rate. But "is this KPI OK right now" is the question the heading should
    * answer, and it is the question anyone opening the page came with.
    *
@@ -2298,7 +2458,7 @@
    *
    * Hidden rather than neutral when there is no period loaded: a grey "no
    * data" chip beside a heading reads as a state the indicator is in, and it
-   * is not — it is the absence of a reading.
+   * is not - it is the absence of a reading.
    */
   function setTrack(elementId, kpiId, result) {
     const el = document.getElementById(elementId);
@@ -2322,7 +2482,7 @@
     // The pill is a judgement, so it says on hover what it judged.
     el.title = fmt(total.rate) + '% against a ' +
       (kpi ? kpi.target : '') + '% target' +
-      (kpi ? ' · achievement ' + fmt(total.achievement) + '%' : '');
+      (kpi ? ' \u00b7 achievement ' + fmt(total.achievement) + '%' : '');
   }
 
 
@@ -2355,12 +2515,12 @@
       '<h3>No tickets are stored, though ' + uploads + ' ticket upload' +
       (uploads === 1 ? ' is' : 's are') + ' still listed</h3>' +
       '<p>The upload history has entries for ITSM exports, and the database ' +
-      'holds no tickets at all — so there is nothing for this screen to ' +
+      'holds no tickets at all \u2014 so there is nothing for this screen to ' +
       'report, on any month. That is the state left behind when a run is ' +
       'stopped part-way: the log entry is written as the upload starts, the ' +
       'rows only as it finishes.</p>' +
       '<p>Go to <b>Data Uploads</b>, delete the stale entries, and upload the ' +
-      'ITSM exports again — the overall export, the section exports, or both.</p>';
+      'ITSM exports again \u2014 the overall export, the section exports, or both.</p>';
   }
 
 
@@ -2389,7 +2549,7 @@
       emptyTable('#kpi1AllPeople tbody', 8, 'Nothing to show yet.');
       fillSectionFilters([]);
       // The org cards quote these figures, so they have to hear about an
-      // empty period too — otherwise they keep showing the last one's.
+      // empty period too - otherwise they keep showing the last one's.
       updateOrgFigures();
       return;
     }
@@ -2403,14 +2563,14 @@
 
     // The options exist now, so a filter saved before the refresh can finally
     // be put back. Has to happen here, between building the dropdowns and
-    // drawing the tables — any earlier and the <select> has nothing to match.
+    // drawing the tables - any earlier and the <select> has nothing to match.
     applyPendingTo(['fSection', 'fModuleK1', 'fModuleK1Name', 'fAllScope',
                     'fAllPerson', 'fAllName']);
 
     applySectionFilter();
     applyModuleFilterK1();
 
-    // The individuals table may be pinned to a quarter — restored from the URL
+    // The individuals table may be pinned to a quarter - restored from the URL
     // or left over from a previous month. applyScopeFilter fetches it when
     // needed and falls through to applyAllFilter either way.
     if (getValue('fAllScope')) applyScopeFilter(); else applyAllFilter();
@@ -2442,14 +2602,14 @@
       '<p>' + (k.allMonths
         ? 'At least one month in this range has no section exports, so its '
         : 'No section exports loaded for this month, so its ') +
-      'tickets were counted from the overall report — including work by ' +
+      'tickets were counted from the overall report \u2014 including work by ' +
       'individuals outside EAS (' + count(k.basis.total) + ' tickets in scope). ' +
       'Upload the section files for the accurate departmental figure.</p>';
   }
 
 
   /**
-   * Says which period is on screen — but only for the all-months view.
+   * Says which period is on screen - but only for the all-months view.
    *
    * Policy TVL-KPI-001 measures this KPI monthly, so the all-time figure is an
    * overview, not the number that gets reported. Anyone reading a 100.00% off
@@ -2460,9 +2620,9 @@
   /**
    * What the stored tickets cover, to the day.
    *
-   * 'January 2026 – September 2026' does not say whether September is a whole
+   * 'January 2026 - September 2026' does not say whether September is a whole
    * month or the first four days of one, and that decides whether the period's
-   * rate means anything yet — an export taken mid-month scores a month that is
+   * rate means anything yet - an export taken mid-month scores a month that is
    * still running. The month picker says which slice you are reading; this
    * says how much there is to read, which is a different question and belongs
    * in a different line.
@@ -2485,7 +2645,7 @@
     box.innerHTML =
       'Data loaded from <b class="part">' + escapeHtml(formatDay(from)) +
       '</b> to <b class="part">' + escapeHtml(formatDay(to)) + '</b>' +
-      (tickets ? ' · <span class="part">' + count(tickets) + ' tickets</span>' : '');
+      (tickets ? ' \u00b7 <span class="part">' + count(tickets) + ' tickets</span>' : '');
   }
 
 
@@ -2493,7 +2653,7 @@
    * Says when KPI 1's stored figures were last worked out.
    *
    * A button with no state beside it is indistinguishable from an outstanding
-   * task — which is exactly how this one read. Naming the last rebuild turns
+   * task - which is exactly how this one read. Naming the last rebuild turns
    * "the rebuild option is still there, what do I do?" into a question the
    * card answers by itself.
    */
@@ -2508,7 +2668,7 @@
       // No cache at all is the one case where there IS something to do.
       box.hidden = false;
       box.innerHTML = (boot && boot.stats && boot.stats.tickets)
-        ? '<b>Not built yet.</b> Tickets are stored but not scored — press ' +
+        ? '<b>Not built yet.</b> Tickets are stored but not scored \u2014 press ' +
           'Rebuild now to work the figures out.'
         : '<b>Nothing to rebuild yet.</b> Upload an ITSM export first.';
       return;
@@ -2518,7 +2678,7 @@
     box.innerHTML =
       'Figures last built <b class="part">' + escapeHtml(formatWhen(when)) +
       '</b>' + (cache.months
-        ? ' · <span class="part">' + cache.months + ' month' +
+        ? ' \u00b7 <span class="part">' + cache.months + ' month' +
           (cache.months === 1 ? '' : 's') + ' scored</span>'
         : '');
   }
@@ -2566,20 +2726,20 @@
       box.hidden = false;
       box.innerHTML =
         '<b>' + chosen.length + ' months</b>' +
-        '<span>' + chosen.slice().sort().map(formatMonth).join(' · ') + '</span>' +
-        '<span>combined · an aggregate, not the monthly reported figure</span>';
+        '<span>' + chosen.slice().sort().map(formatMonth).join(' \u00b7 ') + '</span>' +
+        '<span>combined \u00b7 an aggregate, not the monthly reported figure</span>';
       return;
     }
 
     const span = months.length
-      ? formatMonth(months[months.length - 1]) + ' – ' + formatMonth(months[0])
+      ? formatMonth(months[months.length - 1]) + ' \u2013 ' + formatMonth(months[0])
       : '';
 
     box.hidden = false;
     box.innerHTML =
       '<b>All months</b>' +
       (span ? '<span>' + escapeHtml(span) + '</span>' : '') +
-      '<span>' + (k.monthsCovered || months.length) + ' months combined · ' +
+      '<span>' + (k.monthsCovered || months.length) + ' months combined \u00b7 ' +
       'an aggregate, not the monthly reported figure</span>';
   }
 
@@ -2622,7 +2782,7 @@
 
     // At a 99.50% target, N completed tickets buy a fixed number of delays.
     // headroom is successful - ceil(target% x completed), so delayed +
-    // headroom is that permitted count — no extra server field needed.
+    // headroom is that permitted count - no extra server field needed.
     const allowed = t.delayed + t.headroom;
     const usedPct = allowed > 0 ? Math.min(100, (t.delayed / allowed) * 100)
                                 : (t.delayed > 0 ? 100 : 0);
@@ -2632,7 +2792,7 @@
       headroomNote = t.delayed + ' of ' + allowed + ' permitted delay' +
                      (allowed === 1 ? '' : 's') + ' used';
     } else if (t.headroom === 0) {
-      headroomNote = 'on the edge — one more delay drops the band';
+      headroomNote = 'on the edge \u2014 one more delay drops the band';
     } else {
       headroomNote = Math.abs(t.headroom) + ' fewer delays needed to reach target';
     }
@@ -2640,7 +2800,7 @@
     // Kept short on purpose: this note has to fit one line, or the tallest
     // tile stretches all six.
     const gap = round2(t.rate - k.target);
-    const gapText = (gap >= 0 ? '+' : '−') + fmt(Math.abs(gap)) + ' pts';
+    const gapText = (gap >= 0 ? '+' : '\u2212') + fmt(Math.abs(gap)) + ' pts';
 
     const headroomTone = t.headroom > 0 ? 'g' : (t.headroom === 0 ? 'a' : 'r');
 
@@ -2653,7 +2813,7 @@
         // printing 99.5% under it said the wrong thing about the wrong figure.
         // Achievement itself now lives on the Summary screen, beside the layer.
         note: '<span class="pill ' + band + '">' + escapeHtml(t.band) + '</span>' +
-              '<span class="tile-target">target ' + k.target + '% · ' +
+              '<span class="tile-target">target ' + k.target + '% \u00b7 ' +
               escapeHtml(gapText) + '</span>'
       }) +
       tile({
@@ -2682,7 +2842,7 @@
       tile({
         label: 'Delayed', icon: 'clock', tone: t.delayed ? 'a' : 'g',
         value: delayRateText(t),
-        note: count(t.delayed) + ' delayed · ' +
+        note: count(t.delayed) + ' delayed \u00b7 ' +
               count(t.successful) + ' completed on time'
       });
   }
@@ -2692,8 +2852,8 @@
    * Delayed tickets as a share of completed ones.
    *
    * Computed from the two counts rather than as 100 minus the success rate.
-   * The two are arithmetically identical today — successful + delayed is
-   * completed, by definition — but deriving it from the counts on the tile
+   * The two are arithmetically identical today - successful + delayed is
+   * completed, by definition - but deriving it from the counts on the tile
    * means the tile cannot start disagreeing with itself if the rate is ever
    * defined differently upstream.
    *
@@ -2703,7 +2863,7 @@
    * it says "<0.01%" instead, which is true and does not claim none.
    */
   function delayRateText(t) {
-    if (!t.completed) return '—';
+    if (!t.completed) return '\u2014';
     if (!t.delayed) return '0%';
 
     const rate = (t.delayed / t.completed) * 100;
@@ -2735,7 +2895,7 @@
 
 
   // =========================================================================
-  // KPI 2 — TRAINING FEEDBACK
+  // KPI 2 - TRAINING FEEDBACK
   // =========================================================================
 
   function loadKpi2() {
@@ -2811,8 +2971,8 @@
       box.innerHTML =
         '<b>All quarters</b>' +
         '<span>' + quarters.length + ' quarter' + (quarters.length === 1 ? '' : 's') +
-        ' · ' + k.monthsCovered + ' month' + (k.monthsCovered === 1 ? '' : 's') +
-        ' with training · ' + count(k.total.respondents) + ' attendees · ' +
+        ' \u00b7 ' + k.monthsCovered + ' month' + (k.monthsCovered === 1 ? '' : 's') +
+        ' with training \u00b7 ' + count(k.total.respondents) + ' attendees \u00b7 ' +
         count(k.total.responses) + ' responses</span>';
       return;
     }
@@ -2820,16 +2980,16 @@
     const here = quarters.filter(function (q) { return q.key === k.scope; })[0];
     if (!here) { box.hidden = true; return; }
 
-    // The months with training in them, or — when every session in the quarter
+    // The months with training in them, or - when every session in the quarter
     // was placed by its filename and no session date inside the quarter
-    // survived — the three months the quarter is.
+    // survived - the three months the quarter is.
     const span = (here.months || []).length ? here.months : (here.covers || []);
 
     box.hidden = false;
     box.innerHTML =
       '<b>' + escapeHtml(here.label) + '</b>' +
-      '<span>' + span.map(formatMonth).join(' · ') +
-      ' · ' + count(k.total.respondents) + ' attendees · ' +
+      '<span>' + span.map(formatMonth).join(' \u00b7 ') +
+      ' \u00b7 ' + count(k.total.respondents) + ' attendees \u00b7 ' +
       count(k.total.responses) + ' responses</span>';
   }
 
@@ -2838,7 +2998,7 @@
    * Names the files behind the '(unassigned)' module.
    *
    * The module is read from the filename, so a file called only after its
-   * trainer — 'Trainee Feedback– Mamun.xlsx', 'Trainee Feedback–Rubel.xlsx' —
+   * trainer - 'Trainee Feedback- Mamun.xlsx', 'Trainee Feedback-Rubel.xlsx' -
    * has nothing to match on. They pool into one '(unassigned)' row, which
    * tells you the size of the problem and nothing about its cause. Listing
    * them turns it into something fixable: rename the file and re-upload, or
@@ -2861,10 +3021,10 @@
       ' are counted in the KPI, but grouped under <code>(unassigned)</code> ' +
       'because the filename does not name a module. Rename the file and ' +
       're-upload it, or add the wording to <code>TRAINING_MODULES</code> in ' +
-      '<code>Config.gs</code> — the module is resolved at scoring time, so ' +
+      '<code>Config.gs</code> \u2014 the module is resolved at scoring time, so ' +
       'editing the list and reloading fixes it with nothing to re-upload.</p>' +
       '<p>' + firstFew(files, function (f) {
-        return '<code>' + escapeHtml(f.fileName) + '</code> ×' + f.respondents;
+        return '<code>' + escapeHtml(f.fileName) + '</code> \u00d7' + f.respondents;
       }, ' &nbsp; ') + '</p>';
   }
 
@@ -2873,7 +3033,7 @@
    * Names the first few of a list and counts the rest.
    *
    * A notice that lists forty-three filenames is not more informative than one
-   * that lists eight and says so — it just pushes the figures off the screen.
+   * that lists eight and says so - it just pushes the figures off the screen.
    * Eight is enough to recognise the pattern, which is what these notices are
    * for: you fix the naming, not the individual file.
    */
@@ -2882,7 +3042,7 @@
     const shown = list.slice(0, LIMIT).map(render).join(joiner);
     const rest = list.length - LIMIT;
     return rest > 0
-      ? shown + joiner + '<span class="muted">…and ' + rest + ' more</span>'
+      ? shown + joiner + '<span class="muted">\u2026and ' + rest + ' more</span>'
       : shown;
   }
 
@@ -2890,8 +3050,8 @@
   /**
    * Names the files whose quarter had to be guessed from the session date.
    *
-   * The team's naming convention — Zone_Quarter-Year, as in
-   * 'Trainee Feedback- CEPZ_Q1-2026_YPL_PP - Jafar' — is what decides which
+   * The team's naming convention - Zone_Quarter-Year, as in
+   * 'Trainee Feedback- CEPZ_Q1-2026_YPL_PP - Jafar' - is what decides which
    * quarter a session belongs to now. A file named the old way still works: it
    * falls back to the session date, exactly as before. But the session date is
    * the source that has already been wrong once, at scale, so a file leaning
@@ -2913,12 +3073,12 @@
       ' name' + (files.length === 1 ? 's' : '') + ' no quarter</h3>' +
       '<p>Their ' + count(people) + ' response' + (people === 1 ? '' : 's') +
       ' are counted in full. The quarter came from the session date inside the ' +
-      'file rather than from its name — check it reads right, and from the next ' +
-      'session name the file <code>Zone_Q1-2026_…</code> so the period is stated ' +
+      'file rather than from its name \u2014 check it reads right, and from the next ' +
+      'session name the file <code>Zone_Q1-2026_\u2026</code> so the period is stated ' +
       'rather than inferred.</p>' +
       '<p>' + firstFew(files, function (f) {
-        return '<code>' + escapeHtml(f.fileName) + '</code> ×' + f.respondents +
-               (f.quarterLabel ? ' → ' + escapeHtml(f.quarterLabel) : ' → no quarter');
+        return '<code>' + escapeHtml(f.fileName) + '</code> \u00d7' + f.respondents +
+               (f.quarterLabel ? ' \u2192 ' + escapeHtml(f.quarterLabel) : ' \u2192 no quarter');
       }, '<br>') + '</p>';
   }
 
@@ -2926,7 +3086,7 @@
   /**
    * Warns about answers the classification does not recognise.
    *
-   * The forms have been reworded between batches before — 'Very helpful' and
+   * The forms have been reworded between batches before - 'Very helpful' and
    * 'Confident' only appear in some. A new wording that silently counted as
    * positive would move the KPI with nobody noticing, so unknowns are counted
    * against the rate AND named here.
@@ -2945,7 +3105,7 @@
       'rate rather than inflating it. Add them to <code>FEEDBACK_ANSWERS</code> ' +
       'in <code>Config.gs</code> under the right tier and reload:<br>' +
       k.unknownAnswers.map(function (u) {
-        return '<code>' + escapeHtml(u.answer) + '</code> ×' + u.count;
+        return '<code>' + escapeHtml(u.answer) + '</code> \u00d7' + u.count;
       }).join(' &nbsp; ') + '</p>';
   }
 
@@ -2955,7 +3115,7 @@
     const band = bandClass(t.band);
 
     const gap = round2(t.rate - k.target);
-    const gapText = (gap >= 0 ? '+' : '−') + fmt(Math.abs(gap)) + ' pts';
+    const gapText = (gap >= 0 ? '+' : '\u2212') + fmt(Math.abs(gap)) + ' pts';
 
     const nonPositive = t.average + t.poor + t.unknown +
                         (t.noResponse && k.countsNonResponses !== false ? 0 : 0);
@@ -2964,7 +3124,7 @@
       tile({ label: 'Success Rate', icon: 'target', tone: band,
              value: fmt(t.rate) + '%',
              note: '<span class="pill ' + band + '">' + escapeHtml(t.band) + '</span>' +
-                   '<span class="tile-target">target ' + k.target + '% · ' +
+                   '<span class="tile-target">target ' + k.target + '% \u00b7 ' +
                    escapeHtml(gapText) + '</span>' }) +
       tile({ label: 'Headroom', icon: 'shield',
              tone: t.headroom > 0 ? 'g' : (t.headroom === 0 ? 'a' : 'r'),
@@ -2982,7 +3142,7 @@
       tile({ label: 'Not Positive', icon: 'clock',
              tone: (t.average + t.poor) ? 'a' : 'g',
              value: count(t.average + t.poor),
-             note: count(t.average) + ' average · ' + count(t.poor) + ' poor' });
+             note: count(t.average) + ' average \u00b7 ' + count(t.poor) + ' poor' });
   }
 
 
@@ -3012,7 +3172,7 @@
              num(m.respondents) + num(m.responses) + num(m.positive) +
              // The two tiers underneath the rate. num() greys a zero, so a
              // module with no Poor answers recedes and the ones with some
-             // stand out — which is the whole reason for the column.
+             // stand out - which is the whole reason for the column.
              num(m.average) + num(m.poor) +
              '<td class="r">' + fmt(m.rate) + '%</td>' +
              '<td class="r">' + fmt(m.achievement) + '%</td>' +
@@ -3023,7 +3183,7 @@
 
 
   /**
-   * Training satisfaction by plant zone — KEPZ, CEPZ, DEPZ.
+   * Training satisfaction by plant zone - KEPZ, CEPZ, DEPZ.
    *
    * A zone that ran no training in the period still gets a row, at zero and
    * banded NO DATA. Dropping it would make "nobody trained at DEPZ this
@@ -3046,8 +3206,8 @@
       return '<td class="name">' + escapeHtml(z.name) + '</td>' +
              num(z.sessions) + num(z.respondents) + num(z.responses) + num(z.positive) +
              num(z.average) + num(z.poor) +
-             '<td class="r">' + (dead ? '—' : fmt(z.rate) + '%') + '</td>' +
-             '<td class="r">' + (dead ? '—' : fmt(z.achievement) + '%') + '</td>' +
+             '<td class="r">' + (dead ? '\u2014' : fmt(z.rate) + '%') + '</td>' +
+             '<td class="r">' + (dead ? '\u2014' : fmt(z.achievement) + '%') + '</td>' +
              '<td>' + pill(z.band) + '</td>';
     });
   }
@@ -3060,7 +3220,7 @@
    * On a single quarter it is satisfaction by module: eight bars answering
    * "which training landed and which did not, this quarter". On All quarters
    * that same chart pools every quarter into one bar per module and throws
-   * away the only thing the all-quarters view is for — whether the KPI is
+   * away the only thing the all-quarters view is for - whether the KPI is
    * moving. So All quarters plots one bar per quarter instead, in time order,
    * and the trend is readable at a glance.
    *
@@ -3119,7 +3279,7 @@
           tooltip: tooltipStyle({
             label: function (item) {
               const m = rows[item.dataIndex];
-              const lines = [fmt(m.rate) + '% · ' + m.band,
+              const lines = [fmt(m.rate) + '% \u00b7 ' + m.band,
                              m.positive + ' positive of ' + m.applicable + ' applicable',
                              m.respondents + ' attendees'];
               if (byQuarter && m.sessions) {
@@ -3140,7 +3300,7 @@
   /**
    * The response mix, as a doughnut.
    *
-   * Part-to-whole across four tiers, which is exactly what a doughnut is for —
+   * Part-to-whole across four tiers, which is exactly what a doughnut is for -
    * and the numerator/denominator split is the thing this KPI turns on.
    */
   function drawFeedbackMixChart(k) {
@@ -3198,7 +3358,7 @@
    * Every handler here redraws its table AND saves.
    *
    * The save is what makes a filter survive refresh. applySectionFilter and
-   * friends deliberately do NOT save themselves — they are also called during
+   * friends deliberately do NOT save themselves - they are also called during
    * restore and after every render, and saving from there would write the
    * state back before it had finished being read.
    */
@@ -3314,11 +3474,11 @@
    *
    * KPI 1 is precomputed, so which section and which module a ticket is filed
    * under is decided when the cache is built. Editing PERSON_MODULES or the
-   * roster therefore changes nothing until this runs — and before it existed,
+   * roster therefore changes nothing until this runs - and before it existed,
    * the only way to apply such an edit was to re-upload the exports.
    */
   function rebuildKpi1() {
-    // Two places offer this — Settings, and the By module table when it finds
+    // Two places offer this - Settings, and the By module table when it finds
     // the stored figures predate modules. Whichever was pressed, both are
     // disabled while it runs.
     const buttons = ['rebuildKpi1', 'rebuildFromModules']
@@ -3327,18 +3487,18 @@
     const status = document.getElementById('rebuildStatus');
     if (!buttons.length) return;
 
-    // Remembered so the label goes back to whatever each button said — the two
+    // Remembered so the label goes back to whatever each button said - the two
     // are worded differently for where they sit.
     const labels = buttons.map(function (b) { return b.textContent; });
-    buttons.forEach(function (b) { b.disabled = true; b.textContent = 'Rebuilding…'; });
-    if (status) status.textContent = 'Rebuilding…';
+    buttons.forEach(function (b) { b.disabled = true; b.textContent = 'Rebuilding\u2026'; });
+    if (status) status.textContent = 'Rebuilding\u2026';
 
     // Whatever happens, the buttons go back to being buttons.
     //
     // This used to run only on failure, on the assumption that a success
     // redrew them. That is true of the one inside the By module table, which
-    // refreshAfterChange re-renders — and false of the one in Settings, which
-    // is static markup. So a successful rebuild left it reading "Rebuilding…"
+    // refreshAfterChange re-renders - and false of the one in Settings, which
+    // is static markup. So a successful rebuild left it reading "Rebuilding..."
     // and disabled for the rest of the session, beside a status line saying
     // the rebuild had finished. Two contradictory statements, and the one in
     // the bigger type was the wrong one.
@@ -3370,13 +3530,13 @@
    * Tickets by SAP module.
    *
    * Replaces the old "Individuals carrying the delays" table. That one listed
-   * the people with a delay or a band below green — which the By individuals
+   * the people with a delay or a band below green - which the By individuals
    * table underneath already shows, with its own Delayed column and a filter
    * of its own. Two tables answering one question is one table too many.
    *
    * This answers a question nothing else on the page did: which part of SAP
    * the work sits in. The module comes from the ITSM's Part column when that
-   * names one EAS reports on, and otherwise from whoever handled the ticket —
+   * names one EAS reports on, and otherwise from whoever handled the ticket -
    * see moduleForTicket. The names match KPI 2's, so MM means the same thing
    * on both screens.
    */
@@ -3409,9 +3569,9 @@
           '<b>The stored figures were built before modules were added.</b><br>' +
           'There are ' + count(k.total.completed) + ' tickets in this period, ' +
           'but none of them has been filed under a module yet. Rebuilding ' +
-          're-scores every stored ticket — nothing is uploaded or deleted.' +
+          're-scores every stored ticket \u2014 nothing is uploaded or deleted.' +
           '<br><button class="btn btn-primary" id="rebuildFromModules" ' +
-          'style="margin-top:12px">↻ Rebuild KPI 1 figures</button>' +
+          'style="margin-top:12px">\u21bb Rebuild KPI 1 figures</button>' +
           '</td></tr>';
         bind('rebuildFromModules', 'click', rebuildKpi1);
       }
@@ -3437,7 +3597,7 @@
    * Everyone, busiest first.
    *
    * The only table on the page that can be looking at a different period from
-   * everything around it — state.scopePeople holds a quarter when one is
+   * everything around it - state.scopePeople holds a quarter when one is
    * chosen, and state.kpi is the page's month otherwise.
    */
   function applyAllFilter() {
@@ -3541,7 +3701,7 @@
   /**
    * Prints each value above its bar.
    *
-   * Not decoration — the aqua series sits below 3:1 contrast on white, so the
+   * Not decoration - the aqua series sits below 3:1 contrast on white, so the
    * palette's relief rule requires visible labels or a table view. We ship both.
    */
   const valueLabelPlugin = {
@@ -3592,7 +3752,7 @@
    * Yellow is a true yellow here, not the dark amber the text pills use.
    * #b45309 has to be dark enough to read as text on a pale chip; as a large
    * solid fill it just looks brown. A filled arc has no such constraint, and
-   * these are the reserved status hues — they always ship with a label, which
+   * these are the reserved status hues - they always ship with a label, which
    * every chart here does.
    */
   function bandColour(band) {
@@ -3619,7 +3779,7 @@
 
   const AXIS_FONT = { size: 11, family: '-apple-system, "Segoe UI", Roboto, sans-serif' };
 
-  /** Shared axis/grid styling — hairline and recessive, so the data reads first. */
+  /** Shared axis/grid styling - hairline and recessive, so the data reads first. */
   function gridStyle() {
     return {
       border: { display: false },
@@ -3628,7 +3788,7 @@
     };
   }
 
-  /** X axis: no grid at all — the bars sit on the baseline, that is enough. */
+  /** X axis: no grid at all - the bars sit on the baseline, that is enough. */
   function categoryAxis() {
     return {
       border: { display: false },
@@ -3654,9 +3814,9 @@
   /**
    * Shows a message in place of a chart.
    *
-   * Needed because an axis auto-scaled to all-zero data draws 0.1 … 1.0 ticks
+   * Needed because an axis auto-scaled to all-zero data draws 0.1 ... 1.0 ticks
    * for a count that can only be a whole number. It looks broken, and it says
-   * nothing — where "no delays at all" is the best news the month has.
+   * nothing - where "no delays at all" is the best news the month has.
    */
   function chartMessage(canvasId, html) {
     const box = document.getElementById(canvasId + 'Empty');
@@ -3703,7 +3863,7 @@
 
     if (note) {
       note.textContent = 'Against the ' + k.target + '% target. Axis starts at ' +
-                         floor + '% — the sections sit close together, so the ' +
+                         floor + '% \u2014 the sections sit close together, so the ' +
                          'differences are small by design.';
     }
 
@@ -3726,14 +3886,14 @@
           x: categoryAxis()
         },
         plugins: {
-          legend: { display: false },          // one series — the title names it
+          legend: { display: false },          // one series - the title names it
           tooltip: tooltipStyle({
             label: function (item) {
               const row = rows[item.dataIndex];
               return [
                 'Success rate: ' + fmt(row.rate) + '%',
                 'Band: ' + row.band,
-                'Completed: ' + row.completed + ' · delayed: ' + row.delayed
+                'Completed: ' + row.completed + ' \u00b7 delayed: ' + row.delayed
               ];
             }
           }),
@@ -3746,7 +3906,7 @@
   }
 
 
-  /** Delayed tickets by section — a genuine count, so a zero baseline. */
+  /** Delayed tickets by section - a genuine count, so a zero baseline. */
   function drawDelayChart(k) {
     const rows = k.departments.length ? k.departments : k.parts;
 
@@ -3818,11 +3978,11 @@
   /**
    * EAS overall across every month uploaded: volume as bars, rate as a line.
    *
-   * TWO SCALES, ONE PLOT — the one thing to be careful about here. Tickets
+   * TWO SCALES, ONE PLOT - the one thing to be careful about here. Tickets
    * completed runs in the thousands and the success rate sits between 98 and
    * 100, so they cannot share an axis. The risk of a dual axis is that the two
    * scales are aligned arbitrarily and the chart appears to show a
-   * relationship — "volume went up, the rate fell" — that is an artefact of
+   * relationship - "volume went up, the rate fell" - that is an artefact of
    * where the axes were put, not something in the data.
    *
    * Two things hold it honest. The rate axis is anchored to the 99.50% target
@@ -3865,7 +4025,7 @@
    * The periods the Comparison screen may offer, for the KPI in hand.
    *
    * KPI 1 compares MONTHS: tickets arrive daily, so a month is a full reading.
-   * KPI 2 compares QUARTERS, like the rest of its screen — a module is trained
+   * KPI 2 compares QUARTERS, like the rest of its screen - a module is trained
    * once or twice a quarter, so month by month is mostly empty columns and the
    * rest carry a rate over a handful of responses. Comparing two of those
    * compares noise.
@@ -3886,7 +4046,7 @@
    * What one column of the comparison is, for the KPI selected right now.
    *
    * Read from the selector rather than from the last result, because the
-   * pickers and their labels have to be right BEFORE anything is compared —
+   * pickers and their labels have to be right BEFORE anything is compared -
    * and after a KPI switch the result on screen belongs to the old one.
    */
   function comparePeriodKind() {
@@ -3942,7 +4102,7 @@
     const labels = months.map(shortPeriod);
     const word = c.periodLabelPlural || 'months';
 
-    // Whichever count this KPI treats as its volume — tickets completed for
+    // Whichever count this KPI treats as its volume - tickets completed for
     // KPI 1, attendees trained for KPI 2.
     const volumeKey = c.volumeKey || 'completed';
     const volumeLabel = c.volumeLabel || 'Tickets completed';
@@ -3964,7 +4124,7 @@
 
     const title = document.getElementById('cmpTrendTitle');
     if (title) {
-      title.textContent = (c.name || 'Success rate') + ' over time — every ' +
+      title.textContent = (c.name || 'Success rate') + ' over time \u2014 every ' +
         (c.periodLabel || 'Month').toLowerCase();
     }
 
@@ -4018,14 +4178,14 @@
         layout: { padding: { top: 18, right: 104 } },
         interaction: { mode: 'index', intersect: false },
         scales: {
-          // Volume on the left, from zero — a count must never be truncated.
+          // Volume on the left, from zero - a count must never be truncated.
           yVolume: Object.assign({
             position: 'left',
             beginAtZero: true,
             title: { display: true, text: volumeLabel,
                      color: TREND_BAR, font: { size: 11, weight: '600' } }
           }, gridStyle()),
-          // Rate on the right, windowed, with no grid of its own — two sets of
+          // Rate on the right, windowed, with no grid of its own - two sets of
           // horizontal lines across one plot is noise.
           yRate: Object.assign({}, gridStyle(), {
             position: 'right',
@@ -4057,7 +4217,7 @@
             }
           }), { displayColors: true, usePointStyle: true }),
           // Drawn in the LINE's colour, not the usual navy. On a two-scale
-          // plot a neutral rule reads as if it belonged to the left axis —
+          // plot a neutral rule reads as if it belonged to the left axis -
           // a volume threshold at 1,050 tickets, which it is not. Wearing the
           // rate's colour it can only be read against the rate.
           targetLine: { value: c.target, label: 'Target ' + c.target + '%',
@@ -4106,7 +4266,7 @@
         })
       );
 
-      // Colour follows the period, never its position in the sorted result —
+      // Colour follows the period, never its position in the sorted result -
       // dropping one must not repaint the ones that remain.
       return Object.assign({
         label: formatPeriod(period),
@@ -4159,7 +4319,7 @@
    *
    * WHAT THIS REPLACED, AND WHY
    * First the threshold rings, which restated the thresholds table directly
-   * underneath them — same targets, same numbers — so the page said one thing
+   * underneath them - same targets, same numbers - so the page said one thing
    * twice. Then four equal cards that opened on a click, which said something
    * new but said it only to whoever guessed the cards were clickable: nothing
    * about four identical tiles announces that thirty-seven names are behind
@@ -4168,7 +4328,7 @@
    * So: one section in front, always, with its people under it. The other
    * three sit back to either side, smaller and turned away but legible, and
    * the arrows move between them. Nothing is hidden and nothing needs
-   * discovering — the only question left is which section you are looking at.
+   * discovering - the only question left is which section you are looking at.
    */
   function renderOrg(boot) {
     const stage = document.getElementById('orgStage');
@@ -4230,8 +4390,8 @@
    * Brings a section to the front.
    *
    * Wrapped, not clamped: past the last section you land on the first. With
-   * four of them a clamp left the first and last sections looking broken —
-   * every card fanned out to one side and a dead arrow on the other — where a
+   * four of them a clamp left the first and last sections looking broken -
+   * every card fanned out to one side and a dead arrow on the other - where a
    * wrap keeps a card on each side of the front one whichever is chosen.
    */
   function focusSection(index) {
@@ -4275,7 +4435,7 @@
 
       card.style.setProperty('--off', String(off));
       card.dataset.dist = String(dist);
-      // The parked card is out of the tab order too — tabbing to something you
+      // The parked card is out of the tab order too - tabbing to something you
       // cannot see is worse than not being able to reach it.
       card.tabIndex = dist > 1 ? -1 : 0;
       card.setAttribute('aria-current', off === 0 ? 'true' : 'false');
@@ -4299,7 +4459,7 @@
       '</div>' +
       (section.modules
         ? '<span class="org-modules">' + escapeHtml(section.modules) + '</span>' : '') +
-      '<div class="org-head-name"><b>' + escapeHtml(section.head || '—') + '</b></div>' +
+      '<div class="org-head-name"><b>' + escapeHtml(section.head || '\u2014') + '</b></div>' +
       '<div class="org-card-foot">' +
         '<span>' + section.size + ' ' + (section.size === 1 ? 'person' : 'people') + '</span>' +
         (figure
@@ -4332,7 +4492,7 @@
    *
    * The stage is built from the bootstrap, before any month has loaded, so
    * every card would read "no figure" forever without this. Rewrites the card
-   * bodies only — which section is in front, and how the rest are ranked
+   * bodies only - which section is in front, and how the rest are ranked
    * around it, are left exactly as they were.
    */
   function updateOrgFigures() {
@@ -4354,7 +4514,7 @@
    *
    * WHAT THIS REPLACED, AND WHY
    * A card per KPI, which put one indicator's target, formula and bands in one
-   * place — and hid the other three behind a click. But the question this
+   * place - and hid the other three behind a click. But the question this
    * section answers is a comparison: which targets are tight, which are loose,
    * which are live. You cannot compare four things one at a time. That is what
    * a table is for, and it was a table before.
@@ -4380,7 +4540,7 @@
     });
 
     const live = list.filter(function (k) { return k.active; }).length;
-    setText('kpiTableNote', list.length + ' indicators · ' + live + ' live · ' +
+    setText('kpiTableNote', list.length + ' indicators \u00b7 ' + live + ' live \u00b7 ' +
       (list.length - live) + ' awaiting a pipeline');
   }
 
@@ -4417,7 +4577,7 @@
           (kpi.active ? '<span class="pill g">LIVE</span>'
                       : '<span class="pill a">PENDING</span>') +
         '</span>' +
-        '<span class="thr-formula">' + escapeHtml(kpi.formula || '—') + '</span>' +
+        '<span class="thr-formula">' + escapeHtml(kpi.formula || '\u2014') + '</span>' +
       '</td>' +
 
       '<td class="r"><span class="thr-target">' + kpi.target +
@@ -4448,13 +4608,13 @@
   /**
    * The three bands as one bar, plus the numbers under it.
    *
-   * Drawn in proportion across the whole 0–100 scale the percentage lives on,
+   * Drawn in proportion across the whole 0-100 scale the percentage lives on,
    * which is what makes the widths mean something: on every one of these
    * indicators nearly the entire range is a breach and the window you have to
    * land in is a sliver at the top, and that is the thing worth seeing before
    * any number is read. Each segment gets a floor of a few pixels so none of
-   * them vanishes — a band you cannot see reads as a band that does not
-   * exist — which does cost the thinnest slivers their exact width. The
+   * them vanishes - a band you cannot see reads as a band that does not
+   * exist - which does cost the thinnest slivers their exact width. The
    * figures are printed underneath, so nothing rests on the drawing.
    */
   function bandBar(kpi) {
@@ -4470,13 +4630,13 @@
     const top = round2(kpi.target - 0.01);
 
     return '<span class="thr-bar">' +
-        seg('r', red, 'Red · below ' + kpi.yellowFloor + kpi.unit) +
-        seg('a', amber, 'Yellow · ' + kpi.yellowFloor + ' to ' + top + kpi.unit) +
-        seg('g', green, 'Green · ' + kpi.target + kpi.unit + ' and above') +
+        seg('r', red, 'Red \u00b7 below ' + kpi.yellowFloor + kpi.unit) +
+        seg('a', amber, 'Yellow \u00b7 ' + kpi.yellowFloor + ' to ' + top + kpi.unit) +
+        seg('g', green, 'Green \u00b7 ' + kpi.target + kpi.unit + ' and above') +
       '</span>' +
       '<span class="thr-chips">' +
         '<b class="thr-chip g">&ge; ' + kpi.target + kpi.unit + '</b>' +
-        '<b class="thr-chip a">' + kpi.yellowFloor + ' – ' + top + kpi.unit + '</b>' +
+        '<b class="thr-chip a">' + kpi.yellowFloor + ' \u2013 ' + top + kpi.unit + '</b>' +
         '<b class="thr-chip r">&lt; ' + kpi.yellowFloor + kpi.unit + '</b>' +
       '</span>';
   }
@@ -4486,7 +4646,7 @@
    * KPI Achievement, beside the layer on the Summary screen.
    *
    * It used to be a tile on each indicator's own page, where it sat next to
-   * the success rate saying almost the same thing twice — and where its note
+   * the success rate saying almost the same thing twice - and where its note
    * printed the SUCCESS RATE target under it, which is a target for the other
    * number. Here it is one column across all four, which is the comparison it
    * was always for: not "how did KPI 1 do" but "which indicators are ahead".
@@ -4500,7 +4660,7 @@
     const actual = currentValueFor(kpi);
 
     if (achievement === null || actual === null) {
-      return '<span class="thr-ach-none">—</span>';
+      return '<span class="thr-ach-none">\u2014</span>';
     }
 
     return '<span class="thr-ach-val" style="color:' +
@@ -4539,13 +4699,13 @@
    *
    * With no link set the button is still drawn, greyed, saying so. Leaving
    * the cell empty would read as "this indicator has no definition sheet",
-   * which is the opposite of true — it has one, nobody has linked it yet.
+   * which is the opposite of true - it has one, nobody has linked it yet.
    */
   function policyLink(kpi) {
     const url = String(kpi.policyUrl || '').trim();
 
     if (!/^https?:\/\//i.test(url)) {
-      return '<span class="doc-btn is-off" title="No document linked yet — ' +
+      return '<span class="doc-btn is-off" title="No document linked yet \u2014 ' +
         'paste the file\u2019s link into policyUrl for this KPI in Config.gs">' +
         'Not linked</span>';
     }
@@ -4618,17 +4778,17 @@
     // The subtitle carries the whole department AND the section in front, so
     // the numbers that used to need a close button to get back to are always
     // on screen: how big EAS is, and how big the part of it you are looking at.
-    setText('orgSub', org.sections.length + ' sections · ' + org.headcount +
-      ' people · in front: ' + section.label + ' · ' + section.size +
+    setText('orgSub', org.sections.length + ' sections \u00b7 ' + org.headcount +
+      ' people \u00b7 in front: ' + section.label + ' \u00b7 ' + section.size +
       (section.size === 1 ? ' person' : ' people') +
-      (section.modules ? ' · ' + section.modules : ''));
+      (section.modules ? ' \u00b7 ' + section.modules : ''));
 
     // No figures panel here. It restated what the KPI 1 screen already shows,
     // which is the same duplication that got the threshold rings removed. The
     // card face still carries the section's rate, which is what you want at a
     // glance; the detail is about the people.
 
-    // The head leads the list, marked — he is the answer to "who do I ask",
+    // The head leads the list, marked - he is the answer to "who do I ask",
     // and hunting for him in an alphabetical run of nine names is a task.
     const people = [];
     if (section.head) {
@@ -4645,14 +4805,14 @@
         (section.modules
           ? '<span class="org-modules">' + escapeHtml(section.modules) + '</span>' : '') +
       '</div>' +
-      '<p class="org-people-label">The team — ' + people.length + '</p>' +
+      '<p class="org-people-label">The team \u2014 ' + people.length + '</p>' +
       '<div class="org-people">' +
         people.map(function (person, i) {
           return '<span class="org-person' + (person.head ? ' is-head' : '') +
                  '" style="--i:' + Math.min(i, 9) + '">' +
                  '<span class="org-avatar">' + escapeHtml(initials(person.name)) + '</span>' +
                  escapeHtml(person.name) +
-                 (person.head ? ' · head' : '') +
+                 (person.head ? ' \u00b7 head' : '') +
                  '</span>';
         }).join('') +
       '</div>';
@@ -4722,7 +4882,7 @@
     (boot.kpiList || []).forEach(function (kpi) {
       const option = document.createElement('option');
       option.value = kpi.id;
-      option.textContent = kpi.name + (kpi.active ? '' : '  — awaiting data');
+      option.textContent = kpi.name + (kpi.active ? '' : '  \u2014 awaiting data');
       select.appendChild(option);
     });
 
@@ -4811,7 +4971,7 @@
 
     // No two boxes may end up on the same period. Switching KPI used to do
     // exactly that: the first box lost its month (not in the new list) and
-    // fell back to the newest, which the second box was already holding — so
+    // fell back to the newest, which the second box was already holding \u2014 so
     // both read August, the two collapsed to one, and Compare refused to run
     // while the tables sat there still showing the previous KPI.
     const taken = {};
@@ -4824,8 +4984,8 @@
       const optional = index >= 2;
 
       select.innerHTML = optional
-        ? '<option value="">— none —</option>'
-        : '<option value="">— select a ' + word + ' —</option>';
+        ? '<option value="">\u2014 none \u2014</option>'
+        : '<option value="">\u2014 select a ' + word + ' \u2014</option>';
 
       list.forEach(function (period) {
         const option = document.createElement('option');
@@ -4853,7 +5013,7 @@
 
 
   /**
-   * Retitles the whole picker for the KPI in hand — Month or Quarter.
+   * Retitles the whole picker for the KPI in hand \u2014 Month or Quarter.
    *
    * The page heading and the four field labels are the only places the unit is
    * spelled out before anything has been compared, so they are the only places
@@ -4866,7 +5026,7 @@
 
     setText('cmpHeading', Title + ' Comparison');
     setText('cmpSubhead',
-      'Compare two to four ' + many + ' side by side. Pick the KPI first — ' +
+      'Compare two to four ' + many + ' side by side. Pick the KPI first \u2014 ' +
       'the ' + many + ', tables and charts below all follow it.');
 
     ['First', 'Second', 'Third', 'Fourth'].forEach(function (nth, index) {
@@ -4883,15 +5043,15 @@
   /**
    * The chosen KPI's target and SLA layer, under its selector.
    *
-   * The KPI decides what the period list even contains — pick it second and
-   * the months you just chose are thrown away — so it is worth more than a
+   * The KPI decides what the period list even contains \u2014 pick it second and
+   * the months you just chose are thrown away \u2014 so it is worth more than a
    * bare dropdown. This says which indicator you are on without making you
    * read it off the results below.
    *
    * There was a count of the selected periods beside the button too. It went
    * stale: applyPendingTo restores the dropdowns by assigning el.value, which
    * fires no change event, so after a refresh the line kept the count it had
-   * before the URL's periods were put back — "2 months" over four full boxes.
+   * before the URL's periods were put back \u2014 "2 months" over four full boxes.
    * The comparison itself was always right, because it reads the dropdowns
    * when the button is pressed. A caption that can disagree with the controls
    * beside it is worse than no caption, so it is gone.
@@ -4902,8 +5062,8 @@
     if (!hint) return;
 
     hint.innerHTML = kpi
-      ? 'Target &ge; ' + kpi.target + kpi.unit + ' · ' + escapeHtml(kpi.slaLayer || '') +
-        (kpi.active ? '' : ' · <b>no data uploaded yet</b>')
+      ? 'Target &ge; ' + kpi.target + kpi.unit + ' \u00b7 ' + escapeHtml(kpi.slaLayer || '') +
+        (kpi.active ? '' : ' \u00b7 <b>no data uploaded yet</b>')
       : '';
   }
 
@@ -4968,7 +5128,7 @@
     state.compareRan = true;
     saveState();
 
-    // Every KPI is selectable — a disabled option tells you nothing about why.
+    // Every KPI is selectable \u2014 a disabled option tells you nothing about why.
     // Picking one without data shows an explanation instead.
     if (kpi && !kpi.active) return showComparisonPending(kpi);
 
@@ -4995,8 +5155,8 @@
     empty.className = 'notice notice-warn';
     empty.innerHTML =
       '<h3>' + escapeHtml(kpi.name) + ' has no data yet</h3>' +
-      '<p>Its definition is loaded — target &ge; ' + kpi.target + kpi.unit +
-      ', ' + escapeHtml(kpi.slaLayer) + ' — but nothing has been uploaded ' +
+      '<p>Its definition is loaded \u2014 target &ge; ' + kpi.target + kpi.unit +
+      ', ' + escapeHtml(kpi.slaLayer) + ' \u2014 but nothing has been uploaded ' +
       'against it, so there is nothing to compare. Formula: ' +
       escapeHtml(kpi.formula || '') + '</p>';
   }
@@ -5008,7 +5168,7 @@
    * Nothing here knows what a ticket is. The result object names its own
    * count columns in `measures` and its own breakdown in `sectionLabel`, so
    * KPI 1 and KPI 2 share one render path and KPI 3 will need no changes at
-   * all — only a comparison endpoint that fills the same fields in.
+   * all \u2014 only a comparison endpoint that fills the same fields in.
    */
   function renderComparison(c) {
     const empty = document.getElementById('cmpEmpty');
@@ -5032,9 +5192,9 @@
     const period = periodLabel.toLowerCase();
     const shortName = c.kpi === 'KPI2' ? 'KPI 2' : (c.kpi === 'KPI1' ? 'KPI 1' : (c.kpi || ''));
 
-    setText('cmpOverallTitle', shortName + ' — overall by ' + period +
-      ' · Change is percentage points against the ' + period + ' above');
-    setText('cmpSectionTitle', shortName + ' — success rate by ' + sectionLabel.toLowerCase());
+    setText('cmpOverallTitle', shortName + ' \u2014 overall by ' + period +
+      ' \u00b7 Change is percentage points against the ' + period + ' above');
+    setText('cmpSectionTitle', shortName + ' \u2014 success rate by ' + sectionLabel.toLowerCase());
     setText('cmpChartTitle', 'Success rate by ' + sectionLabel.toLowerCase() + ' and ' + period);
 
     drawCompareChart(c);
@@ -5049,12 +5209,12 @@
       '<th class="r">Success Rate</th><th class="r">Achievement</th>' +
       '<th>Band</th><th class="r">Headroom</th>' +
       // Spelled out in the header's tooltip and in the card title, because
-      // "▲ 0.38" is unreadable without knowing what it is 0.38 OF — it is
+      // "(up arrow) 0.38" is unreadable without knowing what it is 0.38 OF \u2014 it is
       // percentage POINTS of success rate against the row above, not a
       // percentage change and not a change in ticket volume.
       '<th class="r" title="Success rate against the ' + period +
         ' above, in percentage points. ' +
-        'A rate of 99.09% followed by 99.47% shows as ▲ 0.38.">Change</th>';
+        'A rate of 99.09% followed by 99.47% shows as \u25b2 0.38.">Change</th>';
 
     const body = document.querySelector('#cmpOverall tbody');
     body.innerHTML = '';
@@ -5072,10 +5232,10 @@
         return;
       }
 
-      let change = '—';
+      let change = '\u2014';
       if (previous !== null) {
         const delta = t.rate - previous;
-        const arrow = delta > 0 ? '▲' : (delta < 0 ? '▼' : '=');
+        const arrow = delta > 0 ? '\u25b2' : (delta < 0 ? '\u25bc' : '=');
         const colour = delta > 0 ? 'var(--green)' : (delta < 0 ? 'var(--red)' : 'var(--text-mut)');
         change = '<span style="color:' + colour + '">' + arrow + ' ' +
                  fmt(Math.abs(delta)) + '</span>';
@@ -5119,7 +5279,7 @@
         const entry = (c.bySection[section] || {})[period];
         html += entry
           ? '<td class="r">' + fmt(entry.rate) + '% ' + pill(entry.band) + '</td>'
-          : '<td class="r muted">—</td>';
+          : '<td class="r muted">\u2014</td>';
       });
 
       tr.innerHTML = html;
@@ -5153,15 +5313,15 @@
       info.innerHTML =
         '<dt>Version</dt><dd>' + escapeHtml(boot.appVersion) + '</dd>' +
         '<dt>Sections</dt><dd>' + boot.departments.length + '</dd>' +
-        '<dt>KPI 1 · tickets stored</dt><dd>' +
+        '<dt>KPI 1 \u00b7 tickets stored</dt><dd>' +
           warn(!stats.tickets && stats.ticketUploads, count(stats.tickets || 0)) + '</dd>' +
-        '<dt>KPI 1 · months</dt><dd>' + months + '</dd>' +
-        '<dt>KPI 1 · uploads logged</dt><dd>' + count(stats.ticketUploads || 0) + '</dd>' +
-        '<dt>KPI 2 · responses stored</dt><dd>' +
+        '<dt>KPI 1 \u00b7 months</dt><dd>' + months + '</dd>' +
+        '<dt>KPI 1 \u00b7 uploads logged</dt><dd>' + count(stats.ticketUploads || 0) + '</dd>' +
+        '<dt>KPI 2 \u00b7 responses stored</dt><dd>' +
           warn(!stats.feedback && stats.feedbackUploads, count(stats.feedback || 0)) + '</dd>' +
-        '<dt>KPI 2 · quarters</dt><dd>' +
+        '<dt>KPI 2 \u00b7 quarters</dt><dd>' +
           ((boot.feedbackQuarters || []).length + ' (' + fMonths + ' months)') + '</dd>' +
-        '<dt>KPI 2 · uploads logged</dt><dd>' + count(stats.feedbackUploads || 0) + '</dd>' +
+        '<dt>KPI 2 \u00b7 uploads logged</dt><dd>' + count(stats.feedbackUploads || 0) + '</dd>' +
         (boot.orphanedFeedback
           ? '<dt>Orphaned responses</dt><dd>' +
             warn(true, count(boot.orphanedFeedback)) + '</dd>' : '');
@@ -5214,7 +5374,7 @@
    *
    * en-US is pinned rather than left to the viewer's locale. The figures on
    * screen get read out in meetings against the ITSM's own reports, which
-   * print 2,640 — a browser set to a locale that groups differently would
+   * print 2,640 \u2014 a browser set to a locale that groups differently would
    * quietly disagree with the source.
    */
   function count(value) {
@@ -5318,17 +5478,17 @@
    *
    * Its own list, not KPI 1's: training runs on its own calendar, and a month
    * full of tickets need not have had a session in it. Defaults to All months
-   * — unlike KPI 1, where the policy reports monthly, training feedback is
+   * \u2014 unlike KPI 1, where the policy reports monthly, training feedback is
    * most often read cumulatively.
    */
   /**
-   * KPI 2's period picker — quarters, not months.
+   * KPI 2's period picker \u2014 quarters, not months.
    *
    * Training runs a few times a quarter, so a month is the wrong unit to read
    * it in: most months are empty and the ones that are not carry a rate over a
    * handful of responses. The quarters offered are the ones the data actually
    * has, and which months make up a quarter is settled on the server by
-   * CONFIG.QUARTER_START_MONTH — the picker only shows what it is told.
+   * CONFIG.QUARTER_START_MONTH \u2014 the picker only shows what it is told.
    */
   function fillFeedbackQuarters(quarters) {
     const select = document.getElementById('kpi2Month');
@@ -5352,19 +5512,19 @@
 
     const divider = document.createElement('option');
     divider.disabled = true;
-    divider.textContent = '──────────';
+    divider.textContent = '\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500';
     select.appendChild(divider);
 
     list.forEach(function (q) {
       const option = document.createElement('option');
       option.value = q.key;
       option.textContent = q.label;
-      // The months behind the label, for the tooltip — 'Quarter 1 (2026)'
+      // The months behind the label, for the tooltip \u2014 'Quarter 1 (2026)'
       // says nothing about which months it covers until you hover it. Falls
       // back to the quarter's own three months when every session in it was
       // placed by its filename rather than by a usable session date.
       const span = (q.months || []).length ? q.months : (q.covers || []);
-      option.title = q.label + ' · ' + span.map(formatMonth).join(', ');
+      option.title = q.label + ' \u00b7 ' + span.map(formatMonth).join(', ');
       select.appendChild(option);
     });
 
@@ -5386,7 +5546,7 @@
   /**
    * Every distinct quarter named in a blob of filenames, in time order.
    *
-   * Mirrors quarterFromFileName in Config.gs — deliberately, because this one
+   * Mirrors quarterFromFileName in Config.gs \u2014 deliberately, because this one
    * reads the filename cell of a history row and the server never sees it. The
    * conventions are one line each and the test suite checks both against the
    * same list of real filenames.
@@ -5429,12 +5589,12 @@
   }
 
 
-  /** '2026-Q3' -> 'Q3 2026 · Jul–Sep'. */
+  /** '2026-Q3' -> 'Q3 2026 \u00b7 Jul\u2013Sep'. */
   function quarterLabel(key) {
     const parts = String(key || '').match(/^(\d{4})-Q([1-4])$/);
     if (!parts) return String(key);
-    const spans = ['Jan–Mar', 'Apr–Jun', 'Jul–Sep', 'Oct–Dec'];
-    return 'Q' + parts[2] + ' ' + parts[1] + ' · ' + spans[Number(parts[2]) - 1];
+    const spans = ['Jan\u2013Mar', 'Apr\u2013Jun', 'Jul\u2013Sep', 'Oct\u2013Dec'];
+    return 'Q' + parts[2] + ' ' + parts[1] + ' \u00b7 ' + spans[Number(parts[2]) - 1];
   }
 
 
@@ -5442,7 +5602,7 @@
    * Re-scopes the By Individuals table, and nothing else.
    *
    * A quarter is three months summed, which is exactly what getKpi1 already
-   * does for 'ALL' — so the same call serves, with a quarter key instead of
+   * does for 'ALL' \u2014 so the same call serves, with a quarter key instead of
    * the sentinel. The result is kept apart from state.kpi on purpose: the
    * tiles, both charts and the other two tables carry on showing the month
    * chosen at the top of the page.
@@ -5473,7 +5633,7 @@
   }
 
 
-  /** 'Jan 26' — short enough that nine months fit across one axis. */
+  /** 'Jan 26' \u2014 short enough that nine months fit across one axis. */
   function shortMonth(key) {
     const names = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
     const parts = String(key).split('-');
@@ -5522,7 +5682,7 @@
    * The trim is the whole point. Some Completion Date cells in the ITSM export
    * hold a single space. Testing only for '' treats that space as real, the
    * merge keeps it, and the genuine date from the other report never replaces
-   * it — one ticket silently becomes incomplete.
+   * it \u2014 one ticket silently becomes incomplete.
    */
   function isBlank(value) {
     return value === null || value === undefined || String(value).trim() === '';

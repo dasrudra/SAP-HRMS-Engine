@@ -1,5 +1,5 @@
 /**
- * Ingest.gs — receives parsed ticket rows from the browser and stores them.
+ * Ingest.gs - receives parsed ticket rows from the browser and stores them.
  *
  * THE DIVISION OF LABOUR
  * The browser does the heavy lifting: it reads the .xlsx with SheetJS, works out
@@ -23,7 +23,7 @@
 /**
  * Column positions, worked out once from CONFIG.TICKET_COLUMNS.
  *
- * Rows travel as plain arrays rather than objects — for 20,000 rows, repeating
+ * Rows travel as plain arrays rather than objects - for 20,000 rows, repeating
  * 29 key names on every row would multiply the payload for no benefit. The cost
  * is that we address fields by number, so these constants keep it readable.
  */
@@ -55,14 +55,14 @@ const COL = (function () {
  *                         dateFrom, dateTo }
  * @return {Object} { uploadId, startedAt }
  */
-function beginUpload(meta) {
-  // Admin only — see Auth.gs. Checked here, not just in the interface.
-  requireAdmin();
+function beginUpload(token, meta) {
+  // Admin only - see Auth.gs. Checked here, not just in the interface.
+  requireAdmin(token);
   const sheet = sheetFor(CONFIG.SHEETS.UPLOADS);
 
   // Seconds are not unique enough. Two uploads started in the same second used
   // to share an ID, and deleting one then found two matching log rows and
-  // removed a single one — so the row appeared to survive being deleted. The
+  // removed a single one - so the row appeared to survive being deleted. The
   // suffix makes the ID the unique key that deleteUpload assumes it is.
   const uploadId = 'UPL-' +
     Utilities.formatDate(new Date(), CONFIG_TZ(), 'yyyyMMdd-HHmmss') + '-' +
@@ -83,8 +83,8 @@ function beginUpload(meta) {
     (meta.reportTypes || []).join(' | '),
     (meta.departments || []).join(' | '),
     meta.totalRows || 0,
-    0,                       // rows added    — filled in by finishUpload
-    0,                       // rows updated  — filled in by finishUpload
+    0,                       // rows added    - filled in by finishUpload
+    0,                       // rows updated  - filled in by finishUpload
     meta.dateFrom || '',
     meta.dateTo || '',
     'in progress'
@@ -97,7 +97,7 @@ function beginUpload(meta) {
 /**
  * Appends one chunk of rows to TICKETS.
  *
- * Deliberately dumb — it appends without checking for duplicates. Looking up
+ * Deliberately dumb - it appends without checking for duplicates. Looking up
  * 20,000 existing IDs on every one of 20 batches would mean reading the whole
  * sheet 20 times. Instead we append fast and clean up once, in finishUpload().
  *
@@ -105,9 +105,9 @@ function beginUpload(meta) {
  * @param {Array[]}  rows  arrays in CONFIG.TICKET_COLUMNS order
  * @return {Object} { appended, totalRows }
  */
-function appendTicketBatch(uploadId, rows) {
-  // Admin only — see Auth.gs. Checked here, not just in the interface.
-  requireAdmin();
+function appendTicketBatch(token, uploadId, rows) {
+  // Admin only - see Auth.gs. Checked here, not just in the interface.
+  requireAdmin(token);
   if (!rows || !rows.length) return { appended: 0, totalRows: 0 };
 
   // A lock stops two uploads interleaving their writes and corrupting the
@@ -121,7 +121,7 @@ function appendTicketBatch(uploadId, rows) {
 
     // Stamped with the UPLOAD's time, not this batch's. An upload arrives in
     // batches of 500 seconds apart, and mergeRows decides which of two rows
-    // for the same ticket is newer by comparing these — so two files of the
+    // for the same ticket is newer by comparing these - so two files of the
     // same upload have to carry the same stamp, or the last batch to land
     // would outrank the first for no reason. See uploadStamp().
     const clean = rows.map(function (row) {
@@ -149,17 +149,17 @@ function appendTicketBatch(uploadId, rows) {
  * merge keys, and a single function juggling both would be the kind of code
  * where a KPI 1 change quietly breaks KPI 2.
  *
- * The merge key is Response ID — the source filename plus the form's own row
- * number — so re-uploading the same file updates its rows instead of doubling
+ * The merge key is Response ID - the source filename plus the form's own row
+ * number - so re-uploading the same file updates its rows instead of doubling
  * the respondent count.
  *
  * @param {string}    uploadId
  * @param {Array[]}   rows      shaped as CONFIG.TRAINING_COLUMNS
  * @return {Object} { appended, totalRows }
  */
-function appendFeedbackBatch(uploadId, rows) {
-  // Admin only — see Auth.gs. Checked here, not just in the interface.
-  requireAdmin();
+function appendFeedbackBatch(token, uploadId, rows) {
+  // Admin only - see Auth.gs. Checked here, not just in the interface.
+  requireAdmin(token);
   if (!rows || !rows.length) return { appended: 0, totalRows: 0 };
 
   const lock = LockService.getScriptLock();
@@ -184,7 +184,7 @@ function appendFeedbackBatch(uploadId, rows) {
     const first = sheet.getLastRow() + 1;
 
     // Month must be plain text before it is written. Left alone, Sheets parses
-    // '2026-05' into a Date and every later lookup by month string misses —
+    // '2026-05' into a Date and every later lookup by month string misses -
     // the same trap KPI 1's cache hit.
     sheet.getRange(first, monthAt + 1, clean.length, 1).setNumberFormat('@');
     sheet.getRange(first, 1, clean.length, width).setValues(clean);
@@ -202,7 +202,7 @@ function appendFeedbackBatch(uploadId, rows) {
  * @return {Object} { kept, merged }
  */
 function compactFeedback() {
-  // Editor-only maintenance, tied to the owning account — see Auth.gs.
+  // Editor-only maintenance, tied to the owning account - see Auth.gs.
   requireOwner();
   const sheet = sheetFor(CONFIG.SHEETS.TRAINING);
   const lastRow = sheet.getLastRow();
@@ -236,16 +236,16 @@ function compactFeedback() {
 /**
  * Closes a training feedback upload.
  *
- * Separate from finishUpload because there is no KPI cache to rebuild —
+ * Separate from finishUpload because there is no KPI cache to rebuild -
  * KPI 2 scores live off the TRAINING tab, so the work here is deduplicate,
  * close the log row, and report.
  *
  * @param {string} uploadId
  * @return {Object} summary
  */
-function finishFeedbackUpload(uploadId) {
-  // Admin only — see Auth.gs. Checked here, not just in the interface.
-  requireAdmin();
+function finishFeedbackUpload(token, uploadId) {
+  // Admin only - see Auth.gs. Checked here, not just in the interface.
+  requireAdmin(token);
   const lock = LockService.getScriptLock();
   lock.waitLock(60000);
 
@@ -280,7 +280,7 @@ function finishFeedbackUpload(uploadId) {
 /**
  * Adds any TRAINING header the layout has gained but the sheet has not.
  *
- * TRAINING_COLUMNS grows over time — 'Zone' arrived when the feedback form
+ * TRAINING_COLUMNS grows over time - 'Zone' arrived when the feedback form
  * started asking for it. Rows are addressed by position, so a new column
  * appended at the end costs the stored data nothing; only the header row on
  * the sheet needs catching up, and only so a human reading it sees the right
@@ -309,7 +309,7 @@ function ensureTrainingHeaders() {
  *
  * These exist because deleteUpload used to remove the log row and the tickets
  * and leave the TRAINING tab untouched, so every feedback upload deleted
- * before that was fixed left its responses behind — invisible in the upload
+ * before that was fixed left its responses behind - invisible in the upload
  * history and still counted by KPI 2. That cannot happen again, but the rows
  * already orphaned are still there and only a sweep like this will find them.
  *
@@ -358,9 +358,9 @@ function auditFeedback() {
  *
  * @return {Object} { removed, kept, files }
  */
-function purgeOrphanedFeedback() {
-  // Admin only — see Auth.gs. Checked here, not just in the interface.
-  requireAdmin();
+function purgeOrphanedFeedback(token) {
+  // Admin only - see Auth.gs. Checked here, not just in the interface.
+  requireAdmin(token);
   const lock = LockService.getScriptLock();
   lock.waitLock(60000);
 
@@ -466,7 +466,7 @@ function countFeedbackOf(fileList) {
 /**
  * Closes the upload: deduplicates, sorts, updates the log.
  *
- * DOES NOT RECOMPUTE. That is a separate call now — see recomputeAfterUpload.
+ * DOES NOT RECOMPUTE. That is a separate call now - see recomputeAfterUpload.
  * Consolidating twenty-eight thousand tickets and then re-scoring all of them
  * in one server call ran past the six-minute ceiling and the run was killed
  * mid-write. Two calls means two budgets, and each is comfortably inside one.
@@ -474,9 +474,9 @@ function countFeedbackOf(fileList) {
  * @param {string} uploadId
  * @return {Object} summary
  */
-function finishUpload(uploadId) {
-  // Admin only — see Auth.gs. Checked here, not just in the interface.
-  requireAdmin();
+function finishUpload(token, uploadId) {
+  // Admin only - see Auth.gs. Checked here, not just in the interface.
+  requireAdmin(token);
   const lock = LockService.getScriptLock();
   lock.waitLock(60000);
 
@@ -509,14 +509,14 @@ function finishUpload(uploadId) {
  * Rebuilds the KPI 1 cache. Called straight after finishUpload.
  *
  * Split out so the consolidate and the re-score cannot share one six-minute
- * budget. If this one is interrupted the tickets are already safely stored —
+ * budget. If this one is interrupted the tickets are already safely stored -
  * only the cache is stale, and pressing Refresh rebuilds it.
  *
  * @return {Object} { months }
  */
-function recomputeAfterUpload() {
-  // Admin only — see Auth.gs. Checked here, not just in the interface.
-  requireAdmin();
+function recomputeAfterUpload(token) {
+  // Admin only - see Auth.gs. Checked here, not just in the interface.
+  requireAdmin(token);
   const lock = LockService.getScriptLock();
   lock.waitLock(60000);
 
@@ -535,7 +535,7 @@ function recomputeAfterUpload() {
 /**
  * Collapses duplicate Ticket IDs into one row each, then sorts by request date.
  *
- * Duplicates are expected, not exceptional. Your five files overlap by design —
+ * Duplicates are expected, not exceptional. Your five files overlap by design -
  * the Service/Part export and the department exports describe many of the same
  * tickets, and re-uploading an overlapping date range is normal practice.
  *
@@ -548,7 +548,7 @@ function recomputeAfterUpload() {
  * @return {Object} { before, kept, merged }
  */
 function compactTickets() {
-  // Editor-only maintenance, tied to the owning account — see Auth.gs.
+  // Editor-only maintenance, tied to the owning account - see Auth.gs.
   requireOwner();
   const sheet = sheetFor(CONFIG.SHEETS.TICKETS);
   const lastRow = sheet.getLastRow();
@@ -557,7 +557,7 @@ function compactTickets() {
   }
 
   // One read for the whole sheet. Reading row by row would be hundreds of
-  // times slower — each call crosses from the script to Google's servers.
+  // times slower - each call crosses from the script to Google's servers.
   const rows = sheet.getRange(2, 1, lastRow - 1, COL.WIDTH).getValues();
   const before = rows.length;
 
@@ -604,7 +604,7 @@ function compactTickets() {
  * Writing first is safe in a way clearing first can never be. The survivors
  * always fit inside the block they came from, so they are written over the top
  * of it; only the tail below them is stale, and that is cleared afterwards.
- * Interrupted at any point the sheet still holds every surviving row — at
+ * Interrupted at any point the sheet still holds every surviving row - at
  * worst with some leftover duplicates below, which the next compaction
  * removes. Losing a few minutes of work beats losing the database.
  *
@@ -637,7 +637,7 @@ function rewrite(sheet, survivors, before, width) {
  * The first is two files of the SAME upload: the Service/Part export and a
  * department export describe many of the same tickets from one snapshot, and
  * each leaves blank what the other fills in. Neither is more current, so they
- * complete each other — a non-blank beats a blank, and where both have a value
+ * complete each other - a non-blank beats a blank, and where both have a value
  * the one already stored stands.
  *
  * The second is a RE-EXPORT taken later. Download January to September, upload
@@ -647,8 +647,8 @@ function rewrite(sheet, survivors, before, width) {
  * Completion Date and a real Delay Days.
  *
  * Under one rule those two cases cannot both be right, and the old rule got
- * the second one badly wrong. Delay Days is 0 on an open ticket — not blank,
- * zero — so "the stored value stands" kept the 0 and threw away the 5 that
+ * the second one badly wrong. Delay Days is 0 on an open ticket - not blank,
+ * zero - so "the stored value stands" kept the 0 and threw away the 5 that
  * says the ticket finished five days late. The KPI then scored it as on time.
  * Quietly, with no way to see it.
  *
@@ -658,14 +658,14 @@ function rewrite(sheet, survivors, before, width) {
  *   - same upload: the old rule, which is the right one for that case
  *   - incoming older: the stored row stands
  *
- * A blank in the newer row never erases a known value — an overall export
+ * A blank in the newer row never erases a known value - an overall export
  * omits Status entirely, and a refresh of it should not wipe the Status a
  * department export supplied. That also means a re-opened ticket keeps its
  * Completion Date rather than silently un-completing; correcting that is a
  * delete and re-upload, which is visible, which is the point.
  *
- * The two "In ... Report" flags are always OR'd — a ticket can legitimately
- * appear in both kinds of export — and Source Files accumulates, so the audit
+ * The two "In ... Report" flags are always OR'd - a ticket can legitimately
+ * appear in both kinds of export - and Source Files accumulates, so the audit
  * trail shows every file that contributed.
  *
  * @param {Array} existing
@@ -700,7 +700,7 @@ function mergeRows(existing, incoming) {
  * A row's upload time, as a number, for comparing two rows of the same ticket.
  *
  * @return {number} 0 when the row carries no readable stamp, which sorts it
- *                  oldest — the safe answer, since it cannot then overwrite
+ *                  oldest - the safe answer, since it cannot then overwrite
  *                  anything on a recency claim it has not made.
  */
 function stampOf(row) {
@@ -740,9 +740,9 @@ function uploadStamp(uploadId) {
  *
  * @return {Object[]}
  */
-function getUploadHistory() {
-  // Needs a session — see Auth.gs.
-  requireSignedIn();
+function getUploadHistory(token) {
+  // Needs a session - see Auth.gs.
+  requireSignedIn(token);
   const sheet = sheetFor(CONFIG.SHEETS.UPLOADS);
   const lastRow = sheet.getLastRow();
   if (lastRow < 2) return [];
@@ -797,13 +797,13 @@ function dayString(value) {
  *
  * DELETES FROM BOTH SHEETS
  * This used to touch TICKETS only, so deleting a training-feedback upload took
- * the row out of the history and left every response of it on the TRAINING tab —
+ * the row out of the history and left every response of it on the TRAINING tab -
  * KPI 2 went on reporting data the user believed they had deleted. An upload is
  * now removed from whichever sheet it actually landed in.
  *
  * DOES NOT REWRITE A SHEET IT DID NOT CHANGE
  * The old version cleared and rewrote all ~20,000 ticket rows on every delete,
- * even when it removed nothing — several minutes of work for a feedback upload
+ * even when it removed nothing - several minutes of work for a feedback upload
  * that owns no tickets at all. Past the execution limit the run was killed with
  * its writes still buffered, so the log row came back and the browser never got
  * a reply: the delete looked like it had done nothing, and had to be repeated.
@@ -813,9 +813,9 @@ function dayString(value) {
  * @param {string} uploadId
  * @return {Object} { removed, kept, feedbackRemoved, feedbackKept, months, sheets }
  */
-function deleteUpload(uploadId) {
-  // Admin only — see Auth.gs. Checked here, not just in the interface.
-  requireAdmin();
+function deleteUpload(token, uploadId) {
+  // Admin only - see Auth.gs. Checked here, not just in the interface.
+  requireAdmin(token);
   const lock = LockService.getScriptLock();
   lock.waitLock(60000);
 
@@ -928,7 +928,7 @@ function removeTicketsOf(files) {
  *
  * Simpler than the ticket case: a response belongs to exactly one file, so
  * there is no partial ownership to reason about. Matched on Source File, and
- * on the Response ID as a fallback — the ID is 'filename#rownumber', so a row
+ * on the Response ID as a fallback - the ID is 'filename#rownumber', so a row
  * written before Source File was populated is still identifiable.
  *
  * @param {Object} files  filename -> true
@@ -979,9 +979,9 @@ function removeFeedbackOf(files) {
  * @param {string} uploadId
  * @return {Object} { fileName, csv, rows }
  */
-function getUploadCsv(uploadId) {
-  // Needs a session — see Auth.gs.
-  requireSignedIn();
+function getUploadCsv(token, uploadId) {
+  // Needs a session - see Auth.gs.
+  requireSignedIn(token);
   const log = sheetFor(CONFIG.SHEETS.UPLOADS);
   const lastLogRow = log.getLastRow();
   if (lastLogRow < 2) throw new Error('No uploads recorded.');
@@ -1028,7 +1028,7 @@ function getUploadCsv(uploadId) {
  * Escapes one value for CSV.
  *
  * Ticket titles contain commas, quotes and newlines routinely, so this is not
- * optional — without it a single title splits into several columns.
+ * optional - without it a single title splits into several columns.
  */
 function csvCell(value) {
   if (value === null || value === undefined) return '';
@@ -1047,7 +1047,7 @@ function csvCell(value) {
  * Run by hand from the editor when you want a clean slate.
  */
 function clearAllTickets() {
-  // Editor-only maintenance, tied to the owning account — see Auth.gs.
+  // Editor-only maintenance, tied to the owning account \u2014 see Auth.gs.
   requireOwner();
   const sheet = sheetFor(CONFIG.SHEETS.TICKETS);
   const lastRow = sheet.getLastRow();
@@ -1085,7 +1085,7 @@ function truthy(value) {
  * The trim matters. Some Completion Date cells in the ITSM export contain a
  * single space. Testing only for '' treats that space as a real value, so the
  * merge keeps it and the genuine completion date from the other report never
- * replaces it — one ticket silently becomes "incomplete". With a KPI whose
+ * replaces it \u2014 one ticket silently becomes "incomplete". With a KPI whose
  * whole margin is one ticket, that is not a rounding detail.
  *
  * @param {*} value

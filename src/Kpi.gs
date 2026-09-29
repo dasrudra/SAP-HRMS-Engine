@@ -1,7 +1,7 @@
 /**
- * Kpi.gs — the calculation engine for KPI 1, Error/Issue Resolution Time.
+ * Kpi.gs - the calculation engine for KPI 1, Error/Issue Resolution Time.
  *
- * THE FORMULA (policy TVL-KPI-001 §6.3, confirmed by SAP_Error_Issue_
+ * THE FORMULA (policy TVL-KPI-001 section 6.3, confirmed by SAP_Error_Issue_
  * Resolution_Time_KPI_Final.pdf)
  *
  *   Ticket Resolution Success Rate (%) = (Completed Successfully / Total Completed) x 100
@@ -16,7 +16,7 @@
  *
  * WHAT COUNTS AS "EAS" DEPENDS ON WHAT YOU UPLOADED
  * The four department exports are the accurate scope. The overall Service/Part
- * report is wider — it also contains work by engineers who belong to no EAS
+ * report is wider - it also contains work by engineers who belong to no EAS
  * department (9 tickets across 6 people in August 2026), so scoring EAS on it
  * credits the department with work it did not do.
  *
@@ -49,7 +49,7 @@ function recomputeKpiCache() {
   const computedAt = new Date();
   const out = [];
 
-  // Bucket by month first. The policy measures monthly — a rolling all-time
+  // Bucket by month first. The policy measures monthly - a rolling all-time
   // figure would let a good month hide a bad one.
   const byMonth = {};
   rows.forEach(function (row) {
@@ -88,7 +88,7 @@ function recomputeKpiCache() {
       });
     }
 
-    // Service/Part is present in both reports, so this always works — and it
+    // Service/Part is present in both reports, so this always works - and it
     // is how the ITSM's own Performance Report is organised.
     groupBy2(scored, COL.SERVICE, COL.PART).forEach(function (entry) {
       out.push(kpiRow(month, 'PART', entry.key, entry.rows, kpi, computedAt));
@@ -96,7 +96,7 @@ function recomputeKpiCache() {
 
     // Modules. Grouped HERE rather than rolled up from the Part rows above,
     // because a Part that names no module has to fall through to the person
-    // who handled the ticket — and only the ticket row carries both columns.
+    // who handled the ticket - and only the ticket row carries both columns.
     groupByKey(scored, function (row) {
       return moduleForTicket(row[COL.PART], row[COL.IN_CHARGE], month);
     }).forEach(function (entry) {
@@ -117,7 +117,7 @@ function recomputeKpiCache() {
                       entry.rows, kpi, computedAt));
     });
 
-    // Reconciliation between the ITSM's two reports. Not a KPI — a data
+    // Reconciliation between the ITSM's two reports. Not a KPI - a data
     // integrity figure. In August 2026 six tickets sat in a department export
     // and not in the overall one, which is larger than the entire headroom the
     // KPI turns on. It gets surfaced, not swept up.
@@ -171,7 +171,7 @@ function kpiRow(month, scopeType, scopeValue, rows, kpi, computedAt) {
 }
 
 
-/** A plain count row — used for the source reconciliation. */
+/** A plain count row - used for the source reconciliation. */
 function countRow(month, scopeType, scopeValue, count, computedAt) {
   return [month, scopeType, scopeValue, count, '', '', '', '', '', '', '', computedAt];
 }
@@ -215,7 +215,7 @@ function scoreRows(rows, kpi) {
  *
  * Not as simple as "is the cell non-empty". Two rows in the August export carry
  * a Completion Date consisting of nothing but whitespace. The ITSM counts those
- * as incomplete — they are the "1 incomplete" showing against Account and CO on
+ * as incomplete - they are the "1 incomplete" showing against Account and CO on
  * its own report. Treating them as complete throws the figure off by one, and
  * one ticket is the entire margin this KPI runs on.
  */
@@ -250,7 +250,7 @@ function groupBy(rows, columnIndex) {
 /**
  * Groups by whatever a function returns, rather than by a column.
  *
- * Needed because a ticket's section is no longer a value sitting in a cell —
+ * Needed because a ticket's section is no longer a value sitting in a cell -
  * it is derived from who handled it and when (see sectionFor in Config.gs).
  *
  * @param {Array[]} rows
@@ -270,7 +270,7 @@ function groupByKey(rows, keyOf) {
 
 
 /**
- * Groups by two columns joined with a slash — used for Service / Part.
+ * Groups by two columns joined with a slash - used for Service / Part.
  *
  * Part is scoped to Service: 'e-Accounting' as a Part only exists under the
  * e-Accounting service, so grouping on Part alone would merge unrelated things.
@@ -293,7 +293,7 @@ function groupBy2(rows, indexA, indexB) {
  * The month picker's "every month" option.
  *
  * A sentinel rather than an empty string, so an accidental blank never
- * silently turns into "all time" — the two mean very different things when the
+ * silently turns into "all time" - the two mean very different things when the
  * number ends up in a K-SOX pack.
  */
 const ALL_MONTHS = 'ALL';
@@ -317,7 +317,7 @@ function monthsInScope(scope, scheme) {
   const text = String(scope || '').trim();
   if (!text || text === ALL_MONTHS) return null;
 
-  // A comma-separated list is several months at once — 'compare January and
+  // A comma-separated list is several months at once - 'compare January and
   // August without the seven months between them', which neither a single
   // month nor a quarter can express. Each part is resolved on its own, so a
   // list may mix months and quarters, and a list containing ALL collapses to
@@ -359,7 +359,7 @@ function quarterScheme(scheme) {
  *
  * Driven by CONFIG.QUARTERS, so a company year that starts in April is
  * described in one place rather than assumed in several. With startMonth 4,
- * '2026-Q4' is January to March of 2027 — the quarter crosses the calendar
+ * '2026-Q4' is January to March of 2027 - the quarter crosses the calendar
  * year, which is the whole reason this is not arithmetic on the month number.
  *
  * @param {string} key     'YYYY-Qn'
@@ -436,7 +436,7 @@ function quarterLabel(key) {
  * Percentages cannot be averaged across periods of different size. January
  * with 4 completed tickets and one delay scores 75%; August with 2,640 and 11
  * scores 99.58%. Their mean is 87.29%, which describes nothing that happened.
- * The true all-time rate is (Σ successful / Σ completed) × 100.
+ * The true all-time rate is (sum successful / sum completed) x 100.
  *
  * So this sums the RAW COUNTS the cache stores beside each rate, then
  * recomputes rate, achievement, band and headroom from those sums. The answer
@@ -446,14 +446,14 @@ function quarterLabel(key) {
  * @param {string} month  'YYYY-MM', or ALL_MONTHS for the whole period
  * @return {Object}
  */
-function getKpi1(month) {
-  // Needs a session — see Auth.gs.
-  requireSignedIn();
+function getKpi1(token, month) {
+  // Needs a session - see Auth.gs.
+  requireSignedIn(token);
   const kpi = CONFIG.KPI.RESOLUTION;
   const everyMonth = (month === ALL_MONTHS);
 
   // null means "take every month"; otherwise a lookup of the ones wanted.
-  // One month, a quarter's three, or all of them go down the same path — the
+  // One month, a quarter's three, or all of them go down the same path - the
   // summing below does not care how many months it was handed.
   const wanted = monthsInScope(month);
 
@@ -514,7 +514,7 @@ function getKpi1(month) {
     // PERSON is bucketed on the person, NOT on 'Section :: Person'. Someone
     // who was in Functional until July and Manufacturing from August carries
     // two different labels across the range, and keying on the whole string
-    // would list them twice — half their year in each row. The individual is
+    // would list them twice - half their year in each row. The individual is
     // the unit of that table, so one person is one row.
     let key;
     let label = name;
@@ -567,7 +567,7 @@ function getKpi1(month) {
     const b = buckets[key];
 
     if (b.scope === 'SOURCE') {
-      // Not a KPI — countRow() puts its figure in the received column.
+      // Not a KPI - countRow() puts its figure in the received column.
       result.sources.push({ name: b.name, count: b.received });
       return;
     }
@@ -628,14 +628,14 @@ function byReceived(a, b) {
  * KPI 1 figures for several months at once, for the comparison screen.
  *
  * Reads the cache once and buckets by month rather than calling getKpi1() per
- * month — six months would otherwise mean six full reads of the same tab.
+ * month - six months would otherwise mean six full reads of the same tab.
  *
  * @param {string[]} months  e.g. ['2026-06','2026-07','2026-08']
  * @return {Object} { periods: [...], sections: [...], totals: {period: {...}} }
  */
-function getKpiComparison(months) {
-  // Needs a session — see Auth.gs.
-  requireSignedIn();
+function getKpiComparison(token, months) {
+  // Needs a session - see Auth.gs.
+  requireSignedIn(token);
   const wanted = {};
   (months || []).forEach(function (m) { wanted[m] = true; });
 
@@ -647,7 +647,7 @@ function getKpiComparison(months) {
     target: CONFIG.KPI.RESOLUTION.target,
 
     // The Comparison screen renders whatever a KPI declares here rather than
-    // hardcoding KPI 1's columns — see getKpi2Comparison for the other side of
+    // hardcoding KPI 1's columns - see getKpi2Comparison for the other side of
     // the contract.
     kpi: 'KPI1',
     name: CONFIG.KPI.RESOLUTION.name || 'Error/Issue Resolution Time',
@@ -720,22 +720,22 @@ function getKpiComparison(months) {
  * Prints the KPI table to the Execution log.
  *
  * Open Kpi.gs, choose runKpiSelfTest in the function dropdown, press Run.
- * Checks the stored numbers without involving the browser at all — if the UI
+ * Checks the stored numbers without involving the browser at all - if the UI
  * and this disagree, the bug is in the UI.
  */
 function runKpiSelfTest() {
   const months = recomputeKpiCache();
 
   if (!months.length) {
-    Logger.log('No ticket data loaded yet — upload some files first.');
+    Logger.log('No ticket data loaded yet \u2014 upload some files first.');
     return;
   }
 
   months.forEach(function (month) {
-    const k = getKpi1(month);
+    const k = getKpi1(null, month);   // run from the editor: the /dev shortcut covers it
 
     if (!k.hasData) {
-      Logger.log('%s — no scored rows found. (cache lookup problem)', month);
+      Logger.log('%s \u2014 no scored rows found. (cache lookup problem)', month);
       return;
     }
 
@@ -775,7 +775,7 @@ function runKpiSelfTest() {
         flagged++;
       }
     });
-    if (!flagged) Logger.log('    none — every engineer at or above target');
+    if (!flagged) Logger.log('    none \u2014 every engineer at or above target');
 
     Logger.log('  source reconciliation:');
     k.sources.forEach(function (s) {

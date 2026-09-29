@@ -1,10 +1,10 @@
 /**
- * Setup.gs — run once, by hand, to build the database.
+ * Setup.gs - run once, by hand, to build the database.
  *
  * HOW TO RUN A FUNCTION IN APPS SCRIPT
  * Open the Apps Script editor, pick "Setup.gs" in the file list, choose
  * `setupDatabase` from the function dropdown at the top, and press Run.
- * The first time, Google shows an authorisation screen — that is normal. It is
+ * The first time, Google shows an authorisation screen - that is normal. It is
  * asking your permission for THIS script to touch YOUR Drive and Sheets.
  * Output appears in the "Execution log" panel at the bottom.
  *
@@ -16,7 +16,7 @@
 /**
  * Creates the spreadsheet and every tab the app needs.
  *
- * Run this first. It prints the spreadsheet ID — paste that into
+ * Run this first. It prints the spreadsheet ID - paste that into
  * Script Properties, then run verifySetup() to confirm.
  */
 function setupDatabase() {
@@ -24,11 +24,11 @@ function setupDatabase() {
   const existing = getSpreadsheetId();
 
   if (existing) {
-    // Already configured — open the existing one rather than making a second.
+    // Already configured - open the existing one rather than making a second.
     ss = SpreadsheetApp.openById(existing);
     Logger.log('Using existing spreadsheet: %s', ss.getName());
   } else {
-    ss = SpreadsheetApp.create('EAS KPI Engine — Database');
+    ss = SpreadsheetApp.create('EAS KPI Engine \u2014 Database');
     Logger.log('');
     Logger.log('=========================================================');
     Logger.log(' CREATED A NEW SPREADSHEET');
@@ -40,7 +40,7 @@ function setupDatabase() {
 
   // Store it outside the code so replacing a file cannot disconnect it.
   PropertiesService.getScriptProperties().setProperty(SPREADSHEET_ID_KEY, ss.getId());
-  Logger.log('Spreadsheet ID saved to Script Properties — it will survive any code change.');
+  Logger.log('Spreadsheet ID saved to Script Properties \u2014 it will survive any code change.');
 
   // Build each tab with its header row.
   createSheet(ss, CONFIG.SHEETS.TICKETS,   CONFIG.TICKET_COLUMNS);
@@ -51,7 +51,7 @@ function setupDatabase() {
                                             'Password Hash', 'Active', 'Created']);
 
   // KPI_CONFIG holds editable targets. Seeded from Config.gs, then owned by
-  // the UI — so a committee decision does not require a code change.
+  // the UI - so a committee decision does not require a code change.
   const cfgSheet = createSheet(ss, CONFIG.SHEETS.CONFIG,
     ['KPI ID', 'Name', 'Target', 'Yellow Floor', 'Unit', 'Period',
      'SLA Layer', 'Effective From', 'Updated By']);
@@ -96,13 +96,13 @@ function createSheet(ss, name, headers) {
   let sheet = ss.getSheetByName(name);
 
   if (sheet) {
-    Logger.log('  tab "%s" already exists — left alone', name);
+    Logger.log('  tab "%s" already exists \u2014 left alone', name);
     return sheet;
   }
 
   sheet = ss.insertSheet(name);
 
-  // setValues() takes a 2D array — a list of rows, each row a list of cells.
+  // setValues() takes a 2D array - a list of rows, each row a list of cells.
   // One row of headers is therefore [[a, b, c]], not [a, b, c].
   sheet.getRange(1, 1, 1, headers.length)
        .setValues([headers])
@@ -126,7 +126,7 @@ function createSheet(ss, name, headers) {
  */
 function saveSpreadsheetIdToProperties() {
   if (!CONFIG.SPREADSHEET_ID) {
-    Logger.log('Nothing to save — CONFIG.SPREADSHEET_ID is null.');
+    Logger.log('Nothing to save \u2014 CONFIG.SPREADSHEET_ID is null.');
     Logger.log('Paste your spreadsheet ID there first, then run this again.');
     return false;
   }
@@ -141,7 +141,7 @@ function saveSpreadsheetIdToProperties() {
   PropertiesService.getScriptProperties()
     .setProperty(SPREADSHEET_ID_KEY, CONFIG.SPREADSHEET_ID);
 
-  Logger.log('Saved. You can set CONFIG.SPREADSHEET_ID back to null —');
+  Logger.log('Saved. You can set CONFIG.SPREADSHEET_ID back to null \u2014');
   Logger.log('the connection now lives in Script Properties and survives code changes.');
   return true;
 }
@@ -151,7 +151,7 @@ function saveSpreadsheetIdToProperties() {
  * Forgets the stored spreadsheet. Only needed to point at a different one.
  */
 function clearStoredSpreadsheetId() {
-  // Editor-only maintenance, tied to the owning account — see Auth.gs.
+  // Editor-only maintenance, tied to the owning account - see Auth.gs.
   requireOwner();
   PropertiesService.getScriptProperties().deleteProperty(SPREADSHEET_ID_KEY);
   Logger.log('Stored spreadsheet ID cleared.');
@@ -165,7 +165,7 @@ function verifySetup() {
   const id = getSpreadsheetId();
 
   if (!id) {
-    Logger.log('FAIL — no spreadsheet is connected.');
+    Logger.log('FAIL \u2014 no spreadsheet is connected.');
     Logger.log('Either run setupDatabase(), or paste an existing ID into');
     Logger.log('CONFIG.SPREADSHEET_ID and run saveSpreadsheetIdToProperties().');
     return false;
@@ -175,7 +175,7 @@ function verifySetup() {
   try {
     ss = SpreadsheetApp.openById(id);
   } catch (err) {
-    Logger.log('FAIL — could not open that spreadsheet ID.');
+    Logger.log('FAIL \u2014 could not open that spreadsheet ID.');
     Logger.log('Error: %s', err.message);
     return false;
   }
@@ -198,6 +198,6 @@ function verifySetup() {
 
   Logger.log('');
   Logger.log(allPresent ? 'All good. Ready to deploy.'
-                        : 'Some tabs are missing — run setupDatabase() again.');
+                        : 'Some tabs are missing \u2014 run setupDatabase() again.');
   return allPresent;
 }

@@ -1,12 +1,12 @@
 <!--
-  Styles.html — all CSS, inlined by include('Styles') in Index.html.
+  Styles.html - all CSS, inlined by include('Styles') in Index.html.
 
   Colours deliberately match the SAP & HRMS Database Center so that when these
   screens are grafted in as two new sidebar items, they look native rather than
   bolted on. Everything is a CSS variable, so a rebrand is one block of edits.
 
   DESIGN NOTES
-  Six headline tiles, then the charts, then the tables — broad to detailed.
+  Six headline tiles, then the charts, then the tables - broad to detailed.
   Each tile carries a colour FAMILY (a wash, a tinted icon chip, a rule that
   draws on hover) rather than a flat accent stripe. The tone is meaning: the
   four figures that have a state take the reserved status hues, the two that
@@ -41,8 +41,8 @@
     --text-mut:  #8496a8;
 
     /*
-      Status colours. Fixed set — never themed, never reused as a series hue.
-      Validated against white: worst adjacent CVD ΔE 11.3, normal-vision 27.6.
+      Status colours. Fixed set - never themed, never reused as a series hue.
+      Validated against white: worst adjacent CVD deltaE 11.3, normal-vision 27.6.
       The yellow sits at 1.83:1, deliberately: a status colour here never
       carries meaning alone, it always ships beside a GREEN/YELLOW/RED pill and
       a printed number, which is the relief the contrast warning asks for.
@@ -70,7 +70,7 @@
   /*
     The `hidden` attribute must beat any class that sets `display`.
     Without this, `.loader { display: grid }` keeps the spinner on screen even
-    after JavaScript sets el.hidden = true — a class selector outranks the
+    after JavaScript sets el.hidden = true - a class selector outranks the
     browser's built-in [hidden] rule.
   */
   [hidden] { display: none !important; }
@@ -89,7 +89,7 @@
 
   /* ---------------- sidebar ---------------- */
   /*
-    Sticky, not static — the nav stays put while a long table scrolls past it.
+    Sticky, not static - the nav stays put while a long table scrolls past it.
     `align-self: flex-start` is required: a flex item stretches to the row's
     full height by default, which leaves nothing for sticky to slide within.
   */
@@ -199,7 +199,7 @@
 
   /*
     The reading width is capped so a table row never runs the whole span of an
-    ultrawide monitor — but the cap was ABSOLUTE, so minimising the sidebar
+    ultrawide monitor - but the cap was ABSOLUTE, so minimising the sidebar
     handed its 156px back to the margin rather than to the content, and the
     page just grew a gap on the right. Collapsing the sidebar now widens the
     cap by exactly what the sidebar gave up, so the space goes where the
@@ -228,7 +228,7 @@
   /*
     Shown only when the all-months aggregate is on screen. The policy measures
     this KPI monthly, so an all-time figure is a useful overview but is NOT the
-    number that gets reported — the screen has to say which one you are
+    number that gets reported - the screen has to say which one you are
     looking at.
   */
   .period-note {
@@ -253,7 +253,7 @@
   /*
     Whether the indicator is passing, beside the layer. Same shape as the
     layer pill so the two read as one pair of qualifiers on the title, but in
-    the band's own colour with a filled dot in front — the dot is what carries
+    the band's own colour with a filled dot in front - the dot is what carries
     at a glance and in a screenshot, and it survives being printed in grey.
   */
   .track-pill {
@@ -295,7 +295,7 @@
   }
 
   /*
-    The month picker — a button and a panel of checkboxes rather than a
+    The month picker - a button and a panel of checkboxes rather than a
     <select>, because several months at once is the thing it has to express
     and a <select multiple> can only do that by ctrl-clicking a list box.
   */
@@ -339,7 +339,7 @@
   .picker-option.is-on .picker-tick {
     background: var(--blue-500); border-color: var(--blue-500);
   }
-  /* The check itself, drawn rather than fetched — nothing here loads. */
+  /* The check itself, drawn rather than fetched - nothing here loads. */
   .picker-option.is-on .picker-tick::after {
     content: ''; position: absolute; left: 4px; top: 1px;
     width: 4px; height: 8px;
@@ -371,7 +371,7 @@
     The tone is meaning, not decoration. Success Rate, Headroom and Delayed
     take the reserved status hues because those three have a state. Received
     and Completed are plain counts with no good or bad about them, so they
-    take blue and teal — families that can never be mistaken for a band.
+    take blue and teal - families that can never be mistaken for a band.
   */
   .tiles {
     display: grid; gap: 12px; margin-bottom: 16px;
@@ -454,7 +454,7 @@
     line-height: 1.35; min-height: 16px;
   }
   /* The target, under the figure it is a target FOR. It used to sit under KPI
-     Achievement, whose own target is 100% — so the page printed 99.5% beneath
+     Achievement, whose own target is 100% - so the page printed 99.5% beneath
      a number that 99.5% says nothing about. */
   .tile-target {
     display: block; margin-top: 5px;
@@ -515,8 +515,8 @@
   /* ---------------- charts ---------------- */
   /*
     Series colours are validated for colour-vision deficiency against white:
-    worst adjacent pair CVD ΔE 9.2 against a >=8 target, normal-vision 27.6.
-    Aqua sits at 2.82:1, below the 3:1 bar — the relief rule applies, so every
+    worst adjacent pair CVD deltaE 9.2 against a >=8 target, normal-vision 27.6.
+    Aqua sits at 2.82:1, below the 3:1 bar - the relief rule applies, so every
     chart ships direct value labels and a table alongside it.
   */
   :root {
@@ -549,7 +549,7 @@
   .chart-box canvas { width: 100% !important; height: 100% !important; }
 
   /*
-    Zero state. An axis auto-scaled to all-zero data draws 0.1 … 1.0 ticks for
+    Zero state. An axis auto-scaled to all-zero data draws 0.1 ... 1.0 ticks for
     counts that can only be whole numbers, which looks broken and says nothing.
     When there is genuinely nothing to plot, say so instead.
   */
@@ -631,7 +631,7 @@
   }
   /* A deployment misconfiguration, not a wrong password. Amber rather than
      red, and above the form rather than inside it, because the person reading
-     it has something to go and change — not another password to try. */
+     it has something to go and change - not another password to try. */
   .login-alert {
     margin: 0 0 16px; padding: 12px 14px; border-radius: 8px;
     background: rgba(237,161,0,.14); border: 1px solid rgba(237,161,0,.45);
@@ -677,7 +677,7 @@
     would have made it one more table to scan past.
 
     Four section cards on a carousel: one in front, the rest fanned back to
-    either side. Nothing opens and nothing closes — the section in front always
+    either side. Nothing opens and nothing closes - the section in front always
     has its people listed underneath it, and the arrows move between them.
   */
   .org-stage {
@@ -709,7 +709,7 @@
     margin: 4px 0 0; font-size: 12.5px; color: #93a9c9; line-height: 1.5;
   }
 
-  /* The EAS lead, beside the title — the root of the chart. Where the Close
+  /* The EAS lead, beside the title - the root of the chart. Where the Close
      button used to sit, which is space this no longer needs. */
   .org-lead {
     flex: 0 0 auto;
@@ -734,7 +734,7 @@
 
     Absolutely positioned about the middle rather than laid out in a row. A row
     would have to be measured and slid, which needs the stage to be on screen
-    to measure — and Settings is built while it is still hidden. Positioning
+    to measure - and Settings is built while it is still hidden. Positioning
     every card from the centre outwards is correct before it is ever displayed.
 
     Everything that moves is transform and opacity, which the compositor
@@ -812,7 +812,7 @@
                 0 26px 54px -26px rgba(37,99,235,.95);
   }
   /* Either side: back, smaller, turned, and dimmed to about half. Still
-     perfectly readable — the reference keeps them in shot, and being able to
+     perfectly readable - the reference keeps them in shot, and being able to
      see where you are going is the difference between a carousel and a slide. */
   .org-card[data-dist="1"] { z-index: 4; opacity: .55; filter: saturate(.55); }
   /* The far one, on its way round. Nearly gone rather than gone, so the fan
@@ -943,17 +943,17 @@
 
     COLOUR THAT MEANS SOMETHING
     Each period field wears a swatch in the colour that period is drawn in on
-    the chart below — first blue, second orange, third green, fourth purple,
+    the chart below - first blue, second orange, third green, fourth purple,
     the same four SERIES colours the legend uses. So the pairing is readable
     while you are still choosing, and the chart's legend confirms a mapping you
     already know rather than teaching you one.
 
     The rest is the brand blue, kept LIGHT: a blue header bar, a blue-tinted
     body, and fields that are white tiles on it. This is a form on a white
-    page and it stays one — the blue frames it rather than swallowing it.
+    page and it stays one - the blue frames it rather than swallowing it.
 
     HOVER
-    Each field answers the cursor the way the section cards on Settings do —
+    Each field answers the cursor the way the section cards on Settings do -
     it lifts, its border takes the accent, and its swatch grows. Which field
     you are about to change is then never in question, and on a row of four
     near-identical dropdowns that is the one thing worth signalling.
@@ -1094,7 +1094,7 @@
     border-color: #9db3cd;
     box-shadow: 0 1px 3px rgba(20,32,46,.08);
   }
-  /* A soft ring rather than a hard outline — same job, less shouting. */
+  /* A soft ring rather than a hard outline - same job, less shouting. */
   .select:focus-visible, .btn:focus-visible {
     outline: none;
     border-color: var(--blue-500);
@@ -1176,12 +1176,12 @@
     transition: background .14s ease, color .14s ease;
   }
   /* The table's own name answers the cursor. Every other target on these
-     screens does — rows, pills, buttons, chart bars — and a title that sits
+     screens does - rows, pills, buttons, chart bars - and a title that sits
      dead under the pointer reads as a part of the page that is switched off.
      Background and ink both move, so it still carries in a screenshot and for
      anyone who cannot separate the two tints. */
   .card-head:hover { background: var(--blue-050); color: var(--blue-600); }
-  /* A short accent rule in front of the label — reads as a section marker
+  /* A short accent rule in front of the label - reads as a section marker
      without adding another line of text. */
   .card-head::before {
     content: ''; width: 3px; height: 13px; border-radius: 2px;
@@ -1233,7 +1233,7 @@
     font-size: 10.5px; font-weight: 600; color: var(--text-dim);
     white-space: nowrap;
   }
-  /* A column of zeros should recede — the non-zero values are the signal. */
+  /* A column of zeros should recede - the non-zero values are the signal. */
   td.zero { color: var(--text-mut); }
   td.empty { text-align: center; color: var(--text-mut); padding: 30px; font-style: italic; background: var(--surface) !important; }
   td.name { font-weight: 600; }
@@ -1254,13 +1254,13 @@
     Six columns, and the one that earns its place is the bands.
 
     Target, yellow floor and red used to be three separate cells. Three numbers
-    in a row do not add up to a scale in anybody's head — you have to subtract
+    in a row do not add up to a scale in anybody's head - you have to subtract
     them from each other to see the shape. Drawn as one bar across the whole
-    0–100 the percentage lives on, the shape is the first thing you see, and on
+    0-100 the percentage lives on, the shape is the first thing you see, and on
     all four indicators it says the same striking thing: nearly the entire
     range is a breach, and the window you have to land in is a sliver at the
     very top. The exact figures are printed under the bar, because a bar you
-    cannot read values off is decoration — and because the floor below keeps
+    cannot read values off is decoration - and because the floor below keeps
     the thinnest slivers visible at the cost of their exact width.
   */
   .head-note {
@@ -1454,7 +1454,7 @@
   /*
     Scrollbars. The OS default is a wide grey slab that fights the palette;
     these match the page. Firefox takes the two-value form, WebKit the
-    pseudo-elements — both are ignored where unsupported.
+    pseudo-elements - both are ignored where unsupported.
   */
   * { scrollbar-width: thin; scrollbar-color: #c3d1e0 transparent; }
   ::-webkit-scrollbar { width: 10px; height: 10px; }
@@ -1579,7 +1579,7 @@
     detail you can check rather than the whole screen.
   */
   .modal-files {
-    /* display:block matters — it sits inside a span, and max-height and
+    /* display:block matters - it sits inside a span, and max-height and
        overflow do nothing on an inline box. */
     display: block;
     max-height: 132px; overflow-y: auto; margin-top: 8px;

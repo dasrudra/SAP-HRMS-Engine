@@ -1,10 +1,10 @@
 /**
- * Config.gs — every setting the app has, in one file.
+ * Config.gs - every setting the app has, in one file.
  *
  * WHY THIS FILE EXISTS
  * Nothing else in the project hardcodes a target, a threshold or a sheet name.
  * When the KPI Review Committee changes a target, you edit it here and nowhere
- * else. Policy TVL-KPI-001 §6 calls the current KPIs "illustrative... to be
+ * else. Policy TVL-KPI-001 section 6 calls the current KPIs "illustrative... to be
  * finalized", so they WILL change.
  *
  * APPS SCRIPT NOTE
@@ -20,7 +20,7 @@ const CONFIG = {
    * Fallback spreadsheet ID.
    *
    * NORMALLY LEAVE THIS null. The real ID lives in Script Properties, outside
-   * the code, so that replacing this file cannot disconnect the database —
+   * the code, so that replacing this file cannot disconnect the database -
    * which is exactly what used to happen every time a new Config.gs was
    * pasted in.
    *
@@ -41,7 +41,7 @@ const CONFIG = {
    * The four departments that make up Enterprise Application Services.
    *
    * This list is the definition of "EAS" for the whole system. It was derived
-   * from the four Individual Performance exports, which partition cleanly —
+   * from the four Individual Performance exports, which partition cleanly -
    * no ticket appears in two departments.
    *
    * `match` is what we look for in an uploaded filename to auto-detect which
@@ -58,8 +58,8 @@ const CONFIG = {
 
     // 'EAS' names two things and that is not a mistake: the department as a
     // whole, and the section the team lead's own tickets sit in. They live in
-    // different columns of KPI_MONTHLY — Scope Type 'EAS' is the departmental
-    // total, Scope Type 'DEPARTMENT' with the value 'EAS' is this section —
+    // different columns of KPI_MONTHLY - Scope Type 'EAS' is the departmental
+    // total, Scope Type 'DEPARTMENT' with the value 'EAS' is this section -
     // so nothing collides.
     { key: 'EAS', name: 'EAS',                       match: 'eas',           era: 'both'    },
 
@@ -74,7 +74,7 @@ const CONFIG = {
    *
    * Not a guess. The Functional export runs January to July and stops; the
    * section exports begin in August. A ticket from before this month is
-   * scored against the structure that existed when the work was done — a
+   * scored against the structure that existed when the work was done - a
    * January ticket did not belong to a Sales section, because there was none.
    *
    * If the cutover date is ever corrected, change it here and re-run
@@ -83,7 +83,7 @@ const CONFIG = {
   SECTION_ERA_START: '2026-08',
 
   /**
-   * Who belongs to which section — the EAS org chart, as data.
+   * Who belongs to which section - the EAS org chart, as data.
    *
    * THIS IS THE AUTHORITY, not the filename and not the ticket's module.
    * Three people make that distinction necessary: Md. Nasir Uddin, Nazma Begum
@@ -95,7 +95,7 @@ const CONFIG = {
    * section it is, because every row carries the individual who handled it.
    *
    * Names are spelled as the ITSM writes them, since that is what arrives in
-   * the data. matchPerson() handles the rest — 'Md.Jafar Ullah' with no space,
+   * the data. matchPerson() handles the rest - 'Md.Jafar Ullah' with no space,
    * and 'Muhammad Abul Masum Siddique' where the org chart says 'Md. Abul
    * Masum Siddique', both resolve.
    *
@@ -159,7 +159,7 @@ const CONFIG = {
    * section owns, and the wording the printed chart uses. The people come from
    * ROSTER, so a joiner is added in one place and appears in both.
    *
-   * `name` must match the ROSTER and DEPARTMENTS key exactly — that is how a
+   * `name` must match the ROSTER and DEPARTMENTS key exactly - that is how a
    * section finds its members and its KPI 1 figures.
    *
    * `interim: true` marks a section whose head is holding it alongside another
@@ -196,7 +196,7 @@ const CONFIG = {
    * Where each current section's people sat before the August split.
    *
    * Financial and EAS were already their own sections, so they map to
-   * themselves. The other three did not exist — their people were all in
+   * themselves. The other three did not exist - their people were all in
    * Functional.
    */
   PRE_SPLIT_SECTION: {
@@ -215,7 +215,7 @@ const CONFIG = {
    *   KPI Achievement (%)     = (Actual Rate / Target Rate) x 100
    *
    * The band boundaries look arbitrary and are not. Three of the four put the
-   * yellow floor at exactly 90% achievement — 89.55/99.50 = 0.90, 81.00/90.00
+   * yellow floor at exactly 90% achievement - 89.55/99.50 = 0.90, 81.00/90.00
    * = 0.90. Layer 1 is the exception and is far stricter: 99.50/99.90 = 0.996,
    * so its yellow floor is 99.60% achievement.
    *
@@ -234,9 +234,9 @@ const CONFIG = {
       // it. Printed under the heading as `measure = formula`, so the screen
       // quotes the policy rather than paraphrasing it.
       measure: 'Ticket Resolution Success Rate (%)',
-      formula: '(Completed Successfully ÷ Total Completed) × 100',
+      formula: '(Completed Successfully \u00f7 Total Completed) \u00d7 100',
       // Link to the signed definition PDF. Upload it to Drive, share it with
-      // the team, and paste the link here — the Settings table turns it into
+      // the team, and paste the link here - the Settings table turns it into
       // the button beside this row. Must start http:// or https://; anything
       // else is ignored and the button stays greyed out.
       policyUrl: 'https://drive.google.com/file/d/103CduvXK2_JuN6XflsxqnHhjy_OGy0WK/view?usp=sharing',
@@ -256,9 +256,9 @@ const CONFIG = {
       // Revised formula. The earlier policy text said Avg Score / Max Score;
       // the signed definition sheet replaces it with a positive-response ratio,
       // and resolves the old contradictory thresholds (<90 yellow AND <60 red)
-      // into a clean 81.00–89.99 band.
+      // into a clean 81.00-89.99 band.
       measure: 'Actual Success Rate (%)',
-      formula: '(Total Positive Responses ÷ Total Applicable Responses) × 100',
+      formula: '(Total Positive Responses \u00f7 Total Applicable Responses) \u00d7 100',
       policyUrl: 'https://drive.google.com/file/d/1-ixPnDc0o5Do2wNDFc3TKUk4qTenW7j9/view?usp=sharing',
       target: 90.00,
       yellowFloor: 81.00,
@@ -273,10 +273,10 @@ const CONFIG = {
       shortName: 'Incident Mgmt',
       layer: 1,
       slaLayer: 'Layer 1: Incident & Emergency Management',
-      // Not yet confirmed against the signed sheet — the Layer 1 PDF has not
+      // Not yet confirmed against the signed sheet - the Layer 1 PDF has not
       // been supplied. Check the wording when it arrives.
       measure: 'Actual Success Rate (%)',
-      formula: '(Incidents Resolved Within Target ÷ Total Incidents) × 100',
+      formula: '(Incidents Resolved Within Target \u00f7 Total Incidents) \u00d7 100',
       policyUrl: '',
       // The strictest of the four: the yellow floor sits at 99.60%
       // achievement rather than the 90% the other three use.
@@ -294,7 +294,7 @@ const CONFIG = {
       layer: 2,
       slaLayer: 'Layer 2: Service Availability',
       measure: 'SAP Availability (%)',
-      formula: '(Scheduled Time − Unplanned Downtime) ÷ Scheduled Time × 100',
+      formula: '(Scheduled Time \u2212 Unplanned Downtime) \u00f7 Scheduled Time \u00d7 100',
       policyUrl: '',
       target: 99.50,
       yellowFloor: 89.55,
@@ -322,8 +322,8 @@ const CONFIG = {
    *
    * The first 22 come straight from the ITSM export in its own order. The
    * Individual Performance report adds three man-hour columns. The last five
-   * are ours — they record where each row came from, which matters because
-   * policy §5.4 puts Internal Audit on our source data.
+   * are ours - they record where each row came from, which matters because
+   * policy section 5.4 puts Internal Audit on our source data.
    *
    * Two traps baked in here on purpose:
    *   - The ITSM ships ' Category' and ' Sub Category' with a LEADING SPACE.
@@ -331,7 +331,7 @@ const CONFIG = {
    *   - 'Man*Hour' contains an asterisk. It is a literal part of the header.
    */
   TICKET_COLUMNS: [
-    'Ticket ID',            // primary key — unique across every export we have checked
+    'Ticket ID',            // primary key - unique across every export we have checked
     'Affiliate',
     'Service',
     'Part',
@@ -363,7 +363,7 @@ const CONFIG = {
     'Last Updated'          // when we last wrote this row
   ],
 
-  /** Column layout of UPLOAD_LOG — the audit evidence trail. */
+  /** Column layout of UPLOAD_LOG - the audit evidence trail. */
   UPLOAD_COLUMNS: [
     'Upload ID', 'Uploaded At', 'Uploaded By', 'File Name', 'Report Type',
     'Department', 'Rows In File', 'Rows Added', 'Rows Updated',
@@ -371,13 +371,13 @@ const CONFIG = {
   ],
 
   /**
-   * KPI 2 — how a feedback answer is classified.
+   * KPI 2 - how a feedback answer is classified.
    *
    * DERIVED FROM THE EXISTING WORKBOOK, NOT INVENTED. Overall_Feedback.xlsx
    * covers 32 training sessions, 667 respondents and 4,669 answers, and its
    * Department Summary splits them into Excellent & Good / Average / Poor /
-   * Not Responded. This mapping reproduces those four totals exactly —
-   * 4,538 / 121 / 6 / 4 — with no answer left unclassified.
+   * Not Responded. This mapping reproduces those four totals exactly -
+   * 4,538 / 121 / 6 / 4 - with no answer left unclassified.
    *
    * The seven questions use four different wordings for the same idea, and
    * the forms changed over time ('Very helpful' and 'Confident' only appear
@@ -387,7 +387,7 @@ const CONFIG = {
    * not the numerator. NO_RESPONSE is handled by COUNT_NON_RESPONSES below.
    *
    * Matching ignores case, spacing and the Bangla gloss in brackets, so
-   * 'Excellent [চমৎকার]' and 'Excellent' are the same answer.
+   * 'Excellent [??????]' and 'Excellent' are the same answer.
    */
   FEEDBACK_ANSWERS: {
     POSITIVE: [
@@ -421,7 +421,7 @@ const CONFIG = {
    * PP reports 1107/1120, and 1120 counts its 4 non-responses.
    *
    * TRUE keeps the figures continuous with everything reported so far, and is
-   * the more conservative of the two — it can only lower the rate. Across all
+   * the more conservative of the two - it can only lower the rate. Across all
    * 667 respondents the difference is 97.19% against 97.28%, so it changes no
    * band today. Set FALSE to follow the policy wording to the letter.
    */
@@ -430,21 +430,21 @@ const CONFIG = {
   /**
    * The SAP modules training is reported against.
    *
-   * KPI 2 is organised by MODULE, not by the EAS sections KPI 1 uses — that
+   * KPI 2 is organised by MODULE, not by the EAS sections KPI 1 uses - that
    * is how the existing Department Summary is built, and the two axes are
    * genuinely different questions.
    *
    * The raw feedback form carries no module field, so it comes from the
    * filename. `match` is tried in this order and the FIRST hit wins, which is
    * why the specific names come before the two-letter codes: 'Trainee
-   * Feedback– MD & MM Module Training (Spareparts)' is filed under MM in the
+   * Feedback- MD & MM Module Training (Spareparts)' is filed under MM in the
    * existing workbook, and MM is listed above MD to reproduce that.
    */
   TRAINING_MODULES: [
     { key: 'EACC', name: 'E-Accounting', match: ['e-accounting', 'e accounting', 'eaccounting'] },
     // 'fi' folded in from what used to be a separate FI module, so a bare-FI
     // filename lands in the same row as FI_TR rather than a row of its own.
-    // The FILES this matches are unchanged — only the name they are given.
+    // The FILES this matches are unchanged - only the name they are given.
     // 'tr' is deliberately not here: it is safe against a short Part value but
     // not against a filename, where too much begins with 'Tr'.
     { key: 'FITR', name: 'FI/TR',        match: ['fi_tr', 'fi-tr', 'fitr', 'fi tr', 'fi'] },
@@ -458,7 +458,7 @@ const CONFIG = {
   /**
    * The modules KPI 1 reports tickets against. A CLOSED list.
    *
-   * The ITSM's Part column holds more than modules — Monitoring, Groupware,
+   * The ITSM's Part column holds more than modules - Monitoring, Groupware,
    * 'PC, Monitor', Others, FRP (FastReactPlan), TexManager and Workshop
    * Management System (WMIS) all appear there. None of them is a module EAS
    * reports on, and letting them through made a fifteen-row table with seven
@@ -467,7 +467,7 @@ const CONFIG = {
    *
    * `match` is tested against the Part column at a word boundary, longest
    * pattern first: 'FI/TR' beats the shorter 'FI', 'CO' cannot fire inside
-   * 'Accounting', and Account and E-Accounting stay apart — 'account' needs a
+   * 'Accounting', and Account and E-Accounting stay apart - 'account' needs a
    * word end after it, which 'E-Accounting' does not give. They are separate
    * modules with separate ticket counts, not one misspelt twice.
    */
@@ -475,7 +475,7 @@ const CONFIG = {
     { name: 'Account',      match: ['account'] },
     { name: 'E-Accounting', match: ['e-accounting', 'e accounting', 'eaccounting'] },
     // FI, TR and FI/TR are ONE module. The ITSM's Part column spells it both
-    // ways — 1,441 tickets as 'FI/TR' and 7 as 'FI' — and splitting them made
+    // ways - 1,441 tickets as 'FI/TR' and 7 as 'FI' - and splitting them made
     // two rows out of one team's work, the smaller of which read as a rounding
     // error rather than as the same thing written differently.
     { name: 'FI/TR',        match: ['fi/tr', 'fi_tr', 'fi-tr', 'fitr', 'fi tr', 'fi', 'tr'] },
@@ -503,7 +503,7 @@ const CONFIG = {
   PERSON_MODULES: {
     'Md. Nasir Uddin':        'MM',   // Sales section, MM/MD module role
     'Sanjib Guha':            'MM',   // Sales section, MM/MD module role
-    'Nazma Begum':            'SD',   // Sales section, SD — also trains E-Accounting
+    'Nazma Begum':            'SD',   // Sales section, SD - also trains E-Accounting
     'Md. Abdullah Al Mamun':  'PP',   // Supply Chain section, PP module
     'Rubel Das':              'CO'    // Financial section, CO module
   },
@@ -516,11 +516,11 @@ const CONFIG = {
    * A default, overridden per person by PERSON_MODULES. The pre-split sections
    * are deliberately absent: 'Functional Applications' covered Manufacturing,
    * Sales and SCM at once, so it cannot name one module, and a ticket from
-   * those months falls to '(unassigned)' unless its Part says otherwise —
+   * those months falls to '(unassigned)' unless its Part says otherwise -
    * which is honest rather than invented.
    */
   SECTION_MODULES: {
-    // FI/TR, not 'FI' — the same name the Part column resolves to, so a
+    // FI/TR, not 'FI' - the same name the Part column resolves to, so a
     // Financial person's fallback lands in the row their own tickets are in.
     'Financial Applications':     'FI/TR',
     'Sales Applications':         'SD',
@@ -532,8 +532,8 @@ const CONFIG = {
    * Trainer -> the module they run. The LAST resort, after the form's own
    * answer and the filename.
    *
-   * Some files are named only after the trainer — 'Trainee Feedback– Mamun',
-   * 'Trainee Feedback–Rubel' — so there is nothing in the name to match a
+   * Some files are named only after the trainer - 'Trainee Feedback- Mamun',
+   * 'Trainee Feedback-Rubel' - so there is nothing in the name to match a
    * module against and they pooled into '(unassigned)'. These three were
    * confirmed by the EAS team.
    *
@@ -545,7 +545,7 @@ const CONFIG = {
     { match: 'rubel', name: 'CO' },
     // Nazma is SD, in the Sales section. She also runs E-Accounting sessions
     // from time to time, which is exactly why this list is a fallback and not
-    // an override: 'Trainee Feedback– E-Accounting_Nazma.xlsx' is filed as
+    // an override: 'Trainee Feedback- E-Accounting_Nazma.xlsx' is filed as
     // E-Accounting by its filename and never reaches this list, and only a
     // file that names no module at all falls through to her usual one.
     { match: 'nazma', name: 'SD' }
@@ -557,12 +557,12 @@ const CONFIG = {
    * WHERE THE ZONE COMES FROM, IN ORDER
    *   1. the form's own Zone answer, from August 2026 onward
    *   2. the plant code, via PLANT_ZONES
-   *   3. the filename ('Trainee Feedback_MM KEPZ– Ashraful.xlsx')
+   *   3. the filename ('Trainee Feedback_MM KEPZ- Ashraful.xlsx')
    *   4. Unspecified
    *
    * The feedback form did not ask for a zone before this quarter, so the
    * historical responses genuinely have no zone to recover and belong in
-   * Unspecified — that bucket is a fact about the old forms, not a gap in the
+   * Unspecified - that bucket is a fact about the old forms, not a gap in the
    * data. New sessions carry the answer and land in a real zone.
    *
    * `match` is applied to all three sources, so 'Karnaphuli EPZ (KEPZ)' typed
@@ -581,7 +581,7 @@ const CONFIG = {
    * What a quarter means, per KPI.
    *
    * CALENDAR QUARTERS, ON BOTH DASHBOARDS, AS THE TEAM CONFIRMED.
-   *   Q1 Jan–Mar · Q2 Apr–Jun · Q3 Jul–Sep · Q4 Oct–Dec
+   *   Q1 Jan-Mar . Q2 Apr-Jun . Q3 Jul-Sep . Q4 Oct-Dec
    * January 2027 starts Q1 of 2027; no quarter ever crosses a calendar year.
    * "Quarter 2" therefore means the same three months whichever screen it is
    * read on, which is the point.
@@ -589,13 +589,13 @@ const CONFIG = {
    * `startMonth` is the month Q1 begins in. It is kept per KPI, and both are
    * set to 1, because the two are only the same by decision and not by
    * necessity: a KPI moved onto a company year that starts in April would be
-   * one line here — set startMonth to 4 and Q4 becomes Jan–Mar of the next
-   * calendar year — with nothing else to change, since every quarter on both
+   * one line here - set startMonth to 4 and Q4 becomes Jan-Mar of the next
+   * calendar year - with nothing else to change, since every quarter on both
    * dashboards is derived from this and resolved when the figures are read.
    */
   QUARTERS: {
-    RESOLUTION: { startMonth: 1, yearFrom: 'start' },   // KPI 1 — Jan–Mar is Q1
-    FEEDBACK:   { startMonth: 1, yearFrom: 'start' }    // KPI 2 — the same
+    RESOLUTION: { startMonth: 1, yearFrom: 'start' },   // KPI 1 - Jan-Mar is Q1
+    FEEDBACK:   { startMonth: 1, yearFrom: 'start' }    // KPI 2 - the same
   },
 
   /**
@@ -604,14 +604,14 @@ const CONFIG = {
    * Empty on purpose. The Plant column is captured on every stored response
    * (the E-Accounting file carries 3400), so once the plant-to-zone mapping is
    * known it goes here and every zone becomes exact rather than inferred from
-   * a filename — with nothing to re-upload, because zones resolve at scoring
+   * a filename - with nothing to re-upload, because zones resolve at scoring
    * time. Until then the filename is the only signal there is.
    *
    * Example: { '3400': 'CEPZ', '3500': 'KEPZ' }
    */
   PLANT_ZONES: {},
 
-  /** Column layout of the TRAINING tab — one row per respondent. */
+  /** Column layout of the TRAINING tab - one row per respondent. */
   TRAINING_COLUMNS: [
     'Response ID',        // source file + the form's own row id; the merge key
     'Session Date',
@@ -632,12 +632,12 @@ const CONFIG = {
     // Added last, on purpose. Existing rows were written at the old width and
     // are addressed by position, so a column inserted anywhere else would
     // shift every value already stored. Appended, it is simply blank on the
-    // older responses — which is the truth: the forms they came from never
+    // older responses - which is the truth: the forms they came from never
     // asked. ensureTrainingHeaders() writes the header in when it is missing.
     'Zone'
   ],
 
-  /** Column layout of KPI_MONTHLY — precomputed so the dashboard reads fast. */
+  /** Column layout of KPI_MONTHLY - precomputed so the dashboard reads fast. */
   KPI_COLUMNS: [
     'Month', 'Scope Type', 'Scope Value', 'Received', 'Total Completed',
     'Completed With Delay', 'Completed Successfully', 'Success Rate',
@@ -658,7 +658,7 @@ const SPREADSHEET_ID_KEY = 'EAS_SPREADSHEET_ID';
  *
  * Script Properties first, CONFIG.SPREADSHEET_ID second. Properties belong to
  * the Apps Script project rather than to any file, so they survive every code
- * change — pasting a fresh Config.gs can no longer disconnect the database.
+ * change - pasting a fresh Config.gs can no longer disconnect the database.
  *
  * @return {string|null}
  */
@@ -680,7 +680,7 @@ function getSpreadsheetId() {
  * Siddique' in every export. Matching on the raw string files one person as
  * two, splitting their tickets across two rows of the individuals table.
  *
- * The honorific is the only part collapsed — md / md. / mohammad / muhammad /
+ * The honorific is the only part collapsed - md / md. / mohammad / muhammad /
  * mohd all become 'md'. Nothing else is touched, so 'Md. Ashraful Islam' and
  * 'Md. Ashraful Karim' stay distinct, as do 'Mohammad Abul Kalam' and
  * 'Muhammad Abul Masum Siddique'. Checked against all 37 names on the chart:
@@ -719,7 +719,7 @@ function rosterIndex() {
 
       // A second key with the honorific removed, so a ticket raised against
       // 'Ashraful Islam' still finds 'Md. Ashraful Islam'. The ITSM writes the
-      // honorific today, but if it ever stops, the symptom would be silent —
+      // honorific today, but if it ever stops, the symptom would be silent -
       // that person's tickets would drop into '(unassigned)' and the section
       // totals would quietly go wrong.
       const stripped = key.replace(/^md/, '');
@@ -739,7 +739,7 @@ function rosterIndex() {
 /**
  * Which section does this ticket belong to?
  *
- * Resolved from WHO handled it and WHEN — never from the module on the ticket
+ * Resolved from WHO handled it and WHEN - never from the module on the ticket
  * and never from the filename it arrived in.
  *
  *   - Who, because three people hold MM/MD module roles while reporting into
@@ -768,7 +768,7 @@ function sectionFor(person, month, fallback) {
   }
 
   if (!current) {
-    // Someone not on the chart — a leaver, a new joiner, or a name the ITSM
+    // Someone not on the chart - a leaver, a new joiner, or a name the ITSM
     // spells in a way matchPerson does not reach. Fall back to whatever the
     // upload claimed rather than dropping the ticket on the floor.
     return String(fallback || '').trim();
@@ -785,9 +785,9 @@ function sectionFor(person, month, fallback) {
 /**
  * Strips a feedback answer down to something matchable.
  *
- * The forms carry a Bangla gloss in brackets — 'Excellent [চমৎকার]' — and the
+ * The forms carry a Bangla gloss in brackets - 'Excellent [??????]' - and the
  * bracket style varies between square and round across batches. One respondent
- * answered 'Confident (আত্মবিশ্বাসী]' with mismatched brackets, so the gloss is
+ * answered 'Confident (????????????]' with mismatched brackets, so the gloss is
  * removed by looking for either kind rather than by pairing them.
  *
  * @param {string} answer
@@ -842,7 +842,7 @@ function answerTier(answer) {
  * Which SAP module does a training file belong to?
  *
  * From the filename, because the feedback form itself has no module field.
- * First match wins — see CONFIG.TRAINING_MODULES for why the order matters.
+ * First match wins - see CONFIG.TRAINING_MODULES for why the order matters.
  * Matched at a word boundary so 'CO' does not fire on 'Accounting'.
  *
  * @param {string} fileName
@@ -867,13 +867,13 @@ function moduleFor(fileName) {
 /**
  * Which module does this response belong to?
  *
- * The form's own answer first — a Module question is being added to the form,
+ * The form's own answer first - a Module question is being added to the form,
  * and once a session says which module it was, nothing should second-guess it.
  * Then the filename. Then the trainer, for the files named after nobody else.
  *
  * Resolved at SCORING time, like the section and the zone. Editing
  * TRAINING_MODULES or TRAINER_MODULES and reloading re-files every response,
- * with nothing to re-upload — which is the whole reason the raw answer is
+ * with nothing to re-upload - which is the whole reason the raw answer is
  * stored rather than a decision made at upload.
  *
  * @param {string} answered    the Module the form recorded, if it asked
@@ -904,14 +904,14 @@ function moduleForResponse(answered, sourceFile) {
  * TWO SOURCES, IN ORDER.
  *
  * 1. The ITSM's Part column, when it names one of the modules EAS actually
- *    reports on. That list is CLOSED — see TICKET_MODULES. The Part column
+ *    reports on. That list is CLOSED - see TICKET_MODULES. The Part column
  *    also carries things that are not modules at all (Account, Monitoring,
  *    Groupware, PC/Monitor, Others, FRP, TexManager, WMIS), and letting those
  *    through produced a table of fifteen rows, half of which no one reports
  *    against.
  *
  * 2. Otherwise the person in Current Activity In Charge. Whoever handled the
- *    ticket, it belongs to their module — which is the rule the team works to,
+ *    ticket, it belongs to their module - which is the rule the team works to,
  *    and the only thing that can place a ticket the Part column mislabels.
  *
  * 3. Failing both, '(unassigned)', so it is visible rather than guessed.
@@ -933,7 +933,7 @@ function moduleForTicket(part, inCharge, month) {
 
 
 /**
- * A module read out of the Part column — and only one EAS reports on.
+ * A module read out of the Part column - and only one EAS reports on.
  *
  * Matched at a word boundary, longest pattern first, so 'FI/TR' is not
  * claimed by the shorter 'FI' and 'CO' cannot fire inside 'Accounting'.
@@ -962,7 +962,7 @@ function moduleFromPart(part) {
  * hundred thousand for a twenty-thousand-ticket rebuild. Compiled once it is
  * thirty for the whole run.
  *
- * Longest first is what makes 'FI/TR' beat the shorter 'FI' — with the list
+ * Longest first is what makes 'FI/TR' beat the shorter 'FI' - with the list
  * ordered, the first match is always the most specific one.
  */
 let TICKET_MODULE_PATTERNS = null;
@@ -991,7 +991,7 @@ function ticketModulePatterns() {
  * Which module does this person work in?
  *
  * Their own entry first, because a module role and a section are not the same
- * thing — Rubel Das sits in Financial and works CO, Md. Abdullah Al Mamun sits
+ * thing - Rubel Das sits in Financial and works CO, Md. Abdullah Al Mamun sits
  * in Supply Chain and works PP. Only then the section's usual module.
  *
  * @param {string} name   as the ITSM spells it
@@ -1006,7 +1006,7 @@ function moduleForPerson(name, month) {
   if (own) return own;
 
   // No entry of their own: the module their section usually handles. Read at
-  // the CURRENT section names, never the pre-split ones — 'Functional
+  // the CURRENT section names, never the pre-split ones - 'Functional
   // Applications' covered three modules at once and cannot name just one.
   const section = sectionFor(name, null, '');
   return CONFIG.SECTION_MODULES[section] || '';
@@ -1031,12 +1031,12 @@ function personModuleIndex() {
 /**
  * Which plant zone did this training belong to?
  *
- * The form's own answer first — from this quarter the feedback form asks for
+ * The form's own answer first - from this quarter the feedback form asks for
  * the zone, so when a response carries one it is the fact and nothing should
  * override it. Then the plant code, then the filename, then Unspecified.
  *
  * Resolved at SCORING time, not at upload: the same reason KPI 1 resolves
- * sections that way — correcting CONFIG.ZONES or filling in PLANT_ZONES and
+ * sections that way - correcting CONFIG.ZONES or filling in PLANT_ZONES and
  * re-running is enough, with nothing to re-upload.
  *
  * @param {string} sourceFile  the filename the responses arrived in
@@ -1058,7 +1058,7 @@ function zoneFor(sourceFile, plant, answered) {
 /**
  * Reads a zone out of a piece of text, or returns '' if there is none.
  *
- * Matched at a word boundary so 'KEPZ' cannot fire inside a longer token —
+ * Matched at a word boundary so 'KEPZ' cannot fire inside a longer token -
  * 'DEPZONE' is not DEPZ. An exact name still wins outright, which is the
  * normal case for a dropdown answer.
  *
@@ -1087,7 +1087,7 @@ function matchZone(value) {
  *
  * Assembled here rather than in the browser so the head-is-first convention in
  * ROSTER stays a fact about Config and nothing else has to know it. The head
- * is lifted out of the member list — he is named separately on the chart, and
+ * is lifted out of the member list - he is named separately on the chart, and
  * printing him twice in his own section reads as a duplicate.
  *
  * @return {Object} { name, short, head, sections: [{ name, label, modules,
@@ -1152,7 +1152,7 @@ function orgChart() {
  *
  * WHY THE FILENAME AND NOT THE SESSION DATE
  * The date on a feedback form is free text the attendee types, and Excel has
- * already mangled a batch of it — 43 files came in reading January 1974 for
+ * already mangled a batch of it - 43 files came in reading January 1974 for
  * sessions held in 2026. A quarter derived from that is wrong in a way nobody
  * can see. The filename is written by the trainer who ran the session, to a
  * convention the team agreed (Zone_Quarter-Year), so it is the one statement
@@ -1161,7 +1161,7 @@ function orgChart() {
  * It is a fallback chain, not an override: a file that names no quarter still
  * falls back to its session date, which is exactly what happened before.
  *
- * Tolerant of the separators that turn up in practice — 'Q1-2026', 'Q1_2026',
+ * Tolerant of the separators that turn up in practice - 'Q1-2026', 'Q1_2026',
  * 'Q1 2026', 'Q1/26' and the reversed '2026-Q1' all read the same. A two-digit
  * year is taken as 20xx.
  *
@@ -1201,7 +1201,7 @@ function quarterKeyFrom(year, quarter) {
 /**
  * Which band does a success rate fall into?
  *
- * Used by KPI 1 and KPI 2 both — they have different numbers but identical
+ * Used by KPI 1 and KPI 2 both - they have different numbers but identical
  * shape (green at or above target, red below a floor, yellow between).
  *
  * @param {number} rate  the computed percentage
@@ -1231,7 +1231,7 @@ function achievementFor(rate, kpi) {
  * How many more delayed tickets before we drop out of green?
  *
  * This is the number the dashboard should lead with. In August 2026 the EAS
- * figure was 1 — the department passed by a single ticket. A band alone does
+ * figure was 1 - the department passed by a single ticket. A band alone does
  * not tell you that; headroom does.
  *
  * Green requires:  successful / completed >= target/100

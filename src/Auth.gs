@@ -1,85 +1,252 @@
 /**
- * Auth.gs — who is using the app, and what they are allowed to do.
+ * Auth.gs - who is using the app, and what they are allowed to do.
  *
- * WHAT THIS IS, AND WHAT IT IS NOT
- * There are two boundaries here, and confusing them is the one way to get
- * this badly wrong.
+ * THIS FILE IS DELIBERATELY PLAIN ASCII. No em-dashes, no arrows, no curly
+ * quotes. Pasting a .gs file through Notepad has already corrupted one of
+ * these files once: Windows saved the em-dash on line 2 of Code.gs as a byte
+ * Apps Script could not read, and the whole project stopped compiling with
+ * "Invalid or unexpected token". Comments are not worth that, so the whole
+ * project is now ASCII and cannot break that way again.
  *
- *   1. WHO CAN REACH THE APP AT ALL is decided by the deployment's "Who has
- *      access" setting, which is Google's own sign-in. That is the real
- *      security perimeter, and it is strong. Nothing in this file adds to it.
  *
- *   2. WHAT THEY CAN DO ONCE INSIDE is decided here. This is a ROLE GATE,
- *      not a secret store. A password shared with thirty-seven people is a
- *      password everyone has by the end of the month — that is not cynicism,
- *      it is arithmetic. So this file must never be the only thing standing
- *      between an outsider and the data. With the deployment set to "Anyone
- *      with Google account" this does the job it is meant for: stopping an
- *      ordinary user from deleting an upload by accident or on a whim.
+ * HOW SIGNING IN WORKS, AND WHY IT WORKS THIS WAY
  *
- * THE ONE DEPLOYMENT SETTING THIS FILE DEPENDS ON
- * "Who has access" must be "Anyone with Google account", never "Anyone".
- * Sessions are kept per person in User Properties, and Google can only keep
- * them apart while it knows who the visitor is. Published to "Anyone" there is
- * no visitor to know, everybody shares one store, and one person signing in
- * signs in the lot. deploymentProblem() refuses to run in that state and says
- * so on screen rather than leaking quietly — it is the one failure here that
- * would be invisible otherwise.
+ * The dashboard is published to "Anyone", because not everyone at Youngone
+ * has a Google account and they still have to be able to open the link. That
+ * single fact decides the whole design, because it rules out the two places
+ * Apps Script would normally keep a session:
+ *
+ *   - PropertiesService.getUserProperties() keeps one store per person, but
+ *     only while Google knows who the person IS. Published to "Anyone" there
+ *     is nobody to know, so every visitor shares one store. An earlier build
+ *     kept the session there, which meant one person signing in as admin
+ *     would have made every other visitor an admin. That is the bug this
+ *     file was rewritten to remove, not a theoretical one.
+ *
+ *   - Browser storage inside the page is no better. An Apps Script web app
+ *     runs in a sandboxed iframe served from a googleusercontent.com address
+ *     that is regenerated on each load, so localStorage written on one load
+ *     usually cannot be read on the next.
+ *
+ * So the session is not stored on the server at all. Signing in returns a
+ * SIGNED TOKEN, the browser hands it back on every call, and the server
+ * checks the signature. Nothing is remembered between calls, which is exactly
+ * why it is safe for anonymous visitors: there is no shared store to leak
+ * through, and two people holding two tokens are simply two different people.
+ *
+ *   token = payload . signature
+ *   payload   = base64({ u: username, r: role, x: expiry })
+ *   signature = HMAC-SHA256(payload, secret held in Script Properties)
+ *
+ * The signature is what makes it safe to let the browser hold it. Changing
+ * the role from USER to ADMIN, or pushing the expiry out, changes the
+ * payload, and the signature then does not match. Forging one needs the
+ * secret, which never leaves Script Properties and is never sent to a
+ * browser.
+ *
+ *
+ * WHAT THIS IS NOT
+ * It is a ROLE GATE, not a secret store. A password shared with thirty-seven
+ * people is a password everyone has by the end of the month - that is not
+ * cynicism, it is arithmetic. It stops an ordinary user uploading or deleting.
+ * It is not a wall against a determined outsider, and the data behind it
+ * should be treated as readable by anyone who is given the link and the
+ * viewer password.
+ *
  *
  * THE RULE THAT MATTERS
  * In an Apps Script web app EVERY GLOBAL FUNCTION IS AN ENDPOINT. Anyone who
  * can open the page can type
  *
- *     google.script.run.clearAllTickets()
+ *     google.script.run.deleteUpload('anything')
  *
- * into the browser console. Hiding a button changes nothing. That is why the
- * checks live in the server functions and not only in the interface — the
- * interface hiding is a courtesy, these guards are the control.
- *
- * WHERE THE PASSWORDS LIVE
- * In Script Properties, salted and hashed, never in this file. The repository
- * is public; code belongs in it and credentials do not.
+ * into the browser console. Hiding a button changes nothing. That is why
+ * every endpoint takes the token as its first argument and checks it before
+ * doing anything - the interface hiding is a courtesy, these guards are the
+ * control.
  */
 
+
+/** Roles, in increasing order of what they may do. */
+const ROLE_USER  = 'USER';
+const ROLE_ADMIN = 'ADMIN';
+
+/** Script Property holding every account, as JSON. */
+const ACCOUNTS_KEY = 'EAS_ACCOUNTS';
+
+/** Script Property holding the one Google account allowed to run maintenance. */
+const OWNER_KEY = 'EAS_OWNER_EMAIL';
+
+/** Script Property holding the key every token is signed with. */
+const TOKEN_SECRET_KEY = 'EAS_TOKEN_SECRET';
+
+/**
+ * How long a sign-in lasts.
+ *
+ * Two hours, as asked for. What that means in practice, and why:
+ *
+ *   refresh the page            stays signed in - the token travels in the
+ *                               address bar, so a reload carries it back
+ *   close the tab and reopen    signs in again - the fresh link has no token
+ *                               on it
+ *   two hours after signing in  signs in again - the expiry is inside the
+ *                               signed payload, so it cannot be edited
+ *
+ * Changing this number changes only NEW sign-ins. Tokens already issued keep
+ * the expiry they were stamped with.
+ */
+const SESSION_HOURS = 2;
+
+/**
+ * How many times the password hash is folded over itself.
+ *
+ * SHA-256 on its own is fast, which is exactly wrong for a password - fast is
+ * what a brute-force attack wants. Repeating it makes each guess cost more.
+ * This is NOT bcrypt or PBKDF2, which is what a real credential store would
+ * use; Apps Script has neither.
+ */
+const HASH_ROUNDS = 600;
+
+/**
+ * Wrong-guess throttle, per username, across everybody.
+ *
+ * It cannot be per person: anonymous visitors cannot be told apart, which is
+ * the same fact the whole token design follows from. So this is deliberately
+ * loose. Twenty tries per ten minutes stops somebody grinding through a
+ * password list, while being far enough above normal mistyping that real
+ * users do not trip it.
+ *
+ * The cost of it being global: one person guessing wrongly twenty times holds
+ * that username off for everyone for ten minutes. That is a nuisance, not a
+ * breach, and it is the lesser of the two risks.
+ */
+const MAX_ATTEMPTS = 20;
+const LOCKOUT_MINUTES = 10;
+
+/**
+ * User Property that makes the sign-in appear for somebody who would
+ * otherwise be let straight through. Set by opening the app with ?login=1.
+ * Only ever relevant on /dev, where Google does know who the visitor is.
+ */
+const FORCE_LOGIN_KEY = 'EAS_FORCE_LOGIN';
+
+
+// ---------------------------------------------------------------------------
+// TOKENS
+// ---------------------------------------------------------------------------
+
+/**
+ * The key every token is signed with.
+ *
+ * Created on first use and then left alone. It never leaves Script Properties
+ * and is never sent to a browser - a token can be read by anyone holding it,
+ * but only this script can make one.
+ *
+ * Replacing it invalidates every token in circulation at once, which is the
+ * way to throw everybody out: delete EAS_TOKEN_SECRET from Project Settings.
+ *
+ * @return {string}
+ */
+function tokenSecret() {
+  const props = PropertiesService.getScriptProperties();
+  let secret = props.getProperty(TOKEN_SECRET_KEY);
+  if (!secret) {
+    secret = Utilities.getUuid() + Utilities.getUuid();
+    props.setProperty(TOKEN_SECRET_KEY, secret);
+  }
+  return secret;
+}
+
+
+/**
+ * Makes a signed token for somebody who has just proved who they are.
+ *
+ * @param {string} username
+ * @param {string} role
+ * @return {string} payload.signature
+ */
+function issueToken(username, role) {
+  const payload = {
+    u: username,
+    r: role,
+    x: Date.now() + (SESSION_HOURS * 3600000)
+  };
+  const body = Utilities.base64EncodeWebSafe(
+    Utilities.newBlob(JSON.stringify(payload)).getBytes());
+  return body + '.' + signatureOf(body);
+}
+
+
+/** The signature half of a token. */
+function signatureOf(body) {
+  return Utilities.base64EncodeWebSafe(
+    Utilities.computeHmacSha256Signature(body, tokenSecret()));
+}
+
+
+/**
+ * Reads a token back, or returns null.
+ *
+ * Null for anything wrong at all: missing, malformed, signed with a different
+ * key, tampered with, or expired. The caller never learns which, because
+ * there is nothing useful a legitimate user could do with the distinction and
+ * something useful an attacker could.
+ *
+ * @param {string} token
+ * @return {Object|null} { u, r, x }
+ */
+function sessionFromToken(token) {
+  const raw = String(token == null ? '' : token);
+  const dot = raw.indexOf('.');
+  if (dot < 1) return null;
+
+  const body = raw.slice(0, dot);
+  const given = raw.slice(dot + 1);
+
+  // Signature first, before the payload is trusted enough to parse.
+  if (!given || given !== signatureOf(body)) return null;
+
+  let payload;
+  try {
+    payload = JSON.parse(
+      Utilities.newBlob(Utilities.base64DecodeWebSafe(body)).getDataAsString());
+  } catch (e) {
+    return null;
+  }
+
+  if (!payload || !payload.r || !payload.u) return null;
+  if (payload.r !== ROLE_ADMIN && payload.r !== ROLE_USER) return null;
+  if (!payload.x || Date.now() > payload.x) return null;
+
+  return payload;
+}
+
+
+// ---------------------------------------------------------------------------
+// THE /dev SHORTCUT
+// ---------------------------------------------------------------------------
 
 /**
  * Is this request running with a developer's own permissions?
  *
- * WHY THIS IS NOT A URL CHECK ANY MORE
- * It used to be `ScriptApp.getService().getUrl()` matched against /dev, and
+ * WHY THIS IS NOT A URL CHECK
+ * It used to be ScriptApp.getService().getUrl() matched against /dev, and
  * that was wrong in a way that only showed up in production. That call
- * describes THE PROJECT — "this script's web app lives at such-and-such an
- * address" — not the request in front of you. It gives the same answer
- * however the visitor arrived, and when the project had two active
- * deployments it answered with the /dev address for everyone. The result was
- * the worst kind of failure: every visitor to /exec was silently handed
- * ADMIN, with no sign-in at all.
+ * describes THE PROJECT - "this script's web app lives at such-and-such an
+ * address" - not the request in front of you. It answers the same way however
+ * the visitor arrived, and with two active deployments it answered "/dev" for
+ * everyone. Every visitor to /exec was silently handed ADMIN.
  *
- * Apps Script offers no way to ask "which URL did this request come in on".
- * So this asks a question it CAN answer, and which happens to be the one that
- * actually matters:
- *
- *     is the script running as the person using it?
- *
- * On /dev it always is — Google runs the head deployment with the visitor's
- * own permissions, and only someone with EDIT ACCESS to the project can open
- * it at all. On /exec the app is deployed "execute as me", so the effective
- * user is the owner while the active user is the visitor, and the two differ.
- *
- * That makes this a PERMISSION check rather than a guess about a string,
- * which is why it cannot drift the way the URL test did: there is no
- * deployment setting that makes a stranger's request run as the developer.
- *
- * ONE HONEST LIMITATION
- * When the owner opens /exec while signed in to the owning account, active
- * and effective are the same person and this returns true — so the owner goes
- * straight in there too. Nothing is exposed by that (it is their own app), but
- * it does mean the owner never sees the sign-in card by accident. Add
- * ?login=1 to the /exec URL to be asked for it anyway; see setForceLogin().
+ * Apps Script offers no way to ask which URL a request came in on. So this
+ * asks a question it CAN answer, and which is the one that actually matters:
+ * is the script running as the person using it? On /dev it always is, and
+ * only someone with EDIT ACCESS to the project can open /dev at all. On /exec
+ * the app runs as its owner while the visitor is somebody else - and with the
+ * deployment published to "Anyone" there is usually no visitor identity at
+ * all, so this is simply false and the sign-in appears.
  *
  * FAILS CLOSED. Anything unreadable means production, and production means
- * sign in. The failure that costs something is handing out admin by accident,
- * not making a developer type a password.
+ * sign in.
  */
 function isDevContext() {
   let active = '';
@@ -102,125 +269,40 @@ function isDevContext() {
 }
 
 
-/**
- * Something that identifies this visitor, without necessarily naming them.
- *
- * A session is one person's. Storing it in User Properties is supposed to
- * take care of that, and does — PROVIDED Google can tell the visitors apart.
- * When a web app is published to "Anyone", visitors arrive anonymously and
- * there is no current user for the store to belong to, so they all share one.
- * One person signing in would sign in everybody, and an admin sign-in would
- * hand admin to everybody. deploymentProblem() below refuses to run in that
- * state rather than leaking quietly.
- *
- * The email when it can be read; otherwise the temporary key Google hands out
- * for exactly this purpose, which identifies a signed-in visitor without
- * revealing who they are. Consumer accounts outside a Workspace domain hide
- * the address from a web app that runs as its owner, so the second one is the
- * usual answer in practice, not the fallback it looks like.
- *
- * @return {string} '' when the visitor cannot be told apart from anyone else
- */
-function visitorKey() {
+/** Is this browser set to ask for the sign-in even where it need not? */
+function forceLoginOn() {
   try {
-    const email = String(Session.getActiveUser().getEmail() || '').trim().toLowerCase();
-    if (email) return 'e:' + email;
-  } catch (e) { /* not available here — try the temporary key */ }
-
-  try {
-    const temp = String(Session.getTemporaryActiveUserKey() || '').trim();
-    if (temp) return 't:' + temp;
-  } catch (e) { /* neither is available: anonymous */ }
-
-  return '';
+    return PropertiesService.getUserProperties()
+      .getProperty(FORCE_LOGIN_KEY) === '1';
+  } catch (e) {
+    return false;
+  }
 }
 
 
 /**
- * Is the deployment configured in a way that makes the sign-in meaningless?
+ * Turns the sign-in on for a developer who would otherwise be let straight in.
  *
- * Returns the sentence to put in front of whoever is looking, or '' when all
- * is well. Written for the person who has to fix it — it names the menu, not
- * the mechanism.
+ * Called from doGet() when the URL carries ?login=1, and switched off again
+ * with ?login=0. A real server-side switch, not a screen that merely looks
+ * locked: while it is on, the developer genuinely holds whatever role they
+ * signed in with, which is the only way to check what a viewer really sees.
  *
- * @return {string}
+ * @param {boolean} on
  */
-function deploymentProblem() {
-  if (!REQUIRE_IDENTIFIED_VISITOR) return '';
-  if (isDevContext()) return '';
-  if (visitorKey()) return '';
-
-  return 'This dashboard is published to "Anyone", so visitors arrive without ' +
-         'signing in to Google and the app cannot tell them apart — one person ' +
-         'signing in here would sign everyone in, with whatever role they used. ' +
-         'It has stopped rather than do that. To fix it: Apps Script editor → ' +
-         'Deploy → Manage deployments → the pencil → set "Who has access" to ' +
-         '"Anyone with Google account" → Deploy.';
+function setForceLogin(on) {
+  const props = PropertiesService.getUserProperties();
+  if (on) {
+    props.setProperty(FORCE_LOGIN_KEY, '1');
+  } else {
+    props.deleteProperty(FORCE_LOGIN_KEY);
+  }
+  return { ok: true, forced: Boolean(on) };
 }
-
-
-/** Roles, in increasing order of what they may do. */
-const ROLE_USER  = 'USER';
-const ROLE_ADMIN = 'ADMIN';
-
-/** Script Property holding every account, as JSON. */
-const ACCOUNTS_KEY = 'EAS_ACCOUNTS';
-
-/** Script Property holding the one Google account allowed to run maintenance. */
-const OWNER_KEY = 'EAS_OWNER_EMAIL';
-
-/** User Property holding this person's signed-in session. */
-const SESSION_KEY = 'EAS_SESSION';
-
-/**
- * User Property that makes this browser ask for the sign-in even on /dev.
- *
- * Set by opening the app with ?login=1 — see setForceLogin(). It is how the
- * owner checks what the team actually sees, since the owner is otherwise let
- * straight in everywhere.
- */
-const FORCE_LOGIN_KEY = 'EAS_FORCE_LOGIN';
-
-/**
- * How long a sign-in lasts before it has to be done again.
- *
- * Why closing the tab and coming back does NOT ask again: the session is
- * stored against the person, not against the page, so it outlives the tab —
- * the same way every other web app you stay signed in to works. Twelve hours
- * covers a working day and expires overnight. Sign out ends it immediately.
- *
- * Lower this if the dashboard is ever opened on a shared machine.
- */
-const SESSION_HOURS = 12;
-
-/**
- * Refuse to run when the visitor cannot be told apart from anyone else.
- *
- * The sign-in only means something if Google can identify who is signing in —
- * see visitorKey(). Leave this true. It exists as a switch only so that a
- * wrong guess on my part about a deployment setting can be undone from the
- * editor in one edit rather than by waiting for a new file.
- */
-const REQUIRE_IDENTIFIED_VISITOR = true;
-
-/**
- * How many times the hash is folded over itself.
- *
- * SHA-256 on its own is fast, which is exactly wrong for a password — fast is
- * what a brute-force attack wants. Repeating it makes each guess cost more.
- * This is NOT bcrypt or PBKDF2, which is what a real credential store would
- * use; Apps Script has neither. It is enough for an internal role gate behind
- * Google sign-in, and it would not be enough for anything facing the public.
- */
-const HASH_ROUNDS = 600;
-
-/** Wrong attempts allowed before that account is held off for a while. */
-const MAX_ATTEMPTS = 8;
-const LOCKOUT_MINUTES = 15;
 
 
 // ---------------------------------------------------------------------------
-// SETUP — run these by hand from the editor
+// SETUP - run these by hand from the editor
 // ---------------------------------------------------------------------------
 
 /**
@@ -237,17 +319,18 @@ function seedCredentials() {
   if (owner) {
     PropertiesService.getScriptProperties().setProperty(OWNER_KEY, owner);
   }
+  tokenSecret();   // make the signing key now rather than on the first login
 
   Logger.log('');
   Logger.log('=========================================================');
   Logger.log(' ACCOUNTS CREATED');
   Logger.log('   admin / easadmin    full access');
   Logger.log('   user  / easuser     read only');
-  Logger.log('   maintenance owner:  %s', owner || '(could not read — set it by hand)');
+  Logger.log('   maintenance owner:  %s', owner || '(could not read - set it by hand)');
   Logger.log('=========================================================');
   Logger.log('');
   Logger.log('The passwords are stored hashed. This log line is the only place');
-  Logger.log('they appear in plain text — it disappears when you close the editor.');
+  Logger.log('they appear in plain text - it disappears when you close the editor.');
 }
 
 
@@ -255,7 +338,7 @@ function seedCredentials() {
  * Adds or replaces one account.
  *
  * This is how the individual logins get created later: call it once per
- * person. No code change is needed for that — the accounts live in Script
+ * person. No code change is needed for that - the accounts live in Script
  * Properties, not in this file.
  *
  * @param {string} username
@@ -293,7 +376,7 @@ function removeAccount(username) {
     return k !== name && accounts[k].role === ROLE_ADMIN;
   }).length;
   if (accounts[name].role === ROLE_ADMIN && adminsLeft === 0) {
-    throw new Error('That is the only admin account — removing it would lock ' +
+    throw new Error('That is the only admin account - removing it would lock ' +
                     'everyone out of uploads and deletes. Create another admin first.');
   }
 
@@ -303,7 +386,7 @@ function removeAccount(username) {
 }
 
 
-/** Lists the accounts. Names and roles only — never the hashes. */
+/** Lists the accounts. Names and roles only - never the hashes. */
 function listAccounts() {
   const accounts = readAccounts();
   Object.keys(accounts).sort().forEach(function (name) {
@@ -320,30 +403,26 @@ function listAccounts() {
 // ---------------------------------------------------------------------------
 
 /**
- * Signs in. Deliberately NOT guarded — it is how you get past the guard.
+ * Signs in. Deliberately NOT guarded - it is how you get past the guard.
  *
- * @return {{ok: boolean, role: string, username: string, message: string}}
+ * @return {{ok: boolean, role: string, username: string, token: string,
+ *           message: string}}
  */
 function login(username, password) {
-  // Nothing signed in here would mean anything — say so instead of accepting
-  // a password and issuing a session that belongs to everybody.
-  const problem = deploymentProblem();
-  if (problem) return { ok: false, role: '', username: '', message: problem };
-
   const name = String(username || '').trim().toLowerCase();
 
   const held = lockoutRemaining(name);
   if (held > 0) {
-    return { ok: false, role: '', username: '',
-             message: 'Too many wrong attempts. Try again in ' + held +
-                      ' minute' + (held === 1 ? '' : 's') + '.' };
+    return { ok: false, role: '', username: '', token: '',
+             message: 'Too many wrong attempts on this username. Try again in ' +
+                      held + ' minute' + (held === 1 ? '' : 's') + '.' };
   }
 
   const account = readAccounts()[name];
 
   // The same message whether the username is wrong or the password is: a
   // different one tells anyone probing which usernames exist.
-  const wrong = { ok: false, role: '', username: '',
+  const wrong = { ok: false, role: '', username: '', token: '',
                   message: 'That username and password do not match.' };
 
   if (!account) { recordFailure(name); return wrong; }
@@ -353,70 +432,89 @@ function login(username, password) {
   }
 
   clearFailures(name);
-  // `k` ties the session to the person it was issued to. currentSession()
-  // checks it back, so a session cannot be picked up by anybody else.
-  PropertiesService.getUserProperties().setProperty(SESSION_KEY, JSON.stringify({
-    u: name, r: account.role, at: Date.now(), k: visitorKey()
-  }));
-
-  return { ok: true, role: account.role, username: name, message: '' };
+  return {
+    ok: true,
+    role: account.role,
+    username: name,
+    token: issueToken(name, account.role),
+    message: ''
+  };
 }
 
 
-/** Signs out. The forced-login switch is left alone — signing out of a test
- *  should put the card back, not end the test. */
+/**
+ * Signs out.
+ *
+ * There is nothing to delete on the server - a token is not stored anywhere,
+ * which is the point. The browser throws its copy away and the token then
+ * dies of old age on its own. Kept as a real call so the page has one thing
+ * to wait for, and so this stays the place to hook a revocation list if one
+ * is ever needed.
+ */
 function logout() {
-  PropertiesService.getUserProperties().deleteProperty(SESSION_KEY);
   return { ok: true };
 }
 
 
 /**
- * Who is signed in, if anyone. Also NOT guarded — the page calls it first,
- * before it knows whether to show the app or the login card.
+ * Who is signed in, if anyone. Also NOT guarded - the page calls it first,
+ * before it knows whether to show the app or the sign-in card.
  *
- * `notice` carries a configuration problem that has to be read by whoever
- * opens the page, because the person who can fix it is the person looking at
- * it. Empty in normal use.
- *
- * @return {{signedIn: boolean, role: string, username: string,
- *           mode: string, notice: string}}
+ * @param {string} token  whatever the browser is holding, possibly nothing
+ * @return {{signedIn: boolean, role: string, username: string, mode: string}}
  */
-function getSession() {
-  const problem = deploymentProblem();
-  if (problem) {
-    return { signedIn: false, role: '', username: '', mode: 'EXEC',
-             notice: problem };
+function getSession(token) {
+  if (isDevContext() && !forceLoginOn()) {
+    return { signedIn: true, role: ROLE_ADMIN, username: 'developer',
+             mode: 'DEV' };
   }
 
-  const session = currentSession();
+  const session = sessionFromToken(token);
   return session
-    ? { signedIn: true, role: session.r, username: session.u,
-        mode: session.dev ? 'DEV' : 'EXEC', notice: '' }
-    : { signedIn: false, role: '', username: '', mode: 'EXEC', notice: '' };
+    ? { signedIn: true, role: session.r, username: session.u, mode: 'EXEC' }
+    : { signedIn: false, role: '', username: '', mode: 'EXEC' };
 }
 
 
 // ---------------------------------------------------------------------------
-// THE GUARDS — called at the top of every function that matters
+// THE GUARDS - called at the top of every function that matters
 // ---------------------------------------------------------------------------
 
 /**
- * Throws unless somebody is signed in.
+ * The live session behind a token, or null.
+ *
+ * One place where the /dev shortcut and the token are weighed against each
+ * other, so requireSignedIn() and requireAdmin() cannot disagree about it.
+ *
+ * @param {string} token
+ * @return {Object|null}
+ */
+function currentSession(token) {
+  if (isDevContext() && !forceLoginOn()) {
+    return { u: 'developer', r: ROLE_ADMIN, dev: true };
+  }
+  return sessionFromToken(token);
+}
+
+
+/**
+ * Throws unless the token is good.
  *
  * The message is written for the person who will see it in a dialog, not for
- * a log file: it says what to do, not what went wrong.
+ * a log file: it says what to do, not what went wrong. Both of the ways a
+ * session ends - two hours passing, or the page being reopened without one -
+ * land here, and "sign in again" is the answer to both.
  */
-function requireSignedIn() {
-  if (!currentSession()) {
+function requireSignedIn(token) {
+  if (!currentSession(token)) {
     throw new Error('Your session has ended. Reload the page and sign in again.');
   }
 }
 
 
-/** Throws unless the person signed in is an admin. */
-function requireAdmin() {
-  const session = currentSession();
+/** Throws unless the token says ADMIN. */
+function requireAdmin(token) {
+  const session = currentSession(token);
   if (!session) {
     throw new Error('Your session has ended. Reload the page and sign in again.');
   }
@@ -432,9 +530,10 @@ function requireAdmin() {
  * Throws unless the Google account running this owns the app.
  *
  * For the maintenance functions that are run from the EDITOR rather than the
- * browser — setup, compaction, wiping the tickets. They have no web session
- * to check, and they are the most destructive things in the project, so they
- * are tied to one Google account instead.
+ * browser - setup, compaction, wiping the tickets. They have no token to
+ * check, and they are the most destructive things in the project, so they are
+ * tied to one Google account instead. A token can never reach them, whatever
+ * role it carries.
  *
  * Fails closed: if the email cannot be read, nobody gets through.
  */
@@ -455,9 +554,9 @@ function requireOwner() {
 }
 
 
-/** The signed-in role, or '' — for code that wants to branch, not throw. */
-function currentRole() {
-  const session = currentSession();
+/** The role behind a token, or '' - for code that wants to branch, not throw. */
+function currentRole(token) {
+  const session = currentSession(token);
   return session ? session.r : '';
 }
 
@@ -465,88 +564,6 @@ function currentRole() {
 // ---------------------------------------------------------------------------
 // internals
 // ---------------------------------------------------------------------------
-
-/**
- * The live session, or null.
- *
- * Sessions expire. Without that, signing in once on a shared machine leaves
- * an admin session sitting there for anyone who opens the browser next.
- */
-function currentSession() {
-  // A developer running the script under their own permissions is an admin and
-  // is not asked to sign in. Deciding it here means requireSignedIn() and
-  // requireAdmin() both follow automatically — there is no second copy of the
-  // rule to forget about. ?login=1 suspends it for this browser.
-  if (isDevContext() && !forceLoginOn()) {
-    return { u: 'developer', r: ROLE_ADMIN, at: Date.now(), dev: true };
-  }
-
-  // If visitors cannot be told apart, a stored session does not belong to
-  // anyone in particular, so nobody is signed in. Checked here rather than in
-  // each guard so there is one place it can be got wrong.
-  if (deploymentProblem()) return null;
-
-  const props = PropertiesService.getUserProperties();
-  const raw = props.getProperty(SESSION_KEY);
-  if (!raw) return null;
-
-  let session;
-  try { session = JSON.parse(raw); } catch (e) { return null; }
-  if (!session || !session.r) return null;
-
-  // The session records who it was issued to, and it is only good for them.
-  // Belt and braces over the property store's own per-user separation: if that
-  // separation ever stops holding — a deployment setting changed, a session
-  // written under an older configuration — this catches it and signs them out
-  // instead of lending one person's role to another.
-  if (String(session.k || '') !== visitorKey()) {
-    props.deleteProperty(SESSION_KEY);
-    return null;
-  }
-
-  const ageHours = (Date.now() - (session.at || 0)) / 3600000;
-  if (ageHours > SESSION_HOURS) {
-    props.deleteProperty(SESSION_KEY);
-    return null;
-  }
-
-  return session;
-}
-
-
-/** Is this browser set to ask for the sign-in even where it need not? */
-function forceLoginOn() {
-  try {
-    return PropertiesService.getUserProperties()
-      .getProperty(FORCE_LOGIN_KEY) === '1';
-  } catch (e) {
-    return false;
-  }
-}
-
-
-/**
- * Turns the sign-in on for a developer who would otherwise be let straight in.
- *
- * Called from doGet() when the URL carries ?login=1, and switched off again
- * with ?login=0. It is a real server-side switch, not a screen that merely
- * looks locked: the guards read currentSession() like everything else, so
- * while it is on the owner genuinely has whatever role they signed in with —
- * which is the only way to check what a viewer actually sees.
- *
- * @param {boolean} on
- */
-function setForceLogin(on) {
-  const props = PropertiesService.getUserProperties();
-  if (on) {
-    props.setProperty(FORCE_LOGIN_KEY, '1');
-    props.deleteProperty(SESSION_KEY);   // start from the card, not mid-session
-  } else {
-    props.deleteProperty(FORCE_LOGIN_KEY);
-  }
-  return { ok: true, forced: Boolean(on) };
-}
-
 
 function readAccounts() {
   const raw = PropertiesService.getScriptProperties().getProperty(ACCOUNTS_KEY);
@@ -565,7 +582,7 @@ function writeAccounts(accounts) {
  * Salted, repeated SHA-256.
  *
  * The salt is per account, so two people choosing the same password do not
- * end up with the same hash — which is what makes a stolen properties dump
+ * end up with the same hash - which is what makes a stolen properties dump
  * worth less than it looks.
  */
 function hashOf(password, salt) {
@@ -579,11 +596,11 @@ function hashOf(password, salt) {
 
 
 /**
- * Wrong-attempt tracking, per Google account rather than per username.
+ * Wrong-attempt tracking, in the script cache rather than in properties.
  *
- * Per username would let anyone lock out the whole team by guessing "admin"
- * wrongly eight times. Per Google account, a person can only lock out
- * themselves, which is the behaviour you want.
+ * The cache expires entries by itself, so a lockout lifts without anything
+ * having to remember to clear it, and a burst of wrong guesses cannot leave
+ * rubbish behind in Script Properties for good.
  */
 function attemptKey(name) {
   return 'EAS_FAILED_' + name;
@@ -591,35 +608,35 @@ function attemptKey(name) {
 
 
 function recordFailure(name) {
-  const props = PropertiesService.getUserProperties();
-  const raw = props.getProperty(attemptKey(name));
-  let record = { n: 0, at: 0 };
-  if (raw) { try { record = JSON.parse(raw); } catch (e) { /* start over */ } }
+  const cache = CacheService.getScriptCache();
+  const raw = cache.get(attemptKey(name));
 
-  record.n = (record.n || 0) + 1;
-  record.at = Date.now();
-  props.setProperty(attemptKey(name), JSON.stringify(record));
+  let count = 0;
+  if (raw) { count = parseInt(raw, 10) || 0; }
+  count++;
+
+  // Re-stamping the expiry on each failure is what makes the lockout a
+  // rolling window: guessing again during it extends it rather than waiting
+  // it out while still guessing.
+  cache.put(attemptKey(name), String(count), LOCKOUT_MINUTES * 60);
 }
 
 
 function clearFailures(name) {
-  PropertiesService.getUserProperties().deleteProperty(attemptKey(name));
+  CacheService.getScriptCache().remove(attemptKey(name));
 }
 
 
 /** Minutes still to wait, or 0. */
 function lockoutRemaining(name) {
-  const raw = PropertiesService.getUserProperties().getProperty(attemptKey(name));
+  const raw = CacheService.getScriptCache().get(attemptKey(name));
   if (!raw) return 0;
 
-  let record;
-  try { record = JSON.parse(raw); } catch (e) { return 0; }
-  if (!record || (record.n || 0) < MAX_ATTEMPTS) return 0;
+  const count = parseInt(raw, 10) || 0;
+  if (count < MAX_ATTEMPTS) return 0;
 
-  const waitedMin = (Date.now() - (record.at || 0)) / 60000;
-  if (waitedMin >= LOCKOUT_MINUTES) {
-    clearFailures(name);
-    return 0;
-  }
-  return Math.ceil(LOCKOUT_MINUTES - waitedMin);
+  // The cache does not report how long is left on an entry, and the window is
+  // re-stamped on every failure anyway, so the honest answer is the whole
+  // window rather than a countdown that would be wrong.
+  return LOCKOUT_MINUTES;
 }
