@@ -147,6 +147,17 @@
    * token handing back the previous person's session instead.
    */
   function loadToken(done) {
+    // The developer shortcut, if ?admin=1 was asked for AND the server agreed.
+    // Checked before anything else: it is the freshest answer there is, minted
+    // for this page load, so it should win over a leftover from an earlier one.
+    try {
+      if (window.__EAS_DEV_TOKEN__) {
+        AUTH.token = window.__EAS_DEV_TOKEN__;
+        try { sessionStorage.setItem(TOKEN_STORE, AUTH.token); } catch (e) { /* fine */ }
+        return done();
+      }
+    } catch (e) { /* not there - carry on and ask for the sign-in */ }
+
     const fallBackToStorage = function () {
       try {
         AUTH.token = sessionStorage.getItem(TOKEN_STORE) || '';
@@ -163,17 +174,6 @@
           if (answered) return;
           answered = true;
           const p = (location && location.parameter) || {};
-
-          // ?login=1 means "ask me for the sign-in", so it has to throw away
-          // whatever is being held as well. Without this it would only take
-          // effect for somebody who was already signed out, which is the one
-          // person who did not need it.
-          if (p.login === '1') {
-            AUTH.token = '';
-            try { sessionStorage.removeItem(TOKEN_STORE); } catch (e) { /* fine */ }
-            return done();
-          }
-
           if (p[TOKEN_PARAM]) { AUTH.token = p[TOKEN_PARAM]; return done(); }
           fallBackToStorage();
         });
@@ -427,10 +427,10 @@
     const readOnly = document.getElementById('uploadReadOnly');
     if (readOnly) readOnly.hidden = isAdmin;
 
-    // DEV means the script is running with the developer's own permissions -
-    // the /dev link, or the owner on /exec - which is why no login was asked
-    // for. Saying so removes the guesswork about whether you are looking at
-    // the deployed version or at your latest save.
+    // DEV means this page was opened with ?admin=1 by somebody who can edit
+    // the script, so the sign-in was skipped on purpose. It is marked because
+    // a session nobody typed a password for should never be mistaken for one
+    // that somebody did.
     //
     // Read from the session first and the bootstrap second, because this now
     // runs before the bootstrap returns as well as after it.
@@ -443,15 +443,16 @@
       badge.classList.toggle('is-admin', isAdmin);
       badge.classList.toggle('is-dev', isDev);
       badge.title = isDev
-        ? 'Running with your own permissions \u2014 the development link, or the ' +
-          'owner opening the live link. That is why no sign-in was asked for. ' +
-          'Add ?login=1 to the address to be asked anyway.'
+        ? 'Opened with ?admin=1, which skips the sign-in for someone who can ' +
+          'edit the script. Take it off the address to sign in normally.'
         : '';
     }
 
-    // Nothing to sign out of on /dev.
+    // Sign out is always offered now, the developer shortcut included: there
+    // is a real token behind it either way, and throwing it away is a
+    // reasonable thing to want to do.
     const out = document.getElementById('signOut');
-    if (out) out.hidden = isDev;
+    if (out) out.hidden = false;
 
     setText('operatorName',
       (state.boot && state.boot.username) ? state.boot.username :

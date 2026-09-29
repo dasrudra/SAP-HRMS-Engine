@@ -47,22 +47,22 @@ function doGet(e) {
       .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
   }
 
-  // ---- ?login=1 ----
-  // The owner is let straight in wherever they open the app, because Apps
-  // Script cannot tell the owner on /exec apart from a developer on /dev (see
-  // isDevContext). This is how the owner asks to be treated as an ordinary
-  // visitor, so the team's experience can actually be checked before it is
-  // handed to the team. ?login=0 puts it back.
-  const params = (e && e.parameter) || {};
-  if (params.login === '1' || params.login === '0') {
-    try { setForceLogin(params.login === '1'); } catch (err) { /* not fatal */ }
-  }
-
   const template = HtmlService.createTemplateFromFile('Index');
 
   // Anything assigned to `template` is readable inside Index.html as <?= ?>.
   template.appName = CONFIG.APP_NAME;
   template.appVersion = CONFIG.APP_VERSION;
+
+  // ---- the developer shortcut, and the ONLY place it can happen ----
+  // doGet is the one function in the project that can see the address the
+  // visitor typed, so it is the one place that can tell "I deliberately asked
+  // to skip the sign-in" from "I opened the link". Everything else - every
+  // guard, every endpoint - just sees a token and cannot be surprised.
+  //
+  // With no ?admin=1 this is '', so the page has nothing to go in with and
+  // shows the sign-in card. That is what every ordinary visit to every URL
+  // now does, including the owner's own visit to /exec.
+  template.devToken = devTokenIfAllowed((e && e.parameter) || {});
 
   return template
     .evaluate()

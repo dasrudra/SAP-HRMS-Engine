@@ -905,4 +905,19 @@
   </div>
 </div>
 
+<!--
+  The developer shortcut's token, when one was earned - see devTokenIfAllowed()
+  in Auth.gs. It is '' for every ordinary visit, which is what makes the
+  sign-in card appear. Written here rather than fetched, because it has to be
+  in hand before the first server call is made.
+
+  <?= ?> is the ESCAPING tag on purpose. A token is base64 and a dot, so there
+  is nothing in it to escape - but this is a value going into a script, and
+  the habit of using the non-escaping tag for those is how an injection gets
+  written one day.
+-->
+<script>
+  window.__EAS_DEV_TOKEN__ = '<?= devToken ?>';
+</script>
+
 <?!= include('App'); ?>

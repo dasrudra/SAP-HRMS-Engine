@@ -123,14 +123,6 @@ const HASH_ROUNDS = 600;
 const MAX_ATTEMPTS = 20;
 const LOCKOUT_MINUTES = 10;
 
-/**
- * User Property that makes the sign-in appear for somebody who would
- * otherwise be let straight through. Set by opening the app with ?login=1.
- * Only ever relevant on /dev, where Google does know who the visitor is.
- */
-const FORCE_LOGIN_KEY = 'EAS_FORCE_LOGIN';
-
-
 // ---------------------------------------------------------------------------
 // TOKENS
 // ---------------------------------------------------------------------------
@@ -163,14 +155,17 @@ function tokenSecret() {
  *
  * @param {string} username
  * @param {string} role
+ * @param {boolean} [dev]  marks the developer shortcut, so the badge can say
+ *                         DEV and nobody mistakes it for an ordinary sign-in
  * @return {string} payload.signature
  */
-function issueToken(username, role) {
+function issueToken(username, role, dev) {
   const payload = {
     u: username,
     r: role,
     x: Date.now() + (SESSION_HOURS * 3600000)
   };
+  if (dev) payload.d = 1;
   const body = Utilities.base64EncodeWebSafe(
     Utilities.newBlob(JSON.stringify(payload)).getBytes());
   return body + '.' + signatureOf(body);
@@ -269,35 +264,39 @@ function isDevContext() {
 }
 
 
-/** Is this browser set to ask for the sign-in even where it need not? */
-function forceLoginOn() {
-  try {
-    return PropertiesService.getUserProperties()
-      .getProperty(FORCE_LOGIN_KEY) === '1';
-  } catch (e) {
-    return false;
-  }
-}
-
-
 /**
- * Turns the sign-in on for a developer who would otherwise be let straight in.
+ * The developer shortcut: a token handed out instead of a password, but ONLY
+ * when it is deliberately asked for.
  *
- * Called from doGet() when the URL carries ?login=1, and switched off again
- * with ?login=0. A real server-side switch, not a screen that merely looks
- * locked: while it is on, the developer genuinely holds whatever role they
- * signed in with, which is the only way to check what a viewer really sees.
+ * NOTHING IS AUTOMATIC HERE, AND THAT IS THE WHOLE POINT.
+ * An earlier build let isDevContext() waive the sign-in on its own. That was
+ * wrong, and wrong in a way that was invisible: opening the ordinary /exec
+ * link while signed in to the owning Google account went straight into the
+ * dashboard as DEV / ADMIN with no sign-in at all - because Apps Script
+ * cannot tell the owner on /exec apart from a developer on /dev, and the code
+ * guessed rather than asking.
  *
- * @param {boolean} on
+ * So it no longer guesses. Every plain visit to every URL asks for the
+ * sign-in. This hands out a token only when BOTH hold:
+ *
+ *   1. the address explicitly says ?admin=1, so it can never happen by
+ *      simply opening a link, and
+ *   2. isDevContext() - the script is running as the person using it, which
+ *      is true on /dev and for the owner, and false for everybody else.
+ *
+ * Condition 2 is what makes condition 1 safe to expose: a visitor who adds
+ * ?admin=1 to the /exec link gets nothing, because the app is not running as
+ * them. Condition 1 is what makes condition 2 acceptable: it can only happen
+ * on purpose.
+ *
+ * @param {Object} params  e.parameter from doGet
+ * @return {string} a token, or '' for everybody else
  */
-function setForceLogin(on) {
-  const props = PropertiesService.getUserProperties();
-  if (on) {
-    props.setProperty(FORCE_LOGIN_KEY, '1');
-  } else {
-    props.deleteProperty(FORCE_LOGIN_KEY);
-  }
-  return { ok: true, forced: Boolean(on) };
+function devTokenIfAllowed(params) {
+  const asked = params && params.admin === '1';
+  if (!asked) return '';
+  if (!isDevContext()) return '';
+  return issueToken('developer', ROLE_ADMIN, true);
 }
 
 
@@ -464,14 +463,10 @@ function logout() {
  * @return {{signedIn: boolean, role: string, username: string, mode: string}}
  */
 function getSession(token) {
-  if (isDevContext() && !forceLoginOn()) {
-    return { signedIn: true, role: ROLE_ADMIN, username: 'developer',
-             mode: 'DEV' };
-  }
-
   const session = sessionFromToken(token);
   return session
-    ? { signedIn: true, role: session.r, username: session.u, mode: 'EXEC' }
+    ? { signedIn: true, role: session.r, username: session.u,
+        mode: session.d ? 'DEV' : 'EXEC' }
     : { signedIn: false, role: '', username: '', mode: 'EXEC' };
 }
 
@@ -490,9 +485,6 @@ function getSession(token) {
  * @return {Object|null}
  */
 function currentSession(token) {
-  if (isDevContext() && !forceLoginOn()) {
-    return { u: 'developer', r: ROLE_ADMIN, dev: true };
-  }
   return sessionFromToken(token);
 }
 
