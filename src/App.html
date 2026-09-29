@@ -4593,8 +4593,10 @@
 
       '<td class="r thr-ach">' + achievementCell(kpi) + '</td>' +
 
-      '<td class="thr-doc">' + policyLink(kpi) + '</td>' +
-
+      // Reading now before Definition: it belongs beside KPI Achievement,
+      // which is the same measurement expressed against the target. The
+      // Definition button is a document to open rather than a figure to read,
+      // so it goes last, where nothing has to line up underneath it.
       '<td class="r thr-now">' +
         (actual === null
           ? '<span class="thr-read is-none">' +
@@ -4602,7 +4604,9 @@
           : '<span class="thr-read" style="color:' + bandColour(band) + '">' +
               fmt(actual) + escapeHtml(kpi.unit) + '</span>' +
             '<small>' + escapeHtml(kpiPeriodLabel(kpi)) + '</small>') +
-      '</td>';
+      '</td>' +
+
+      '<td class="thr-doc">' + policyLink(kpi) + '</td>';
   }
 
 
