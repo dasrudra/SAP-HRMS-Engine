@@ -911,10 +911,17 @@
   sign-in card appear. Written here rather than fetched, because it has to be
   in hand before the first server call is made.
 
-  <?= ?> is the ESCAPING tag on purpose. A token is base64 and a dot, so there
-  is nothing in it to escape - but this is a value going into a script, and
-  the habit of using the non-escaping tag for those is how an injection gets
-  written one day.
+  The ESCAPING scriptlet is used below on purpose. A token is base64 and a
+  dot, so there is nothing in it to escape - but this is a value going into a
+  script, and the habit of reaching for the non-escaping one in that position
+  is how an injection gets written one day.
+
+  NEVER WRITE A SCRIPTLET TAG IN A COMMENT IN THIS FILE. Apps Script scans the
+  whole template for them and does not skip HTML comments, so an empty one
+  written here as an example compiles to a bare semicolon and the whole app
+  dies with "SyntaxError: Unexpected token ';'" - reported against the
+  .evaluate() line in Code.gs, which is nowhere near the actual mistake. That
+  is not hypothetical; it is why this comment no longer contains one.
 -->
 <script>
   window.__EAS_DEV_TOKEN__ = '<?= devToken ?>';
