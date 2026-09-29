@@ -997,7 +997,7 @@
 
 
   /**
-   * Turns a feedback export into TRAINING rows \u2014 one per respondent.
+   * Turns a feedback export into TRAINING rows - one per respondent.
    *
    * The seven answers are stored as the RAW TEXT the attendee chose. Deciding
    * positive from average happens at scoring time, so the classification in
@@ -1019,7 +1019,7 @@
       if (key.indexOf('plant') !== -1 && position.plant === undefined) position.plant = i;
       // From this quarter the form asks which zone the training was held in,
       // and a Module question is being added the same way. Older exports have
-      // neither column and simply leave them blank \u2014 which is the truth about
+      // neither column and simply leave them blank - which is the truth about
       // them, not a gap to be guessed at. Both are then resolved at scoring
       // time, so the filename remains a fallback and Config stays the place
       // where the mapping can be corrected.
@@ -4972,7 +4972,7 @@
 
     // No two boxes may end up on the same period. Switching KPI used to do
     // exactly that: the first box lost its month (not in the new list) and
-    // fell back to the newest, which the second box was already holding \u2014 so
+    // fell back to the newest, which the second box was already holding - so
     // both read August, the two collapsed to one, and Compare refused to run
     // while the tables sat there still showing the previous KPI.
     const taken = {};
@@ -5014,7 +5014,7 @@
 
 
   /**
-   * Retitles the whole picker for the KPI in hand \u2014 Month or Quarter.
+   * Retitles the whole picker for the KPI in hand - Month or Quarter.
    *
    * The page heading and the four field labels are the only places the unit is
    * spelled out before anything has been compared, so they are the only places
@@ -5044,15 +5044,15 @@
   /**
    * The chosen KPI's target and SLA layer, under its selector.
    *
-   * The KPI decides what the period list even contains \u2014 pick it second and
-   * the months you just chose are thrown away \u2014 so it is worth more than a
+   * The KPI decides what the period list even contains - pick it second and
+   * the months you just chose are thrown away - so it is worth more than a
    * bare dropdown. This says which indicator you are on without making you
    * read it off the results below.
    *
    * There was a count of the selected periods beside the button too. It went
    * stale: applyPendingTo restores the dropdowns by assigning el.value, which
    * fires no change event, so after a refresh the line kept the count it had
-   * before the URL's periods were put back \u2014 "2 months" over four full boxes.
+   * before the URL's periods were put back - "2 months" over four full boxes.
    * The comparison itself was always right, because it reads the dropdowns
    * when the button is pressed. A caption that can disagree with the controls
    * beside it is worse than no caption, so it is gone.
@@ -5129,7 +5129,7 @@
     state.compareRan = true;
     saveState();
 
-    // Every KPI is selectable \u2014 a disabled option tells you nothing about why.
+    // Every KPI is selectable - a disabled option tells you nothing about why.
     // Picking one without data shows an explanation instead.
     if (kpi && !kpi.active) return showComparisonPending(kpi);
 
@@ -5169,7 +5169,7 @@
    * Nothing here knows what a ticket is. The result object names its own
    * count columns in `measures` and its own breakdown in `sectionLabel`, so
    * KPI 1 and KPI 2 share one render path and KPI 3 will need no changes at
-   * all \u2014 only a comparison endpoint that fills the same fields in.
+   * all - only a comparison endpoint that fills the same fields in.
    */
   function renderComparison(c) {
     const empty = document.getElementById('cmpEmpty');
@@ -5210,7 +5210,7 @@
       '<th class="r">Success Rate</th><th class="r">Achievement</th>' +
       '<th>Band</th><th class="r">Headroom</th>' +
       // Spelled out in the header's tooltip and in the card title, because
-      // "(up arrow) 0.38" is unreadable without knowing what it is 0.38 OF \u2014 it is
+      // "(up arrow) 0.38" is unreadable without knowing what it is 0.38 OF - it is
       // percentage POINTS of success rate against the row above, not a
       // percentage change and not a change in ticket volume.
       '<th class="r" title="Success rate against the ' + period +
@@ -5375,7 +5375,7 @@
    *
    * en-US is pinned rather than left to the viewer's locale. The figures on
    * screen get read out in meetings against the ITSM's own reports, which
-   * print 2,640 \u2014 a browser set to a locale that groups differently would
+   * print 2,640 - a browser set to a locale that groups differently would
    * quietly disagree with the source.
    */
   function count(value) {
@@ -5479,17 +5479,17 @@
    *
    * Its own list, not KPI 1's: training runs on its own calendar, and a month
    * full of tickets need not have had a session in it. Defaults to All months
-   * \u2014 unlike KPI 1, where the policy reports monthly, training feedback is
+   * - unlike KPI 1, where the policy reports monthly, training feedback is
    * most often read cumulatively.
    */
   /**
-   * KPI 2's period picker \u2014 quarters, not months.
+   * KPI 2's period picker - quarters, not months.
    *
    * Training runs a few times a quarter, so a month is the wrong unit to read
    * it in: most months are empty and the ones that are not carry a rate over a
    * handful of responses. The quarters offered are the ones the data actually
    * has, and which months make up a quarter is settled on the server by
-   * CONFIG.QUARTER_START_MONTH \u2014 the picker only shows what it is told.
+   * CONFIG.QUARTER_START_MONTH - the picker only shows what it is told.
    */
   function fillFeedbackQuarters(quarters) {
     const select = document.getElementById('kpi2Month');
@@ -5520,7 +5520,7 @@
       const option = document.createElement('option');
       option.value = q.key;
       option.textContent = q.label;
-      // The months behind the label, for the tooltip \u2014 'Quarter 1 (2026)'
+      // The months behind the label, for the tooltip - 'Quarter 1 (2026)'
       // says nothing about which months it covers until you hover it. Falls
       // back to the quarter's own three months when every session in it was
       // placed by its filename rather than by a usable session date.
@@ -5547,7 +5547,7 @@
   /**
    * Every distinct quarter named in a blob of filenames, in time order.
    *
-   * Mirrors quarterFromFileName in Config.gs \u2014 deliberately, because this one
+   * Mirrors quarterFromFileName in Config.gs - deliberately, because this one
    * reads the filename cell of a history row and the server never sees it. The
    * conventions are one line each and the test suite checks both against the
    * same list of real filenames.
@@ -5603,7 +5603,7 @@
    * Re-scopes the By Individuals table, and nothing else.
    *
    * A quarter is three months summed, which is exactly what getKpi1 already
-   * does for 'ALL' \u2014 so the same call serves, with a quarter key instead of
+   * does for 'ALL' - so the same call serves, with a quarter key instead of
    * the sentinel. The result is kept apart from state.kpi on purpose: the
    * tiles, both charts and the other two tables carry on showing the month
    * chosen at the top of the page.
@@ -5683,7 +5683,7 @@
    * The trim is the whole point. Some Completion Date cells in the ITSM export
    * hold a single space. Testing only for '' treats that space as real, the
    * merge keeps it, and the genuine date from the other report never replaces
-   * it \u2014 one ticket silently becomes incomplete.
+   * it - one ticket silently becomes incomplete.
    */
   function isBlank(value) {
     return value === null || value === undefined || String(value).trim() === '';

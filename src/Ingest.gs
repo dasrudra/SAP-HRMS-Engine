@@ -1047,7 +1047,7 @@ function csvCell(value) {
  * Run by hand from the editor when you want a clean slate.
  */
 function clearAllTickets() {
-  // Editor-only maintenance, tied to the owning account \u2014 see Auth.gs.
+  // Editor-only maintenance, tied to the owning account - see Auth.gs.
   requireOwner();
   const sheet = sheetFor(CONFIG.SHEETS.TICKETS);
   const lastRow = sheet.getLastRow();
@@ -1085,7 +1085,7 @@ function truthy(value) {
  * The trim matters. Some Completion Date cells in the ITSM export contain a
  * single space. Testing only for '' treats that space as a real value, so the
  * merge keeps it and the genuine completion date from the other report never
- * replaces it \u2014 one ticket silently becomes "incomplete". With a KPI whose
+ * replaces it - one ticket silently becomes "incomplete". With a KPI whose
  * whole margin is one ticket, that is not a rounding detail.
  *
  * @param {*} value

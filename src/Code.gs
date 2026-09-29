@@ -62,7 +62,8 @@ function doGet(e) {
   // With no ?admin=1 this is '', so the page has nothing to go in with and
   // shows the sign-in card. That is what every ordinary visit to every URL
   // now does, including the owner's own visit to /exec.
-  template.devToken = devTokenIfAllowed((e && e.parameter) || {});
+  const params = (e && e.parameter) ? e.parameter : {};
+  template.devToken = devTokenIfAllowed(params);
 
   return template
     .evaluate()
