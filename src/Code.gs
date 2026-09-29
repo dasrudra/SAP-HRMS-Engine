@@ -22,6 +22,42 @@
  *                    (see App.html) because that keeps the server stateless.
  */
 function doGet(e) {
+  // ---- Auth.gs has to be here, and once it was not ----
+  // Every role check in the project lives in that one file. It was deleted
+  // from the project once, and because /exec serves a frozen version the
+  // dashboard carried on working from the last deployment while the editor
+  // had no guards at all — so the next deploy would have published an open
+  // dashboard and nothing would have said a word. This refuses to serve the
+  // page instead. In Apps Script a missing file is a missing global, so the
+  // test is simply whether the guard exists.
+  if (typeof requireSignedIn !== 'function' || typeof getSession !== 'function') {
+    return HtmlService.createHtmlOutput(
+      '<div style="font:15px/1.65 system-ui,sans-serif;max-width:34em;' +
+      'margin:12vh auto;padding:0 1.5em;color:#1f2933">' +
+      '<h2 style="margin:0 0 .5em;font-size:1.3em">Auth.gs is missing</h2>' +
+      '<p>The file holding every permission check is not in this Apps Script ' +
+      'project, so the dashboard has not been served. Your data is untouched.</p>' +
+      '<p>Add <b>Auth.gs</b> back to the project, save, then ' +
+      '<b>Deploy &rarr; Manage deployments &rarr; pencil &rarr; New version</b>.</p>' +
+      '</div>')
+      // A literal, not CONFIG.APP_NAME: this page's whole job is to be the
+      // thing that still works when a file is missing, so it must not itself
+      // depend on another file being there.
+      .setTitle('EAS KPI Engine')
+      .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+  }
+
+  // ---- ?login=1 ----
+  // The owner is let straight in wherever they open the app, because Apps
+  // Script cannot tell the owner on /exec apart from a developer on /dev (see
+  // isDevContext). This is how the owner asks to be treated as an ordinary
+  // visitor, so the team's experience can actually be checked before it is
+  // handed to the team. ?login=0 puts it back.
+  const params = (e && e.parameter) || {};
+  if (params.login === '1' || params.login === '0') {
+    try { setForceLogin(params.login === '1'); } catch (err) { /* not fatal */ }
+  }
+
   const template = HtmlService.createTemplateFromFile('Index');
 
   // Anything assigned to `template` is readable inside Index.html as <?= ?>.

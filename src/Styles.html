@@ -629,6 +629,15 @@
     background: rgba(208,59,59,.18); border: 1px solid rgba(208,59,59,.45);
     color: #ffc9c9; font-size: 12.5px; line-height: 1.45;
   }
+  /* A deployment misconfiguration, not a wrong password. Amber rather than
+     red, and above the form rather than inside it, because the person reading
+     it has something to go and change — not another password to try. */
+  .login-alert {
+    margin: 0 0 16px; padding: 12px 14px; border-radius: 8px;
+    background: rgba(237,161,0,.14); border: 1px solid rgba(237,161,0,.45);
+    color: #ffdfa3; font-size: 12.5px; line-height: 1.55; text-align: left;
+  }
+
   .login-go { width: 100%; justify-content: center; padding: 11px; font-size: 14px; }
   .login-go:disabled { opacity: .6; cursor: default; }
 

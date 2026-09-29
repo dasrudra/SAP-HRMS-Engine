@@ -60,6 +60,12 @@
     // NOT what the server allows, which is decided again on every call.
     role: '',
 
+    // Who, and whether a login was asked for. Both arrive with the session,
+    // ahead of the bootstrap, so the top bar can be right from the first
+    // frame rather than correcting itself when the figures land.
+    username: '',
+    mode: 'EXEC',
+
     // Filter values read back from the URL before the dropdowns they belong to
     // exist. Applied once the data lands and the options are built.
     pending: null,
@@ -109,8 +115,19 @@
   function onSession(session) {
     if (session && session.signedIn) {
       state.role = session.role;
+      state.username = session.username || '';
+      state.mode = session.mode || 'EXEC';
       startApp();
       return;
+    }
+
+    // A configuration problem the person looking at this is the one who can
+    // fix it. Shown instead of leaving them to guess why nothing works.
+    const alert = document.getElementById('loginAlert');
+    if (alert) {
+      const notice = (session && session.notice) || '';
+      alert.hidden = !notice;
+      alert.textContent = notice;
     }
 
     hide('loader');
@@ -125,6 +142,12 @@
     const root = document.getElementById('appRoot');
     if (root) root.hidden = false;
     show('loader');
+
+    // Badge and name now, not when the figures arrive. The session already
+    // said who this is, and a top bar that reads "USER" for the second it
+    // takes to load — to somebody who just signed in as admin — is the page
+    // telling them something untrue.
+    applyRole();
 
     google.script.run
       .withSuccessHandler(onBootstrap)
@@ -163,6 +186,8 @@
           done();
           if (result && result.ok) {
             state.role = result.role;
+            state.username = result.username || '';
+            state.mode = 'EXEC';   // a login was asked for, so this is not /dev
             setValue('loginPass', '');
             startApp();
             return;
@@ -220,6 +245,8 @@
    */
   function showSignIn() {
     state.role = '';
+    state.username = '';
+    state.mode = 'EXEC';
     state.boot = null;
     state.kpi = null;
     state.kpi2 = null;
@@ -270,10 +297,15 @@
     const readOnly = document.getElementById('uploadReadOnly');
     if (readOnly) readOnly.hidden = isAdmin;
 
-    // DEV means the /dev URL, which only script editors can open and which
-    // never asks for a login. Saying so removes the guesswork about whether
-    // you are looking at the deployed version or at your latest save.
-    const isDev = Boolean(state.boot && state.boot.mode === 'DEV');
+    // DEV means the script is running with the developer's own permissions —
+    // the /dev link, or the owner on /exec — which is why no login was asked
+    // for. Saying so removes the guesswork about whether you are looking at
+    // the deployed version or at your latest save.
+    //
+    // Read from the session first and the bootstrap second, because this now
+    // runs before the bootstrap returns as well as after it.
+    const mode = (state.boot && state.boot.mode) || state.mode || 'EXEC';
+    const isDev = mode === 'DEV';
 
     const badge = document.getElementById('roleBadge');
     if (badge) {
@@ -281,8 +313,9 @@
       badge.classList.toggle('is-admin', isAdmin);
       badge.classList.toggle('is-dev', isDev);
       badge.title = isDev
-        ? 'The development link. Only people with edit access to the script can ' +
-          'open it, so it does not ask for a login.'
+        ? 'Running with your own permissions — the development link, or the ' +
+          'owner opening the live link. That is why no sign-in was asked for. ' +
+          'Add ?login=1 to the address to be asked anyway.'
         : '';
     }
 
@@ -292,6 +325,7 @@
 
     setText('operatorName',
       (state.boot && state.boot.username) ? state.boot.username :
+      state.username ? state.username :
       (isAdmin ? 'admin' : 'viewer'));
   }
 

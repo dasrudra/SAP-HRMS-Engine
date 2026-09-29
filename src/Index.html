@@ -37,6 +37,14 @@
     <h1>Sign in</h1>
     <p class="login-sub">Enterprise Applications Services &middot; KPI reporting</p>
 
+    <!--
+      A deployment setting that makes the sign-in meaningless, said out loud.
+      Filled by onSession() from getSession().notice and hidden the rest of
+      the time. It sits ABOVE the form because when it is showing, no password
+      will be accepted — signing in is not the next thing to try.
+    -->
+    <div class="login-alert" id="loginAlert" hidden></div>
+
     <form id="loginForm" autocomplete="on">
       <label class="login-field">
         <span>Username</span>

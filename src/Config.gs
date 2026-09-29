@@ -239,7 +239,7 @@ const CONFIG = {
       // the team, and paste the link here — the Settings table turns it into
       // the button beside this row. Must start http:// or https://; anything
       // else is ignored and the button stays greyed out.
-      policyUrl: '',
+      policyUrl: 'https://drive.google.com/file/d/103CduvXK2_JuN6XflsxqnHhjy_OGy0WK/view?usp=sharing',
       target: 99.50,        // green at or above this
       yellowFloor: 89.55,   // below this is red
       unit: '%',
@@ -259,7 +259,7 @@ const CONFIG = {
       // into a clean 81.00–89.99 band.
       measure: 'Actual Success Rate (%)',
       formula: '(Total Positive Responses ÷ Total Applicable Responses) × 100',
-      policyUrl: '',
+      policyUrl: 'https://drive.google.com/file/d/1-ixPnDc0o5Do2wNDFc3TKUk4qTenW7j9/view?usp=sharing',
       target: 90.00,
       yellowFloor: 81.00,
       unit: '%',
