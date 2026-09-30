@@ -274,6 +274,21 @@
     const form = document.getElementById('loginForm');
     if (!form) return;
 
+    // Show / hide the password. Typing a shared password wrongly and being
+    // told only "that does not match" is the most annoying way to be kept out,
+    // and this is the whole fix for it.
+    bind('loginPeek', 'click', function () {
+      setPasswordVisible(getPasswordInput().type === 'password');
+      // Back to the field, at the end of what is typed, so the reveal does not
+      // cost you your place.
+      const box = getPasswordInput();
+      if (box) {
+        box.focus();
+        const end = box.value.length;
+        try { box.setSelectionRange(end, end); } catch (e) { /* not selectable */ }
+      }
+    });
+
     form.addEventListener('submit', function (e) {
       e.preventDefault();
 
@@ -299,6 +314,7 @@
             // Before startApp(), which immediately calls the server with it.
             keepToken(result.token);
             setValue('loginPass', '');
+            setPasswordVisible(false);   // never leave it readable behind you
             startApp();
             return;
           }
@@ -357,6 +373,33 @@
    * sign-in card means the next person to sign in sees the previous person's
    * period for the moment before their own data arrives.
    */
+  function getPasswordInput() {
+    return document.getElementById('loginPass');
+  }
+
+
+  /**
+   * Shows or hides the password, and says which on the button.
+   *
+   * Always called with an explicit state rather than toggling, so that every
+   * place which needs the field to go back to hidden - signing out, a session
+   * expiring, a failed attempt - says so and cannot leave it readable by
+   * flipping it the wrong way.
+   *
+   * @param {boolean} visible
+   */
+  function setPasswordVisible(visible) {
+    const box = getPasswordInput();
+    const button = document.getElementById('loginPeek');
+    if (box) box.type = visible ? 'text' : 'password';
+    if (button) {
+      button.classList.toggle('is-on', visible);
+      button.setAttribute('aria-pressed', visible ? 'true' : 'false');
+      button.setAttribute('aria-label', visible ? 'Hide password' : 'Show password');
+    }
+  }
+
+
   /**
    * A line above the sign-in form, or '' to clear it.
    *
@@ -401,6 +444,9 @@
     show('loginScreen');
 
     setValue('loginPass', '');
+    // The card is being put back in front of somebody - possibly a different
+    // somebody. It starts hidden every time, whatever the last person left it on.
+    setPasswordVisible(false);
     const box = document.getElementById('loginError');
     if (box) box.hidden = true;
 

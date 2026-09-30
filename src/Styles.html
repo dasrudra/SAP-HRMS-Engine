@@ -624,6 +624,35 @@
     box-shadow: 0 0 0 3px rgba(124,177,255,.2);
   }
 
+  /* The password field, with room made on the right for the reveal button. */
+  .login-secret { position: relative; }
+  .login-secret input { padding-right: 44px; }
+
+  .peek {
+    position: absolute; right: 5px; bottom: 5px;
+    width: 34px; height: 34px; padding: 0;
+    display: grid; place-items: center;
+    background: transparent; border: 0; border-radius: 8px;
+    color: #8fa5c2; cursor: pointer;
+    transition: color .14s ease, background .14s ease;
+  }
+  .peek:hover { color: #cfe0f7; background: rgba(255,255,255,.07); }
+  /* Keyboard focus still has to be visible even though the button is skipped
+     in the tab order: Tab goes username -> password -> Sign in, because
+     revealing a password is a thing you reach for, not a step on the way. */
+  .peek:focus-visible {
+    outline: none; color: #cfe0f7;
+    box-shadow: 0 0 0 2px rgba(124,177,255,.55);
+  }
+  .peek svg { width: 18px; height: 18px; }
+
+  /* One of the two icons at a time. The crossed-out eye means "press to hide",
+     so it shows while the password is visible. */
+  .peek .off { display: none; }
+  .peek.is-on .on  { display: none; }
+  .peek.is-on .off { display: block; }
+  .peek.is-on { color: #cfe0f7; }
+
   .login-error {
     margin: 4px 0 14px; padding: 10px 13px; border-radius: 8px;
     background: rgba(208,59,59,.18); border: 1px solid rgba(208,59,59,.45);

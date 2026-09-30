@@ -51,10 +51,35 @@
         <input type="text" id="loginUser" name="username" autocomplete="username"
                autocapitalize="none" spellcheck="false" required>
       </label>
-      <label class="login-field">
+      <!--
+        The reveal is a BUTTON, not a checkbox, and it carries type="button" so
+        that pressing it never submits the form - a submit here would spend one
+        of the sign-in attempts the server counts.
+
+        Two icons, one hidden by CSS. Swapping a single icon's path in
+        JavaScript would mean the markup and the script both having to know
+        what an eye looks like; this way only the stylesheet does.
+      -->
+      <label class="login-field login-secret">
         <span>Password</span>
         <input type="password" id="loginPass" name="password"
                autocomplete="current-password" required>
+        <button type="button" class="peek" id="loginPeek"
+                aria-label="Show password" aria-pressed="false" tabindex="-1">
+          <svg class="on" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"
+               aria-hidden="true">
+            <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7Z"/>
+            <circle cx="12" cy="12" r="3"/>
+          </svg>
+          <svg class="off" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"
+               aria-hidden="true">
+            <path d="M2 12s3.6-7 10-7c2 0 3.7.7 5.1 1.6M22 12s-3.6 7-10 7c-2 0-3.7-.7-5.1-1.6"/>
+            <path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/>
+            <path d="M3 3l18 18"/>
+          </svg>
+        </button>
       </label>
 
       <div class="login-error" id="loginError" hidden></div>
