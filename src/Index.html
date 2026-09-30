@@ -960,4 +960,11 @@
   window.__EAS_DEV_TOKEN__ = '<?= devToken ?>';
 </script>
 
+<!--
+  The sign-in picture. Last, because it only styles the sign-in card and has
+  nothing the rest of the page waits for - and because it is 1,800 lines of
+  encoded photograph, which is better at the bottom than in the middle.
+-->
+<?!= include('Bg'); ?>
+
 <?!= include('App'); ?>

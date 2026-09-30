@@ -575,18 +575,35 @@
   .login-screen {
     position: fixed; inset: 0; z-index: 200;
     display: grid; place-items: center; padding: 24px;
-    background:
+
+    /* The card is pushed BELOW the picture's masthead rather than sitting
+       across the wordmark. Clamped at both ends and the screen scrolls, so a
+       short window still shows the whole card rather than clipping it. */
+    padding-top: clamp(24px, 20vh, 170px);
+    overflow-y: auto;
+
+    /* The colour underneath. Bg.html layers the photograph and the dark pool
+       on top of this; when that file is missing, or the window is too narrow
+       for the picture to mean anything, this is what is left - and it is the
+       background the sign-in had before, so nothing looks broken. */
+    background-color: #0b1426;
+    background-image:
       radial-gradient(900px 500px at 20% -10%, rgba(37,99,235,.35), transparent 62%),
       radial-gradient(760px 460px at 88% 10%, rgba(12,163,12,.16), transparent 60%),
       linear-gradient(180deg, #16233c 0%, #0b1426 100%);
   }
   .login-card {
     width: 100%; max-width: 384px;
-    background: rgba(255,255,255,.055);
-    border: 1px solid rgba(255,255,255,.14);
+    /* Darker and blurred, not the near-white pane it was. Over a photograph a
+       white translucent card picks up whatever is behind it and the labels
+       stop holding their contrast; this one is its own surface. */
+    background: rgba(12,20,36,.62);
+    border: 1px solid rgba(255,255,255,.16);
     border-radius: 14px;
     padding: 30px 30px 26px;
-    box-shadow: 0 30px 70px -30px rgba(0,0,0,.9);
+    box-shadow: 0 34px 80px -28px rgba(0,0,0,.95);
+    backdrop-filter: blur(9px) saturate(1.1);
+    -webkit-backdrop-filter: blur(9px) saturate(1.1);
     color: #e8eef8;
     animation: loginRise .32s cubic-bezier(.22,.61,.36,1) both;
   }
@@ -613,8 +630,8 @@
   .login-field input {
     width: 100%; box-sizing: border-box;
     padding: 11px 13px; border-radius: 9px;
-    background: rgba(0,0,0,.26);
-    border: 1px solid rgba(255,255,255,.16);
+    background: rgba(0,0,0,.34);
+    border: 1px solid rgba(255,255,255,.18);
     color: #fff; font-family: inherit; font-size: 14px;
     transition: border-color .16s ease, background .16s ease, box-shadow .16s ease;
   }
