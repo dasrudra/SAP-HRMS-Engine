@@ -611,15 +611,26 @@
     from { opacity: 0; transform: translateY(14px) scale(.985); }
     to   { opacity: 1; transform: none; }
   }
+  /* The three lines at the top of the card are centred as a group: heading,
+     then the badge and name, then what it reports on. Only this block is
+     centred - the fields below stay left-aligned, because a label that does
+     not start where its box starts is harder to read, not prettier. */
+  .login-card h1 {
+    margin: 0; font-size: 21px; font-weight: 700; letter-spacing: -.02em;
+    color: #fff; text-align: center;
+  }
   .login-brand {
-    display: flex; align-items: center; gap: 12px; margin-bottom: 24px;
+    display: flex; align-items: center; justify-content: center;
+    gap: 11px; margin: 16px 0 0;
   }
   .login-brand strong { display: block; font-size: 13.5px; color: #fff; }
   .login-brand span   { display: block; font-size: 11px; color: #93a9c9; }
-  .login-card h1 {
-    margin: 0; font-size: 21px; font-weight: 700; letter-spacing: -.02em; color: #fff;
+  /* The name and version read as one unit beside the badge, so they are left
+     aligned to each other even though the pair is centred in the card. */
+  .login-brand > div { text-align: left; }
+  .login-sub {
+    margin: 8px 0 22px; font-size: 12.5px; color: #93a9c9; text-align: center;
   }
-  .login-sub { margin: 5px 0 22px; font-size: 12.5px; color: #93a9c9; }
 
   .login-field { display: block; margin-bottom: 14px; }
   .login-field span {
