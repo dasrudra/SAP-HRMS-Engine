@@ -147,6 +147,43 @@
         <svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="2.4"/><path d="M8 1.2v1.6M8 13.2v1.6M14.8 8h-1.6M2.8 8H1.2M12.8 3.2l-1.1 1.1M4.3 11.7l-1.1 1.1M12.8 12.8l-1.1-1.1M4.3 4.3L3.2 3.2"/></svg>
         <span class="nav-text">Summary</span>
       </button>
+
+      <!--
+        LINKS - other systems, not screens of this app.
+
+        This one is an anchor carrying class nav-link, deliberately NOT
+        nav-item. wireNavigation() in App.html attaches a click handler to
+        every .nav-item and calls showView(dataset.view); an external link has
+        no view, showView falls back to KPI 1, and the click would silently
+        change the screen behind the new tab. Keeping it out of .nav-item
+        means that handler never sees it. Styles.html gives .nav-link the
+        same look.
+
+        Tag syntax is spelled out in words here rather than written literally.
+        A literal tag in a comment is invisible to the browser but not to a
+        grep or a test, and it sent this file's own regression check hunting
+        through prose instead of markup.
+
+        target="_blank" is required, not a preference: this page is inside
+        the Apps Script sandbox iframe, and a same-frame navigation to
+        another origin is refused by the browser.
+
+        rel="noopener noreferrer" stops the opened page from reaching back
+        through window.opener to redirect this tab, and keeps the internal
+        googleusercontent URL out of the other app's referrer logs.
+
+        The href comes from CONFIG so the address lives with every other
+        setting. Scriptlets run in the script's own scope, so CONFIG is in
+        reach here with no help from doGet.
+      -->
+      <div class="nav-group-label">Links</div>
+      <a class="nav-link" href="<?= CONFIG.SAP_APP_URL ?>"
+         target="_blank" rel="noopener noreferrer"
+         title="SAP &amp; HRMS Database Center - opens in a new tab">
+        <svg viewBox="0 0 16 16"><ellipse cx="8" cy="3.6" rx="5" ry="2"/><path d="M3 3.6v4c0 1.1 2.2 2 5 2s5-.9 5-2v-4M3 7.6v4c0 1.1 2.2 2 5 2s5-.9 5-2v-4"/></svg>
+        <span class="nav-text">SAP &amp; HRMS</span>
+        <svg class="nav-out" viewBox="0 0 16 16" aria-hidden="true"><path d="M6.5 3h-3A1.5 1.5 0 0 0 2 4.5v8A1.5 1.5 0 0 0 3.5 14h8a1.5 1.5 0 0 0 1.5-1.5v-3M9.5 2H14v4.5M14 2L7.5 8.5"/></svg>
+      </a>
     </nav>
    </div>
   </aside>

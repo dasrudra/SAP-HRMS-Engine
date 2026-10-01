@@ -38,6 +38,20 @@ const CONFIG = {
   APP_VERSION: 'v0.1',
 
   /**
+   * The SAP & HRMS Database Center - a separate web app, with its own login.
+   *
+   * It shows up in the sidebar under "Links" and opens in a NEW TAB. It has to
+   * be a new tab, not this one: this app is served inside an iframe (the Apps
+   * Script sandbox, inside the Blogger page), and navigating that iframe to
+   * another site is blocked by the browser. A new tab also means nobody loses
+   * a half-finished comparison by clicking the wrong thing.
+   *
+   * CHANGING THIS IS THE ONLY EDIT NEEDED to repoint the link - Index.html
+   * reads it straight from here.
+   */
+  SAP_APP_URL: 'https://sapuserhub.blogspot.com/',
+
+  /**
    * The four departments that make up Enterprise Application Services.
    *
    * This list is the definition of "EAS" for the whole system. It was derived

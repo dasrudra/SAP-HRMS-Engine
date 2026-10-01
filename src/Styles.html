@@ -108,8 +108,13 @@
   }
   .app.is-collapsed .brand-text,
   .app.is-collapsed .nav-group-label,
-  .app.is-collapsed .nav-item span.nav-text { display: none; }
-  .app.is-collapsed .nav-item { justify-content: center; padding-left: 0; padding-right: 0; }
+  .app.is-collapsed .nav-item span.nav-text,
+  .app.is-collapsed .nav-link span.nav-text,
+  /* No room for the little "leaves the app" arrow once the sidebar is down
+     to an icon strip, and the icon alone still says where it goes. */
+  .app.is-collapsed .nav-out { display: none; }
+  .app.is-collapsed .nav-item,
+  .app.is-collapsed .nav-link { justify-content: center; padding-left: 0; padding-right: 0; }
   .app.is-collapsed .brand { justify-content: center; padding-left: 0; padding-right: 0; }
   .app.is-collapsed .nav-item.is-active::before { display: none; }
 
@@ -149,7 +154,11 @@
     color: #6c82a1; padding: 12px 10px 6px;
   }
   .nav-group-label:first-child { padding-top: 2px; }
-  .nav-item {
+  /* .nav-link is the outward link under "Links". It is a separate class from
+     .nav-item on purpose - see the comment in Index.html - but it has to look
+     identical, so every rule below names both. */
+  .nav-item,
+  .nav-link {
     display: flex; align-items: center; gap: 11px;
     width: 100%; padding: 10px 12px;
     background: transparent; border: 0; border-radius: 7px;
@@ -157,9 +166,13 @@
     cursor: pointer; transition: background .12s, color .12s;
     position: relative;
   }
-  .nav-item:hover { background: rgba(255,255,255,.09); color: #fff; }
-  .nav-item:hover svg { transform: scale(1.08); }
-  .nav-item svg { transition: transform .14s ease; }
+  .nav-link { text-decoration: none; box-sizing: border-box; }
+  .nav-item:hover,
+  .nav-link:hover { background: rgba(255,255,255,.09); color: #fff; }
+  .nav-item:hover svg,
+  .nav-link:hover svg { transform: scale(1.08); }
+  .nav-item svg,
+  .nav-link svg { transition: transform .14s ease; }
   .nav-item.is-active {
     background: rgba(37,99,235,.9); color: #fff; font-weight: 600;
     box-shadow: 0 3px 12px -4px rgba(37,99,235,.9);
@@ -169,9 +182,23 @@
     content: ''; position: absolute; left: -10px; top: 8px; bottom: 8px;
     width: 3px; border-radius: 0 3px 3px 0; background: #7cb1ff;
   }
-  .nav-item:focus-visible { outline: 2px solid #7cb1ff; outline-offset: 1px; }
-  .nav-item svg { width: 16px; height: 16px; flex: 0 0 16px; stroke: currentColor; fill: none;
+  .nav-item:focus-visible,
+  .nav-link:focus-visible { outline: 2px solid #7cb1ff; outline-offset: 1px; }
+  .nav-item svg,
+  .nav-link svg { width: 16px; height: 16px; flex: 0 0 16px; stroke: currentColor; fill: none;
                   stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+
+  /* The arrow that says this one leaves the app. Smaller and dimmer than the
+     item's own icon, pinned right, so it reads as a note rather than a second
+     subject. It brightens on hover with the rest of the row. */
+  .nav-out {
+    width: 11px; height: 11px; flex: 0 0 11px;
+    margin-left: auto; opacity: .5;
+  }
+  .nav-link:hover .nav-out { opacity: .95; }
+  /* The row-wide hover scales every svg; on an 11px arrow that only makes it
+     look wobbly, so this one holds still. */
+  .nav-link:hover .nav-out { transform: none; }
 
   /* ---------------- top bar ---------------- */
   .main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
