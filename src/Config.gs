@@ -65,7 +65,11 @@ const CONFIG = {
     // ---- the four current sections, in place from AUGUST 2026 ----
     { key: 'MFG', name: 'Manufacturing Applications', match: 'manufacturing', era: 'current' },
     { key: 'SLS', name: 'Sales Applications',         match: 'sales',         era: 'current' },
-    { key: 'SCM', name: 'SCM Applications',           match: 'scm',           era: 'current' },
+    // 'SCM' is the internal short code and the filename pattern, NOT the
+    // display name - the exports are still called SCM and must keep being
+    // detected. What the team is actually called is Supply Chain
+    // Applications, and that is what the dashboard says.
+    { key: 'SCM', name: 'Supply Chain Applications', match: 'scm',           era: 'current' },
 
     // Financial and EAS existed before the split and still do.
     { key: 'FIN', name: 'Financial Applications',     match: 'financial',     era: 'both'    },
@@ -79,7 +83,7 @@ const CONFIG = {
 
     // ---- historical, JANUARY to JULY 2026 ----
     // Everyone outside Financial sat in one Functional section. It was split
-    // into Manufacturing, Sales and SCM at the start of August.
+    // into Manufacturing, Sales and Supply Chain at the start of August.
     { key: 'FNC', name: 'Functional Applications',    match: 'functional',    era: 'legacy'  }
   ],
 
@@ -141,7 +145,7 @@ const CONFIG = {
       'Md. Mosharraf Hossain',
       'Mahfuzur Rahman Bhuiyan'
     ],
-    'SCM Applications': [
+    'Supply Chain Applications': [
       'Shanta Aich',
       'Aungshuman Das',
       'Sudip Paul',
@@ -194,7 +198,7 @@ const CONFIG = {
         label: 'Sales & Customer Applications',
         modules: 'SD +',
         head: 'Muhammad Abul Masum Siddique' },
-      { name: 'SCM Applications',
+      { name: 'Supply Chain Applications',
         label: 'Supply Chain Applications',
         modules: 'MM +',
         head: 'Utpal Biswas',
@@ -216,7 +220,7 @@ const CONFIG = {
   PRE_SPLIT_SECTION: {
     'Manufacturing Applications': 'Functional Applications',
     'Sales Applications':         'Functional Applications',
-    'SCM Applications':           'Functional Applications',
+    'Supply Chain Applications':   'Functional Applications',
     'Financial Applications':     'Financial Applications',
     'EAS':            'EAS'
   },
@@ -529,8 +533,9 @@ const CONFIG = {
    *
    * A default, overridden per person by PERSON_MODULES. The pre-split sections
    * are deliberately absent: 'Functional Applications' covered Manufacturing,
-   * Sales and SCM at once, so it cannot name one module, and a ticket from
-   * those months falls to '(unassigned)' unless its Part says otherwise -
+   * Sales and Supply Chain at once, so it cannot name one module, and a
+   * ticket from those months falls to '(unassigned)' unless its Part says
+   * otherwise -
    * which is honest rather than invented.
    */
   SECTION_MODULES: {
@@ -538,7 +543,7 @@ const CONFIG = {
     // Financial person's fallback lands in the row their own tickets are in.
     'Financial Applications':     'FI/TR',
     'Sales Applications':         'SD',
-    'SCM Applications':           'MM',
+    'Supply Chain Applications':  'MM',
     'Manufacturing Applications': 'PP'
   },
 

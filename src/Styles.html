@@ -1296,10 +1296,19 @@
     Download as Report.
 
     Pushed to the right end of the card head with margin-left:auto, so it needs
-    no change to the heads that do not have one. It is quiet until the card is
-    hovered - this is an action you go looking for once a table says something
-    worth keeping, not one that should compete with the table's own name for
-    attention every time the page is read.
+    no change to the heads that do not have one.
+
+    COLOUR
+    It started as a white square with a grey icon and was close to invisible on
+    a white card - you had to already know it was there. It now carries the
+    brand gradient in full, the same one .btn-primary wears, so it reads as an
+    action from across the page.
+
+    Blue and not green, although this writes an Excel file and green would be
+    the obvious joke: green, amber and red are this app's status colours and
+    say "on target", "watch", "missed" everywhere else they appear. A control
+    that is always green would be the one green thing on screen that means
+    nothing, which is worse than a control nobody notices.
 
     The icon carries it alone - no visible word. A label inside the card head
     would become part of that head's text, so "By module" would start reading
@@ -1309,35 +1318,48 @@
   .report-btn {
     margin-left: auto;
     display: inline-grid; place-items: center;
-    width: 26px; height: 26px; padding: 0;
-    border: 1px solid var(--border); border-radius: 7px;
-    background: var(--surface); color: var(--text-dim);
-    cursor: pointer; opacity: .62;
-    transition: opacity .14s ease, background .14s ease,
-                color .14s ease, border-color .14s ease;
+    width: 28px; height: 28px; padding: 0;
+    border: 0; border-radius: 8px;
+    background: linear-gradient(145deg, #3b82f6 0%, var(--blue-500) 52%, #4f46e5 100%);
+    color: #fff;
+    box-shadow: 0 2px 8px -2px rgba(37,99,235,.55),
+                inset 0 1px 0 rgba(255,255,255,.28);
+    cursor: pointer;
+    transition: transform .14s ease, box-shadow .14s ease, filter .14s ease;
   }
   .report-btn svg {
-    width: 13px; height: 13px; flex: 0 0 13px;
+    width: 14px; height: 14px; flex: 0 0 14px;
     stroke: currentColor; fill: none;
-    stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round;
+    stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round;
   }
-  .card-head:hover .report-btn { opacity: 1; }
+  /* Lifts on hover rather than changing colour: the colour is already the
+     point, and a lift reads as "pressable" without a second hue. */
   .report-btn:hover {
-    background: var(--blue-600); border-color: var(--blue-600);
-    color: #fff; opacity: 1;
+    transform: translateY(-1px);
+    filter: saturate(1.12) brightness(1.06);
+    box-shadow: 0 7px 18px -6px rgba(37,99,235,.75),
+                inset 0 1px 0 rgba(255,255,255,.35);
   }
+  .report-btn:active { transform: translateY(0); }
   .report-btn:focus-visible {
-    outline: 2px solid var(--blue-500); outline-offset: 2px; opacity: 1;
+    outline: 2px solid var(--blue-500); outline-offset: 2px;
   }
-  .report-btn[disabled] { opacity: .45; cursor: progress; }
-  /* On the one card head that is a dark gradient, the quiet state has to be
-     light-on-dark or the button disappears into it. */
+  .report-btn[disabled] {
+    filter: grayscale(.45) brightness(1.05); cursor: progress;
+    transform: none; box-shadow: none;
+  }
+  /* On the one card head that is a dark blue gradient, the same blue button
+     would sink into it. White on the dark bar, inverted on hover. */
   .card-blue > .card-head .report-btn {
-    background: rgba(255,255,255,.14); border-color: rgba(255,255,255,.28);
-    color: #fff;
+    background: rgba(255,255,255,.18); color: #fff;
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,.4);
   }
   .card-blue > .card-head .report-btn:hover {
-    background: #fff; border-color: #fff; color: var(--blue-600);
+    background: #fff; color: var(--blue-600); filter: none;
+    box-shadow: 0 6px 16px -6px rgba(0,0,0,.5);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .report-btn, .report-btn:hover { transition: none; transform: none; }
   }
 
   .table-wrap { overflow-x: auto; }
