@@ -1,0 +1,693 @@
+<script>
+/*
+  Report.html - "Download as Report" for every table on the dashboard.
+
+  WHAT THIS PRODUCES
+  A real .xlsx file, not a CSV with a spreadsheet icon. The difference is not
+  decoration: a CSV cannot carry a title block, cannot keep "+9" from being read
+  as a formula, and hands Excel a column of text where the table showed numbers,
+  so nothing in it can be summed or sorted without being cleaned up first. Every
+  figure here arrives as a number with a format on it, so the report is a working
+  spreadsheet rather than a picture of one.
+
+  WHY IT IS WRITTEN BY HAND
+  An .xlsx is a ZIP of XML parts. Writing those parts is a few hundred lines
+  once; the alternative is another CDN script tag, which is a silent failure the
+  first time this is opened somewhere the CDN is blocked - and the whole point of
+  a report button is that it works when someone needs the file. Nothing here
+  depends on anything outside this file.
+
+  WHY IT READS THE RENDERED TABLE
+  The brief was that a filtered table downloads filtered. Reading the live DOM is
+  the only way to guarantee that without re-implementing every filter: whatever
+  is on screen is what lands in the file, including the row order, because it IS
+  the row order. The cost is that values arrive as the strings the page formatted
+  - "13,313", "99.57%", "+9" - so they are parsed back into numbers below.
+*/
+(function () {
+  'use strict';
+
+  // ==========================================================================
+  // ZIP
+  // ==========================================================================
+
+  var CRC_TABLE = (function () {
+    var table = new Int32Array(256);
+    for (var n = 0; n < 256; n++) {
+      var c = n;
+      for (var k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+      table[n] = c;
+    }
+    return table;
+  })();
+
+  function crc32(bytes) {
+    var c = -1;
+    for (var i = 0; i < bytes.length; i++) {
+      c = CRC_TABLE[(c ^ bytes[i]) & 0xFF] ^ (c >>> 8);
+    }
+    return (c ^ -1) >>> 0;
+  }
+
+  function utf8(text) {
+    return new TextEncoder().encode(text);
+  }
+
+  /**
+   * A ZIP archive with every entry STORED rather than deflated.
+   *
+   * No compression because there is no deflate in the browser that works on a
+   * byte array without pulling in a library, and these files are a few hundred
+   * rows - tens of kilobytes. A stored ZIP is a completely valid ZIP; Excel
+   * neither knows nor cares.
+   */
+  function zip(files) {
+    var parts = [];
+    var central = [];
+    var offset = 0;
+
+    var now = new Date();
+    var dosTime = (now.getHours() << 11) | (now.getMinutes() << 5) |
+                  (Math.floor(now.getSeconds() / 2));
+    var dosDate = ((now.getFullYear() - 1980) << 9) | ((now.getMonth() + 1) << 5) |
+                  now.getDate();
+
+    files.forEach(function (file) {
+      var nameBytes = utf8(file.name);
+      var dataBytes = utf8(file.data);
+      var sum = crc32(dataBytes);
+
+      var local = new DataView(new ArrayBuffer(30));
+      local.setUint32(0, 0x04034B50, true);   // local file header
+      local.setUint16(4, 20, true);           // version needed
+      local.setUint16(6, 0x0800, true);       // flag: names are UTF-8
+      local.setUint16(8, 0, true);            // method 0 = stored
+      local.setUint16(10, dosTime, true);
+      local.setUint16(12, dosDate, true);
+      local.setUint32(14, sum, true);
+      local.setUint32(18, dataBytes.length, true);
+      local.setUint32(22, dataBytes.length, true);
+      local.setUint16(26, nameBytes.length, true);
+      local.setUint16(28, 0, true);           // no extra field
+
+      parts.push(new Uint8Array(local.buffer), nameBytes, dataBytes);
+
+      var dir = new DataView(new ArrayBuffer(46));
+      dir.setUint32(0, 0x02014B50, true);     // central directory header
+      dir.setUint16(4, 20, true);             // version made by
+      dir.setUint16(6, 20, true);             // version needed
+      dir.setUint16(8, 0x0800, true);
+      dir.setUint16(10, 0, true);
+      dir.setUint16(12, dosTime, true);
+      dir.setUint16(14, dosDate, true);
+      dir.setUint32(16, sum, true);
+      dir.setUint32(20, dataBytes.length, true);
+      dir.setUint32(24, dataBytes.length, true);
+      dir.setUint16(28, nameBytes.length, true);
+      dir.setUint16(30, 0, true);             // extra
+      dir.setUint16(32, 0, true);             // comment
+      dir.setUint16(34, 0, true);             // disk number
+      dir.setUint16(36, 0, true);             // internal attributes
+      dir.setUint32(38, 0, true);             // external attributes
+      dir.setUint32(42, offset, true);        // where the local header is
+
+      central.push(new Uint8Array(dir.buffer), nameBytes);
+      offset += 30 + nameBytes.length + dataBytes.length;
+    });
+
+    var centralSize = central.reduce(function (n, a) { return n + a.length; }, 0);
+
+    var end = new DataView(new ArrayBuffer(22));
+    end.setUint32(0, 0x06054B50, true);       // end of central directory
+    end.setUint16(4, 0, true);
+    end.setUint16(6, 0, true);
+    end.setUint16(8, files.length, true);
+    end.setUint16(10, files.length, true);
+    end.setUint32(12, centralSize, true);
+    end.setUint32(16, offset, true);
+    end.setUint16(20, 0, true);               // no archive comment
+
+    return new Blob(parts.concat(central, [new Uint8Array(end.buffer)]),
+                    { type: 'application/vnd.openxmlformats-officedocument.' +
+                            'spreadsheetml.sheet' });
+  }
+
+
+  // ==========================================================================
+  // XLSX
+  // ==========================================================================
+
+  // Style slots, in the order they are declared in styles.xml below.
+  var S = {
+    PLAIN:  0,
+    TITLE:  1,
+    LABEL:  2,   // the left column of the heading block
+    VALUE:  3,   // the right column of the heading block
+    HEAD:   4,   // the table's own header row
+    NUMBER: 5,   // #,##0
+    PCT:    6,   // 0.00"%"
+    SIGNED: 7,   // +9 / -2, the headroom columns
+    TEXT:   8
+  };
+
+  function xmlEscape(text) {
+    return String(text)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&apos;')
+      // Control characters are not legal in XML at all, and one of them in a
+      // cell makes the whole file unreadable rather than that one cell wrong.
+      .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '');
+  }
+
+  /** 0 -> A, 25 -> Z, 26 -> AA. */
+  function columnName(index) {
+    var name = '';
+    var n = index;
+    while (n >= 0) {
+      name = String.fromCharCode(65 + (n % 26)) + name;
+      n = Math.floor(n / 26) - 1;
+    }
+    return name;
+  }
+
+  function cellXml(ref, cell) {
+    if (cell === null || cell === undefined || cell.v === '' || cell.v === null) {
+      return '<c r="' + ref + '" s="' + (cell && cell.s ? cell.s : S.PLAIN) + '"/>';
+    }
+    if (cell.t === 'n') {
+      return '<c r="' + ref + '" s="' + cell.s + '"><v>' + cell.v + '</v></c>';
+    }
+    // Inline strings rather than a shared string table: one less part to get
+    // right, and these reports repeat almost nothing worth pooling.
+    return '<c r="' + ref + '" s="' + cell.s + '" t="inlineStr">' +
+           '<is><t xml:space="preserve">' + xmlEscape(cell.v) + '</t></is></c>';
+  }
+
+  /*
+    Assembled from pieces, never written out whole.
+
+    An XML declaration opens and closes with the same two character pairs that
+    open and close an Apps Script scriptlet - angle-bracket-question-mark, and
+    its mirror. include() in Code.gs uses createHtmlOutputFromFile,
+    which does not evaluate scriptlets, so a literal one here would survive
+    today - but it would be evaluated the moment anyone switched include() to a
+    template, and what it would try to run is `xml version="1.0" ...`, a syntax
+    error that takes down the ENTIRE app rather than this one file. That has
+    already happened once in this project, from an empty scriptlet in a comment,
+    and the error pointed at Code.gs rather than at the file that caused it.
+    Splitting the string costs nothing and removes the trap for good.
+  */
+  var XML_HEAD = '<' + '?xml version="1.0" encoding="UTF-8" standalone="yes"?' + '>';
+  var NS = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
+
+  function sheetXml(rows, widths, headerRowNumber) {
+    var cols = widths.length
+      ? '<cols>' + widths.map(function (w, i) {
+          return '<col min="' + (i + 1) + '" max="' + (i + 1) +
+                 '" width="' + w + '" customWidth="1"/>';
+        }).join('') + '</cols>'
+      : '';
+
+    // Freeze above the first data row, so the header stays put when the
+    // report is scrolled - the same thing the table on screen does.
+    var pane = headerRowNumber
+      ? '<sheetViews><sheetView workbookViewId="0" tabSelected="1">' +
+        '<pane ySplit="' + headerRowNumber + '" topLeftCell="A' +
+        (headerRowNumber + 1) + '" activePane="bottomLeft" state="frozen"/>' +
+        '</sheetView></sheetViews>'
+      : '';
+
+    var body = rows.map(function (row, r) {
+      if (!row || !row.length) return '';
+      var cells = row.map(function (cell, c) {
+        return cellXml(columnName(c) + (r + 1), cell);
+      }).join('');
+      return '<row r="' + (r + 1) + '">' + cells + '</row>';
+    }).join('');
+
+    return XML_HEAD + '<worksheet xmlns="' + NS + '">' + pane + cols +
+           '<sheetData>' + body + '</sheetData></worksheet>';
+  }
+
+  function stylesXml() {
+    return XML_HEAD + '<styleSheet xmlns="' + NS + '">' +
+      '<numFmts count="3">' +
+        '<numFmt numFmtId="164" formatCode="#,##0"/>' +
+        '<numFmt numFmtId="165" formatCode="0.00&quot;%&quot;"/>' +
+        '<numFmt numFmtId="166" formatCode="&quot;+&quot;#,##0;&quot;-&quot;#,##0;0"/>' +
+      '</numFmts>' +
+      '<fonts count="5">' +
+        '<font><sz val="11"/><name val="Calibri"/></font>' +
+        '<font><b/><sz val="15"/><color rgb="FF16233C"/><name val="Calibri"/></font>' +
+        '<font><sz val="10"/><color rgb="FF6C82A1"/><name val="Calibri"/></font>' +
+        '<font><b/><sz val="10"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font>' +
+        '<font><sz val="11"/><color rgb="FF14202E"/><name val="Calibri"/></font>' +
+      '</fonts>' +
+      '<fills count="3">' +
+        '<fill><patternFill patternType="none"/></fill>' +
+        '<fill><patternFill patternType="gray125"/></fill>' +
+        '<fill><patternFill patternType="solid">' +
+          '<fgColor rgb="FF16233C"/><bgColor indexed="64"/></patternFill></fill>' +
+      '</fills>' +
+      '<borders count="2">' +
+        '<border><left/><right/><top/><bottom/><diagonal/></border>' +
+        '<border><left/><right/><top/>' +
+          '<bottom style="thin"><color rgb="FFD7E0EA"/></bottom><diagonal/></border>' +
+      '</borders>' +
+      '<cellStyleXfs count="1">' +
+        '<xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>' +
+      '<cellXfs count="9">' +
+        '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>' +
+        '<xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/>' +
+        '<xf numFmtId="0" fontId="2" fillId="0" borderId="0" xfId="0" applyFont="1"/>' +
+        '<xf numFmtId="0" fontId="4" fillId="0" borderId="0" xfId="0" applyFont="1"/>' +
+        '<xf numFmtId="0" fontId="3" fillId="2" borderId="0" xfId="0"' +
+          ' applyFont="1" applyFill="1" applyAlignment="1">' +
+          '<alignment vertical="center"/></xf>' +
+        '<xf numFmtId="164" fontId="4" fillId="0" borderId="1" xfId="0"' +
+          ' applyFont="1" applyNumberFormat="1" applyBorder="1"/>' +
+        '<xf numFmtId="165" fontId="4" fillId="0" borderId="1" xfId="0"' +
+          ' applyFont="1" applyNumberFormat="1" applyBorder="1"/>' +
+        '<xf numFmtId="166" fontId="4" fillId="0" borderId="1" xfId="0"' +
+          ' applyFont="1" applyNumberFormat="1" applyBorder="1"/>' +
+        '<xf numFmtId="0" fontId="4" fillId="0" borderId="1" xfId="0"' +
+          ' applyFont="1" applyBorder="1"/>' +
+      '</cellXfs>' +
+      '<cellStyles count="1">' +
+        '<cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>' +
+      '</styleSheet>';
+  }
+
+  /**
+   * Excel refuses these characters in a tab name, and silently truncates past
+   * 31 characters.
+   *
+   * Cut at the first middle dot before truncating. Some card heads carry a
+   * title and then an explanation after a dot - "overall by month . Change is
+   * percentage points against the month above" - and a blind 31-character cut
+   * lands in the middle of the explanation. The full title is still the second
+   * line of the report itself; only the tab is shortened.
+   */
+  function safeSheetName(name) {
+    var clean = String(name || 'Report').split('\u00b7')[0]
+                  .replace(/[\\\/\?\*\[\]:]/g, ' ')
+                  .replace(/\s+/g, ' ').trim();
+    return clean.slice(0, 31).trim() || 'Report';
+  }
+
+  function buildWorkbook(sheetName, rows, widths, headerRowNumber) {
+    var rels = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+    var ct = 'application/vnd.openxmlformats-officedocument.spreadsheetml';
+
+    return zip([
+      { name: '[Content_Types].xml', data: XML_HEAD +
+        '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
+        '<Default Extension="rels" ContentType="application/vnd.openxmlformats-' +
+          'package.relationships+xml"/>' +
+        '<Default Extension="xml" ContentType="application/xml"/>' +
+        '<Override PartName="/xl/workbook.xml" ContentType="' + ct + '.sheet.main+xml"/>' +
+        '<Override PartName="/xl/worksheets/sheet1.xml" ContentType="' + ct +
+          '.worksheet+xml"/>' +
+        '<Override PartName="/xl/styles.xml" ContentType="' + ct + '.styles+xml"/>' +
+        '</Types>' },
+
+      { name: '_rels/.rels', data: XML_HEAD +
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+        '<Relationship Id="rId1" Type="' + rels + '/officeDocument"' +
+          ' Target="xl/workbook.xml"/></Relationships>' },
+
+      { name: 'xl/workbook.xml', data: XML_HEAD +
+        '<workbook xmlns="' + NS + '" xmlns:r="' + rels + '"><sheets>' +
+        '<sheet name="' + xmlEscape(safeSheetName(sheetName)) +
+          '" sheetId="1" r:id="rId1"/></sheets></workbook>' },
+
+      { name: 'xl/_rels/workbook.xml.rels', data: XML_HEAD +
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+        '<Relationship Id="rId1" Type="' + rels + '/worksheet"' +
+          ' Target="worksheets/sheet1.xml"/>' +
+        '<Relationship Id="rId2" Type="' + rels + '/styles" Target="styles.xml"/>' +
+        '</Relationships>' },
+
+      { name: 'xl/styles.xml', data: stylesXml() },
+      { name: 'xl/worksheets/sheet1.xml', data: sheetXml(rows, widths, headerRowNumber) }
+    ]);
+  }
+
+
+  // ==========================================================================
+  // READING THE TABLE ON SCREEN
+  // ==========================================================================
+
+  /**
+   * Turns one rendered cell back into a typed value.
+   *
+   * The page formats before it prints - thousands separators, a per cent sign,
+   * a leading plus on headroom - so this undoes exactly that and no more.
+   * Anything that is not one of those shapes stays the text it was, which is
+   * the safe direction to fail in: a band name or a dash is still readable in
+   * the report, whereas a number guessed wrongly is not.
+   */
+  function typeCell(text) {
+    var raw = String(text === null || text === undefined ? '' : text)
+                .replace(/\s+/g, ' ').trim();
+    if (!raw) return { t: 's', v: '', s: S.TEXT };
+
+    var m = /^([+-]?)([0-9,]+(?:\.[0-9]+)?)%$/.exec(raw);
+    if (m) {
+      return { t: 'n', s: S.PCT,
+               v: Number(m[2].replace(/,/g, '')) * (m[1] === '-' ? -1 : 1) };
+    }
+    m = /^\+([0-9,]+(?:\.[0-9]+)?)$/.exec(raw);
+    if (m) return { t: 'n', v: Number(m[1].replace(/,/g, '')), s: S.SIGNED };
+
+    m = /^(-?)([0-9,]+(?:\.[0-9]+)?)$/.exec(raw);
+    if (m) {
+      var digits = m[2].replace(/,/g, '');
+      // A run of digits that is not really a quantity - an ID, a year-month -
+      // must not be rewritten by a thousands format. Only values the page
+      // itself grouped, or short ones, are treated as numbers.
+      if (m[2].indexOf(',') !== -1 || digits.length <= 9) {
+        return { t: 'n', v: Number(m[1] + digits), s: S.NUMBER };
+      }
+    }
+    return { t: 's', v: raw, s: S.TEXT };
+  }
+
+  /**
+   * Reads a table exactly as it currently stands.
+   *
+   * Columns of controls are dropped by name: an Action column holds buttons,
+   * and its text in a spreadsheet would be the three button labels run
+   * together, which is worse than not having the column.
+   */
+  var SKIP_COLUMNS = { 'action': 1, 'actions': 1 };
+
+  function readTable(table) {
+    var headCells = Array.prototype.slice.call(
+      table.querySelectorAll('thead th'));
+    var keep = [];
+    var headers = [];
+    headCells.forEach(function (th, i) {
+      var label = th.textContent.replace(/\s+/g, ' ').trim();
+      if (SKIP_COLUMNS[label.toLowerCase()]) return;
+      keep.push(i);
+      headers.push(label);
+    });
+
+    var rows = [];
+    Array.prototype.slice.call(table.querySelectorAll('tbody tr'))
+      .forEach(function (tr) {
+        var tds = tr.querySelectorAll('td');
+        // The empty state is one cell spanning the table. It is a message, not
+        // a row, and must not become one.
+        if (tds.length <= 1) return;
+        rows.push(keep.map(function (i) {
+          return typeCell(tds[i] ? tds[i].textContent : '');
+        }));
+      });
+
+    return { headers: headers, rows: rows };
+  }
+
+  /**
+   * The filters in force on this card, as "Label: value" pairs.
+   *
+   * Read off the controls rather than from application state, for the same
+   * reason the rows are: what the controls say is what produced the rows.
+   */
+  function readFilters(card) {
+    var out = [];
+    var bar = card.querySelector('.table-filter');
+    if (!bar) return out;
+
+    Array.prototype.slice.call(bar.querySelectorAll('select')).forEach(function (sel) {
+      if (!sel.value) return;             // "All sections" and friends
+      var option = sel.options[sel.selectedIndex];
+      out.push({ label: sel.title || 'Filter',
+                 value: option ? option.textContent.trim() : sel.value });
+    });
+
+    Array.prototype.slice.call(bar.querySelectorAll('input')).forEach(function (input) {
+      var value = String(input.value || '').trim();
+      if (!value) return;
+      out.push({ label: (input.placeholder || 'Search').replace(/\u2026|\.\.\./g, '').trim(),
+                 value: value });
+    });
+
+    return out;
+  }
+
+  /** "6 sections" / "3 of 6 sections", straight off the card. */
+  function readCount(card) {
+    var el = card.querySelector('.filter-count');
+    var text = el ? el.textContent.replace(/\s+/g, ' ').trim() : '';
+    return text;
+  }
+
+  /** The card's own title, without the button this file put inside it. */
+  function readCardTitle(card) {
+    var head = card.querySelector('.card-head');
+    if (!head) return 'Report';
+    var clone = head.cloneNode(true);
+    Array.prototype.slice.call(clone.querySelectorAll('.report-btn, .head-note'))
+      .forEach(function (el) { el.parentNode.removeChild(el); });
+    return clone.textContent.replace(/\s+/g, ' ').trim() || 'Report';
+  }
+
+  /**
+   * Which screen this table is on, and what period it is showing.
+   *
+   * Taken from the page furniture rather than passed in, so a new table on an
+   * existing screen needs no wiring beyond the attribute on its card.
+   */
+  function readContext(card) {
+    var view = card.closest('.view');
+    var heading = view ? view.querySelector('.page-head h1') : null;
+    var screen = '';
+    if (heading) {
+      // The status pills live inside the heading, so its plain text reads
+      // "KPI 1: Error/Issue Resolution Time Layer 3: Service Requests On
+      // Track". The layer and the band belong to the moment the page was
+      // looked at, not to the report's title, and the report already carries
+      // the period and the figures they were derived from.
+      var clone = heading.cloneNode(true);
+      Array.prototype.slice.call(clone.querySelectorAll('span'))
+        .forEach(function (el) { el.parentNode.removeChild(el); });
+      screen = clone.textContent.replace(/\s+/g, ' ').trim();
+    }
+    var context = { screen: screen, period: '' };
+
+    // KPI 1 reads its period from the month picker, KPI 2 from its own select,
+    // and Comparison names its periods in the table itself.
+    var picker = view ? view.querySelector('#monthPickerLabel') : null;
+    if (picker) context.period = picker.textContent.replace(/\s+/g, ' ').trim();
+    if (!context.period) {
+      var select = view ? view.querySelector('#kpi2Month') : null;
+      if (select && select.options[select.selectedIndex]) {
+        context.period = select.options[select.selectedIndex].textContent.trim();
+      }
+    }
+    return context;
+  }
+
+
+  // ==========================================================================
+  // THE REPORT
+  // ==========================================================================
+
+  function pad(n) { return (n < 10 ? '0' : '') + n; }
+
+  function stamp(date) {
+    return date.getFullYear() + '-' + pad(date.getMonth() + 1) + '-' +
+           pad(date.getDate()) + ' ' + pad(date.getHours()) + ':' +
+           pad(date.getMinutes());
+  }
+
+  function fileStamp(date) {
+    return date.getFullYear() + pad(date.getMonth() + 1) + pad(date.getDate()) +
+           '-' + pad(date.getHours()) + pad(date.getMinutes());
+  }
+
+  function slug(text) {
+    return String(text).replace(/[^A-Za-z0-9]+/g, '-')
+                       .replace(/^-+|-+$/g, '').slice(0, 48) || 'report';
+  }
+
+  function text(value, style) {
+    return { t: 's', v: value, s: style === undefined ? S.PLAIN : style };
+  }
+
+  /**
+   * Assembles the heading block and the table underneath it.
+   *
+   * The heading is the part that makes this a report rather than a dump: six
+   * months from now the file has to say which screen it came from, which period
+   * it covered, and what was filtered out - otherwise the numbers in it cannot
+   * be checked against anything.
+   */
+  function buildReport(card, table) {
+    var read = readTable(table);
+    var title = readCardTitle(card);
+    var context = readContext(card);
+    var filters = readFilters(card);
+    var count = readCount(card);
+    var now = new Date();
+
+    var rows = [];
+    rows.push([text(context.screen || 'EAS KPI Engine', S.TITLE)]);
+    rows.push([text(title, S.VALUE)]);
+    rows.push([]);
+
+    var meta = [];
+    if (context.period) meta.push(['Period', context.period]);
+    meta.push(['Filters', filters.length
+      ? filters.map(function (f) { return f.label + ': ' + f.value; }).join('; ')
+      : 'None - the full table']);
+    if (count) meta.push(['Rows', count]);
+    meta.push(['Generated', stamp(now)]);
+
+    var who = document.getElementById('operatorName');
+    var role = document.getElementById('roleBadge');
+    if (who && who.textContent.trim() && who.textContent.trim() !== '\u2014') {
+      meta.push(['Generated by', who.textContent.trim() +
+        (role && role.textContent.trim() ? ' (' + role.textContent.trim() + ')' : '')]);
+    }
+
+    meta.forEach(function (pair) {
+      rows.push([text(pair[0], S.LABEL), text(pair[1], S.VALUE)]);
+    });
+    rows.push([]);
+
+    var headerRowNumber = rows.length + 1;
+    rows.push(read.headers.map(function (h) { return text(h, S.HEAD); }));
+    read.rows.forEach(function (row) { rows.push(row); });
+
+    // Column widths from the longest thing in each, the first column wider
+    // because it carries the names.
+    var widths = read.headers.map(function (header, i) {
+      var longest = header.length;
+      read.rows.forEach(function (row) {
+        var cell = row[i];
+        var length = cell ? String(cell.v).length : 0;
+        if (length > longest) longest = length;
+      });
+      return Math.min(52, Math.max(10, longest + 3));
+    });
+    // The heading block's label column sits under the first table column; it
+    // must not squash it.
+    if (widths.length) widths[0] = Math.max(widths[0], 18);
+
+    return {
+      blob: buildWorkbook(title, rows, widths, headerRowNumber),
+      fileName: slug((context.screen ? context.screen.split(':')[0] + '-' : '') + title) +
+                '-' + fileStamp(now) + '.xlsx',
+      rowCount: read.rows.length
+    };
+  }
+
+
+  // ==========================================================================
+  // THE BUTTON
+  // ==========================================================================
+
+  var ICON =
+    '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.8v8.4"/>' +
+    '<path d="M4.8 7l3.2 3.2L11.2 7"/><path d="M2.6 11.4v1.3a1.5 1.5 0 0 0 1.5 1.5' +
+    'h7.8a1.5 1.5 0 0 0 1.5-1.5v-1.3"/></svg>';
+
+  /**
+   * The icon alone, with the words on hover.
+   *
+   * No visible label, for two reasons. It is what was asked for - a download
+   * button with hover text - and a word inside the card head becomes part of
+   * that head's text: the heading "By module" starts reading as "By module
+   * Report" to anything that takes textContent, which is every screen reader
+   * and four of this project's own tests.
+   *
+   * title and aria-label both, deliberately: title is the hover text, and
+   * aria-label is what is announced, which title alone does not reliably give.
+   */
+  function button() {
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'report-btn';
+    b.title = 'Download as Report';
+    b.setAttribute('aria-label', 'Download as Report');
+    b.innerHTML = ICON;
+    return b;
+  }
+
+  function notify(message, isError) {
+    // alertDialog lives in App.html and is the app's own dialog. Guarded
+    // because this file must not take the page down if it is loaded alone.
+    if (typeof window.alertDialog === 'function') {
+      window.alertDialog({ title: isError ? 'Could not build the report' : 'Nothing to download',
+                           body: '<p>' + message + '</p>' });
+    }
+  }
+
+  function download(blob, fileName) {
+    var url = URL.createObjectURL(blob);
+    var link = document.createElement('a');
+    link.href = url;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+  }
+
+  function onClick(card, table, btn) {
+    btn.disabled = true;
+    try {
+      var report = buildReport(card, table);
+      if (!report.rowCount) {
+        notify('This table has no rows to export yet.', false);
+        return;
+      }
+      download(report.blob, report.fileName);
+    } catch (e) {
+      notify(String(e && e.message ? e.message : e), true);
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  /**
+   * Puts a button on every card whose head carries data-report.
+   *
+   * Idempotent, because the screens re-render and this is called again after
+   * each one; a card that already has its button is left alone.
+   */
+  function wireReportButtons() {
+    var heads = document.querySelectorAll('.card-head[data-report]');
+    Array.prototype.slice.call(heads).forEach(function (head) {
+      if (head.querySelector('.report-btn')) return;
+      var card = head.closest('.card');
+      var table = card ? card.querySelector('#' + head.dataset.report) : null;
+      if (!table) return;
+      var btn = button();
+      btn.addEventListener('click', function (event) {
+        // The card head is itself a hover target; without this the click
+        // reads as a click on the title too.
+        event.stopPropagation();
+        onClick(card, table, btn);
+      });
+      head.appendChild(btn);
+    });
+  }
+
+  window.wireReportButtons = wireReportButtons;
+
+  // Exposed for the tests, which drive the writer directly rather than
+  // clicking through a download the browser will not let them keep.
+  window.__report = { buildReport: buildReport, typeCell: typeCell,
+                      readTable: readTable, crc32: crc32 };
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', wireReportButtons);
+  } else {
+    wireReportButtons();
+  }
+})();
+</script>

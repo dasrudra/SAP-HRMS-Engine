@@ -3512,8 +3512,8 @@
     const useSections = k.departments.length > 0;
     const all = useSections ? k.departments : k.parts;
 
-    document.getElementById('kpi1BreakdownHead').textContent =
-      useSections ? 'By section' : 'By service / part';
+    setHeadText('kpi1BreakdownHead',
+      useSections ? 'By section' : 'By service / part');
     document.getElementById('kpi1BreakdownCol').textContent =
       useSections ? 'Section' : 'Service / Part';
 
@@ -5332,9 +5332,9 @@
     const period = periodLabel.toLowerCase();
     const shortName = c.kpi === 'KPI2' ? 'KPI 2' : (c.kpi === 'KPI1' ? 'KPI 1' : (c.kpi || ''));
 
-    setText('cmpOverallTitle', shortName + ' \u2014 overall by ' + period +
+    setHeadText('cmpOverallTitle', shortName + ' \u2014 overall by ' + period +
       ' \u00b7 Change is percentage points against the ' + period + ' above');
-    setText('cmpSectionTitle', shortName + ' \u2014 success rate by ' + sectionLabel.toLowerCase());
+    setHeadText('cmpSectionTitle', shortName + ' \u2014 success rate by ' + sectionLabel.toLowerCase());
     setText('cmpChartTitle', 'Success rate by ' + sectionLabel.toLowerCase() + ' and ' + period);
 
     drawCompareChart(c);
@@ -5499,6 +5499,27 @@
   function setText(id, text) {
     const el = document.getElementById(id);
     if (el) el.textContent = text;
+  }
+
+  /**
+   * Retitles a card head without emptying it.
+   *
+   * Three card heads are written at runtime - the KPI 1 breakdown, and the two
+   * on Comparison. All three also hold the Download as Report button, and
+   * setText() would take it out with the old title: the feature would simply
+   * vanish from those cards the moment they rendered, which is exactly the kind
+   * of break that looks like it was never built. Only the heading's own text
+   * node moves; anything else inside the head is left where it is.
+   */
+  function setHeadText(id, text) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    let node = null;
+    for (let i = 0; i < el.childNodes.length; i++) {
+      if (el.childNodes[i].nodeType === 3) { node = el.childNodes[i]; break; }
+    }
+    if (node) node.nodeValue = text;
+    else el.insertBefore(document.createTextNode(text), el.firstChild);
   }
 
   /**

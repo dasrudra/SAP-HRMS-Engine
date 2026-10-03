@@ -1291,6 +1291,55 @@
     transition: height .14s ease;
   }
   .card-head:hover::before { height: 17px; }
+
+  /*
+    Download as Report.
+
+    Pushed to the right end of the card head with margin-left:auto, so it needs
+    no change to the heads that do not have one. It is quiet until the card is
+    hovered - this is an action you go looking for once a table says something
+    worth keeping, not one that should compete with the table's own name for
+    attention every time the page is read.
+
+    The icon carries it alone - no visible word. A label inside the card head
+    would become part of that head's text, so "By module" would start reading
+    as "By module Report" to a screen reader. The words live in the tooltip
+    and in aria-label; see button() in Report.html.
+  */
+  .report-btn {
+    margin-left: auto;
+    display: inline-grid; place-items: center;
+    width: 26px; height: 26px; padding: 0;
+    border: 1px solid var(--border); border-radius: 7px;
+    background: var(--surface); color: var(--text-dim);
+    cursor: pointer; opacity: .62;
+    transition: opacity .14s ease, background .14s ease,
+                color .14s ease, border-color .14s ease;
+  }
+  .report-btn svg {
+    width: 13px; height: 13px; flex: 0 0 13px;
+    stroke: currentColor; fill: none;
+    stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round;
+  }
+  .card-head:hover .report-btn { opacity: 1; }
+  .report-btn:hover {
+    background: var(--blue-600); border-color: var(--blue-600);
+    color: #fff; opacity: 1;
+  }
+  .report-btn:focus-visible {
+    outline: 2px solid var(--blue-500); outline-offset: 2px; opacity: 1;
+  }
+  .report-btn[disabled] { opacity: .45; cursor: progress; }
+  /* On the one card head that is a dark gradient, the quiet state has to be
+     light-on-dark or the button disappears into it. */
+  .card-blue > .card-head .report-btn {
+    background: rgba(255,255,255,.14); border-color: rgba(255,255,255,.28);
+    color: #fff;
+  }
+  .card-blue > .card-head .report-btn:hover {
+    background: #fff; border-color: #fff; color: var(--blue-600);
+  }
+
   .table-wrap { overflow-x: auto; }
   table { width: 100%; border-collapse: collapse; font-size: 13px; }
   thead th {

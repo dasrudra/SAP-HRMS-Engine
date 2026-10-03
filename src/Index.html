@@ -339,7 +339,7 @@
 
         <!-- ---- By section ---- -->
         <div class="card">
-          <div class="card-head" id="kpi1BreakdownHead">By section</div>
+          <div class="card-head" id="kpi1BreakdownHead" data-report="kpi1Table">By section</div>
           <div class="table-filter">
             <select id="fSection" class="select" title="Section">
               <option value="">All sections</option>
@@ -377,7 +377,7 @@
           different question: which part of SAP the work is in.
         -->
         <div class="card">
-          <div class="card-head">By module</div>
+          <div class="card-head" data-report="kpi1Modules">By module</div>
           <div class="table-filter">
             <select id="fModuleK1" class="select" title="Module">
               <option value="">All modules</option>
@@ -411,7 +411,7 @@
 
         <!-- ---- All individuals (own filter) ---- -->
         <div class="card">
-          <div class="card-head">By individuals</div>
+          <div class="card-head" data-report="kpi1AllPeople">By individuals</div>
           <div class="table-filter">
             <!--
               Scope is this table's alone. Every other panel on the page stays
@@ -536,7 +536,7 @@
 
         <!-- ---- By module ---- -->
         <div class="card">
-          <div class="card-head">By module</div>
+          <div class="card-head" data-report="kpi2Modules">By module</div>
           <div class="table-filter">
             <select id="fModule" class="select" title="Module">
               <option value="">All modules</option>
@@ -575,7 +575,7 @@
 
         <!-- ---- By question ---- -->
         <div class="card">
-          <div class="card-head">By question</div>
+          <div class="card-head" data-report="kpi2Questions">By question</div>
           <div class="table-wrap">
             <table id="kpi2Questions">
               <thead>
@@ -598,7 +598,7 @@
 
         <!-- ---- By zone ---- -->
         <div class="card">
-          <div class="card-head">By zone</div>
+          <div class="card-head" data-report="kpi2Zones">By zone</div>
           <div class="table-filter">
             <select id="fZone" class="select" title="Zone">
               <option value="">All zones</option>
@@ -726,7 +726,7 @@
           first paint - renderComparison rewrites them for the KPI in hand.
         -->
         <div class="card" id="cmpOverallCard" hidden>
-          <div class="card-head" id="cmpOverallTitle">KPI 1 &#x2014; overall by month</div>
+          <div class="card-head" id="cmpOverallTitle" data-report="cmpOverall">KPI 1 &#x2014; overall by month</div>
           <div class="table-wrap">
             <table id="cmpOverall">
               <thead><tr></tr></thead>
@@ -736,7 +736,7 @@
         </div>
 
         <div class="card" id="cmpSectionCard" hidden>
-          <div class="card-head" id="cmpSectionTitle">KPI 1 &#x2014; success rate by section</div>
+          <div class="card-head" id="cmpSectionTitle" data-report="cmpSections">KPI 1 &#x2014; success rate by section</div>
           <div class="table-wrap">
             <table id="cmpSections">
               <thead><tr></tr></thead>
@@ -790,7 +790,7 @@
         </div>
 
         <div class="card">
-          <div class="card-head">Upload history</div>
+          <div class="card-head" data-report="uploadTable">Upload history</div>
           <div class="table-wrap">
             <table id="uploadTable">
               <thead>
@@ -873,7 +873,7 @@
           Built by renderKpiTable().
         -->
         <div class="card card-blue">
-          <div class="card-head">
+          <div class="card-head" data-report="settingsTable">
             KPI thresholds
             <span class="head-note" id="kpiTableNote"></span>
           </div>
@@ -1017,3 +1017,10 @@
 <?!= include('Bg'); ?>
 
 <?!= include('App'); ?>
+
+<!--
+  The report writer. AFTER App.html, because it calls alertDialog() from there
+  when a report cannot be built, and because it puts its buttons on cards that
+  App.html has to have rendered first.
+-->
+<?!= include('Report'); ?>
