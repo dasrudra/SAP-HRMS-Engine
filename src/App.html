@@ -4986,7 +4986,23 @@
 
 
   /** 'Manufacturing Applications' -> 'Manufacturing', so axis labels fit. */
+  /**
+   * A section's name, shortened for a chart axis.
+   *
+   * A section may name its own short form in CONFIG; otherwise the word
+   * "Applications" is dropped, which is what turns the others into Sales,
+   * Manufacturing and Financial. Supply Chain Applications sets short: 'SCA',
+   * because the generic rule leaves it as two words where its neighbours have
+   * one, and the axis is the one place that cannot spare the room.
+   *
+   * Presentation only - nothing is keyed on the result. The full name is what
+   * every table, filter and stored figure uses.
+   */
   function shortLabel(name) {
+    const sections = (state.boot && state.boot.departments) || [];
+    for (let i = 0; i < sections.length; i++) {
+      if (sections[i].name === name && sections[i].short) return sections[i].short;
+    }
     return String(name).replace(/\s+Applications$/, '');
   }
 

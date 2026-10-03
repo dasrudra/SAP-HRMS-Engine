@@ -69,7 +69,14 @@ const CONFIG = {
     // display name - the exports are still called SCM and must keep being
     // detected. What the team is actually called is Supply Chain
     // Applications, and that is what the dashboard says.
-    { key: 'SCM', name: 'Supply Chain Applications', match: 'scm',           era: 'current' },
+    //
+    // `short` is what the chart axes print when the full name will not fit.
+    // Without one, a section is shortened by dropping the word "Applications",
+    // which turns the other three into Sales, Manufacturing and Financial -
+    // but leaves this one as "Supply Chain", two words where its neighbours
+    // have one. SCA is what the team calls itself.
+    { key: 'SCM', name: 'Supply Chain Applications', short: 'SCA',
+      match: 'scm', era: 'current' },
 
     // Financial and EAS existed before the split and still do.
     { key: 'FIN', name: 'Financial Applications',     match: 'financial',     era: 'both'    },

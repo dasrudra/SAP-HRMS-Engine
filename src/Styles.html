@@ -1299,16 +1299,17 @@
     no change to the heads that do not have one.
 
     COLOUR
-    It started as a white square with a grey icon and was close to invisible on
-    a white card - you had to already know it was there. It now carries the
-    brand gradient in full, the same one .btn-primary wears, so it reads as an
-    action from across the page.
+    Blue at rest, green on hover - both states coloured, neither of them the
+    plain white square this started as. The blue sits on a tinted field so the
+    button is visible without being hunted for; the green answers the cursor so
+    it is obvious the thing is pressable and obvious which one you are on when
+    ten of them are down the page.
 
-    Blue and not green, although this writes an Excel file and green would be
-    the obvious joke: green, amber and red are this app's status colours and
-    say "on target", "watch", "missed" everywhere else they appear. A control
-    that is always green would be the one green thing on screen that means
-    nothing, which is worse than a control nobody notices.
+    The green is #0ca30c, the same green as a GREEN band. That is a deliberate
+    exception to this file's rule that the status hues are never reused: it
+    appears only while the pointer is on the button, never at rest and never
+    on anything that reports a figure, so there is no moment where a green
+    thing on screen could be read as a band when it is not one.
 
     The icon carries it alone - no visible word. A label inside the card head
     would become part of that head's text, so "By module" would start reading
@@ -1319,44 +1320,46 @@
     margin-left: auto;
     display: inline-grid; place-items: center;
     width: 28px; height: 28px; padding: 0;
-    border: 0; border-radius: 8px;
-    background: linear-gradient(145deg, #3b82f6 0%, var(--blue-500) 52%, #4f46e5 100%);
-    color: #fff;
-    box-shadow: 0 2px 8px -2px rgba(37,99,235,.55),
-                inset 0 1px 0 rgba(255,255,255,.28);
+    border: 1px solid rgba(37,99,235,.35); border-radius: 8px;
+    background: linear-gradient(180deg, #eff6ff 0%, #dbe9fe 100%);
+    color: var(--blue-500);
+    box-shadow: 0 1px 3px -1px rgba(37,99,235,.3);
     cursor: pointer;
-    transition: transform .14s ease, box-shadow .14s ease, filter .14s ease;
+    transition: transform .14s ease, box-shadow .14s ease,
+                background .14s ease, border-color .14s ease, color .14s ease;
   }
   .report-btn svg {
     width: 14px; height: 14px; flex: 0 0 14px;
     stroke: currentColor; fill: none;
-    stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round;
+    stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
   }
-  /* Lifts on hover rather than changing colour: the colour is already the
-     point, and a lift reads as "pressable" without a second hue. */
   .report-btn:hover {
+    background: linear-gradient(180deg, #e4f7e4 0%, #c9efc9 100%);
+    border-color: rgba(12,163,12,.5);
+    color: var(--green-ink);
     transform: translateY(-1px);
-    filter: saturate(1.12) brightness(1.06);
-    box-shadow: 0 7px 18px -6px rgba(37,99,235,.75),
-                inset 0 1px 0 rgba(255,255,255,.35);
+    box-shadow: 0 6px 14px -5px rgba(12,163,12,.55);
   }
   .report-btn:active { transform: translateY(0); }
   .report-btn:focus-visible {
     outline: 2px solid var(--blue-500); outline-offset: 2px;
   }
   .report-btn[disabled] {
-    filter: grayscale(.45) brightness(1.05); cursor: progress;
+    filter: grayscale(.5); cursor: progress;
     transform: none; box-shadow: none;
   }
-  /* On the one card head that is a dark blue gradient, the same blue button
-     would sink into it. White on the dark bar, inverted on hover. */
+  /* On the one card head that is a dark blue gradient, a pale blue button
+     would vanish into it. White at rest, and the same green on hover so the
+     answer to the cursor is the same wherever the button is. */
   .card-blue > .card-head .report-btn {
-    background: rgba(255,255,255,.18); color: #fff;
-    box-shadow: inset 0 0 0 1px rgba(255,255,255,.4);
+    background: rgba(255,255,255,.2); color: #fff;
+    border-color: rgba(255,255,255,.45);
+    box-shadow: none;
   }
   .card-blue > .card-head .report-btn:hover {
-    background: #fff; color: var(--blue-600); filter: none;
-    box-shadow: 0 6px 16px -6px rgba(0,0,0,.5);
+    background: var(--green-bg); border-color: var(--green-bg);
+    color: var(--green-ink);
+    box-shadow: 0 6px 16px -6px rgba(0,0,0,.55);
   }
   @media (prefers-reduced-motion: reduce) {
     .report-btn, .report-btn:hover { transition: none; transform: none; }
