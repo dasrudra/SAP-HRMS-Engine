@@ -2591,9 +2591,9 @@
       tiles.innerHTML = '<div class="tile tile-empty"><span>' +
         (k && k.allMonths ? 'No data loaded' : 'No data for this month') +
         '</span></div>';
-      emptyTable('#kpi1Table tbody', 9, 'Upload an ITSM export to see results.');
-      emptyTable('#kpi1Modules tbody', 9, 'Nothing to show yet.');
-      emptyTable('#kpi1AllPeople tbody', 8, 'Nothing to show yet.');
+      emptyTable('#kpi1Table tbody', 10, 'Upload an ITSM export to see results.');
+      emptyTable('#kpi1Modules tbody', 10, 'Nothing to show yet.');
+      emptyTable('#kpi1AllPeople tbody', 9, 'Nothing to show yet.');
       fillSectionFilters([]);
       // The org cards quote these figures, so they have to hear about an
       // empty period too - otherwise they keep showing the last one's.
@@ -2881,17 +2881,36 @@
                 ? 'tickets across ' + selectedMonths().length + ' months'
                 : 'tickets this month')
       }) +
+      // Each tile's sub-line now describes that tile's own number. The on-time
+      // figure was sitting under the delay rate, where it read as if it were
+      // part of the delay story; it belongs under Completed, which is what it
+      // is a share of. The delay tile keeps only the count behind its own
+      // percentage.
       tile({
         label: 'Completed', icon: 'check', tone: 'teal',
         value: count(t.completed),
-        note: count(Math.max(0, t.received - t.completed)) + ' still open'
+        note: count(t.successful) + ' on time \u00b7 ' +
+              count(openOf(t)) + ' still open'
       }) +
       tile({
         label: 'Delayed', icon: 'clock', tone: t.delayed ? 'a' : 'g',
         value: delayRateText(t),
-        note: count(t.delayed) + ' delayed \u00b7 ' +
-              count(t.successful) + ' completed on time'
+        note: count(t.delayed) + ' delayed'
       });
+  }
+
+
+  /**
+   * Tickets still open: received, but with no completion date.
+   *
+   * The server sends `open` on every row and total. This falls back to the
+   * subtraction for anything cached by an older version of the page, which is
+   * the same arithmetic the server does - see scoreRows() in Kpi.gs.
+   */
+  function openOf(row) {
+    if (!row) return 0;
+    if (typeof row.open === 'number') return row.open;
+    return Math.max(0, (row.received || 0) - (row.completed || 0));
   }
 
 
@@ -3503,11 +3522,12 @@
 
     setCount('cSection', rows.length, all.length, useSections ? 'sections' : 'parts');
 
-    if (!rows.length) return emptyTable('#kpi1Table tbody', 9, 'No rows match.');
+    if (!rows.length) return emptyTable('#kpi1Table tbody', 10, 'No rows match.');
 
     fillRows('#kpi1Table tbody', rows, function (r) {
       return '<td class="name">' + escapeHtml(r.name) + '</td>' +
-             num(r.received) + num(r.completed) + num(r.delayed) + num(r.successful) +
+             num(r.received) + num(r.completed) + num(openOf(r)) +
+             num(r.delayed) + num(r.successful) +
              '<td class="r">' + fmt(r.rate) + '%</td>' +
              '<td class="r">' + fmt(r.achievement) + '%</td>' +
              '<td>' + pill(r.band) + '</td>' +
@@ -3612,7 +3632,7 @@
       const body = document.querySelector('#kpi1Modules tbody');
       if (body) {
         body.innerHTML =
-          '<tr><td colspan="9" class="empty">' +
+          '<tr><td colspan="10" class="empty">' +
           '<b>The stored figures were built before modules were added.</b><br>' +
           'There are ' + count(k.total.completed) + ' tickets in this period, ' +
           'but none of them has been filed under a module yet. Rebuilding ' +
@@ -3626,12 +3646,13 @@
     }
 
     if (!rows.length) {
-      return emptyTable('#kpi1Modules tbody', 9, 'No modules match the filters.');
+      return emptyTable('#kpi1Modules tbody', 10, 'No modules match the filters.');
     }
 
     fillRows('#kpi1Modules tbody', rows, function (m) {
       return '<td class="name">' + escapeHtml(m.name) + '</td>' +
-             num(m.received) + num(m.completed) + num(m.delayed) + num(m.successful) +
+             num(m.received) + num(m.completed) + num(openOf(m)) +
+             num(m.delayed) + num(m.successful) +
              '<td class="r">' + fmt(m.rate) + '%</td>' +
              '<td class="r">' + fmt(m.achievement) + '%</td>' +
              '<td>' + pill(m.band) + '</td>' +
@@ -3653,7 +3674,7 @@
       if (state.scopePeople === null && getValue('fAllScope')) {
         // A quarter was picked and it holds nothing.
         setCount('cAll', 0, 0, 'individuals');
-        return emptyTable('#kpi1AllPeople tbody', 8,
+        return emptyTable('#kpi1AllPeople tbody', 9,
           'No tickets in ' + quarterLabel(getValue('fAllScope')) + '.');
       }
       return;
@@ -3665,13 +3686,14 @@
     setCount('cAll', rows.length, k.people.length, 'individuals');
 
     if (!rows.length) {
-      return emptyTable('#kpi1AllPeople tbody', 8, 'No individuals match the filters.');
+      return emptyTable('#kpi1AllPeople tbody', 9, 'No individuals match the filters.');
     }
 
     fillRows('#kpi1AllPeople tbody', rows, function (p) {
       return '<td class="name">' + escapeHtml(p.name) + '</td>' +
              '<td>' + escapeHtml(p.department) + '</td>' +
-             num(p.received) + num(p.completed) + num(p.delayed) + num(p.successful) +
+             num(p.received) + num(p.completed) + num(openOf(p)) +
+             num(p.delayed) + num(p.successful) +
              '<td class="r">' + fmt(p.rate) + '%</td>' +
              '<td>' + pill(p.band) + '</td>';
     });
@@ -5295,9 +5317,13 @@
     document.getElementById('cmpOverallCard').hidden = false;
     document.getElementById('cmpSectionCard').hidden = false;
 
+    // The fallback is only reached if the server sent no measures at all. It
+    // has to match CONFIG's list in Kpi.gs, including Open, or a stale cached
+    // page would quietly drop a column.
     const measures = c.measures || [
       { key: 'received',   label: 'Received' },
       { key: 'completed',  label: 'Completed' },
+      { key: 'open',       label: 'Open' },
       { key: 'delayed',    label: 'Delayed' },
       { key: 'successful', label: 'Successful' }
     ];
@@ -5358,7 +5384,12 @@
 
       tr.innerHTML =
         '<td class="name">' + escapeHtml(formatPeriod(period)) + '</td>' +
-        measures.map(function (m) { return num(t[m.key]); }).join('') +
+        // openOf() rather than a plain lookup, so a comparison built by an
+        // older server - or read back from a cached state - still fills the
+        // Open column instead of leaving a blank cell under the header.
+        measures.map(function (m) {
+          return num(m.key === 'open' ? openOf(t) : t[m.key]);
+        }).join('') +
         '<td class="r">' + fmt(t.rate) + '%</td>' +
         '<td class="r">' + fmt(t.achievement) + '%</td>' +
         '<td>' + pill(t.band) + '</td>' +

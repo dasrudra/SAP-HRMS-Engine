@@ -200,6 +200,13 @@ function scoreRows(rows, kpi) {
   return {
     received:    rows.length,
     completed:   completed,
+    // Still open. Every row counted in `received` either has a completion date
+    // or does not, and `completed` is exactly the ones that do - so this
+    // subtraction IS the count of tickets with a blank Completion Date. It is
+    // derived rather than stored, which is deliberate: nothing has to be
+    // re-uploaded or recached for it to appear, and it cannot drift away from
+    // the two numbers it sits between.
+    open:        rows.length - completed,
     delayed:     delayed,
     successful:  successful,
     rate:        rate,
@@ -609,6 +616,10 @@ function finaliseEntry(b, kpi) {
     name:        b.name,
     received:    b.received,
     completed:   b.completed,
+    // See scoreRows(): tickets whose Completion Date is blank. Clamped only
+    // because these two are summed from the cache rather than counted off one
+    // set of rows, so a half-written cache row must not print a negative.
+    open:        Math.max(0, b.received - b.completed),
     delayed:     b.delayed,
     successful:  b.successful,
     rate:        round2(rate),
@@ -668,6 +679,7 @@ function getKpiComparison(token, months) {
     measures: [
       { key: 'received',   label: 'Received' },
       { key: 'completed',  label: 'Completed' },
+      { key: 'open',       label: 'Open' },
       { key: 'delayed',    label: 'Delayed' },
       { key: 'successful', label: 'Successful' }
     ]
@@ -697,6 +709,8 @@ function getKpiComparison(token, months) {
       band:        String(r[9]),
       headroom:    Number(r[10]) || 0
     };
+    // Derived here too, from the same two columns - see scoreRows().
+    entry.open = Math.max(0, entry.received - entry.completed);
 
     if (scopeType === 'EAS') {
       result.totals[month] = entry;
