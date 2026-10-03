@@ -3316,7 +3316,7 @@
       options: {
         responsive: true,
         maintainAspectRatio: false,
-        layout: { padding: { top: 24, right: 74 } },
+        layout: { padding: { top: 24, right: 92 } },
         scales: {
           y: Object.assign({ min: floor, max: 100.6 }, gridStyle()),
           x: categoryAxis()
@@ -3708,6 +3708,10 @@
     afterDatasetsDraw: function (chart, args, opts) {
       if (!opts || typeof opts.value !== 'number') return;
 
+      // Cleared first, so it never describes a badge from an earlier render
+      // that this one is not going to draw.
+      chart.$targetBadge = null;
+
       // The combo chart has two y scales, so the caller names the one the
       // target belongs to. Everything else has a single 'y' and says nothing.
       const y = chart.scales[opts.scaleId || 'y'];
@@ -3730,16 +3734,52 @@
         // Drawn in the gutter reserved by layout.padding.right, so the badge
         // can never sit on top of a bar. Overlapping the data would be worse
         // than having no label at all.
+        //
+        // The plot area is not always the last thing on the right, though. The
+        // trend chart on Comparison puts its rate axis there, and a badge
+        // pinned to chartArea.right landed squarely on that axis's 99.4% /
+        // 99.6% ticks - two sets of numbers in the same few pixels, which is
+        // how it shipped. So step over anything drawn to the right of the plot
+        // and start the badge clear of it. Charts with no right-hand axis are
+        // unaffected: the loop finds nothing and the badge stays where it was.
+        let axisEdge = 0;
+        Object.keys(chart.scales).forEach(function (id) {
+          const scale = chart.scales[id];
+          if (scale && scale.position === 'right' && scale.right > axisEdge) {
+            axisEdge = scale.right;
+          }
+        });
+        const edge = Math.max(right, axisEdge);
+
         ctx.font = '700 9.5px -apple-system, "Segoe UI", Roboto, sans-serif';
         const width = ctx.measureText(opts.label).width + 14;
+
+        // Never draw off the end of the canvas. The gutters below are sized
+        // for these labels, but the label is built from a target that the
+        // committee can change - two more digits and "Target 99.5%" becomes
+        // something wider than the space reserved for it. Pulling the badge
+        // back so it ends at the edge costs a few pixels of the gutter; being
+        // sliced in half costs the reader the number, which is the one thing
+        // the badge is for.
+        let x = edge + 8;
+        const limit = chart.width - 4;
+        if (x + width > limit) x = Math.max(4, limit - width);
+
+        // Where the badge actually ended up, for the test that checks it stayed
+        // on the canvas and off the right-hand axis. Recording it is the only
+        // way that check can be honest: a test that recalculates the placement
+        // is really just testing its own copy of this arithmetic, and passes
+        // happily while the chart on screen is wrong.
+        chart.$targetBadge = { x: x, width: width, plotRight: right, axisRight: axisEdge };
+
         ctx.fillStyle = opts.color || '#1e3a5f';
         ctx.beginPath();
-        ctx.roundRect(right + 8, at - 9, width, 18, 9);
+        ctx.roundRect(x, at - 9, width, 18, 9);
         ctx.fill();
         ctx.fillStyle = '#fff';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText(opts.label, right + 8 + width / 2, at);
+        ctx.fillText(opts.label, x + width / 2, at);
       }
       ctx.restore();
     }
@@ -3814,14 +3854,20 @@
   /**
    * Mark specs, applied to every bar in the app.
    *
-   * 24px is a cap, not a width: a bar that fills its slot reads as a solid
-   * block of colour rather than as a measurement, and four sections across a
-   * wide card were rendering 64px slabs. The leftover space is deliberate.
+   * This is a cap, not a width. It exists because a bar that fills its slot
+   * reads as a solid block of colour rather than as a measurement - four
+   * sections across a wide card were rendering 64px slabs.
+   *
+   * 24 was too timid. Against the amount of white a card actually has, four
+   * bars came out as pencil lines and the chart read as mostly empty. 38 still
+   * leaves clear air between neighbours at every count the app plots - seven
+   * modules in the widened KPI 2 card have about 90px of slot each - while
+   * giving each bar enough body to read as a quantity.
    */
   const BAR = {
     borderRadius: { topLeft: 4, topRight: 4, bottomLeft: 0, bottomRight: 0 },
     borderSkipped: false,
-    maxBarThickness: 24
+    maxBarThickness: 38
   };
 
   const AXIS_FONT = { size: 11, family: '-apple-system, "Segoe UI", Roboto, sans-serif' };
@@ -3927,7 +3973,7 @@
       options: {
         responsive: true,
         maintainAspectRatio: false,
-        layout: { padding: { top: 24, right: 74 } },   // gutter for the target badge
+        layout: { padding: { top: 24, right: 92 } },   // gutter for the target badge
         scales: {
           y: Object.assign({ min: floor, max: 100.4 }, gridStyle()),
           x: categoryAxis()
@@ -4213,7 +4259,11 @@
             backgroundColor: TREND_BAR,
             borderRadius: { topLeft: 4, topRight: 4, bottomLeft: 0, bottomRight: 0 },
             borderSkipped: false,
-            maxBarThickness: 34,
+            // Wider than the shared cap. This chart runs full width with the
+            // months spread across it, and the bars are the quiet background
+            // the rate line is read against - too thin and there is nothing
+            // for the line to sit on.
+            maxBarThickness: 48,
             order: 1
           }
         ]
@@ -4304,6 +4354,11 @@
                          floor + '%.';
     }
 
+    // How much of each section's slot the months take up together. Two months
+    // need roughly half of it; four need most of it. See the note beside
+    // categoryPercentage below for why this cannot be a constant.
+    const groupShare = Math.min(0.78, 0.2 + 0.13 * c.periods.length);
+
     const datasets = c.periods.map(function (period, index) {
       const total = c.totals[period];
       const data = [total ? round2(total.rate) : null].concat(
@@ -4323,9 +4378,17 @@
         // with a hairline of surface between them; the air goes BETWEEN the
         // sections instead. Left at the defaults the pair drifts apart and
         // reads as two unrelated bars.
-        categoryPercentage: 0.55,
+        //
+        // The share has to follow the number of months, which is why this is
+        // computed rather than a constant. Chart.js centres a bar inside its
+        // own sub-slot, so once maxBarThickness clamps the width, every extra
+        // percent of the slot becomes a gap BETWEEN the months rather than
+        // width on them. A fixed 0.72 looked right at four months and split
+        // two months into an unrelated-looking pair. Growing the group with
+        // the count keeps each sub-slot close to the bar that sits in it.
+        categoryPercentage: groupShare,
         barPercentage: 0.9
-      }, BAR, { maxBarThickness: 22 });
+      }, BAR, { maxBarThickness: 36 });
     });
 
     drawChart('chartCompare', {
@@ -4334,7 +4397,7 @@
       options: {
         responsive: true,
         maintainAspectRatio: false,
-        layout: { padding: { top: 22, right: 74 } },   // gutter for the target badge
+        layout: { padding: { top: 22, right: 92 } },   // gutter for the target badge
         scales: {
           y: Object.assign({ min: floor, max: 100.4 }, gridStyle()),
           x: categoryAxis()
