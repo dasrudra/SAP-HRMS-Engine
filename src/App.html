@@ -95,6 +95,7 @@
     wireUploads();
     wireOrg();
     wireLogin();
+    wireSetup();
 
     // Find the token before anything is asked of the server, since every call
     // carries it. Reading it is asynchronous, so the session check waits.
@@ -224,6 +225,22 @@
    * else is requested in the meantime, so a signed-out page holds no data at
    * all rather than holding it behind a screen.
    */
+  /**
+   * Puts the sign-in card in front and the create-your-account card away.
+   *
+   * Called from BOTH ways the sign-in screen comes back - a fresh page load,
+   * and signing out. It started life written out inside onSession() alone,
+   * which meant signing out after registering showed the create-your-account
+   * card to somebody who had just finished using it.
+   */
+  function showSignInCard() {
+    const setup = document.getElementById('setupCard');
+    if (setup) setup.hidden = true;
+    const first = document.querySelector('#loginScreen .login-card:not(#setupCard)');
+    if (first) first.hidden = false;
+  }
+
+
   function onSession(session) {
     if (session && session.signedIn) {
       state.role = session.role;
@@ -242,6 +259,100 @@
     show('loginScreen');
     const field = document.getElementById('loginUser');
     if (field) field.focus();
+
+    showSignInCard();
+  }
+
+
+  /**
+   * Swaps the sign-in card for the create-your-account one.
+   *
+   * The setup token is held in a plain variable rather than in state or in
+   * storage: it is good for twenty minutes, it is NOT a session, and nothing
+   * should be able to find it lying about afterwards.
+   */
+  let pendingSetupToken = '';
+
+  function showSetup(setupToken) {
+    pendingSetupToken = setupToken || '';
+
+    const card = document.querySelector('#loginScreen .login-card:not(#setupCard)');
+    if (card) card.hidden = true;
+    const setup = document.getElementById('setupCard');
+    if (setup) setup.hidden = false;
+
+    setValue('setupId', '');
+    setValue('setupPass', '');
+    setValue('setupConfirm', '');
+    const box = document.getElementById('setupError');
+    if (box) box.hidden = true;
+
+    const field = document.getElementById('setupId');
+    if (field) field.focus();
+  }
+
+
+  function wireSetup() {
+    const form = document.getElementById('setupForm');
+    if (!form) return;
+
+    bind('setupPeek', 'click', function () {
+      const box = document.getElementById('setupPass');
+      if (!box) return;
+      const reveal = box.type === 'password';
+      box.type = reveal ? 'text' : 'password';
+      const button = document.getElementById('setupPeek');
+      if (button) {
+        button.classList.toggle('is-on', reveal);
+        button.setAttribute('aria-pressed', reveal ? 'true' : 'false');
+        button.setAttribute('aria-label', reveal ? 'Hide password' : 'Show password');
+      }
+      box.focus();
+    });
+
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+
+      const button = document.getElementById('setupGo');
+      const box = document.getElementById('setupError');
+      if (box) box.hidden = true;
+      if (button) { button.disabled = true; button.textContent = 'Creating\u2026'; }
+
+      const done = function () {
+        if (button) { button.disabled = false; button.textContent = 'Create my login'; }
+      };
+
+      google.script.run
+        .withSuccessHandler(function (result) {
+          done();
+          if (result && result.ok) {
+            pendingSetupToken = '';
+            state.role = result.role;
+            state.username = result.username || '';
+            state.mode = 'EXEC';
+            keepToken(result.token);
+            setValue('setupPass', '');
+            setValue('setupConfirm', '');
+            startApp();
+            return;
+          }
+          if (box) {
+            box.hidden = false;
+            box.textContent = (result && result.message) ||
+              'That could not be saved. Check the details and try again.';
+          }
+        })
+        .withFailureHandler(function (err) {
+          done();
+          if (box) {
+            box.hidden = false;
+            box.textContent = (err && err.message) ? err.message :
+              'Could not reach the server. Check your connection and try again.';
+          }
+        })
+        .registerAccount(pendingSetupToken, getValue('setupId').trim(),
+                         getValue('setupPass'), getValue('setupConfirm'));
+    });
   }
 
 
@@ -307,6 +418,15 @@
       google.script.run
         .withSuccessHandler(function (result) {
           done();
+          if (result && result.ok && result.setup) {
+            // The shared starting login. It opens the create-your-account
+            // card and nothing else - there is no session token in this
+            // answer to keep, by design.
+            setValue('loginPass', '');
+            setPasswordVisible(false);
+            showSetup(result.setupToken);
+            return;
+          }
           if (result && result.ok) {
             state.role = result.role;
             state.username = result.username || '';
@@ -452,6 +572,7 @@
 
     const field = document.getElementById('loginUser');
     if (field) field.focus();
+    showSignInCard();
   }
 
 
@@ -463,11 +584,33 @@
    * function that writes, because in Apps Script any global function can be
    * called straight from the browser console whatever the page displays.
    */
+  /**
+   * May the signed-in person do the things an admin may do?
+   *
+   * Ranked, not matched. MASTER outranks ADMIN, and the two places that draw
+   * admin-only buttons were comparing against the word - so the moment MASTER
+   * existed, the one person who can manage every account quietly lost the
+   * Delete buttons. One function now answers it for all of them.
+   */
+  function canAdmin() {
+    return ({ USER: 1, ADMIN: 2, MASTER: 3 }[state.role] || 0) >= 2;
+  }
+
+
   function applyRole() {
-    const isAdmin = state.role === 'ADMIN';
+    // Ranked, not matched. A master is an admin and more, so testing for the
+    // word ADMIN would have hidden the upload button from the one person who
+    // can also manage the accounts.
+    const rank = { USER: 1, ADMIN: 2, MASTER: 3 };
+    const mine = rank[state.role] || 0;
+    const isAdmin = canAdmin();
+    const isMaster = mine >= rank.MASTER;
 
     document.querySelectorAll('[data-admin-only]').forEach(function (el) {
       el.hidden = !isAdmin;
+    });
+    document.querySelectorAll('[data-master-only]').forEach(function (el) {
+      el.hidden = !isMaster;
     });
 
     const readOnly = document.getElementById('uploadReadOnly');
@@ -485,8 +628,10 @@
 
     const badge = document.getElementById('roleBadge');
     if (badge) {
-      badge.textContent = isDev ? 'DEV \u00b7 ADMIN' : (isAdmin ? 'ADMIN' : 'VIEWER');
+      const word = isMaster ? 'MASTER' : (isAdmin ? 'ADMIN' : 'VIEWER');
+      badge.textContent = isDev ? 'DEV \u00b7 ' + word : word;
       badge.classList.toggle('is-admin', isAdmin);
+      badge.classList.toggle('is-master', isMaster);
       badge.classList.toggle('is-dev', isDev);
       badge.title = isDev
         ? 'Opened with ?admin=1, which skips the sign-in for someone who can ' +
@@ -690,6 +835,16 @@
 
     wireMonthPicker();
 
+    ['fMasterRole', 'fMasterId'].forEach(function (id) {
+      const el = document.getElementById(id);
+      if (el) el.addEventListener('input', renderMasterAccounts);
+    });
+    bind('fMasterReset', 'click', function () {
+      setValue('fMasterRole', '');
+      setValue('fMasterId', '');
+      renderMasterAccounts();
+    });
+
     const refresh = document.getElementById('refreshKpi1');
     if (refresh) refresh.addEventListener('click', function () { loadKpi1(); });
   }
@@ -714,7 +869,8 @@
       uploads: 'Data Uploads',
       // The internal name stays `settings`, so every saved link and bookmark
       // with ?view=settings keeps working. Only what people read changes.
-      settings: 'Summary'
+      settings: 'Summary',
+      master: 'Accounts'
     };
     document.getElementById('viewLabel').textContent = labels[name] || name;
 
@@ -724,6 +880,7 @@
     if (name === 'kpi1') loadKpi1();
     if (name === 'kpi2') loadKpi2();
     if (name === 'uploads') loadUploads();
+    if (name === 'master') loadMaster();
 
     // A comparison that was on screen before the refresh gets rebuilt. Guarded
     // on state.compare being empty so this costs a server call once and not
@@ -1708,7 +1865,7 @@
         'responses; that is fixed, but what was already orphaned is still here.</p>' +
         // The warning is worth showing everybody - the button that acts on it
         // is not, because removing responses changes KPI 2 for everyone.
-        (state.role === 'ADMIN'
+        (canAdmin()
           ? '<p><button class="btn btn-danger" data-purge="1">' +
             'Remove ' + count(n) + ' orphaned response' + (n === 1 ? '' : 's') +
             '</button></p>'
@@ -1944,7 +2101,7 @@
         '<svg viewBox="0 0 16 16"><path d="M8 2v8M5 7l3 3 3-3M3 13h10"/></svg></button>' +
       // Deleting is admin-only. A viewer keeps Open and Download, because
       // reading an upload back is not a change to anything.
-      (state.role === 'ADMIN'
+      (canAdmin()
         ? '<button class="btn-icon is-danger" data-delete="' + id + '" title="Delete this upload">' +
           '<svg viewBox="0 0 16 16"><path d="M2.5 4h11M6 4V2.5h4V4M4 4l.6 9.5h6.8L12 4"/></svg></button>'
         : '') +
@@ -4998,6 +5155,214 @@
    * Presentation only - nothing is keyed on the result. The full name is what
    * every table, filter and stored figure uses.
    */
+  // =========================================================================
+  // ACCOUNTS - the master screen
+  // =========================================================================
+  //
+  // Everything here is also guarded on the server. The buttons disappearing
+  // for everybody else is how the screen reads, not how it is protected: any
+  // visitor can type google.script.run.masterSetRole(...) into a console, and
+  // requireMaster() in Auth.gs is what answers them.
+
+  function loadMaster() {
+    if (!state.master) state.master = { accounts: [], log: [] };
+
+    callServer('masterListAccounts')
+      .then(function (rows) {
+        state.master.accounts = rows || [];
+        renderMasterAccounts();
+      })
+      .catch(onError);
+
+    callServer('masterAuditLog', 300)
+      .then(function (rows) {
+        state.master.log = rows || [];
+        renderMasterLog();
+      })
+      .catch(onError);
+  }
+
+
+  /** An ISO timestamp as something a person reads, or a dash. */
+  function whenText(iso) {
+    if (!iso) return '\u2014';
+    const at = new Date(iso);
+    if (isNaN(at.getTime())) return String(iso);
+    const pad = function (n) { return (n < 10 ? '0' : '') + n; };
+    return at.getFullYear() + '-' + pad(at.getMonth() + 1) + '-' + pad(at.getDate()) +
+           ' ' + pad(at.getHours()) + ':' + pad(at.getMinutes());
+  }
+
+
+  function rolePill(role) {
+    const cls = role === 'MASTER' ? 'pill-master'
+              : role === 'ADMIN' ? 'pill-admin' : 'pill-user';
+    const word = role === 'MASTER' ? 'Master'
+               : role === 'ADMIN' ? 'Admin' : 'Viewer';
+    return '<span class="pill ' + cls + '">' + word + '</span>';
+  }
+
+
+  function renderMasterAccounts() {
+    const all = state.master.accounts || [];
+    const wantRole = getValue('fMasterRole');
+    const wantId = getValue('fMasterId').trim().toLowerCase();
+
+    const rows = all.filter(function (a) {
+      if (wantRole && a.role !== wantRole) return false;
+      if (wantId && a.username.indexOf(wantId) === -1) return false;
+      return true;
+    });
+
+    setText('masterCount', all.length + ' account' + (all.length === 1 ? '' : 's'));
+    setCount('cMaster', rows.length, all.length, 'accounts');
+
+    if (!rows.length) return emptyTable('#masterTable tbody', 7, 'No accounts match.');
+
+    fillRows('#masterTable tbody', rows, function (a) {
+      // The shared starting login is a row like any other, but it is not a
+      // person and none of the actions make sense on it.
+      if (a.bootstrap) {
+        return '<td class="name">' + escapeHtml(a.username) + '</td>' +
+               '<td>' + rolePill('USER') + '</td>' +
+               '<td colspan="4" class="muted">' +
+               'The shared starting login. Everyone uses it once, to reach the ' +
+               'card that creates their own.</td>' +
+               '<td class="muted">\u2014</td>';
+      }
+
+      const id = escapeHtml(a.username);
+      const make = function (action, label, cls) {
+        return '<button class="btn btn-sm ' + (cls || 'btn-ghost') +
+               '" data-master="' + action + '" data-id="' + id + '">' + label + '</button>';
+      };
+
+      return '<td class="name">' + id + '</td>' +
+             '<td>' + rolePill(a.role) + '</td>' +
+             '<td>' + escapeHtml(whenText(a.created)) + '</td>' +
+             '<td>' + escapeHtml(whenText(a.passwordSet)) + '</td>' +
+             '<td>' + escapeHtml(whenText(a.lastSignIn)) + '</td>' +
+             '<td class="r">' + count(a.signIns) + '</td>' +
+             '<td class="master-actions">' +
+               (a.role === 'USER' ? make('admin', 'Make admin') : '') +
+               (a.role === 'ADMIN' ? make('viewer', 'Remove admin') : '') +
+               make('reset', 'Reset password') +
+               make('remove', 'Remove', 'btn-danger-ghost') +
+             '</td>';
+    });
+
+    wireMasterActions();
+  }
+
+
+  function renderMasterLog() {
+    const rows = state.master.log || [];
+    if (!rows.length) return emptyTable('#masterLog tbody', 5, 'Nothing logged yet.');
+
+    const said = {
+      SIGNUP:   'Created their login',
+      SIGNIN:   'Signed in',
+      ROLE:     'Role changed',
+      RESET:    'Password reset',
+      PASSWORD: 'Changed their password',
+      REMOVED:  'Account removed'
+    };
+
+    fillRows('#masterLog tbody', rows, function (l) {
+      return '<td>' + escapeHtml(whenText(l.when)) + '</td>' +
+             '<td class="name">' + escapeHtml(l.username) + '</td>' +
+             '<td>' + escapeHtml(said[l.event] || l.event) + '</td>' +
+             '<td>' + (l.role ? rolePill(l.role) : '') + '</td>' +
+             '<td class="muted">' + escapeHtml(l.detail || '') + '</td>';
+    });
+  }
+
+
+  function wireMasterActions() {
+    document.querySelectorAll('[data-master]').forEach(function (button) {
+      button.addEventListener('click', function () {
+        const id = button.dataset.id;
+        const what = button.dataset.master;
+
+        if (what === 'admin')  return masterDo('masterSetRole', [id, 'ADMIN'],
+          'Give ' + id + ' admin access?',
+          'They will be able to upload, delete and rebuild. They will not be ' +
+          'able to manage accounts - only you can do that.',
+          'Give admin access', 'info');
+
+        if (what === 'viewer') return masterDo('masterSetRole', [id, 'USER'],
+          'Take admin access away from ' + id + '?',
+          'They keep their login and can still read every screen.',
+          'Take it away', 'info');
+
+        if (what === 'remove') return masterDo('masterRemoveAccount', [id],
+          'Remove the login for ' + id + '?',
+          'They will not be able to sign in. They can create a new login with ' +
+          'the shared starting password, as a viewer.',
+          'Remove the login', 'danger');
+
+        if (what === 'reset')  return resetPassword(id);
+      });
+    });
+  }
+
+
+  /**
+   * Asks, then does it.
+   *
+   * `tone` is not decoration. confirmDialog paints a red button and a bin icon
+   * unless it is told otherwise, and "Make admin" wearing a bin is a sentence
+   * the screen did not mean to say. Only removing a login is destructive, so
+   * only removing a login looks it.
+   */
+  function masterDo(fn, args, title, body, label, tone) {
+    confirmDialog({
+      title: title,
+      body: '<p>' + escapeHtml(body) + '</p>',
+      confirmLabel: label || 'Yes, do it',
+      tone: tone === 'danger' ? 'danger' : 'info'
+    }).then(function (yes) {
+      if (!yes) return;
+      callServer.apply(null, [fn].concat(args))
+        .then(function () { loadMaster(); })
+        .catch(onError);
+    });
+  }
+
+
+  /**
+   * Resets somebody's password and shows the new one ONCE.
+   *
+   * Once is not a limitation to apologise for - it is the only honest thing
+   * the screen can do, because the server keeps a scrambled form and nothing
+   * it could be read back from. Said plainly in the dialog, so nobody closes
+   * it expecting to find the password again later.
+   */
+  function resetPassword(id) {
+    confirmDialog({
+      title: 'Reset the password for ' + id + '?',
+      body: '<p>A new password is made and shown to you once. Write it down ' +
+            'before closing the box - it cannot be looked up afterwards, by ' +
+            'anyone. Tell them to change it after they sign in.</p>',
+      confirmLabel: 'Reset the password',
+      tone: 'info'
+    }).then(function (yes) {
+      if (!yes) return;
+      callServer('masterResetPassword', id, '')
+        .then(function (result) {
+          loadMaster();
+          alertDialog({
+            title: 'New password for ' + id,
+            body: '<p class="new-password">' + escapeHtml(result.password) + '</p>' +
+                  '<p>This is the only time it is shown. Pass it on, and ask ' +
+                  'them to set their own once they are in.</p>'
+          });
+        })
+        .catch(onError);
+    });
+  }
+
+
   function shortLabel(name) {
     const sections = (state.boot && state.boot.departments) || [];
     for (let i = 0; i < sections.length; i++) {

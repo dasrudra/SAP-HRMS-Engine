@@ -754,6 +754,11 @@
   .badge.is-admin {
     background: rgba(12,163,12,.22); border-color: rgba(12,163,12,.5); color: #b8f0b8;
   }
+  /* Master outranks admin, so it says so rather than wearing the same green.
+     Comes after .is-admin, because a master carries both classes. */
+  .badge.is-master {
+    background: rgba(124,177,255,.26); border-color: rgba(124,177,255,.6); color: #dbeafe;
+  }
   /* The /dev link. Marked differently from a signed-in admin so it is never a
      guess whether you are looking at the deployed version or your latest save. */
   .badge.is-dev {
@@ -1421,6 +1426,13 @@
     transition: box-shadow .14s ease;
   }
   tbody tr:hover .pill { box-shadow: 0 1px 4px rgba(20,32,46,.14); }
+  /* The three roles on the Accounts screen. Blue for master and admin rather
+     than the status green, which belongs to a KPI band and nothing else - a
+     role is not a reading. */
+  .pill-master { background: #e6edfb; color: #1b3a86; border-color: #c3d4f5; }
+  .pill-admin  { background: var(--blue-050); color: var(--blue-600); border-color: #cfe0fb; }
+  .pill-user   { background: var(--surface-2); color: var(--text-dim); border-color: var(--border); }
+
   .pill.g { background: var(--green-bg); color: var(--green-ink); }
   .pill.a { background: var(--amber-bg); color: var(--amber-ink); }
   .pill.r { background: var(--red-bg);   color: var(--red-ink); }
@@ -1800,5 +1812,42 @@
     .nav-group-label { display: none; }
     .content { padding: 16px; }
     .tile-value { font-size: 24px; }
+  }
+
+  /* ---------------- accounts ---------------- */
+  /*
+    Row actions. Small, quiet, and laid out in one line that wraps rather than
+    a menu: there are only ever three or four of them and a menu would hide
+    the destructive one behind the same click as the harmless ones.
+  */
+  .master-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+  .btn-sm {
+    padding: 4px 9px; font-size: 11.5px; border-radius: 6px;
+  }
+  /* Removing a login is the one action here that cannot be undone, so it is
+     the one that does not look like the others. */
+  .btn-danger-ghost {
+    background: transparent; border-color: #f0c9c9; color: var(--red-ink);
+  }
+  .btn-danger-ghost:hover {
+    background: var(--red-bg); border-color: var(--red); color: var(--red-ink);
+  }
+
+  /*
+    A reset password, shown once.
+
+    Big, spaced and monospaced because it is going to be read off a screen and
+    typed by somebody else - which is exactly when an l and a 1 become the same
+    character. generatedPassword() in Auth.gs leaves those out as well; this is
+    the other half of the same care.
+  */
+  .new-password {
+    margin: 4px 0 14px; padding: 14px 16px;
+    background: var(--surface-2); border: 1px dashed var(--border-str);
+    border-radius: var(--radius-sm);
+    font-family: 'SF Mono', Menlo, Consolas, monospace;
+    font-size: 22px; font-weight: 700; letter-spacing: .14em;
+    color: var(--navy-900); text-align: center;
+    user-select: all;
   }
 </style>

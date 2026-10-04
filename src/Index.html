@@ -95,8 +95,74 @@
     </form>
 
     <p class="login-note">
-      Viewers can read every screen, filter and compare. Uploading, deleting
-      and rebuilding need the admin login.
+      Sign in with your employee ID. If this is your first time, use the
+      starting login your team gave you and you will be asked to set your own.
+    </p>
+  </div>
+
+  <!--
+    The second state of the sign-in screen: create your account.
+
+    Reached only by signing in with the shared starting credential, which the
+    server answers with a short-lived setup token rather than a session - so
+    this card is the only thing that password opens. See BOOTSTRAP_USER in
+    Auth.gs.
+  -->
+  <div class="login-card" id="setupCard" hidden>
+    <h1>Set up your login</h1>
+
+    <div class="login-brand">
+      <div class="brand-mark">EAS</div>
+      <div>
+        <strong><?= appName ?></strong>
+        <span><?= appVersion ?></span>
+      </div>
+    </div>
+
+    <p class="login-sub">
+      You are signed in with the shared starting login. Set your own employee
+      ID and password now - you will use those from the next time on.
+    </p>
+
+    <form id="setupForm" autocomplete="on">
+      <label class="login-field">
+        <span>Employee ID</span>
+        <input type="text" id="setupId" name="username" inputmode="numeric"
+               autocomplete="username" placeholder="20536723"
+               autocapitalize="off" spellcheck="false" required>
+      </label>
+
+      <label class="login-field login-secret">
+        <span>Choose a password</span>
+        <input type="password" id="setupPass" name="new-password"
+               autocomplete="new-password" minlength="6" required>
+        <button type="button" class="peek" id="setupPeek"
+                aria-label="Show password" aria-pressed="false">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"
+               stroke-linecap="round" stroke-linejoin="round">
+            <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7Z"/>
+            <circle cx="12" cy="12" r="3"/>
+          </svg>
+        </button>
+      </label>
+
+      <label class="login-field">
+        <span>Type it again</span>
+        <input type="password" id="setupConfirm" name="new-password"
+               autocomplete="new-password" minlength="6" required>
+      </label>
+
+      <div class="login-error" id="setupError" hidden></div>
+
+      <button type="submit" class="btn btn-primary login-go" id="setupGo">
+        Create my login
+      </button>
+    </form>
+
+    <p class="login-note">
+      Your employee ID is your username from now on. The password is yours -
+      at least six characters, and nobody else can read it back, so keep it
+      somewhere safe. If you forget it, ask for it to be reset.
     </p>
   </div>
 </div>
@@ -146,6 +212,18 @@
       <button class="nav-item" data-view="settings" title="Summary">
         <svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="2.4"/><path d="M8 1.2v1.6M8 13.2v1.6M14.8 8h-1.6M2.8 8H1.2M12.8 3.2l-1.1 1.1M4.3 11.7l-1.1 1.1M12.8 12.8l-1.1-1.1M4.3 4.3L3.2 3.2"/></svg>
         <span class="nav-text">Summary</span>
+      </button>
+
+      <!--
+        Accounts. MASTER only, and hidden from everyone else by applyRole().
+        The hiding is a courtesy - every endpoint behind this screen checks
+        requireMaster() on the server, because google.script.run reaches them
+        whether or not a button exists.
+      -->
+      <div class="nav-group-label" data-master-only hidden>Administration</div>
+      <button class="nav-item" data-view="master" data-master-only hidden title="Accounts">
+        <svg viewBox="0 0 16 16"><circle cx="6" cy="5.5" r="2.6"/><path d="M1.6 13.6c0-2.4 2-4 4.4-4s4.4 1.6 4.4 4"/><path d="M11.4 4.2a2.2 2.2 0 0 1 0 4.2"/><path d="M12.8 13.6c0-1.5-.5-2.7-1.4-3.5"/></svg>
+        <span class="nav-text">Accounts</span>
       </button>
 
       <!--
@@ -953,6 +1031,96 @@
             <p class="coverage-note" id="rebuildWhen" hidden></p>
             <button class="btn btn-primary" id="rebuildKpi1">&#x21BB; Rebuild now</button>
             <span class="filter-count" id="rebuildStatus"></span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ VIEW: ACCOUNTS (master only) ============ -->
+      <section class="view" id="view-master" hidden>
+        <div class="page-head">
+          <div>
+            <h1>Accounts</h1>
+            <p class="sub">
+              Who can open the dashboard, what each of them may do, and
+              everything that has happened to the logins.
+            </p>
+          </div>
+        </div>
+
+        <!--
+          Said on the screen rather than only in a comment, because it is the
+          one question this page gets asked and the answer has to be the same
+          every time somebody asks it.
+        -->
+        <div class="notice notice-info">
+          <h3>Passwords cannot be read back, by anyone</h3>
+          <p>
+            What is stored is a scrambled form of each password, folded over
+            itself six hundred times. It can check a password typed at the
+            sign-in and it cannot be turned back into the password - not from
+            this screen, not from the spreadsheet, and not by anyone who gets
+            a copy of either. If somebody has forgotten theirs,
+            <strong>Reset</strong> gives them a new one, shown once here so you
+            can pass it on.
+          </p>
+        </div>
+
+        <div class="card">
+          <div class="card-head" data-report="masterTable">
+            People
+            <span class="head-note" id="masterCount"></span>
+          </div>
+          <div class="table-filter">
+            <select id="fMasterRole" class="select" title="Role">
+              <option value="">All roles</option>
+              <option value="MASTER">Master</option>
+              <option value="ADMIN">Admin</option>
+              <option value="USER">Viewer</option>
+            </select>
+            <input id="fMasterId" class="select" type="search" placeholder="Search employee ID&#x2026;">
+            <button class="btn btn-ghost" id="fMasterReset">&#x2715; Reset</button>
+            <span class="filter-count" id="cMaster"></span>
+          </div>
+          <div class="table-wrap">
+            <table id="masterTable">
+              <thead>
+                <tr>
+                  <th>Employee ID</th>
+                  <th>Role</th>
+                  <th>Signed up</th>
+                  <th>Password set</th>
+                  <th>Last signed in</th>
+                  <th class="r">Sign-ins</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><td colspan="7" class="empty">Loading&#x2026;</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head" data-report="masterLog">
+            Sign-in log
+            <span class="head-note">Newest first</span>
+          </div>
+          <div class="table-wrap">
+            <table id="masterLog">
+              <thead>
+                <tr>
+                  <th>When</th>
+                  <th>Employee ID</th>
+                  <th>What happened</th>
+                  <th>Role</th>
+                  <th>Detail</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><td colspan="5" class="empty">Loading&#x2026;</td></tr>
+              </tbody>
+            </table>
           </div>
         </div>
       </section>

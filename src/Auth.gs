@@ -67,9 +67,53 @@
  */
 
 
-/** Roles, in increasing order of what they may do. */
-const ROLE_USER  = 'USER';
-const ROLE_ADMIN = 'ADMIN';
+/**
+ * Roles, in increasing order of what they may do.
+ *
+ *   USER    reads every screen, filters, compares, downloads reports
+ *   ADMIN   all of that, plus upload, delete and rebuild
+ *   MASTER  all of that, plus the accounts themselves: who exists, who is an
+ *           admin, resetting a forgotten password, and the sign-in log
+ *
+ * Nested, not parallel: a MASTER passes every ADMIN guard, so no endpoint has
+ * to list two roles and none can be left listing one.
+ */
+const ROLE_USER   = 'USER';
+const ROLE_ADMIN  = 'ADMIN';
+const ROLE_MASTER = 'MASTER';
+
+/** Highest first, so rank comparisons read the way the words do. */
+const ROLE_RANK = { USER: 1, ADMIN: 2, MASTER: 3 };
+
+function rankOf(role) {
+  return ROLE_RANK[String(role || '').toUpperCase()] || 0;
+}
+
+/** Is this a real role a token may carry? SETUP deliberately is not. */
+function isRealRole(role) {
+  return rankOf(role) > 0;
+}
+
+
+/**
+ * The shared credential everybody starts with.
+ *
+ * It is not an account. Signing in with it proves only that you were given
+ * the link and the starting password - it gets you to the "create your
+ * account" card and nowhere else. The dashboard itself is never reachable
+ * with it, which is the whole reason it can stay a shared secret.
+ */
+const BOOTSTRAP_USER = 'user';
+
+/** How long the create-your-account card has before it has to be re-earned. */
+const SETUP_MINUTES = 20;
+
+/** What an employee ID has to look like. Digits, because that is what they are. */
+const EMP_ID_MIN = 4;
+const EMP_ID_MAX = 12;
+
+/** The shortest password that will be accepted. */
+const MIN_PASSWORD = 6;
 
 /** Script Property holding every account, as JSON. */
 const ACCOUNTS_KEY = 'EAS_ACCOUNTS';
@@ -210,10 +254,57 @@ function sessionFromToken(token) {
   }
 
   if (!payload || !payload.r || !payload.u) return null;
-  if (payload.r !== ROLE_ADMIN && payload.r !== ROLE_USER) return null;
+  // A setup token carries s:1 and the role of nobody. It is checked by
+  // setupFromToken() and must never be mistaken for a session - otherwise the
+  // shared bootstrap password would be a way into the dashboard rather than
+  // only into the card that creates an account.
+  if (payload.s) return null;
+  if (!isRealRole(payload.r)) return null;
   if (!payload.x || Date.now() > payload.x) return null;
 
   return payload;
+}
+
+
+/**
+ * Reads back a SETUP token - the short-lived one handed out when somebody
+ * signs in with the shared starting password.
+ *
+ * Deliberately a separate function from sessionFromToken rather than a flag
+ * on it. These two tokens are allowed to do completely different things, and
+ * the one place that could confuse them is a single function that returns
+ * both.
+ */
+function setupFromToken(token) {
+  const raw = String(token == null ? '' : token);
+  const dot = raw.indexOf('.');
+  if (dot < 1) return null;
+
+  const body = raw.slice(0, dot);
+  const given = raw.slice(dot + 1);
+  if (!given || given !== signatureOf(body)) return null;
+
+  let payload;
+  try {
+    payload = JSON.parse(
+      Utilities.newBlob(Utilities.base64DecodeWebSafe(body)).getDataAsString());
+  } catch (e) {
+    return null;
+  }
+
+  if (!payload || !payload.s) return null;
+  if (!payload.x || Date.now() > payload.x) return null;
+  return payload;
+}
+
+
+/** The short-lived token that only opens the create-your-account card. */
+function issueSetupToken() {
+  const payload = { u: BOOTSTRAP_USER, s: 1,
+                    x: Date.now() + (SETUP_MINUTES * 60000) };
+  const body = Utilities.base64EncodeWebSafe(
+    Utilities.newBlob(JSON.stringify(payload)).getBytes());
+  return body + '.' + signatureOf(body);
 }
 
 
@@ -296,7 +387,10 @@ function devTokenIfAllowed(params) {
   const asked = params && params.admin === '1';
   if (!asked) return '';
   if (!isDevContext()) return '';
-  return issueToken('developer', ROLE_ADMIN, true);
+  // MASTER, not ADMIN. This is the ONLY route back in if the master password
+  // is forgotten, and it is the one route that cannot be taken from the
+  // public link - so it has to be able to reset that password.
+  return issueToken('developer', ROLE_MASTER, true);
 }
 
 
@@ -311,8 +405,12 @@ function devTokenIfAllowed(params) {
  * reset a forgotten password.
  */
 function seedCredentials() {
-  setAccount('admin', 'easadmin', ROLE_ADMIN);
-  setAccount('user',  'easuser',  ROLE_USER);
+  // Only the shared starting credential. There is deliberately no shared
+  // 'admin' account any more: admin is something granted to one employee ID
+  // by the master, and a password thirty-seven people know is the opposite of
+  // that. If an old one is still on the ACCOUNTS tab from before this change,
+  // remove it from the Accounts screen - it will be sitting there in the list.
+  setAccount(BOOTSTRAP_USER, 'easuser', ROLE_USER);
 
   const owner = Session.getEffectiveUser().getEmail();
   if (owner) {
@@ -322,14 +420,53 @@ function seedCredentials() {
 
   Logger.log('');
   Logger.log('=========================================================');
-  Logger.log(' ACCOUNTS CREATED');
-  Logger.log('   admin / easadmin    full access');
-  Logger.log('   user  / easuser     read only');
+  Logger.log(' STARTING CREDENTIAL CREATED');
+  Logger.log('   user / easuser');
+  Logger.log('');
+  Logger.log(' This does NOT open the dashboard. It opens the card that');
+  Logger.log(' creates an account, where each person sets their own employee');
+  Logger.log(' ID and password. Give it to the team; it is meant to be shared.');
+  Logger.log('');
   Logger.log('   maintenance owner:  %s', owner || '(could not read - set it by hand)');
   Logger.log('=========================================================');
   Logger.log('');
-  Logger.log('The passwords are stored hashed. This log line is the only place');
-  Logger.log('they appear in plain text - it disappears when you close the editor.');
+  Logger.log('NEXT: sign in with it yourself, create your own account, then run');
+  Logger.log('grantMaster() with your employee ID to get the Accounts screen.');
+}
+
+
+/**
+ * Makes one employee ID the master account. RUN THIS ONCE, from the editor.
+ *
+ * Edit the ID on the line below to your own, press Run, and that account can
+ * then manage every other one from the dashboard. It has to be done from the
+ * editor rather than from a screen, because at the point it is needed there is
+ * no master yet to ask - and anything that could create the first master from
+ * the browser would be a way for anybody to create one.
+ *
+ * The account has to exist first: sign in with the shared starting password,
+ * create your account with your employee ID, then run this.
+ */
+function grantMaster(employeeId) {
+  const id = String(employeeId || '20536723').trim().toLowerCase();
+
+  const accounts = readAccounts();
+  const account = accounts[id];
+  if (!account) {
+    throw new Error('No account for ' + id + ' yet. Sign in with the starting ' +
+                    'password, create your account with that employee ID, then ' +
+                    'run this again.');
+  }
+
+  account.role = ROLE_MASTER;
+  saveAccount(id, account);
+  logAuth(id, 'ROLE', ROLE_MASTER, 'granted from the editor');
+
+  Logger.log('');
+  Logger.log('=========================================================');
+  Logger.log(' %s is now MASTER.', id);
+  Logger.log(' Sign in with that employee ID and the Accounts screen appears.');
+  Logger.log('=========================================================');
 }
 
 
@@ -337,26 +474,34 @@ function seedCredentials() {
  * Adds or replaces one account.
  *
  * This is how the individual logins get created later: call it once per
- * person. No code change is needed for that - the accounts live in Script
- * Properties, not in this file.
+ * person. No code change is needed for that - the accounts live on the
+ * ACCOUNTS tab, not in this file.
  *
  * @param {string} username
  * @param {string} password
- * @param {string} role  ROLE_ADMIN or ROLE_USER
+ * @param {string} role  ROLE_ADMIN, ROLE_USER or ROLE_MASTER
  */
 function setAccount(username, password, role) {
   const name = String(username || '').trim().toLowerCase();
   if (!name) throw new Error('A username is required.');
   if (!password) throw new Error('A password is required.');
-  if (role !== ROLE_ADMIN && role !== ROLE_USER) {
-    throw new Error('Role must be ' + ROLE_ADMIN + ' or ' + ROLE_USER + '.');
+  if (!isRealRole(role)) {
+    throw new Error('Role must be ' + ROLE_USER + ', ' + ROLE_ADMIN +
+                    ' or ' + ROLE_MASTER + '.');
   }
 
-  const accounts = readAccounts();
+  const existing = readAccounts()[name];
+  const now = new Date().toISOString();
   const salt = Utilities.getUuid();
 
-  accounts[name] = { role: role, salt: salt, hash: hashOf(password, salt) };
-  writeAccounts(accounts);
+  saveAccount(name, {
+    role: role, salt: salt, hash: hashOf(password, salt),
+    created: (existing && existing.created) || now,
+    passwordSet: now,
+    lastSignIn: (existing && existing.lastSignIn) || '',
+    signIns: (existing && existing.signIns) || 0,
+    note: (existing && existing.note) || ''
+  });
 
   Logger.log('Account "%s" saved with role %s.', name, role);
 }
@@ -379,8 +524,7 @@ function removeAccount(username) {
                     'everyone out of uploads and deletes. Create another admin first.');
   }
 
-  delete accounts[name];
-  writeAccounts(accounts);
+  deleteAccountRow(name);
   Logger.log('Account "%s" removed.', name);
 }
 
@@ -431,13 +575,145 @@ function login(username, password) {
   }
 
   clearFailures(name);
+
+  // The shared starting credential is not a way in. It is a way to the card
+  // that creates an account, and nothing else - see BOOTSTRAP_USER.
+  if (name === BOOTSTRAP_USER) {
+    return { ok: true, setup: true, role: '', username: '', token: '',
+             setupToken: issueSetupToken(), message: '' };
+  }
+
+  recordSignIn(name);
+  logAuth(name, 'SIGNIN', account.role, '');
+
   return {
     ok: true,
+    setup: false,
     role: account.role,
     username: name,
     token: issueToken(name, account.role),
     message: ''
   };
+}
+
+
+/**
+ * Creates somebody's own account, from the card the shared password leads to.
+ *
+ * NOT guarded by a session token, because the person doing it has no session
+ * yet - that is the whole point. It is guarded by the SETUP token, which
+ * cannot be minted without the shared password and expires in twenty minutes.
+ *
+ * @param {string} setupToken  from login() with the shared credential
+ * @param {string} employeeId  theirs, digits only
+ * @param {string} password    at least MIN_PASSWORD characters
+ * @param {string} confirm     typed again
+ */
+function registerAccount(setupToken, employeeId, password, confirm) {
+  const fail = function (message) {
+    return { ok: false, role: '', username: '', token: '', message: message };
+  };
+
+  if (!setupFromToken(setupToken)) {
+    return fail('This page has been open too long. Sign in again with the ' +
+                'starting password and set your details straight away.');
+  }
+
+  const id = String(employeeId == null ? '' : employeeId).trim();
+  if (!/^[0-9]+$/.test(id)) {
+    return fail('An employee ID is digits only - the number on your ID card, ' +
+                'with nothing else in it.');
+  }
+  if (id.length < EMP_ID_MIN || id.length > EMP_ID_MAX) {
+    return fail('That employee ID does not look right. It should be between ' +
+                EMP_ID_MIN + ' and ' + EMP_ID_MAX + ' digits.');
+  }
+
+  const pass = String(password == null ? '' : password);
+  if (pass.length < MIN_PASSWORD) {
+    return fail('Choose a password of at least ' + MIN_PASSWORD +
+                ' characters. It can be anything you will remember.');
+  }
+  if (pass !== String(confirm == null ? '' : confirm)) {
+    return fail('The two passwords are not the same. Type the second one again.');
+  }
+
+  const name = id.toLowerCase();
+  const accounts = readAccounts();
+  if (accounts[name]) {
+    // Said plainly on purpose. Somebody registering their OWN id and being
+    // told nothing useful would simply try again; and an id already being
+    // taken is not a secret worth keeping from the person it belongs to.
+    return fail('An account already exists for employee ID ' + id + '. Sign in ' +
+                'with it, or ask for the password to be reset if it is yours ' +
+                'and you have forgotten it.');
+  }
+
+  const now = new Date();
+  const salt = Utilities.getUuid();
+  const account = {
+    role: ROLE_USER, salt: salt, hash: hashOf(pass, salt),
+    created: now.toISOString(), passwordSet: now.toISOString(),
+    lastSignIn: now.toISOString(), signIns: 1, note: ''
+  };
+  saveAccount(name, account);
+  logAuth(name, 'SIGNUP', ROLE_USER, '');
+
+  return {
+    ok: true, setup: false, role: ROLE_USER, username: name,
+    token: issueToken(name, ROLE_USER), message: ''
+  };
+}
+
+
+/**
+ * Changes your own password. Needs the current one, so a borrowed open tab
+ * cannot be used to lock its owner out.
+ */
+function changeMyPassword(token, current, next, confirm) {
+  const session = currentSession(token);
+  if (!session) {
+    throw new Error('Your session has ended. Reload the page and sign in again.');
+  }
+
+  const fail = function (message) { return { ok: false, message: message }; };
+  const accounts = readAccounts();
+  const account = accounts[session.u];
+  if (!account) return fail('That account no longer exists.');
+
+  if (hashOf(String(current || ''), account.salt) !== account.hash) {
+    return fail('Your current password is not right.');
+  }
+
+  const pass = String(next == null ? '' : next);
+  if (pass.length < MIN_PASSWORD) {
+    return fail('The new password must be at least ' + MIN_PASSWORD + ' characters.');
+  }
+  if (pass !== String(confirm == null ? '' : confirm)) {
+    return fail('The two new passwords are not the same.');
+  }
+
+  const salt = Utilities.getUuid();
+  account.salt = salt;
+  account.hash = hashOf(pass, salt);
+  account.passwordSet = new Date().toISOString();
+  saveAccount(session.u, account);
+  logAuth(session.u, 'PASSWORD', account.role, 'changed by the account holder');
+
+  return { ok: true, message: 'Your password has been changed.' };
+}
+
+
+/** Records that somebody got in, for the master screen's "last seen". */
+function recordSignIn(name) {
+  try {
+    const accounts = readAccounts();
+    const account = accounts[name];
+    if (!account) return;
+    account.lastSignIn = new Date().toISOString();
+    account.signIns = (Number(account.signIns) || 0) + 1;
+    saveAccount(name, account);
+  } catch (e) { /* never block a sign-in over bookkeeping */ }
 }
 
 
@@ -510,11 +786,29 @@ function requireAdmin(token) {
   if (!session) {
     throw new Error('Your session has ended. Reload the page and sign in again.');
   }
-  if (session.r !== ROLE_ADMIN) {
+  // rank, not equality. A MASTER is an admin and more, and an endpoint that
+  // tested for ADMIN exactly would lock the one person who can fix things out
+  // of the things that need fixing.
+  if (rankOf(session.r) < rankOf(ROLE_ADMIN)) {
     throw new Error('That action needs the admin login. You are signed in as a ' +
                     'viewer, which can read everything but cannot upload, delete ' +
                     'or rebuild.');
   }
+}
+
+
+/** Throws unless the token says MASTER. */
+function requireMaster(token) {
+  const session = currentSession(token);
+  if (!session) {
+    throw new Error('Your session has ended. Reload the page and sign in again.');
+  }
+  if (rankOf(session.r) < rankOf(ROLE_MASTER)) {
+    throw new Error('That action is master access only. Admins can upload, ' +
+                    'delete and rebuild, but accounts are managed from the ' +
+                    'master login.');
+  }
+  return session;
 }
 
 
@@ -554,19 +848,368 @@ function currentRole(token) {
 
 
 // ---------------------------------------------------------------------------
-// internals
+// MASTER - managing the accounts themselves
 // ---------------------------------------------------------------------------
+//
+// Every one of these is master-only, checked on the server. The master screen
+// is hidden from everyone else in the interface, but hiding is a courtesy:
+// google.script.run.masterSetRole(...) can be typed into any visitor's
+// console, so the guard is what actually holds.
+//
+// ON SEEING PEOPLE'S PASSWORDS
+// There is no endpoint for it, and there cannot be one, because the passwords
+// are not kept. What is stored is a salted hash folded over itself six hundred
+// times, which can confirm a password typed at the sign-in and cannot be run
+// backwards into the password itself. That is not an oversight to be patched -
+// it is the single thing standing between a copy of this spreadsheet and
+// everyone's password, and people reuse passwords.
+//
+// What the operational need behind the request actually is - somebody is
+// locked out and has to get back in - is served completely by
+// masterResetPassword below: set them a new one, tell them, they change it.
 
-function readAccounts() {
-  const raw = PropertiesService.getScriptProperties().getProperty(ACCOUNTS_KEY);
-  if (!raw) return {};
-  try { return JSON.parse(raw) || {}; } catch (e) { return {}; }
+/** Everyone, with enough about each to manage them. Never a hash. */
+function masterListAccounts(token) {
+  requireMaster(token);
+  const accounts = readAccounts();
+  return Object.keys(accounts).sort().map(function (name) {
+    const a = accounts[name];
+    return {
+      username:    name,
+      role:        a.role,
+      created:     a.created || '',
+      passwordSet: a.passwordSet || '',
+      lastSignIn:  a.lastSignIn || '',
+      signIns:     Number(a.signIns) || 0,
+      hasPassword: Boolean(a.hash),
+      bootstrap:   name === BOOTSTRAP_USER,
+      note:        a.note || ''
+    };
+  });
 }
 
 
+/**
+ * Gives or takes away admin.
+ *
+ * MASTER can be granted here too, so a second master can be made without
+ * opening the editor - but see the guard below on removing the last one.
+ */
+function masterSetRole(token, employeeId, role) {
+  const session = requireMaster(token);
+  const name = String(employeeId || '').trim().toLowerCase();
+  const want = String(role || '').toUpperCase();
+
+  if (!isRealRole(want)) throw new Error('Unknown role: ' + role);
+
+  const accounts = readAccounts();
+  const account = accounts[name];
+  if (!account) throw new Error('No account for employee ID ' + employeeId + '.');
+  if (name === BOOTSTRAP_USER) {
+    throw new Error('The shared starting login cannot be given a role. It ' +
+                    'exists only to reach the create-your-account card.');
+  }
+
+  // Standing on the branch you are sawing. Demoting yourself is allowed only
+  // while somebody else can still do this job.
+  if (name === session.u && rankOf(want) < rankOf(ROLE_MASTER)) {
+    throw new Error('That would remove your own master access. Give it to ' +
+                    'somebody else first, then step down.');
+  }
+  if (account.role === ROLE_MASTER && want !== ROLE_MASTER &&
+      countMasters(accounts) <= 1) {
+    throw new Error('That is the only master account. Make another one first, ' +
+                    'or the accounts become unmanageable from the dashboard.');
+  }
+
+  account.role = want;
+  saveAccount(name, account);
+  logAuth(name, 'ROLE', want, 'set by ' + session.u);
+  return { ok: true, username: name, role: want };
+}
+
+
+/** Takes an account off altogether. */
+function masterRemoveAccount(token, employeeId) {
+  const session = requireMaster(token);
+  const name = String(employeeId || '').trim().toLowerCase();
+
+  const accounts = readAccounts();
+  const account = accounts[name];
+  if (!account) throw new Error('No account for employee ID ' + employeeId + '.');
+  if (name === BOOTSTRAP_USER) {
+    throw new Error('The shared starting login cannot be removed - nobody new ' +
+                    'could create an account without it.');
+  }
+  if (name === session.u) {
+    throw new Error('That is the account you are signed in with.');
+  }
+  if (account.role === ROLE_MASTER && countMasters(accounts) <= 1) {
+    throw new Error('That is the only master account.');
+  }
+
+  deleteAccountRow(name);
+  logAuth(name, 'REMOVED', account.role, 'by ' + session.u);
+  return { ok: true, username: name };
+}
+
+
+/**
+ * Sets somebody a new password, for when they have forgotten theirs.
+ *
+ * The new password is returned ONCE, in the answer to this call, so it can be
+ * read off the screen and passed on. It is not stored anywhere in a form that
+ * can be read back, and reloading the master screen will not show it again.
+ */
+function masterResetPassword(token, employeeId, newPassword) {
+  const session = requireMaster(token);
+  const name = String(employeeId || '').trim().toLowerCase();
+
+  const accounts = readAccounts();
+  const account = accounts[name];
+  if (!account) throw new Error('No account for employee ID ' + employeeId + '.');
+
+  let pass = String(newPassword == null ? '' : newPassword).trim();
+  if (!pass) pass = generatedPassword();
+  if (pass.length < MIN_PASSWORD) {
+    throw new Error('A password must be at least ' + MIN_PASSWORD + ' characters.');
+  }
+
+  const salt = Utilities.getUuid();
+  account.salt = salt;
+  account.hash = hashOf(pass, salt);
+  account.passwordSet = new Date().toISOString();
+  saveAccount(name, account);
+  clearFailures(name);
+  logAuth(name, 'RESET', account.role, 'by ' + session.u);
+
+  return { ok: true, username: name, password: pass };
+}
+
+
+/** The sign-in log, newest first. */
+function masterAuditLog(token, limit) {
+  requireMaster(token);
+  const want = Math.min(Math.max(Number(limit) || 200, 1), 1000);
+
+  let sheet;
+  try { sheet = authLogTab(); } catch (e) { return []; }
+
+  const last = sheet.getLastRow();
+  if (last < 2) return [];
+
+  const from = Math.max(2, last - want + 1);
+  const rows = sheet.getRange(from, 1, last - from + 1, AUTH_LOG_COLUMNS.length)
+                    .getValues();
+
+  return rows.map(function (r) {
+    return {
+      when:     r[0] instanceof Date ? r[0].toISOString() : String(r[0] || ''),
+      username: String(r[1] || ''),
+      event:    String(r[2] || ''),
+      role:     String(r[3] || ''),
+      detail:   String(r[4] || '')
+    };
+  }).reverse();
+}
+
+
+function countMasters(accounts) {
+  return Object.keys(accounts).filter(function (k) {
+    return accounts[k].role === ROLE_MASTER;
+  }).length;
+}
+
+
+/** A readable one-off password, for a reset nobody had to think up. */
+function generatedPassword() {
+  // No l, 1, O or 0 - these get read off a screen and typed by somebody else.
+  const letters = 'abcdefghijkmnpqrstuvwxyz';
+  const digits = '23456789';
+  let out = '';
+  for (let i = 0; i < 6; i++) {
+    out += letters.charAt(Math.floor(Math.random() * letters.length));
+  }
+  for (let i = 0; i < 3; i++) {
+    out += digits.charAt(Math.floor(Math.random() * digits.length));
+  }
+  return out;
+}
+
+
+// ---------------------------------------------------------------------------
+// internals
+// ---------------------------------------------------------------------------
+
+/*
+  WHERE ACCOUNTS LIVE, AND WHY THEY MOVED
+
+  They were one JSON blob in Script Properties. That was right for two shared
+  logins and wrong for a company: a Script Property value is capped at 9KB,
+  which is about seventy accounts with a salt and a hash each. Running into
+  that cap would not have failed loudly - setProperty would have thrown on
+  whoever happened to be registering at the time, and the account before them
+  would have been the last one that worked.
+
+  They now live on a tab of the same spreadsheet everything else uses, which
+  also happens to be what makes the master screen possible: who exists, who
+  signed up when, who last signed in. The tab creates itself on first use, so
+  nothing has to be re-run to upgrade.
+
+  The old Script Properties blob is still read once, to carry existing
+  accounts across, and then left alone rather than deleted - if this ever has
+  to be rolled back, the old store is still sitting there intact.
+*/
+
+const ACCOUNTS_TAB = 'ACCOUNTS';
+const AUTH_LOG_TAB = 'AUTH_LOG';
+
+const ACCOUNT_COLUMNS = ['Employee ID', 'Role', 'Salt', 'Hash', 'Created',
+                         'Password Set', 'Last Sign In', 'Sign Ins', 'Note'];
+const AUTH_LOG_COLUMNS = ['When', 'Employee ID', 'Event', 'Role', 'Detail'];
+
+
+/** A tab, made if it is not there yet. */
+function authTab(name, headers) {
+  const id = getSpreadsheetId();
+  if (!id) {
+    throw new Error('No spreadsheet is connected, so accounts cannot be read. ' +
+                    'Run setupDatabase() from the editor.');
+  }
+  const book = SpreadsheetApp.openById(id);
+  let sheet = book.getSheetByName(name);
+  if (!sheet) {
+    sheet = book.insertSheet(name);
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers])
+         .setFontWeight('bold');
+    sheet.setFrozenRows(1);
+    // Employee IDs are digits but they are NOT numbers - an ID with a leading
+    // zero must keep it, and none of them is ever added up.
+    sheet.getRange(2, 1, sheet.getMaxRows() - 1, 1).setNumberFormat('@');
+  }
+  return sheet;
+}
+
+
+function accountsTab() { return authTab(ACCOUNTS_TAB, ACCOUNT_COLUMNS); }
+function authLogTab()  { return authTab(AUTH_LOG_TAB,  AUTH_LOG_COLUMNS); }
+
+
+/**
+ * Every account, keyed by username, in the shape the rest of this file expects.
+ *
+ * Reads the sheet, and folds in anything still sitting in the old Script
+ * Properties blob that the sheet has not got. That fold is what makes the move
+ * invisible: the existing admin and user logins keep working on the first load
+ * after this ships, with nothing run by hand.
+ */
+function readAccounts() {
+  const out = {};
+
+  const raw = PropertiesService.getScriptProperties().getProperty(ACCOUNTS_KEY);
+  if (raw) {
+    try {
+      const legacy = JSON.parse(raw) || {};
+      Object.keys(legacy).forEach(function (name) {
+        out[name] = {
+          role: legacy[name].role, salt: legacy[name].salt, hash: legacy[name].hash,
+          created: '', passwordSet: '', lastSignIn: '', signIns: 0, note: 'legacy'
+        };
+      });
+    } catch (e) { /* an unreadable blob is not a reason to lock everyone out */ }
+  }
+
+  let rows = [];
+  try {
+    const sheet = accountsTab();
+    const last = sheet.getLastRow();
+    if (last >= 2) {
+      rows = sheet.getRange(2, 1, last - 1, ACCOUNT_COLUMNS.length).getValues();
+    }
+  } catch (e) {
+    // No spreadsheet. The legacy accounts above still let somebody in to fix
+    // it, which is better than nobody being able to sign in at all.
+    return out;
+  }
+
+  rows.forEach(function (r) {
+    const name = String(r[0] || '').trim().toLowerCase();
+    if (!name) return;
+    out[name] = {
+      role:        String(r[1] || ROLE_USER).toUpperCase(),
+      salt:        String(r[2] || ''),
+      hash:        String(r[3] || ''),
+      created:     r[4] ? String(r[4]) : '',
+      passwordSet: r[5] ? String(r[5]) : '',
+      lastSignIn:  r[6] ? String(r[6]) : '',
+      signIns:     Number(r[7]) || 0,
+      note:        String(r[8] || '')
+    };
+  });
+
+  return out;
+}
+
+
+/** The row number an account sits on, or 0. */
+function accountRow(sheet, name) {
+  const last = sheet.getLastRow();
+  if (last < 2) return 0;
+  const ids = sheet.getRange(2, 1, last - 1, 1).getValues();
+  for (let i = 0; i < ids.length; i++) {
+    if (String(ids[i][0] || '').trim().toLowerCase() === name) return i + 2;
+  }
+  return 0;
+}
+
+
+/** Adds or replaces one account on the sheet. */
+function saveAccount(name, account) {
+  const sheet = accountsTab();
+  const row = [name, account.role, account.salt, account.hash,
+               account.created || '', account.passwordSet || '',
+               account.lastSignIn || '', account.signIns || 0,
+               account.note || ''];
+  const at = accountRow(sheet, name);
+  const target = at || sheet.getLastRow() + 1;
+  sheet.getRange(target, 1, 1, ACCOUNT_COLUMNS.length).setValues([row]);
+  sheet.getRange(target, 1).setNumberFormat('@');
+}
+
+
+/** Takes one account off the sheet. */
+function deleteAccountRow(name) {
+  const sheet = accountsTab();
+  const at = accountRow(sheet, name);
+  if (at) sheet.deleteRow(at);
+}
+
+
+/**
+ * Still here because the editor-run helpers below write whole maps.
+ *
+ * Writes each account individually rather than replacing the tab, so a
+ * half-finished write cannot empty it.
+ */
 function writeAccounts(accounts) {
-  PropertiesService.getScriptProperties()
-    .setProperty(ACCOUNTS_KEY, JSON.stringify(accounts));
+  Object.keys(accounts).forEach(function (name) {
+    saveAccount(name, accounts[name]);
+  });
+}
+
+
+/**
+ * One line in the sign-in log.
+ *
+ * Never throws. An account action that half-succeeded because the log was
+ * unreachable would be worse than an action with no line written about it.
+ */
+function logAuth(name, event, role, detail) {
+  try {
+    const sheet = authLogTab();
+    sheet.appendRow([new Date(), String(name || ''), String(event || ''),
+                     String(role || ''), String(detail || '')]);
+  } catch (e) { /* deliberately silent */ }
 }
 
 
