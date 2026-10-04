@@ -1850,4 +1850,30 @@
     color: var(--navy-900); text-align: center;
     user-select: all;
   }
+
+  /* ---------------- giving access ---------------- */
+  .grant-row {
+    display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px;
+    padding: 16px 20px 18px; background: var(--surface-2);
+    border-bottom: 1px solid var(--border);
+  }
+  .grant-field { display: flex; flex-direction: column; gap: 5px; }
+  .grant-field > span {
+    font-size: 10px; font-weight: 700; letter-spacing: .1em;
+    text-transform: uppercase; color: var(--text-dim);
+  }
+  .grant-field input { min-width: 160px; }
+  .grant-field select { min-width: 300px; }
+  #grantNote.is-bad { color: var(--red-ink); }
+
+  /* Whether somebody is actually using this account yet. Not a KPI band, so
+     not the band colours - amber here means "waiting on them", not "at risk". */
+  .pill-ok   { background: var(--surface-2); color: var(--text-dim); border-color: var(--border); }
+  .pill-wait { background: var(--amber-bg); color: var(--amber-ink); border-color: #f3dca6; }
+
+  /* The employee ID on the reset card: already known, and not yours to change.
+     Shown rather than hidden, because what it says still matters. */
+  .login-field input.is-fixed {
+    background: rgba(255,255,255,.06); color: #c7d6ea; cursor: default;
+  }
 </style>

@@ -109,7 +109,7 @@
     Auth.gs.
   -->
   <div class="login-card" id="setupCard" hidden>
-    <h1>Set up your login</h1>
+    <h1 id="setupTitle">Set up your login</h1>
 
     <div class="login-brand">
       <div class="brand-mark">EAS</div>
@@ -119,7 +119,7 @@
       </div>
     </div>
 
-    <p class="login-sub">
+    <p class="login-sub" id="setupSub">
       You are signed in with the shared starting login. Set your own employee
       ID and password now - you will use those from the next time on.
     </p>
@@ -128,7 +128,7 @@
       <label class="login-field">
         <span>Employee ID</span>
         <input type="text" id="setupId" name="username" inputmode="numeric"
-               autocomplete="username" placeholder="20536723"
+               autocomplete="username" placeholder="Emp_ID"
                autocapitalize="off" spellcheck="false" required>
       </label>
 
@@ -154,9 +154,7 @@
 
       <div class="login-error" id="setupError" hidden></div>
 
-      <button type="submit" class="btn btn-primary login-go" id="setupGo">
-        Create my login
-      </button>
+      <button type="submit" class="btn btn-primary login-go" id="setupGo">Create my login</button>
     </form>
 
     <p class="login-note">
@@ -1048,21 +1046,30 @@
         </div>
 
         <!--
-          Said on the screen rather than only in a comment, because it is the
-          one question this page gets asked and the answer has to be the same
-          every time somebody asks it.
+          Granting takes an employee ID, not an account - which is the shape
+          the request actually arrives in. If that ID has signed up its role
+          changes; if it has not, the ID is written down with the role and the
+          starting password, so its owner arrives already an admin.
         -->
-        <div class="notice notice-info">
-          <h3>Passwords cannot be read back, by anyone</h3>
-          <p>
-            What is stored is a scrambled form of each password, folded over
-            itself six hundred times. It can check a password typed at the
-            sign-in and it cannot be turned back into the password - not from
-            this screen, not from the spreadsheet, and not by anyone who gets
-            a copy of either. If somebody has forgotten theirs,
-            <strong>Reset</strong> gives them a new one, shown once here so you
-            can pass it on.
-          </p>
+        <div class="card">
+          <div class="card-head">Give someone access</div>
+          <div class="grant-row">
+            <label class="grant-field">
+              <span>Employee ID</span>
+              <input id="grantId" class="select" type="text" inputmode="numeric"
+                     placeholder="Emp_ID" autocapitalize="off" spellcheck="false">
+            </label>
+            <label class="grant-field">
+              <span>Role</span>
+              <select id="grantRole" class="select">
+                <option value="ADMIN">Admin &#x2014; can upload, delete, rebuild</option>
+                <option value="USER">Viewer &#x2014; can read everything</option>
+                <option value="MASTER">Master &#x2014; can also manage accounts</option>
+              </select>
+            </label>
+            <button class="btn btn-primary" id="grantGo">Give access</button>
+            <span class="filter-count" id="grantNote"></span>
+          </div>
         </div>
 
         <div class="card">
@@ -1087,8 +1094,8 @@
                 <tr>
                   <th>Employee ID</th>
                   <th>Role</th>
+                  <th>Status</th>
                   <th>Signed up</th>
-                  <th>Password set</th>
                   <th>Last signed in</th>
                   <th class="r">Sign-ins</th>
                   <th>Action</th>

@@ -273,7 +273,7 @@
    */
   let pendingSetupToken = '';
 
-  function showSetup(setupToken) {
+  function showSetup(setupToken, forUsername) {
     pendingSetupToken = setupToken || '';
 
     const card = document.querySelector('#loginScreen .login-card:not(#setupCard)');
@@ -281,13 +281,36 @@
     const setup = document.getElementById('setupCard');
     if (setup) setup.hidden = false;
 
-    setValue('setupId', '');
+    // Two reasons to be on this card, and they are not the same card.
+    //
+    // A new person chooses an employee ID. Somebody whose password was reset
+    // already has one, and the field is filled in and locked - the token is
+    // bound to that ID on the server, so typing a different one would only be
+    // refused, and a field you may not usefully change should not look as
+    // though you may.
+    const reset = Boolean(forUsername);
+    const idField = document.getElementById('setupId');
+    if (idField) {
+      idField.value = reset ? forUsername : '';
+      idField.readOnly = reset;
+      idField.classList.toggle('is-fixed', reset);
+    }
+
+    setText('setupTitle', reset ? 'Choose a new password' : 'Set up your login');
+    setText('setupSub', reset
+      ? 'Your password was reset, so the one you just used is a temporary ' +
+        'one. Choose your own now - you will use it from the next time on.'
+      : 'You are signed in with the shared starting login. Set your own ' +
+        'employee ID and password now - you will use those from the next ' +
+        'time on.');
+    setText('setupGo', reset ? 'Save my password' : 'Create my login');
+
     setValue('setupPass', '');
     setValue('setupConfirm', '');
     const box = document.getElementById('setupError');
     if (box) box.hidden = true;
 
-    const field = document.getElementById('setupId');
+    const field = document.getElementById(reset ? 'setupPass' : 'setupId');
     if (field) field.focus();
   }
 
@@ -318,8 +341,9 @@
       if (box) box.hidden = true;
       if (button) { button.disabled = true; button.textContent = 'Creating\u2026'; }
 
+      const wording = button ? button.textContent : '';
       const done = function () {
-        if (button) { button.disabled = false; button.textContent = 'Create my login'; }
+        if (button) { button.disabled = false; button.textContent = wording; }
       };
 
       google.script.run
@@ -419,12 +443,13 @@
         .withSuccessHandler(function (result) {
           done();
           if (result && result.ok && result.setup) {
-            // The shared starting login. It opens the create-your-account
-            // card and nothing else - there is no session token in this
-            // answer to keep, by design.
+            // Either the shared starting login, or an account whose password
+            // was reset. Both land on the same card and neither carries a
+            // session token in this answer, by design. result.username is set
+            // for the second, which fixes the ID on the form.
             setValue('loginPass', '');
             setPasswordVisible(false);
-            showSetup(result.setupToken);
+            showSetup(result.setupToken, result.username || '');
             return;
           }
           if (result && result.ok) {
@@ -839,6 +864,7 @@
       const el = document.getElementById(id);
       if (el) el.addEventListener('input', renderMasterAccounts);
     });
+    wireGrant();
     bind('fMasterReset', 'click', function () {
       setValue('fMasterRole', '');
       setValue('fMasterId', '');
@@ -5237,14 +5263,23 @@
                '" data-master="' + action + '" data-id="' + id + '">' + label + '</button>';
       };
 
+      // Three states worth telling apart: somebody using a password of their
+      // own, somebody still on the starting one, and an ID written down before
+      // its owner has ever signed in.
+      const status = !a.lastSignIn && a.mustChange
+        ? '<span class="pill pill-wait">Not signed up yet</span>'
+        : a.mustChange
+          ? '<span class="pill pill-wait">Must set a password</span>'
+          : '<span class="pill pill-ok">Active</span>';
+
       return '<td class="name">' + id + '</td>' +
              '<td>' + rolePill(a.role) + '</td>' +
+             '<td>' + status + '</td>' +
              '<td>' + escapeHtml(whenText(a.created)) + '</td>' +
-             '<td>' + escapeHtml(whenText(a.passwordSet)) + '</td>' +
              '<td>' + escapeHtml(whenText(a.lastSignIn)) + '</td>' +
              '<td class="r">' + count(a.signIns) + '</td>' +
              '<td class="master-actions">' +
-               (a.role === 'USER' ? make('admin', 'Make admin') : '') +
+               (a.role !== 'ADMIN' && a.role !== 'MASTER' ? make('admin', 'Make admin') : '') +
                (a.role === 'ADMIN' ? make('viewer', 'Remove admin') : '') +
                make('reset', 'Reset password') +
                make('remove', 'Remove', 'btn-danger-ghost') +
@@ -5341,24 +5376,85 @@
   function resetPassword(id) {
     confirmDialog({
       title: 'Reset the password for ' + id + '?',
-      body: '<p>A new password is made and shown to you once. Write it down ' +
-            'before closing the box - it cannot be looked up afterwards, by ' +
-            'anyone. Tell them to change it after they sign in.</p>',
+      body: '<p>Their password goes back to the starting one. The next time ' +
+            'they sign in with it, they are taken straight to the card that ' +
+            'sets a password of their own - the same card they saw when they ' +
+            'first joined.</p>',
       confirmLabel: 'Reset the password',
       tone: 'info'
     }).then(function (yes) {
       if (!yes) return;
-      callServer('masterResetPassword', id, '')
+      callServer('masterResetPassword', id)
         .then(function (result) {
           loadMaster();
           alertDialog({
-            title: 'New password for ' + id,
-            body: '<p class="new-password">' + escapeHtml(result.password) + '</p>' +
-                  '<p>This is the only time it is shown. Pass it on, and ask ' +
-                  'them to set their own once they are in.</p>'
+            title: 'Password reset for ' + id,
+            body: '<p>Tell them to sign in with their employee ID and this ' +
+                  'password:</p>' +
+                  '<p class="new-password">' + escapeHtml(result.password) + '</p>' +
+                  '<p>They will be asked to choose their own straight away, so ' +
+                  'this one stops working as soon as they do.</p>'
           });
         })
         .catch(onError);
+    });
+  }
+
+
+  /**
+   * Gives an employee ID a role, whether or not it has signed up yet.
+   *
+   * The ID is what the master is given when somebody's boss asks for them to
+   * have access - not an account, which may not exist for days. So this takes
+   * the ID and the two cases are the server's problem, not the screen's.
+   */
+  function wireGrant() {
+    const go = document.getElementById('grantGo');
+    if (!go) return;
+
+    const say = function (text, bad) {
+      const note = document.getElementById('grantNote');
+      if (!note) return;
+      note.textContent = text || '';
+      note.classList.toggle('is-bad', Boolean(bad));
+    };
+
+    bind('grantGo', 'click', function () {
+      const id = getValue('grantId').trim();
+      const role = getValue('grantRole');
+
+      if (!/^[0-9]+$/.test(id)) {
+        return say('An employee ID is digits only.', true);
+      }
+
+      go.disabled = true;
+      say('Saving\u2026');
+
+      callServer('masterGrantToEmployeeId', id, role)
+        .then(function (result) {
+          go.disabled = false;
+          setValue('grantId', '');
+          loadMaster();
+          if (result.invited) {
+            alertDialog({
+              title: id + ' can now sign in',
+              body: '<p>They have not signed up yet, so the ID is written down ' +
+                    'with that access waiting on it. Tell them to sign in with ' +
+                    'their employee ID and this password:</p>' +
+                    '<p class="new-password">' + escapeHtml(result.password) + '</p>' +
+                    '<p>They will choose their own straight away, and they ' +
+                    'arrive already holding the access you just gave them.</p>'
+            });
+            say('');
+          } else {
+            say(id + ' is now ' + (role === 'USER' ? 'a viewer' :
+                                   role === 'ADMIN' ? 'an admin' : 'a master') + '.');
+          }
+        })
+        .catch(function (err) {
+          go.disabled = false;
+          say((err && err.message) ? err.message : 'That could not be saved.', true);
+        });
     });
   }
 
