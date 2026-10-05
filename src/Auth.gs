@@ -146,21 +146,41 @@ const OWNER_KEY = 'EAS_OWNER_EMAIL';
 const TOKEN_SECRET_KEY = 'EAS_TOKEN_SECRET';
 
 /**
- * How long a sign-in lasts.
+ * How long a sign-in survives being left alone.
  *
- * Two hours, as asked for. What that means in practice, and why:
+ * AN IDLE WINDOW, NOT A SHIFT LENGTH. This used to be two hours from signing
+ * in, full stop, and that was wrong in a way only use shows up: somebody signs
+ * in at eight, works through to ten, and is thrown out mid-sentence by a clock
+ * that started before they began. Nothing about their work had changed.
  *
- *   refresh the page            stays signed in - the token travels in the
- *                               address bar, so a reload carries it back
- *   close the tab and reopen    signs in again - the fresh link has no token
- *                               on it
- *   two hours after signing in  signs in again - the expiry is inside the
- *                               signed payload, so it cannot be edited
+ * So the hour runs from the last thing the person DID, not from the sign-in.
+ * Moving the mouse, typing, clicking or scrolling restarts it. The token is
+ * stamped an hour ahead, and the page quietly asks for a fresh one while
+ * somebody is using it - see renewToken() below and the activity watch in
+ * App.html. Work all day and you are never asked again; leave the tab open and
+ * walk away, and an hour later it is a locked screen.
  *
- * Changing this number changes only NEW sign-ins. Tokens already issued keep
- * the expiry they were stamped with.
+ * What it means in practice:
+ *
+ *   working, with the odd pause   stays signed in indefinitely
+ *   refresh the page              stays signed in - the token travels in the
+ *                                 address bar, so a reload carries it back
+ *   close the tab and reopen      signs in again - a fresh link has no token
+ *   an hour of nothing at all     signs in again, the moment they come back
+ *
+ * The expiry is inside the signed payload, so it cannot be edited; and a token
+ * that has already lapsed can never be renewed, only replaced by signing in.
+ *
+ * Changing this number changes only NEW tokens. Ones already issued keep the
+ * expiry they were stamped with.
  */
-const SESSION_HOURS = 2;
+const IDLE_MINUTES = 60;
+
+/**
+ * Kept because it is what the number used to be called, and because reading a
+ * figure in hours is how the policy talks about it. Nothing should use it.
+ */
+const SESSION_HOURS = IDLE_MINUTES / 60;
 
 /**
  * How many times the password hash is folded over itself.
@@ -228,7 +248,7 @@ function issueToken(username, role, dev) {
   const payload = {
     u: username,
     r: role,
-    x: Date.now() + (SESSION_HOURS * 3600000)
+    x: Date.now() + (IDLE_MINUTES * 60000)
   };
   if (dev) payload.d = 1;
   const body = Utilities.base64EncodeWebSafe(
@@ -785,6 +805,57 @@ function recordSignIn(name) {
 
 
 /**
+ * Hands back a fresh token for somebody who is still here.
+ *
+ * This is what turns a fixed expiry into an idle window. The page calls it
+ * while there is activity, and each answer pushes the hour out from now.
+ *
+ * NOT guarded by requireSignedIn, because it is allowed to fail - a token an
+ * hour cold must come back {ok:false} rather than throwing, so the page can
+ * show the sign-in quietly instead of an error about a session that has
+ * obviously ended.
+ *
+ * A LAPSED TOKEN IS NEVER RENEWED. currentSession() returns null the moment
+ * the expiry is past, so there is no window in which a tab that was left open
+ * all night can renew itself back to life - it has to be signed in again. That
+ * is the whole point of the idle window, and it would be quietly undone by
+ * being generous here.
+ *
+ * The role is read from the ACCOUNT, not copied from the old token. Somebody
+ * whose admin access was taken away an hour ago should not keep it by holding
+ * a tab open, and somebody just granted it should not have to sign out to get
+ * it. The renewal is the moment that catches up.
+ *
+ * @param {string} token  whatever the browser is holding
+ * @return {{ok: boolean, token: string, role: string, username: string}}
+ */
+function renewToken(token) {
+  const session = currentSession(token);
+  if (!session) return { ok: false, token: '', role: '', username: '' };
+
+  // The /dev shortcut has no account behind it, so it renews as itself.
+  if (session.d) {
+    return { ok: true, token: issueToken(session.u, session.r, true),
+             role: session.r, username: session.u };
+  }
+
+  const account = readAccounts()[session.u];
+  if (!account) return { ok: false, token: '', role: '', username: '' };
+
+  // An account that has been reset since this token was issued must not be
+  // renewed past the reset - the password it is holding is no longer theirs.
+  if (account.mustChange) return { ok: false, token: '', role: '', username: '' };
+
+  return {
+    ok: true,
+    token: issueToken(session.u, account.role),
+    role: account.role,
+    username: session.u
+  };
+}
+
+
+/**
  * Signs out.
  *
  * There is nothing to delete on the server - a token is not stored anywhere,
@@ -837,8 +908,8 @@ function currentSession(token) {
  *
  * The message is written for the person who will see it in a dialog, not for
  * a log file: it says what to do, not what went wrong. Both of the ways a
- * session ends - two hours passing, or the page being reopened without one -
- * land here, and "sign in again" is the answer to both.
+ * session ends - an hour of being left alone, or the page being reopened
+ * without one - land here, and "sign in again" is the answer to both.
  */
 function requireSignedIn(token) {
   if (!currentSession(token)) {

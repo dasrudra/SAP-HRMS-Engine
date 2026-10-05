@@ -96,6 +96,7 @@
     wireOrg();
     wireLogin();
     wireSetup();
+    watchActivity();
 
     // Find the token before anything is asked of the server, since every call
     // carries it. Reading it is asynchronous, so the session check waits.
@@ -380,7 +381,133 @@
   }
 
 
+  // =========================================================================
+  // THE IDLE WINDOW
+  // =========================================================================
+  //
+  // An hour of doing nothing ends the session; working does not. The old rule
+  // was two hours from signing in whatever you were doing, which threw people
+  // out mid-task because a clock had started before they began.
+  //
+  // Two halves, and both are needed.
+  //
+  // The SERVER half is the real one: a token lasts an hour, and the page asks
+  // for a fresh one while somebody is actually using the page. Stop using it
+  // and nothing renews, so it lapses on its own. Nothing here can be talked
+  // out of that by a browser - renewToken() in Auth.gs refuses a token that
+  // has already gone cold.
+  //
+  // The PAGE half is manners: it notices the hour has passed and shows the
+  // sign-in straight away, rather than leaving a dashboard full of figures on
+  // screen until the person clicks something and gets an error. That is what
+  // "as soon as they return" means.
+
+  const IDLE = {
+    LIMIT_MS: 60 * 60 * 1000,     // an hour of nothing at all
+    RENEW_EVERY_MS: 10 * 60 * 1000, // ask for a fresh token at most this often
+    CHECK_EVERY_MS: 30 * 1000,    // how often the page looks at the clock
+    lastActivity: Date.now(),
+    lastRenewal: Date.now(),
+    renewing: false,
+    timer: null
+  };
+
+  /**
+   * Something happened. Restart the hour, and top the token up now and then.
+   *
+   * Throttled on purpose: a mouse crossing the window fires this hundreds of
+   * times a second, and only the clock reset is cheap enough to do that often.
+   */
+  function noteActivity() {
+    const now = Date.now();
+
+    // Already past the line when this fired - the person is coming BACK, not
+    // carrying on. Let the check below end the session rather than this
+    // extending it by a hair.
+    if (now - IDLE.lastActivity > IDLE.LIMIT_MS) return;
+
+    IDLE.lastActivity = now;
+
+    if (!AUTH.token) return;
+    if (IDLE.renewing) return;
+    if (now - IDLE.lastRenewal < IDLE.RENEW_EVERY_MS) return;
+    if (document.hidden) return;      // a background tab is not somebody working
+
+    IDLE.renewing = true;
+    google.script.run
+      .withSuccessHandler(function (result) {
+        IDLE.renewing = false;
+        if (result && result.ok && result.token) {
+          IDLE.lastRenewal = Date.now();
+          keepToken(result.token);
+          // The role is read from the account on every renewal, so access
+          // granted or taken away lands here without a sign-out.
+          if (result.role && result.role !== state.role) {
+            state.role = result.role;
+            applyRole();
+          }
+        }
+      })
+      .withFailureHandler(function () { IDLE.renewing = false; })
+      .renewToken(AUTH.token);
+  }
+
+  /** Has the hour run out? Called on a timer, and whenever the tab comes back. */
+  function checkIdle() {
+    if (!AUTH.token) return;
+    if (Date.now() - IDLE.lastActivity <= IDLE.LIMIT_MS) return;
+
+    dropToken();
+    showSignIn('You were away for an hour, so the dashboard locked itself. ' +
+               'Sign in to carry on.');
+  }
+
+  function watchActivity() {
+    ['mousemove', 'mousedown', 'keydown', 'scroll', 'touchstart', 'wheel']
+      .forEach(function (event) {
+        document.addEventListener(event, noteActivity, { passive: true });
+      });
+
+    // Coming back to the tab is the moment that matters most: the hour may
+    // have passed while this page was in the background, or while the laptop
+    // was shut, and neither of those fires a mouse event.
+    document.addEventListener('visibilitychange', function () {
+      if (!document.hidden) checkIdle();
+    });
+    window.addEventListener('focus', checkIdle);
+
+    // setInterval, deliberately, rather than counting ticks: a sleeping laptop
+    // stops firing timers altogether, so anything that counted them would wake
+    // up believing no time had passed. checkIdle reads the wall clock instead.
+    if (IDLE.timer) clearInterval(IDLE.timer);
+    IDLE.timer = setInterval(checkIdle, IDLE.CHECK_EVERY_MS);
+  }
+
+  /** Starts the hour again - on signing in, and on arriving with a live token. */
+  function resetIdle() {
+    IDLE.lastActivity = Date.now();
+    IDLE.lastRenewal = Date.now();
+  }
+
+  /*
+    Three handles for the tests, which cannot sit still for an hour. They age
+    the clock backwards rather than waiting, so the code they exercise is the
+    real code - it reads the wall clock either way.
+
+    These ship. They are safe to ship because they cannot buy a single second
+    of access: the hour that matters is stamped inside a signed token and
+    enforced in Auth.gs, and renewToken() refuses one that has already lapsed.
+    The most anyone could do by calling them is stop THEIR OWN page noticing
+    the session ended, and the next thing it asks the server would be refused.
+    They can no more extend a session than moving the mouse can.
+  */
+  window.__setIdleAge = function (ms) { IDLE.lastActivity = Date.now() - ms; };
+  window.__setRenewalAge = function (ms) { IDLE.lastRenewal = Date.now() - ms; };
+  window.__checkIdleNow = checkIdle;
+
+
   function startApp() {
+    resetIdle();
     hide('loginScreen');
     const root = document.getElementById('appRoot');
     if (root) root.hidden = false;
@@ -709,8 +836,8 @@
     // callServer, so the same rule is applied here too.
     if (err && /session has ended/i.test(String(err.message || err))) {
       dropToken();
-      showSignIn('Your session has ended. Sign-ins last two hours; ' +
-                 'please sign in again to carry on.');
+      showSignIn('Your session ended after an hour with nothing happening. ' +
+                 'Sign in again to carry on.');
       return;
     }
 
@@ -739,8 +866,8 @@
           // in one place so no individual call has to remember to.
           if (err && /session has ended/i.test(String(err.message || err))) {
             dropToken();
-            showSignIn('Your session has ended. Sign-ins last two hours; ' +
-                       'please sign in again to carry on.');
+            showSignIn('Your session ended after an hour with nothing happening. ' +
+                       'Sign in again to carry on.');
             return;
           }
           reject(err);
