@@ -60,6 +60,20 @@ function beginUpload(token, meta) {
   requireAdmin(token);
   const sheet = sheetFor(CONFIG.SHEETS.UPLOADS);
 
+  // WHO uploaded this, taken from the signed token rather than from Google.
+  //
+  // It used to be Session.getActiveUser().getEmail(), and on this deployment
+  // that is always the empty string - the app is published to "Anyone", so
+  // Google has no identity for the visitor to report. Every upload in the
+  // history therefore said "unknown", which was fine while one shared admin
+  // password existed and useless the moment several people had their own.
+  //
+  // The token is the only thing that knows who this is. It is signed, so it
+  // cannot be edited into somebody else's name, and requireAdmin() above has
+  // already refused anyone without one.
+  const session = currentSession(token);
+  const who = (session && session.u) ? String(session.u) : 'unknown';
+
   // Seconds are not unique enough. Two uploads started in the same second used
   // to share an ID, and deleting one then found two matching log rows and
   // removed a single one - so the row appeared to survive being deleted. The
@@ -78,7 +92,7 @@ function beginUpload(token, meta) {
   sheet.getRange(row, 1, 1, CONFIG.UPLOAD_COLUMNS.length).setValues([[
     uploadId,
     new Date(),
-    Session.getActiveUser().getEmail() || 'unknown',
+    who,
     (meta.fileNames || []).join(' | '),
     (meta.reportTypes || []).join(' | '),
     (meta.departments || []).join(' | '),

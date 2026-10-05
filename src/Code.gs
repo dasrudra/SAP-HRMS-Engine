@@ -94,6 +94,23 @@ function include(filename) {
 
 
 /**
+ * Backup state, or null, and never an exception.
+ *
+ * Reading it touches Drive, which can fail for reasons that have nothing to do
+ * with the dashboard - a permission not yet granted, a quota, a folder somebody
+ * moved. None of those is a reason for the whole page to fail to load, so this
+ * swallows them and the Summary card simply says it does not know.
+ */
+function safeBackupHealth() {
+  try {
+    return (typeof backupHealth === 'function') ? backupHealth() : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+
+/**
  * Everything the page needs on first load, in ONE server call.
  *
  * Each google.script.run call costs a round trip to Google's servers -
@@ -186,7 +203,13 @@ function getBootstrap(token) {
     kpiCache: (configured && typeof kpiCacheState === 'function')
       ? kpiCacheState() : { computedAt: '', months: 0 },
 
-    stats: configured ? quickStats() : null
+    stats: configured ? quickStats() : null,
+
+    // How the backups are doing. Shown on Summary so that "is this being
+    // looked after" is a thing you can see rather than a thing you hope. It
+    // says when the last copy was made and nothing about what is in it, so
+    // there is nothing here a viewer should not see.
+    backup: configured ? safeBackupHealth() : null
   };
 }
 

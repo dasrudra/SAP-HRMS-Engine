@@ -2078,7 +2078,7 @@
       if (!body) return;
 
       if (!history || !history.length) {
-        body.innerHTML = '<tr><td colspan="8" class="empty">Nothing uploaded yet.</td></tr>';
+        body.innerHTML = '<tr><td colspan="9" class="empty">Nothing uploaded yet.</td></tr>';
         return;
       }
 
@@ -2106,6 +2106,10 @@
         tr.innerHTML =
           '<td class="nowrap">' +
             escapeHtml(String(h.uploadedAt).slice(0, 16).replace('T', ' ')) + '</td>' +
+          // Who. Rows uploaded before individual logins existed say "unknown",
+          // and that is the truth about them rather than a gap to paper over -
+          // at the time there was one shared admin password and no way to tell.
+          '<td class="nowrap">' + uploaderText(h.uploadedBy) + '</td>' +
           '<td>' + summariseFiles(h.fileName) + '</td>' +
           '<td class="nowrap">' + summariseRepeats(h.reportType) + '</td>' +
           '<td>' + summariseRepeats(h.department) + '</td>' +
@@ -2243,6 +2247,47 @@
       'Delete the ' + claimed.length + ' row' + (claimed.length === 1 ? '' : 's') +
       ' below and re-upload the files \u2014 the history entries describe data ' +
       'that no longer exists, so leaving them only makes this harder to read.</p>';
+  }
+
+
+  /** The employee ID behind an upload, or an honest dash. */
+  function uploaderText(who) {
+    const name = String(who == null ? '' : who).trim();
+    if (!name || name.toLowerCase() === 'unknown') {
+      return '<span class="muted" title="Uploaded before individual logins ' +
+             'existed, when everyone shared one admin password">\u2014</span>';
+    }
+    return escapeHtml(name);
+  }
+
+
+  /**
+   * The backup lines on the Database card.
+   *
+   * Said on the screen because a backup nobody can see is a backup nobody
+   * trusts, and because the day it matters is the day somebody is panicking
+   * and wants to know what exists before they touch anything.
+   */
+  function backupRows(backup, warn) {
+    if (!backup) {
+      return '<dt>Backups</dt><dd>' +
+             warn(true, 'Cannot be read \u2014 see Backup.gs') + '</dd>';
+    }
+
+    const when = backup.last
+      ? whenText(backup.last)
+      : 'none yet';
+
+    return '<dt>Backups</dt><dd>' +
+             (backup.on
+               ? count(backup.count) + ' kept, daily'
+               : warn(true, 'Not switched on \u2014 run installBackupTrigger()')) +
+           '</dd>' +
+           '<dt>Last backup</dt><dd>' +
+             (backup.on && backup.stale
+               ? warn(true, escapeHtml(when) + ' \u2014 overdue')
+               : escapeHtml(when)) +
+           '</dd>';
   }
 
 
@@ -6073,7 +6118,8 @@
         '<dt>KPI 2 \u00b7 uploads logged</dt><dd>' + count(stats.feedbackUploads || 0) + '</dd>' +
         (boot.orphanedFeedback
           ? '<dt>Orphaned responses</dt><dd>' +
-            warn(true, count(boot.orphanedFeedback)) + '</dd>' : '');
+            warn(true, count(boot.orphanedFeedback)) + '</dd>' : '') +
+        backupRows(boot.backup, warn);
     }
   }
 
