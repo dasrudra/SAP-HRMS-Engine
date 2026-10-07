@@ -619,12 +619,37 @@
   */
   .login-screen {
     position: fixed; inset: 0; z-index: 200;
-    display: grid; place-items: center; padding: 24px;
+    display: grid; padding: 24px;
 
-    /* The card is pushed BELOW the picture's masthead rather than sitting
-       across the wordmark. Clamped at both ends and the screen scrolls, so a
-       short window still shows the whole card rather than clipping it. */
-    padding-top: clamp(24px, 25vh, 300px);
+    /*
+      WHY THE CARD HANGS FROM THE TOP INSTEAD OF BEING CENTRED
+      It has to clear the masthead in the picture - the EAS mark, ENTERPRISE
+      APPLICATION SERVICES, and the DATA | INSIGHT | PERFORMANCE line with its
+      blue and orange rule. While the card was centred, padding-top only moved
+      it by HALF of what was added (the leftover space is split above and
+      below), so the card drifted up into that line on shorter windows no
+      matter what the padding said. Hanging it from the top makes padding-top
+      mean exactly what it looks like it means: the card's top edge.
+    */
+    justify-items: center; align-items: start; align-content: start;
+
+    /*
+      WHERE 40vh COMES FROM
+      The picture is 3200x1362 drawn with background-size:cover, so whenever
+      the window is less wide than 2.349:1 - every ordinary one - it is scaled
+      by height and the masthead lands at a FIXED FRACTION of the window. The
+      rule under DATA | INSIGHT | PERFORMANCE ends on row 518 of 1362, which is
+      38.0% of the way down. 40vh puts the card's top edge just under it with a
+      little air, at every window height, instead of at a pixel count that is
+      only right on one screen. On a wider window the picture is cropped top
+      and bottom, which lifts the masthead further up, so 40vh still clears it.
+
+      The upper bound is what keeps the card on screen rather than what keeps
+      it low: below about 770px of window height, "under the rule" and "fits
+      without scrolling" cannot both be true, and fitting wins. 470px is the
+      tallest of the sign-in cards plus the 24px bottom padding.
+    */
+    padding-top: clamp(24px, 40vh, calc(100vh - 470px));
     overflow-y: auto;
 
     /* The colour underneath. Bg.html layers the photograph and the dark pool
@@ -636,6 +661,39 @@
       radial-gradient(900px 500px at 20% -10%, rgba(37,99,235,.35), transparent 62%),
       radial-gradient(760px 460px at 88% 10%, rgba(12,163,12,.16), transparent 60%),
       linear-gradient(180deg, #16233c 0%, #0b1426 100%);
+  }
+  /*
+    The create-account card stays centred, and that is on purpose.
+
+    It is 109px taller than the sign-in card - three fields instead of two, and
+    a longer explanation - and taller again while it is showing an error. Hung
+    from the top it would need a ceiling low enough to keep the Create my login
+    button on screen at 760px of window height, and that same ceiling would
+    then strand it near the top of a 1600x880 window, higher than it sits
+    today. Centring solves that for free: the leftover space is split above and
+    below, so a taller card simply takes more of it from both ends and always
+    fits. The reason the sign-in card could not use that is the reason this one
+    can - centring ignores the picture, and this card is too tall to clear the
+    masthead on an ordinary window anyway.
+
+    :has() does the work. Where it is not supported the rule is dropped and
+    this card hangs from the top like the other one, which on a short window
+    means a scroll rather than anything broken.
+  */
+  .login-screen:has(#setupCard:not([hidden])) {
+    align-content: center;
+    padding-top: clamp(24px, 25vh, 300px);
+  }
+  /*
+    Below this width Bg.html drops the picture - the same 860px it uses - so
+    there is no masthead left to clear and 40vh would just be a screenful of
+    empty gradient above the card. Put it back in the middle of the window.
+  */
+  @media (max-width: 860px) {
+    .login-screen,
+    .login-screen:has(#setupCard:not([hidden])) {
+      align-content: center; padding-top: 24px;
+    }
   }
   .login-card {
     width: 100%; max-width: 384px;

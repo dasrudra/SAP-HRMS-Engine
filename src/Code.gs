@@ -43,7 +43,7 @@ function doGet(e) {
       // A literal, not CONFIG.APP_NAME: this page's whole job is to be the
       // thing that still works when a file is missing, so it must not itself
       // depend on another file being there.
-      .setTitle('EAS KPI Engine')
+      .setTitle('Enterprise Application Services')
       .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
   }
 

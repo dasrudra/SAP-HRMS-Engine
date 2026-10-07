@@ -55,7 +55,18 @@
 const BACKUP_KEEP = 30;
 
 /** Where the copies go. Made beside the database the first time it runs. */
-const BACKUP_FOLDER = 'EAS KPI Engine - Backups';
+const BACKUP_FOLDER = 'Enterprise Application Services - Backups';
+
+/**
+ * What the folder was called before the dashboard was renamed.
+ *
+ * Renaming the constant alone would quietly start a SECOND folder and leave
+ * every copy already taken in the first one - still there, but no longer
+ * counted, no longer pruned, and not where restoreGuide() says to look. So if
+ * the old folder is found it is used and renamed, and the copies inside it
+ * stay where they are.
+ */
+const BACKUP_FOLDER_WAS = 'EAS KPI Engine - Backups';
 
 /** Script Properties: when the last one finished, and what it is called. */
 const BACKUP_LAST_KEY = 'EAS_BACKUP_LAST';
@@ -113,7 +124,22 @@ function backupFolder(file) {
   const home = parents.hasNext() ? parents.next() : DriveApp.getRootFolder();
 
   const found = home.getFoldersByName(BACKUP_FOLDER);
-  return found.hasNext() ? found.next() : home.createFolder(BACKUP_FOLDER);
+  if (found.hasNext()) return found.next();
+
+  // Nothing under the current name. Before making one, look for the name this
+  // folder had before the dashboard was renamed - see BACKUP_FOLDER_WAS. Found
+  // means an installation that has been backing up for a while, and its copies
+  // are carried over by renaming the folder rather than by starting a new one.
+  const old = home.getFoldersByName(BACKUP_FOLDER_WAS);
+  if (old.hasNext()) {
+    const folder = old.next();
+    folder.setName(BACKUP_FOLDER);
+    Logger.log('Renamed the backup folder: "%s" is now "%s" - the copies in it are untouched.',
+               BACKUP_FOLDER_WAS, BACKUP_FOLDER);
+    return folder;
+  }
+
+  return home.createFolder(BACKUP_FOLDER);
 }
 
 

@@ -28,7 +28,10 @@ function setupDatabase() {
     ss = SpreadsheetApp.openById(existing);
     Logger.log('Using existing spreadsheet: %s', ss.getName());
   } else {
-    ss = SpreadsheetApp.create('EAS KPI Engine \u2014 Database');
+    // Only a BRAND NEW installation ever reaches this. An existing database is
+    // found by the ID in Script Properties, never by its name, so a workbook
+    // created before the rename keeps the name it has and goes on working.
+    ss = SpreadsheetApp.create('Enterprise Application Services \u2014 Database');
     Logger.log('');
     Logger.log('=========================================================');
     Logger.log(' CREATED A NEW SPREADSHEET');

@@ -33,8 +33,16 @@ const CONFIG = {
    */
   SPREADSHEET_ID: null,
 
-  /** Shown in the sidebar. Bump it when you deploy something meaningful. */
-  APP_NAME: 'EAS KPI Engine',
+  /**
+   * Shown in the sidebar, on the sign-in card, in the browser tab and at the
+   * top of every downloaded report. Bump APP_VERSION when you deploy
+   * something meaningful.
+   *
+   * It was 'EAS KPI Engine' while the dashboard only reported KPIs. It covers
+   * more than that now, so it carries the department's name instead - the same
+   * name the sign-in picture has across it.
+   */
+  APP_NAME: 'Enterprise Application Services',
   APP_VERSION: 'v0.1',
 
   /**
@@ -193,7 +201,7 @@ const CONFIG = {
    * explanation.
    */
   ORG: {
-    name: 'Enterprise Applications Services',
+    name: 'Enterprise Application Services',
     short: 'EAS',
     head: 'Utpal Biswas',
     sections: [
