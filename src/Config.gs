@@ -241,16 +241,52 @@ const CONFIG = {
   },
 
   /**
-   * The four TVL-EAS KPIs, each from its own signed definition sheet.
+   * The approved policy these indicators come from.
+   *
+   * Everything in CONFIG.KPI below is transcribed from section 5.3 of this
+   * document and nothing else. When a target is questioned, this is the answer
+   * - not a figure somebody remembers from a draft.
+   *
+   * `url` is the approved PDF. Upload it to Drive, share it the way the team
+   * can read it, and paste the link here: every indicator that has no link of
+   * its own then points at it, so one paste lights up the whole Definition
+   * column. It is marked Internal, so share it inside Youngone, not publicly.
+   */
+  POLICY: {
+    id: 'TVL-KPI-001',
+    title: 'Key Performance Indicator (KPI) Policy',
+    version: '1.0',
+    effective: '1 October 2026',
+    section: '5.3 Enterprise Application Services (EAS)',
+    url: ''
+  },
+
+  /**
+   * The EAS indicators.
+   *
+   * THREE OF THEM ARE THE POLICY'S. Section 5.3 of TVL-KPI-001 v1.0 gives
+   * Enterprise Application Services exactly three KPIs, one per SLA layer:
+   *
+   *   Layer 1  Incident Notification Timeliness   >= 90%
+   *   Layer 2  SAP Service Availability           >= 99.50%
+   *   Layer 3  Error/Issue Resolution Time        >= 90%
+   *
+   * THE FOURTH IS OURS. SAP User Training Satisfaction & Feedback is not in
+   * the policy and is not reported against it. The team measures it for its
+   * own sake, so it is marked `internal: true` and every screen that shows it
+   * says so. That flag is the difference between a dashboard that is honest
+   * about what it is quoting and one that quietly promotes an internal measure
+   * into an approved KPI.
    *
    * Every one shares the same shape:
    *   Actual Success Rate (%) = (numerator / denominator) x 100
    *   KPI Achievement (%)     = (Actual Rate / Target Rate) x 100
    *
-   * The band boundaries look arbitrary and are not. Three of the four put the
-   * yellow floor at exactly 90% achievement - 89.55/99.50 = 0.90, 81.00/90.00
-   * = 0.90. Layer 1 is the exception and is far stricter: 99.50/99.90 = 0.996,
-   * so its yellow floor is 99.60% achievement.
+   * The band boundaries are the policy's own, copied rather than derived, and
+   * the policy does not use one rule for them: the two 90% indicators get a
+   * flat five points of yellow (85.00-89.99), while availability gets a ratio
+   * (89.55 is exactly 90% of 99.50). Both are written out below as numbers so
+   * neither has to be reconstructed from a rule that does not hold.
    *
    * `active` marks the ones with a working data pipeline. The others are
    * defined so the thresholds and layers are visible now; their ingest arrives
@@ -261,20 +297,31 @@ const CONFIG = {
       id: 'KPI1',
       name: 'Error/Issue Resolution Time',
       shortName: 'Resolution Time',
+      policy: true,
       layer: 3,
       slaLayer: 'Layer 3: Service Requests',
-      // The left-hand side of the formula, exactly as the signed sheet names
-      // it. Printed under the heading as `measure = formula`, so the screen
-      // quotes the policy rather than paraphrasing it.
+      // The left-hand side of the formula, exactly as the policy names it.
+      // Printed under the heading as `measure = formula`, so the screen quotes
+      // the policy rather than paraphrasing it.
       measure: 'Ticket Resolution Success Rate (%)',
       formula: '(Completed Successfully \u00f7 Total Completed) \u00d7 100',
-      // Link to the signed definition PDF. Upload it to Drive, share it with
-      // the team, and paste the link here - the Settings table turns it into
-      // the button beside this row. Must start http:// or https://; anything
-      // else is ignored and the button stays greyed out.
-      policyUrl: 'https://drive.google.com/file/d/103CduvXK2_JuN6XflsxqnHhjy_OGy0WK/view?usp=sharing',
-      target: 99.50,        // green at or above this
-      yellowFloor: 89.55,   // below this is red
+      // A link of its own, if this indicator has a separate signed sheet.
+      // Leave it empty and the Settings table falls back to POLICY.url above,
+      // which is the approved document all three policy KPIs come from. Must
+      // start http:// or https://; anything else is ignored and the button
+      // stays greyed out.
+      policyUrl: '',
+      // CHANGED BY TVL-KPI-001 v1.0, EFFECTIVE 1 OCTOBER 2026.
+      // This was 99.50 / 89.55, taken from an earlier definition sheet. The
+      // approved policy sets Error/Issue Resolution Time at >= 90%, with
+      // 85.00-89.99 yellow and below 85.00 red. It is a large move and it
+      // re-scores history: months the dashboard called YELLOW or RED under the
+      // old figure are GREEN under this one. The sheet is not rewritten - the
+      // bands are worked out from these numbers every time a screen is drawn -
+      // so every month shown, past and present, is scored against the policy
+      // in force today.
+      target: 90.00,        // green at or above this
+      yellowFloor: 85.00,   // below this is red
       unit: '%',
       period: 'monthly',
       active: true          // has a working ingest pipeline
@@ -284,12 +331,29 @@ const CONFIG = {
       id: 'KPI2',
       name: 'SAP User Training Satisfaction & Feedback',
       shortName: 'Training Feedback',
+      /*
+        NOT IN TVL-KPI-001. Section 5.3 gives EAS three KPIs and this is not
+        one of them, so it is not reported to TVL against the policy and must
+        never be presented as though it were.
+
+        It stays because the team wants it: training feedback is the only
+        thing here that says anything about how the people on the other end of
+        a ticket are finding the system, and losing it to tidy the list up
+        would be throwing away the one measure nobody else collects.
+
+        `policy: false` is what every screen reads to mark it - the Settings
+        table, the comparison screen and the downloaded report all label it
+        INTERNAL rather than letting it sit silently beside three approved
+        indicators.
+      */
+      policy: false,
       layer: 3,
       slaLayer: 'Layer 3: Service Requests',
-      // Revised formula. The earlier policy text said Avg Score / Max Score;
-      // the signed definition sheet replaces it with a positive-response ratio,
-      // and resolves the old contradictory thresholds (<90 yellow AND <60 red)
-      // into a clean 81.00-89.99 band.
+      // The earlier policy text said Avg Score / Max Score; the signed
+      // definition sheet replaces it with a positive-response ratio, and
+      // resolves the old contradictory thresholds (<90 yellow AND <60 red)
+      // into a clean 81.00-89.99 band. Left exactly as it was - the approved
+      // policy says nothing about this measure, so it has nothing to change.
       measure: 'Actual Success Rate (%)',
       formula: '(Total Positive Responses \u00f7 Total Applicable Responses) \u00d7 100',
       policyUrl: 'https://drive.google.com/file/d/1-ixPnDc0o5Do2wNDFc3TKUk4qTenW7j9/view?usp=sharing',
@@ -302,19 +366,28 @@ const CONFIG = {
 
     INCIDENT: {
       id: 'KPI3',
-      name: 'Incident & Emergency Management',
-      shortName: 'Incident Mgmt',
+      /*
+        SETTLED BY TVL-KPI-001 v1.0. This entry was a placeholder carrying the
+        name of its SLA LAYER rather than of a KPI, a formula about incidents
+        RESOLVED, and a target of 99.90 that nothing supported - three readings
+        of Layer 1 that could not all be right, which is why no ingest was ever
+        written for it.
+
+        The approved policy answers all three. The EAS Layer 1 indicator is
+        Incident Notification Timeliness, and it measures how promptly an
+        incident is REPORTED to the central support team, not how quickly it
+        is fixed. Resolution is Layer 3's business, and that is KPI 1.
+      */
+      name: 'Incident Notification Timeliness',
+      shortName: 'Notification Timeliness',
+      policy: true,
       layer: 1,
       slaLayer: 'Layer 1: Incident & Emergency Management',
-      // Not yet confirmed against the signed sheet - the Layer 1 PDF has not
-      // been supplied. Check the wording when it arrives.
       measure: 'Actual Success Rate (%)',
-      formula: '(Incidents Resolved Within Target \u00f7 Total Incidents) \u00d7 100',
+      formula: '(Incidents Notified Within SLA \u00f7 Total Applicable Incidents) \u00d7 100',
       policyUrl: '',
-      // The strictest of the four: the yellow floor sits at 99.60%
-      // achievement rather than the 90% the other three use.
-      target: 99.90,
-      yellowFloor: 99.50,
+      target: 90.00,
+      yellowFloor: 85.00,
       unit: '%',
       period: 'monthly',
       active: false
@@ -322,13 +395,19 @@ const CONFIG = {
 
     AVAILABILITY: {
       id: 'KPI4',
-      name: 'SAP Server Availability',
-      shortName: 'Server Availability',
+      // The policy's own wording is SAP Service Availability. It was Server
+      // here, which is a different claim: the policy measures the SAP SERVICE
+      // being available and usable, excluding planned maintenance, not whether
+      // a machine was switched on.
+      name: 'SAP Service Availability',
+      shortName: 'Service Availability',
+      policy: true,
       layer: 2,
       slaLayer: 'Layer 2: Service Availability',
       measure: 'SAP Availability (%)',
       formula: '(Scheduled Time \u2212 Unplanned Downtime) \u00f7 Scheduled Time \u00d7 100',
       policyUrl: '',
+      // Unchanged - these two already matched the approved policy exactly.
       target: 99.50,
       yellowFloor: 89.55,
       unit: '%',

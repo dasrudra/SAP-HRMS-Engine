@@ -276,6 +276,13 @@
     text-transform: uppercase; color: var(--blue-600);
     position: relative; top: -2px;
   }
+  /* The team's own measure rather than one of the approved policy's three.
+     Grey and dashed, not a colour: blue here means "this is its SLA layer",
+     and the point of this state is that the policy does not place it. */
+  .layer-pill.is-internal {
+    background: var(--surface-2); border-color: var(--border-str);
+    border-style: dashed; color: var(--text-dim);
+  }
 
   /*
     Whether the indicator is passing, beside the layer. Same shape as the
@@ -1494,6 +1501,14 @@
   .pill.g { background: var(--green-bg); color: var(--green-ink); }
   .pill.a { background: var(--amber-bg); color: var(--amber-ink); }
   .pill.r { background: var(--red-bg);   color: var(--red-ink); }
+  /* INTERNAL: this measure is the team's own, not one of the approved policy's
+     three. Deliberately plain - grey and outlined, not a fourth status colour.
+     Green, amber and red mean a reading here, and a note about where a
+     definition comes from is not a reading. */
+  .pill.i {
+    background: var(--surface-2); color: var(--text-dim);
+    border-color: var(--border-str); border-style: dashed;
+  }
 
   /* ---------------- the KPI thresholds table ---------------- */
   /*

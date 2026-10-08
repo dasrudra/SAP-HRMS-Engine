@@ -165,6 +165,11 @@ function getBootstrap(token) {
     // All four in display order. The screens iterate this rather than naming
     // KPIs individually, so adding a fifth is a Config.gs edit only.
     kpiList: CONFIG.KPI_ORDER.map(function (key) { return CONFIG.KPI[key]; }),
+
+    // The approved document the three policy KPIs are transcribed from, so a
+    // screen can cite it by name and version, and so an indicator with no
+    // definition link of its own can fall back to it.
+    kpiPolicy: CONFIG.POLICY,
     // Months that actually have data, so the month picker only offers real
     // choices instead of a blank list of every month since January.
     availableMonths: period.months,

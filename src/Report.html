@@ -475,7 +475,15 @@
         .forEach(function (el) { el.parentNode.removeChild(el); });
       screen = clone.textContent.replace(/\s+/g, ' ').trim();
     }
-    var context = { screen: screen, period: '' };
+    var context = { screen: screen, period: '', basis: '' };
+
+    // Which document defines the indicator this screen reports - or, for the
+    // team's own measure, that no document does. Written onto the screen by
+    // App.html as data-basis so this stays DOM-driven like everything else
+    // here. A report is the artefact that leaves the dashboard and gets
+    // forwarded, and the one place the distinction matters most.
+    var basis = view ? view.querySelector('[data-basis]') : null;
+    if (basis) context.basis = (basis.getAttribute('data-basis') || '').trim();
 
     // KPI 1 reads its period from the month picker, KPI 2 from its own select,
     // and Comparison names its periods in the table itself.
@@ -540,6 +548,10 @@
 
     var meta = [];
     if (context.period) meta.push(['Period', context.period]);
+    // Directly under the period, above the filters: whoever opens this needs
+    // to know whether they are looking at an approved indicator before they
+    // look at any of the numbers.
+    if (context.basis) meta.push(['Definition', context.basis]);
     meta.push(['Filters', filters.length
       ? filters.map(function (f) { return f.label + ': ' + f.value; }).join('; ')
       : 'None - the full table']);

@@ -238,6 +238,12 @@ function tokenSecret() {
 /**
  * Makes a signed token for somebody who has just proved who they are.
  *
+ * The role written in here is a STARTING VALUE, not the authority. Every read
+ * of the token looks the role up again on the ACCOUNTS sheet - see
+ * sessionFromToken() and liveRoleOf() - because a token lives an hour and a
+ * role can change inside one. The exception is the /dev shortcut, which has no
+ * account behind it and keeps what it was issued with.
+ *
  * @param {string} username
  * @param {string} role
  * @param {boolean} [dev]  marks the developer shortcut, so the badge can say
@@ -302,6 +308,20 @@ function sessionFromToken(token) {
   if (payload.s) return null;
   if (!isRealRole(payload.r)) return null;
   if (!payload.x || Date.now() > payload.x) return null;
+
+  // The /dev shortcut has no account behind it on purpose - it is the way back
+  // in when the accounts themselves are what is broken - so it keeps the role
+  // it was issued with. isDevContext() has already proved who is asking.
+  if (payload.d) return payload;
+
+  // EVERY OTHER TOKEN PROVES ONLY WHO, NOT WHAT.
+  // The role is whatever the sheet says right now; see liveRoleOf(). A token
+  // whose account has since been removed is not a session at all, so somebody
+  // deleted mid-afternoon stops at the next request rather than at the next
+  // hour.
+  const live = liveRoleOf(payload.u);
+  if (!live || !isRealRole(live)) return null;
+  payload.r = live;
 
   return payload;
 }
@@ -821,10 +841,11 @@ function recordSignIn(name) {
  * is the whole point of the idle window, and it would be quietly undone by
  * being generous here.
  *
- * The role is read from the ACCOUNT, not copied from the old token. Somebody
- * whose admin access was taken away an hour ago should not keep it by holding
- * a tab open, and somebody just granted it should not have to sign out to get
- * it. The renewal is the moment that catches up.
+ * The role is read from the ACCOUNT, not copied from the old token. That is
+ * now true of every request - see liveRoleOf() - rather than only of this one.
+ * It still matters here because this is where the account is read for OTHER
+ * reasons anyway: a password reset since the token was issued stops the
+ * renewal dead, which no amount of reading the role would catch.
  *
  * @param {string} token  whatever the browser is holding
  * @return {{ok: boolean, token: string, role: string, username: string}}
@@ -872,6 +893,11 @@ function logout() {
 /**
  * Who is signed in, if anyone. Also NOT guarded - the page calls it first,
  * before it knows whether to show the app or the sign-in card.
+ *
+ * The role that comes back is read from the account, not from the token, so
+ * reloading the page is all it takes for access granted or taken away to
+ * appear. It used to need a sign-out and a sign-in, because the only thing
+ * that ever looked at an account again was the ten-minute renewal.
  *
  * @param {string} token  whatever the browser is holding, possibly nothing
  * @return {{signedIn: boolean, role: string, username: string, mode: string}}
@@ -1379,6 +1405,10 @@ function accountRow(sheet, name) {
 
 /** Adds or replaces one account on the sheet. */
 function saveAccount(name, account) {
+  // Before the write, not after: if the write throws, the cached role is still
+  // gone and the next read goes to the sheet. The other order could leave a
+  // stale role cached behind a failed change.
+  forgetRole(name);
   const sheet = accountsTab();
   const row = [name, account.role, account.salt, account.hash,
                account.created || '', account.passwordSet || '',
@@ -1393,6 +1423,7 @@ function saveAccount(name, account) {
 
 /** Takes one account off the sheet. */
 function deleteAccountRow(name) {
+  forgetRole(name);
   const sheet = accountsTab();
   const at = accountRow(sheet, name);
   if (at) sheet.deleteRow(at);
@@ -1488,4 +1519,80 @@ function lockoutRemaining(name) {
   // re-stamped on every failure anyway, so the honest answer is the whole
   // window rather than a countdown that would be wrong.
   return LOCKOUT_MINUTES;
+}
+
+
+// ---------------------------------------------------------------------------
+// WHAT SOMEBODY MAY DO *NOW* - not what they could do when they signed in
+// ---------------------------------------------------------------------------
+/**
+ * The role an account carries at this moment, read from the ACCOUNTS sheet.
+ *
+ * WHY THIS EXISTS
+ * A token carries the role that was true when it was issued, and it then lives
+ * for up to an hour. That made the role a photograph rather than a fact: a
+ * master could grant somebody admin and the new admin would reload the page,
+ * see no upload button, and be told to sign out and in again. The same
+ * photograph worked the other way and mattered more - access TAKEN AWAY stayed
+ * usable for up to an hour, because every guard was reading the old picture.
+ *
+ * So the token now proves only WHO somebody is. What they may do is looked up
+ * here, every time, and the token's own `r` is overwritten with the answer.
+ *
+ * WHY IT IS CACHED
+ * Without a cache this would read the sheet on every single call the dashboard
+ * makes. Thirty seconds is short enough that nothing feels stale and long
+ * enough that a screenful of requests costs one read - and it is a ceiling,
+ * not a delay, because every write to an account clears the entry for that
+ * account on its way through saveAccount() / deleteAccountRow(). A granted or
+ * revoked role is therefore live on the very next request, not in thirty
+ * seconds.
+ *
+ * @param {string} username
+ * @return {string} the role, or '' if there is no such account any more
+ */
+const ROLE_CACHE_SECONDS = 30;
+
+/** Cached in place of a role, so a dead token does not re-read the sheet. */
+const ROLE_NONE = '-';
+
+function roleKey(name) {
+  return 'EAS_ROLE_' + name;
+}
+
+function liveRoleOf(username) {
+  const name = String(username == null ? '' : username).trim().toLowerCase();
+  if (!name) return '';
+
+  let cache = null;
+  try { cache = CacheService.getScriptCache(); } catch (e) { cache = null; }
+
+  if (cache) {
+    const hit = cache.get(roleKey(name));
+    if (hit) return hit === ROLE_NONE ? '' : hit;
+  }
+
+  const account = readAccounts()[name];
+  const role = account ? account.role : '';
+
+  // Never throws. A cache that is unavailable must cost speed, not access.
+  if (cache) {
+    try { cache.put(roleKey(name), role || ROLE_NONE, ROLE_CACHE_SECONDS); }
+    catch (e) { /* nothing to do - the next call simply reads the sheet */ }
+  }
+  return role;
+}
+
+
+/**
+ * Forgets the cached role for one account.
+ *
+ * Called from saveAccount() and deleteAccountRow() - the two funnels every
+ * account write in this file goes through - rather than from each of the ten
+ * places that write one. A new master endpoint cannot forget to call it,
+ * because it cannot avoid going through them.
+ */
+function forgetRole(name) {
+  try { CacheService.getScriptCache().remove(roleKey(String(name || '').toLowerCase())); }
+  catch (e) { /* the entry expires on its own within the window above */ }
 }

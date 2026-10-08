@@ -462,6 +462,56 @@
                'Sign in to carry on.');
   }
 
+  /*
+    PICKING UP A CHANGE OF ACCESS WITHOUT SIGNING OUT
+
+    The server half of this is in Auth.gs: the role is read from the ACCOUNTS
+    sheet on every request now, not taken from the token, so RELOADING THE PAGE
+    is already enough. This is the part that saves even the reload.
+
+    getSession, not renewToken. getSession only reads; renewToken also pushes
+    the idle hour out, and coming back to a tab should not buy an hour of
+    inactivity - that is the one thing the idle window exists to prevent.
+
+    Throttled to twice a minute at most. Switching between two tabs fires this
+    on every switch, and a role changes about once a month.
+  */
+  const ROLE_CHECK_EVERY_MS = 30 * 1000;
+  let lastRoleCheck = Date.now();
+
+  function catchUpRole() {
+    if (!AUTH.token) return;
+    if (document.hidden) return;
+    // Already past the hour. checkIdle is about to end the session; asking the
+    // server what this person may do is the wrong question at that moment.
+    if (Date.now() - IDLE.lastActivity > IDLE.LIMIT_MS) return;
+    if (Date.now() - lastRoleCheck < ROLE_CHECK_EVERY_MS) return;
+    lastRoleCheck = Date.now();
+
+    google.script.run
+      .withSuccessHandler(function (session) {
+        if (!session) return;
+
+        // The account is gone, or the token no longer stands. Not a role
+        // change - the session is over, and leaving a dashboard full of
+        // figures on screen afterwards would be the wrong thing to do.
+        if (!session.signedIn) {
+          dropToken();
+          showSignIn('Your access has changed. Sign in again to carry on.');
+          return;
+        }
+
+        if (session.role && session.role !== state.role) {
+          state.role = session.role;
+          applyRole();
+        }
+      })
+      // Silent. A request that failed says nothing about anybody's access, and
+      // the next one will ask again.
+      .withFailureHandler(function () {})
+      .getSession(AUTH.token);
+  }
+
   function watchActivity() {
     ['mousemove', 'mousedown', 'keydown', 'scroll', 'touchstart', 'wheel']
       .forEach(function (event) {
@@ -472,9 +522,9 @@
     // have passed while this page was in the background, or while the laptop
     // was shut, and neither of those fires a mouse event.
     document.addEventListener('visibilitychange', function () {
-      if (!document.hidden) checkIdle();
+      if (!document.hidden) { checkIdle(); catchUpRole(); }
     });
-    window.addEventListener('focus', checkIdle);
+    window.addEventListener('focus', function () { checkIdle(); catchUpRole(); });
 
     // setInterval, deliberately, rather than counting ticks: a sleeping laptop
     // stops firing timers altogether, so anything that counted them would wake
@@ -2804,7 +2854,18 @@
         if (pill) {
           const layer = kpi && kpi.slaLayer;
           pill.hidden = !layer;
-          if (layer) pill.textContent = layer;
+          if (layer) {
+            // The layer, and for the team's own measure the fact that the
+            // layer is where the resemblance to the policy ends. KPI 2 sits on
+            // the same screen as KPI 1 and is laid out identically, so without
+            // this the two read as equally official.
+            pill.textContent = layer +
+              (kpi.policy === false ? ' \u00b7 internal measure' : '');
+            // Both the hover and the attribute the downloaded report reads.
+            pill.title = policyBasis(kpi);
+            pill.setAttribute('data-basis', policyBasis(kpi));
+            pill.classList.toggle('is-internal', kpi.policy === false);
+          }
         }
 
         const sub = document.getElementById(row[2]);
@@ -5048,6 +5109,41 @@
   }
 
 
+  /**
+   * What the INTERNAL mark means, in one sentence, naming the document it is
+   * not in. Built from the bootstrap rather than written out, so a new version
+   * of the policy changes this wherever it appears by changing Config.gs.
+   */
+  function internalNote() {
+    const p = (state.boot && state.boot.kpiPolicy) || {};
+    const doc = [p.id, p.version ? 'v' + p.version : ''].filter(Boolean).join(' ');
+    return 'Measured by the EAS team for its own use. It is not one of the ' +
+      'three indicators in ' + (doc || 'the approved KPI policy') +
+      ' and is not reported against it.';
+  }
+
+
+  /**
+   * Where this indicator's definition comes from, in one sentence.
+   *
+   * Written onto the screen as data-basis, which is what the downloaded report
+   * picks up. A report is the thing that leaves the dashboard and gets
+   * forwarded, and a spreadsheet headed "SAP User Training Satisfaction" with
+   * nothing to say otherwise will be read as one of the approved KPIs by
+   * whoever opens it three weeks later.
+   */
+  function policyBasis(kpi) {
+    if (!kpi) return '';
+    if (kpi.policy === false) return internalNote();
+
+    const p = (state.boot && state.boot.kpiPolicy) || {};
+    const doc = [p.id, p.version ? 'v' + p.version : ''].filter(Boolean).join(' ');
+    return 'Defined by ' + (doc || 'the approved KPI policy') +
+      (p.section ? ', section ' + p.section : '') +
+      (p.effective ? ', effective ' + p.effective : '') + '.';
+  }
+
+
   function kpiRowBody(kpi) {
     const actual = currentValueFor(kpi);
     const band = actual === null ? '' : bandOf(actual, kpi);
@@ -5063,6 +5159,14 @@
         '<span class="thr-name">' + escapeHtml(kpi.name) +
           (kpi.active ? '<span class="pill g">LIVE</span>'
                       : '<span class="pill a">PENDING</span>') +
+          // Three of these are the approved policy's; this one is the team's
+          // own. Saying so here is the whole point of the flag - an internal
+          // measure sitting unmarked beside three approved indicators is the
+          // table claiming something about it that is not true.
+          (kpi.policy === false
+            ? '<span class="pill i" title="' + escapeHtml(internalNote()) +
+              '">INTERNAL</span>'
+            : '') +
         '</span>' +
         '<span class="thr-formula">' + escapeHtml(kpi.formula || '\u2014') + '</span>' +
       '</td>' +
@@ -5193,17 +5297,30 @@
    * which is the opposite of true - it has one, nobody has linked it yet.
    */
   function policyLink(kpi) {
-    const url = String(kpi.policyUrl || '').trim();
+    // Its own sheet if it has one; otherwise the approved policy the three
+    // policy KPIs are all transcribed from. One link pasted into POLICY.url in
+    // Config.gs therefore lights up the whole column, instead of the same
+    // address having to be pasted three times.
+    const own = String(kpi.policyUrl || '').trim();
+    const shared = String(
+      (state.boot && state.boot.kpiPolicy && state.boot.kpiPolicy.url) || '').trim();
+    const url = /^https?:\/\//i.test(own) ? own : shared;
 
     if (!/^https?:\/\//i.test(url)) {
       return '<span class="doc-btn is-off" title="No document linked yet \u2014 ' +
-        'paste the file\u2019s link into policyUrl for this KPI in Config.gs">' +
+        'paste the approved policy\u2019s link into POLICY.url in Config.gs">' +
         'Not linked</span>';
     }
 
+    const what = url === own
+      ? 'Open the signed definition for ' + kpi.name
+      : 'Open ' + ((state.boot.kpiPolicy.id || 'the approved KPI policy') +
+                   ' v' + (state.boot.kpiPolicy.version || '') +
+                   ', which defines ' + kpi.name).trim();
+
     return '<a class="doc-btn" href="' + escapeHtml(url) + '" ' +
       'target="_blank" rel="noopener noreferrer" ' +
-      'title="Open the signed definition for ' + escapeHtml(kpi.name) + '">' +
+      'title="' + escapeHtml(what) + '">' +
       '<svg viewBox="0 0 16 16" aria-hidden="true">' +
         '<path d="M9.4 1.9H4.2a1.2 1.2 0 0 0-1.2 1.2v9.8a1.2 1.2 0 0 0 1.2 1.2h7.6a1.2 1.2 0 0 0 1.2-1.2V5.5z"/>' +
         '<path d="M9.4 1.9v3.6H13"/>' +
@@ -5846,8 +5963,19 @@
     const hint = document.getElementById('cmpKpiHint');
     if (!hint) return;
 
+    // The same sentence the KPI screens carry, so a comparison downloaded as a
+    // report says what it is comparing against too.
+    hint.setAttribute('data-basis', kpi ? policyBasis(kpi) : '');
+
     hint.innerHTML = kpi
       ? 'Target &ge; ' + kpi.target + kpi.unit + ' \u00b7 ' + escapeHtml(kpi.slaLayer || '') +
+        // An internal measure says so here too. This line is the only thing on
+        // the comparison screen that describes what is being compared, so it
+        // is the one place the distinction can be made before somebody reads a
+        // chart of it as an approved KPI.
+        (kpi.policy === false
+          ? ' \u00b7 <b title="' + escapeHtml(internalNote()) + '">internal measure</b>'
+          : '') +
         (kpi.active ? '' : ' \u00b7 <b>no data uploaded yet</b>')
       : '';
   }

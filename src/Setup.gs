@@ -53,26 +53,7 @@ function setupDatabase() {
   createSheet(ss, CONFIG.SHEETS.OPERATORS, ['Operator', 'Display Name', 'Role',
                                             'Password Hash', 'Active', 'Created']);
 
-  // KPI_CONFIG holds editable targets. Seeded from Config.gs, then owned by
-  // the UI - so a committee decision does not require a code change.
-  const cfgSheet = createSheet(ss, CONFIG.SHEETS.CONFIG,
-    ['KPI ID', 'Name', 'Target', 'Yellow Floor', 'Unit', 'Period',
-     'SLA Layer', 'Effective From', 'Updated By']);
-
-  if (cfgSheet.getLastRow() <= 1) {
-    const today = new Date();
-    cfgSheet.getRange(2, 1, 2, 9).setValues([
-      [CONFIG.KPI.RESOLUTION.id, CONFIG.KPI.RESOLUTION.name,
-       CONFIG.KPI.RESOLUTION.target, CONFIG.KPI.RESOLUTION.yellowFloor,
-       CONFIG.KPI.RESOLUTION.unit, CONFIG.KPI.RESOLUTION.period,
-       CONFIG.KPI.RESOLUTION.slaLayer, today, 'setup'],
-      [CONFIG.KPI.FEEDBACK.id, CONFIG.KPI.FEEDBACK.name,
-       CONFIG.KPI.FEEDBACK.target, CONFIG.KPI.FEEDBACK.yellowFloor,
-       CONFIG.KPI.FEEDBACK.unit, CONFIG.KPI.FEEDBACK.period,
-       CONFIG.KPI.FEEDBACK.slaLayer, today, 'setup']
-    ]);
-    Logger.log('Seeded KPI_CONFIG with the two EAS KPIs.');
-  }
+  syncKpiConfigSheet(ss);
 
   // A brand-new spreadsheet always has a "Sheet1" we never use.
   const blank = ss.getSheetByName('Sheet1');
@@ -83,6 +64,74 @@ function setupDatabase() {
   Logger.log('Setup complete. Tabs present: %s',
              ss.getSheets().map(s => s.getName()).join(', '));
   return ss.getId();
+}
+
+
+/**
+ * Rewrites the KPI_CONFIG tab from Config.gs. Safe to run at any time.
+ *
+ * WHAT THIS TAB IS, AND WHAT IT IS NOT
+ * It is a READABLE COPY of the targets, for anyone who opens the database and
+ * wants to see what the dashboard is scoring against without reading code.
+ * Nothing in the project reads it back. It cannot change a target, and that is
+ * deliberate: the targets are set by an approved policy, and a spreadsheet
+ * anyone with edit access could retype is the wrong place for them to live.
+ *
+ * It used to be seeded ONCE, only if empty, and described as "owned by the UI"
+ * - which nothing ever implemented. The result was a tab that kept printing
+ * the targets as they were on the day the database was built, while the
+ * dashboard beside it scored against the current ones. A copy that is allowed
+ * to go stale is worse than no copy, so it is rewritten every time rather than
+ * written once, and it now says in the sheet itself where the figures come
+ * from.
+ *
+ * RUN THIS AFTER A TARGET CHANGES. setupDatabase() calls it too.
+ *
+ * @param {Spreadsheet} [ss]  defaults to the configured database
+ */
+function syncKpiConfigSheet(ss) {
+  const book = ss || SpreadsheetApp.openById(getSpreadsheetId());
+
+  const headers = ['KPI ID', 'Name', 'Target', 'Yellow Floor', 'Unit', 'Period',
+                   'SLA Layer', 'In the policy?', 'Source', 'Copied On'];
+  const sheet = createSheet(book, CONFIG.SHEETS.CONFIG, headers);
+
+  // createSheet leaves an existing tab alone, which is right for every other
+  // tab in the database and wrong for this one: a tab built before these
+  // columns existed would keep the old headings over the new figures. The
+  // header is rewritten every time, like the rows under it.
+  sheet.getRange(1, 1, 1, headers.length)
+       .setValues([headers])
+       .setFontWeight('bold')
+       .setBackground('#1e3a5f')
+       .setFontColor('#ffffff');
+  sheet.setFrozenRows(1);
+
+  const source = CONFIG.POLICY.id + ' v' + CONFIG.POLICY.version +
+                 ', effective ' + CONFIG.POLICY.effective;
+  const today = new Date();
+
+  const rows = CONFIG.KPI_ORDER.map(function (key) {
+    const kpi = CONFIG.KPI[key];
+    return [kpi.id, kpi.name, kpi.target, kpi.yellowFloor, kpi.unit,
+            kpi.period, kpi.slaLayer,
+            kpi.policy === false ? 'No - internal measure' : 'Yes',
+            kpi.policy === false ? 'EAS team' : source,
+            today];
+  });
+
+  // Clear first. Dropping a KPI from Config.gs must drop its row here too,
+  // and overwriting in place would leave the old one behind.
+  const last = sheet.getLastRow();
+  if (last >= 2) {
+    sheet.getRange(2, 1, last - 1,
+                   Math.max(sheet.getLastColumn(), headers.length)).clearContent();
+  }
+
+  sheet.getRange(2, 1, rows.length, rows[0].length).setValues(rows);
+  Logger.log('KPI_CONFIG rewritten from Config.gs - %s indicators, source: %s',
+             rows.length, source);
+  return rows.length;
 }
 
 
