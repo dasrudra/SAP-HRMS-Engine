@@ -271,7 +271,8 @@ const CONFIG = {
     version: '1.0',
     effective: '1 October 2026',
     section: '5.3 Enterprise Application Services (EAS)',
-    url: '',
+    url: 'https://drive.google.com/file/d/' +
+         '1sD4mxPi07IiGK34AIsBRQ8C2oWl9kVdV/view?usp=sharing',
     folderUrl: 'https://drive.google.com/drive/folders/' +
                '1ZJzhP5cheLFjRlGPOAwavBcT1epO4ip0?usp=sharing'
   },
@@ -320,12 +321,26 @@ const CONFIG = {
       // the policy rather than paraphrasing it.
       measure: 'Ticket Resolution Success Rate (%)',
       formula: '(Completed Successfully \u00f7 Total Completed) \u00d7 100',
-      // A link of its own, if this indicator has a separate signed sheet.
-      // Leave it empty and the Settings table falls back to POLICY.url above,
-      // which is the approved document all three policy KPIs come from. Must
-      // start http:// or https://; anything else is ignored and the button
-      // stays greyed out.
-      policyUrl: '',
+      /*
+        Its own signed sheet:
+          Layer 3 TVL-EAS KPI_SAP_Error_Issue Resolution Time_Final.pdf
+
+        THE LAYER IN THE FILE NAME IS HOW THESE WERE MATCHED. The policy gives
+        EAS one KPI per SLA layer, and the three documents are named by layer,
+        so Layer 3 is this one and there is nothing to judge. Anybody changing
+        these addresses should match them the same way rather than by the rest
+        of the file name, which does not always agree with the policy - see
+        INCIDENT and AVAILABILITY below.
+
+        This is a starting value. The address the dashboard actually opens
+        comes from the Document Link column of KPI_CONFIG, which is where it
+        can be corrected without a deployment; syncKpiConfigSheet() seeds that
+        column from here the first time it runs. Must start http:// or
+        https://, here and there both - anything else is refused and the button
+        stays greyed out.
+      */
+      policyUrl: 'https://drive.google.com/file/d/' +
+                 '103CduvXK2_JuN6XflsxqnHhjy_OGy0WK/view?usp=drive_link',
       // CHANGED BY TVL-KPI-001 v1.0, EFFECTIVE 1 OCTOBER 2026.
       // This was 99.50 / 89.55, taken from an earlier definition sheet. The
       // approved policy sets Error/Issue Resolution Time at >= 90%, with
@@ -400,7 +415,17 @@ const CONFIG = {
       slaLayer: 'Layer 1: Incident & Emergency Management',
       measure: 'Actual Success Rate (%)',
       formula: '(Incidents Notified Within SLA \u00f7 Total Applicable Incidents) \u00d7 100',
-      policyUrl: '',
+      /*
+        Layer 1 TVL-EAS KPI_SAP_Incident & Emergency Management_Final.pdf
+        - matched by the LAYER in its name, which is the only part of it that
+        agrees with the approved policy. The rest of that file name is the name
+        of the SLA LAYER, not of the KPI, which is the very confusion the
+        policy settled: the Layer 1 indicator is Incident Notification
+        Timeliness. Expect this document to be re-issued; the address is kept
+        in the spreadsheet so that costs a paste rather than a deployment.
+      */
+      policyUrl: 'https://drive.google.com/file/d/' +
+                 '105prn4EcALBb0MVuy0j_Dm-ZU3-HU6D9/view?usp=drive_link',
       target: 90.00,
       yellowFloor: 85.00,
       unit: '%',
@@ -421,7 +446,15 @@ const CONFIG = {
       slaLayer: 'Layer 2: Service Availability',
       measure: 'SAP Availability (%)',
       formula: '(Scheduled Time \u2212 Unplanned Downtime) \u00f7 Scheduled Time \u00d7 100',
-      policyUrl: '',
+      /*
+        Layer 2 TVL-EAS_KPI_SAP_Server_Availability_Final.pdf - matched by the
+        layer in its name. It says SERVER where the approved policy says
+        SERVICE, which are different claims: the policy measures the SAP
+        service being available and usable excluding planned maintenance, not
+        whether a machine was switched on. The name above follows the policy.
+      */
+      policyUrl: 'https://drive.google.com/file/d/' +
+                 '1CvVeUJlTLHUKnl7VFhGwLYWbxONDDVRB/view?usp=drive_link',
       // Unchanged - these two already matched the approved policy exactly.
       target: 99.50,
       yellowFloor: 89.55,
