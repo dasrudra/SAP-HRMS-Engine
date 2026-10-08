@@ -170,6 +170,12 @@ function getBootstrap(token) {
     // screen can cite it by name and version, and so an indicator with no
     // definition link of its own can fall back to it.
     kpiPolicy: CONFIG.POLICY,
+
+    // The Document Link column of KPI_CONFIG, keyed by KPI id. Where the
+    // Definition buttons actually point: a link lives in a spreadsheet cell so
+    // that replacing a corrected PDF is a paste rather than a deployment.
+    // Empty until the tab exists - syncKpiConfigSheet() in Setup.gs creates it.
+    kpiLinks: configured ? readKpiConfigLinks() : {},
     // Months that actually have data, so the month picker only offers real
     // choices instead of a blank list of every month since January.
     availableMonths: period.months,

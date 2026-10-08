@@ -1529,6 +1529,19 @@
     font-size: 11px; font-weight: 600; color: var(--text-dim);
   }
   .card-blue > .card-head .head-note { color: rgba(255,255,255,.72); }
+  /* The approved policy, named in the card head and opened from it. Underlined
+     rather than coloured: the head is already a blue field, so a blue link
+     would be invisible on it and a bright one would outshout the heading. */
+  .head-doc {
+    color: inherit; text-decoration: underline;
+    text-underline-offset: 2px; text-decoration-thickness: 1px;
+    text-decoration-color: rgba(255,255,255,.45);
+    transition: color .14s ease, text-decoration-color .14s ease;
+  }
+  .head-doc:hover {
+    color: #fff; text-decoration-color: #fff;
+  }
+  .head-doc:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 
   .thr-table td { vertical-align: middle; padding: 12px 16px; }
 
@@ -1634,6 +1647,19 @@
   .doc-btn.is-off {
     color: var(--text-mut); border-style: dashed; cursor: help;
     font-weight: 600;
+  }
+  /* The fallback: this indicator has no document of its own linked, so the
+     button opens the folder they are kept in. A real link, so it does not get
+     the greyed treatment - but muted and outlined in the dotted border of the
+     state above, because it is one step short of the thing you asked for and
+     should not look identical to a button that opens the right file. */
+  a.doc-btn.is-folder {
+    color: var(--text-dim); border-style: dashed;
+  }
+  a.doc-btn.is-folder:hover {
+    background: var(--surface-2); border-color: var(--border-str);
+    border-style: solid; color: var(--navy-700);
+    box-shadow: 0 8px 18px -12px rgba(20,32,46,.6);
   }
 
   /*

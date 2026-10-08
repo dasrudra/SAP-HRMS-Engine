@@ -71,9 +71,9 @@ function setupDatabase() {
  * Rewrites the KPI_CONFIG tab from Config.gs. Safe to run at any time.
  *
  * WHAT THIS TAB IS, AND WHAT IT IS NOT
- * It is a READABLE COPY of the targets, for anyone who opens the database and
- * wants to see what the dashboard is scoring against without reading code.
- * Nothing in the project reads it back. It cannot change a target, and that is
+ * Every column but one is a READABLE COPY, for anyone who opens the database
+ * and wants to see what the dashboard is scoring against without reading code.
+ * Nothing reads those columns back. They cannot change a target, and that is
  * deliberate: the targets are set by an approved policy, and a spreadsheet
  * anyone with edit access could retype is the wrong place for them to live.
  *
@@ -85,16 +85,36 @@ function setupDatabase() {
  * written once, and it now says in the sheet itself where the figures come
  * from.
  *
+ * THE ONE COLUMN THAT IS NOT A COPY: Document Link.
+ * That one is read, and it is the place to put these addresses. A definition
+ * PDF is not a policy figure - it is an address, and addresses change. When a
+ * corrected PDF is uploaded to Drive as a new file it gets a new ID, and every
+ * link to the old one quietly stops working. Keeping the address in a
+ * spreadsheet cell means fixing it is a paste; keeping it in Config.gs means
+ * pasting a 1,400-line file into Apps Script and deploying a new version to
+ * change one URL.
+ *
+ * So this function NEVER overwrites what is in that column - it reads it,
+ * keeps it, and only fills a blank cell from Config.gs. Run it as often as
+ * you like; the links you pasted survive.
+ *
  * RUN THIS AFTER A TARGET CHANGES. setupDatabase() calls it too.
  *
  * @param {Spreadsheet} [ss]  defaults to the configured database
+ * @return {number} how many indicators were written
  */
 function syncKpiConfigSheet(ss) {
   const book = ss || SpreadsheetApp.openById(getSpreadsheetId());
 
   const headers = ['KPI ID', 'Name', 'Target', 'Yellow Floor', 'Unit', 'Period',
-                   'SLA Layer', 'In the policy?', 'Source', 'Copied On'];
+                   'SLA Layer', 'In the policy?', 'Source', 'Document Link',
+                   'Copied On'];
   const sheet = createSheet(book, CONFIG.SHEETS.CONFIG, headers);
+
+  // Read the links BEFORE anything is cleared. These are the one thing on this
+  // tab that somebody typed rather than something the code printed, and they
+  // are the only thing here that would be lost by rewriting it.
+  const keptLinks = readKpiConfigLinks(sheet);
 
   // createSheet leaves an existing tab alone, which is right for every other
   // tab in the database and wrong for this one: a tab built before these
@@ -113,12 +133,28 @@ function syncKpiConfigSheet(ss) {
 
   const rows = CONFIG.KPI_ORDER.map(function (key) {
     const kpi = CONFIG.KPI[key];
+    // What was in the cell wins. Config.gs only fills a blank one, which is
+    // what a brand-new installation starts with.
+    const link = keptLinks[kpi.id] || String(kpi.policyUrl || '');
     return [kpi.id, kpi.name, kpi.target, kpi.yellowFloor, kpi.unit,
             kpi.period, kpi.slaLayer,
             kpi.policy === false ? 'No - internal measure' : 'Yes',
             kpi.policy === false ? 'EAS team' : source,
-            today];
+            link, today];
   });
+
+  // A row for the approved policy itself, under the reserved id POLICY.
+  //
+  // It is not an indicator and has no target, which is why every figure column
+  // is blank. It is here because this column is where the definition documents
+  // live, and the policy IS one of them - the document that defines the other
+  // three. Without a row it would be the one PDF with nowhere to be pasted.
+  rows.push(['POLICY',
+             CONFIG.POLICY.title + ' (' + CONFIG.POLICY.id +
+               ' v' + CONFIG.POLICY.version + ')',
+             '', '', '', '', CONFIG.POLICY.section,
+             'It IS the policy', source,
+             keptLinks.POLICY || String(CONFIG.POLICY.url || ''), today]);
 
   // Clear first. Dropping a KPI from Config.gs must drop its row here too,
   // and overwriting in place would leave the old one behind.
@@ -131,7 +167,62 @@ function syncKpiConfigSheet(ss) {
   sheet.getRange(2, 1, rows.length, rows[0].length).setValues(rows);
   Logger.log('KPI_CONFIG rewritten from Config.gs - %s indicators, source: %s',
              rows.length, source);
+  Logger.log('Document Link column: %s of %s filled in.',
+             rows.filter(function (r) { return r[9]; }).length, rows.length);
   return rows.length;
+}
+
+
+/**
+ * The Document Link column, as {KPI1: url, KPI2: url, ...}.
+ *
+ * Reads by HEADER NAME, not by column number. This tab has had two shapes
+ * already and will have more; a reader that counted to column ten would start
+ * returning the date, or the SLA layer, the first time a column was inserted
+ * before it - and an SLA layer in an href is not a broken link, it is a
+ * broken page.
+ *
+ * Anything that is not plainly an http(s) address is dropped here, on the
+ * server, before it can reach a browser. The screen checks again - see
+ * policyLink() in App.html - because a value that becomes an href deserves
+ * two locks rather than one, and this one is new: until now these addresses
+ * came from Config.gs, which only the two of us can edit. They now come from a
+ * spreadsheet cell, which is the point of them being there.
+ *
+ * Never throws. No tab, no column, no spreadsheet at all - the answer is the
+ * same empty object, and the Definition buttons fall back to Config.gs.
+ *
+ * @param {Sheet} [sheet]  an already-open KPI_CONFIG, if the caller has one
+ * @return {!Object<string, string>}
+ */
+function readKpiConfigLinks(sheet) {
+  const out = {};
+  try {
+    const tab = sheet || SpreadsheetApp.openById(getSpreadsheetId())
+                                       .getSheetByName(CONFIG.SHEETS.CONFIG);
+    if (!tab) return out;
+
+    const last = tab.getLastRow();
+    const wide = tab.getLastColumn();
+    if (last < 2 || wide < 1) return out;
+
+    const head = tab.getRange(1, 1, 1, wide).getValues()[0]
+                    .map(function (h) { return String(h || '').trim().toLowerCase(); });
+    const idAt = head.indexOf('kpi id');
+    const linkAt = head.indexOf('document link');
+    if (idAt === -1 || linkAt === -1) return out;
+
+    tab.getRange(2, 1, last - 1, wide).getValues().forEach(function (row) {
+      const id = String(row[idAt] || '').trim();
+      const url = String(row[linkAt] || '').trim();
+      if (id && /^https?:\/\//i.test(url)) out[id] = url;
+    });
+  } catch (e) {
+    // A link nobody can read is a greyed button. A thrown error here would be
+    // a dashboard nobody can open.
+    return out;
+  }
+  return out;
 }
 
 

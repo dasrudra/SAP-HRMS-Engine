@@ -247,10 +247,23 @@ const CONFIG = {
    * document and nothing else. When a target is questioned, this is the answer
    * - not a figure somebody remembers from a draft.
    *
-   * `url` is the approved PDF. Upload it to Drive, share it the way the team
-   * can read it, and paste the link here: every indicator that has no link of
-   * its own then points at it, so one paste lights up the whole Definition
-   * column. It is marked Internal, so share it inside Youngone, not publicly.
+   * THESE THREE ADDRESSES ARE A LAST RESORT, NOT THE PLACE TO EDIT.
+   * The Definition button looks at the KPI_CONFIG tab in the database first -
+   * see syncKpiConfigSheet() in Setup.gs. A link pasted into a spreadsheet
+   * cell takes effect on the next page load; a link changed here needs the
+   * file pasted into Apps Script and a new version deployed. These are what a
+   * brand-new installation starts with, and what it falls back to when that
+   * tab has nothing.
+   *
+   * `url` is the approved policy PDF itself. Any indicator with no document of
+   * its own points at it, because it is the document that defines all three.
+   *
+   * `folderUrl` is where all of them live. It is the last fallback: it opens
+   * the right PLACE when nothing can open the right FILE, which is better than
+   * a dead button, and a Drive folder's address does not change when the files
+   * inside it are replaced.
+   *
+   * All of it is marked Internal - share inside Youngone, not publicly.
    */
   POLICY: {
     id: 'TVL-KPI-001',
@@ -258,7 +271,9 @@ const CONFIG = {
     version: '1.0',
     effective: '1 October 2026',
     section: '5.3 Enterprise Application Services (EAS)',
-    url: ''
+    url: '',
+    folderUrl: 'https://drive.google.com/drive/folders/' +
+               '1ZJzhP5cheLFjRlGPOAwavBcT1epO4ip0?usp=sharing'
   },
 
   /**

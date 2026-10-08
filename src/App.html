@@ -5088,8 +5088,39 @@
     });
 
     const live = list.filter(function (k) { return k.active; }).length;
-    setText('kpiTableNote', list.length + ' indicators \u00b7 ' + live + ' live \u00b7 ' +
-      (list.length - live) + ' awaiting a pipeline');
+    const note = document.getElementById('kpiTableNote');
+    if (note) {
+      // The count, and the document the three policy indicators come from.
+      // The policy PDF had no home on any screen - it was only ever a fallback
+      // behind a Definition button - so the one document that explains the
+      // whole table was the one document nobody could open from it.
+      const p = (state.boot && state.boot.kpiPolicy) || {};
+      const links = (state.boot && state.boot.kpiLinks) || {};
+      const url = [links.POLICY, p.url].filter(function (u) {
+        return /^https?:\/\//i.test(String(u || '').trim());
+      })[0];
+      const named = p.id ? p.id + (p.version ? ' v' + p.version : '') : '';
+
+      note.textContent = list.length + ' indicators \u00b7 ' + live + ' live \u00b7 ' +
+        (list.length - live) + ' awaiting a pipeline' + (named ? ' \u00b7 ' : '');
+      if (named) {
+        if (url) {
+          const a = document.createElement('a');
+          a.className = 'head-doc';
+          a.href = String(url).trim();
+          a.target = '_blank';
+          a.rel = 'noopener noreferrer';
+          a.textContent = named;
+          a.title = 'Open ' + [p.title, named].filter(Boolean).join(', ') +
+                    (p.effective ? ', effective ' + p.effective : '');
+          note.appendChild(a);
+        } else {
+          // Named either way. Which document the targets come from is worth
+          // saying even when nobody has linked it yet.
+          note.appendChild(document.createTextNode(named));
+        }
+      }
+    }
   }
 
 
@@ -5282,49 +5313,86 @@
 
 
   /**
-   * The button to the signed definition sheet for one indicator.
+   * Which document this indicator's Definition button opens, and what to call
+   * it. Four places are tried, best first.
+   *
+   *   1  the Document Link cell for this KPI on the KPI_CONFIG tab
+   *   2  policyUrl in Config.gs, which is only what a new install starts with
+   *   3  the approved policy PDF, which defines all three policy KPIs
+   *   4  the Drive folder they all live in
+   *
+   * Four looks like a lot and each one earns its place. The spreadsheet comes
+   * first because that is where a link can be corrected without a deployment.
+   * The folder is last because opening the right PLACE beats a dead button,
+   * and a folder's address survives the files inside it being replaced -
+   * which is exactly what happens when a PDF is corrected and re-uploaded.
+   *
+   * Anything that is not plainly http(s) is refused at every level. The server
+   * drops those too, in readKpiConfigLinks(); this is the second lock, on the
+   * value that actually becomes an href.
+   */
+  function docTarget(kpi) {
+    const p = (state.boot && state.boot.kpiPolicy) || {};
+    const links = (state.boot && state.boot.kpiLinks) || {};
+    const ok = (u) => /^https?:\/\//i.test(String(u || '').trim());
+    const name = p.id ? p.id + ' v' + (p.version || '') : 'the approved KPI policy';
+
+    if (ok(links[kpi.id])) {
+      return { url: String(links[kpi.id]).trim(), label: 'PDF',
+               what: 'Open the definition document for ' + kpi.name };
+    }
+    if (ok(kpi.policyUrl)) {
+      return { url: String(kpi.policyUrl).trim(), label: 'PDF',
+               what: 'Open the definition document for ' + kpi.name };
+    }
+    // The approved policy PDF: from the spreadsheet if it is there, from
+    // Config.gs otherwise. Same reason as above - an address belongs where it
+    // can be corrected without a deployment.
+    const policyDoc = ok(links.POLICY) ? links.POLICY : p.url;
+    if (ok(policyDoc)) {
+      return { url: String(policyDoc).trim(), label: 'PDF',
+               what: 'Open ' + name + ', which defines ' + kpi.name };
+    }
+    if (ok(p.folderUrl)) {
+      return { url: String(p.folderUrl).trim(), label: 'Folder',
+               what: kpi.name + ' has no document of its own linked yet. ' +
+                     'Opens the folder in Drive where the KPI documents are kept.' };
+    }
+    return null;
+  }
+
+
+  /**
+   * The button to the definition document for one indicator.
    *
    * An <a target="_blank">, not a button calling window.open: an Apps Script
    * web app runs inside a sandboxed iframe, where a scripted window.open is
    * liable to be blocked but a plain link with a target is not.
    *
-   * Only http and https are accepted. Config.gs is edited by hand, and a
-   * mistyped or pasted `javascript:` URL in a field that becomes an href is
-   * the one way this table could do something other than open a document.
-   *
-   * With no link set the button is still drawn, greyed, saying so. Leaving
-   * the cell empty would read as "this indicator has no definition sheet",
-   * which is the opposite of true - it has one, nobody has linked it yet.
+   * With nothing to open at all the button is still drawn, greyed, saying so.
+   * Leaving the cell empty would read as "this indicator has no definition
+   * document", which is the opposite of true - it has one, nobody has linked
+   * it yet.
    */
   function policyLink(kpi) {
-    // Its own sheet if it has one; otherwise the approved policy the three
-    // policy KPIs are all transcribed from. One link pasted into POLICY.url in
-    // Config.gs therefore lights up the whole column, instead of the same
-    // address having to be pasted three times.
-    const own = String(kpi.policyUrl || '').trim();
-    const shared = String(
-      (state.boot && state.boot.kpiPolicy && state.boot.kpiPolicy.url) || '').trim();
-    const url = /^https?:\/\//i.test(own) ? own : shared;
+    const target = docTarget(kpi);
 
-    if (!/^https?:\/\//i.test(url)) {
+    if (!target) {
       return '<span class="doc-btn is-off" title="No document linked yet \u2014 ' +
-        'paste the approved policy\u2019s link into POLICY.url in Config.gs">' +
-        'Not linked</span>';
+        'paste its address into the Document Link column of the KPI_CONFIG ' +
+        'tab in the database">Not linked</span>';
     }
 
-    const what = url === own
-      ? 'Open the signed definition for ' + kpi.name
-      : 'Open ' + ((state.boot.kpiPolicy.id || 'the approved KPI policy') +
-                   ' v' + (state.boot.kpiPolicy.version || '') +
-                   ', which defines ' + kpi.name).trim();
-
-    return '<a class="doc-btn" href="' + escapeHtml(url) + '" ' +
+    return '<a class="doc-btn' + (target.label === 'Folder' ? ' is-folder' : '') +
+      '" href="' + escapeHtml(target.url) + '" ' +
       'target="_blank" rel="noopener noreferrer" ' +
-      'title="' + escapeHtml(what) + '">' +
+      'title="' + escapeHtml(target.what) + '">' +
       '<svg viewBox="0 0 16 16" aria-hidden="true">' +
-        '<path d="M9.4 1.9H4.2a1.2 1.2 0 0 0-1.2 1.2v9.8a1.2 1.2 0 0 0 1.2 1.2h7.6a1.2 1.2 0 0 0 1.2-1.2V5.5z"/>' +
-        '<path d="M9.4 1.9v3.6H13"/>' +
-      '</svg>PDF</a>';
+        (target.label === 'Folder'
+          ? '<path d="M1.8 4.1a1 1 0 0 1 1-1h3.1l1.4 1.6h6.9a1 1 0 0 1 1 1v6.9a1 1 0 0 1-1 1H2.8a1 1 0 0 1-1-1z"/>'
+          : '<path d="M9.4 1.9H4.2a1.2 1.2 0 0 0-1.2 1.2v9.8a1.2 1.2 0 0 0 1.2 1.2h7.6a1.2 1.2 0 0 0 1.2-1.2V5.5z"/>' +
+            '<path d="M9.4 1.9v3.6H13"/>') +
+      '</svg>' + target.label + '</a>';
   }
 
 
