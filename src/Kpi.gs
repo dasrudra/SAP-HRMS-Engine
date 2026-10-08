@@ -699,15 +699,49 @@ function getKpiComparison(token, months) {
     const scopeType = String(r[1]);
     if (scopeType !== 'EAS' && scopeType !== 'DEPARTMENT') return;
 
+    /*
+      COUNTS ARE READ. JUDGEMENTS ARE RECOMPUTED.
+
+      KPI_MONTHLY stores eight numbers per row, and they are not the same kind
+      of thing. Received, Completed, Completed With Delay and Completed
+      Successfully are FACTS about what happened in that month - they are read
+      back exactly as stored, because nothing can change them after the event.
+
+      Success Rate, KPI Achievement, Band and Headroom are JUDGEMENTS AGAINST A
+      TARGET. They were true of the target in force on the day the file was
+      uploaded, and they stop being true the moment the target moves. This is
+      not hypothetical: KPI 1's target went from 99.50% to 90.00% when
+      TVL-KPI-001 v1.0 was approved, and every row cached before that still
+      carries the old verdict.
+
+      Reading those four back was a live defect. The Comparison screen showed
+      Sales Applications at 99.08% for August marked YELLOW, while the KPI 1
+      screen showed the same section, the same month and the same 99.08% marked
+      GREEN - because one recomputed and the other did not. It was almost
+      invisible: every other cell in that table was above 99.50% as well as
+      above 90%, so only the single section that fell between the two targets
+      showed the disagreement. Achievement and Headroom were wrong in every
+      cell and simply looked plausible - 100.13% instead of 110.70%, +4 instead
+      of +308.
+
+      So the four are derived here, from the two counts, through the same
+      functions the KPI 1 screen uses. The stored columns stay on the sheet as
+      a record of what was judged at the time; nothing reads them.
+    */
+    const completed  = Number(r[4]) || 0;
+    const successful = Number(r[6]) || 0;
+    const kpi = CONFIG.KPI.RESOLUTION;
+    const rate = completed ? (successful / completed) * 100 : 0;
+
     const entry = {
       received:    Number(r[3]) || 0,
-      completed:   Number(r[4]) || 0,
+      completed:   completed,
       delayed:     Number(r[5]) || 0,
-      successful:  Number(r[6]) || 0,
-      rate:        Number(r[7]) || 0,
-      achievement: Number(r[8]) || 0,
-      band:        String(r[9]),
-      headroom:    Number(r[10]) || 0
+      successful:  successful,
+      rate:        rate,
+      achievement: completed ? achievementFor(rate, kpi) : 0,
+      band:        completed ? bandFor(rate, kpi) : 'NO DATA',
+      headroom:    headroomFor(completed, successful, kpi)
     };
     // Derived here too, from the same two columns - see scoreRows().
     entry.open = Math.max(0, entry.received - entry.completed);

@@ -798,7 +798,28 @@ const CONFIG = {
     'Zone'
   ],
 
-  /** Column layout of KPI_MONTHLY - precomputed so the dashboard reads fast. */
+  /**
+   * Column layout of KPI_MONTHLY - precomputed so the dashboard reads fast.
+   *
+   * FOUR COUNTS, FOUR JUDGEMENTS, AND THEY ARE NOT THE SAME KIND OF THING.
+   *
+   * Received, Total Completed, Completed With Delay and Completed Successfully
+   * are facts about what happened that month. Read them back freely: nothing
+   * can change them after the event, and recounting the tickets would give the
+   * same answer.
+   *
+   * Success Rate, KPI Achievement, Band and Headroom are measurements AGAINST
+   * A TARGET. They are a record of what was judged on the day the file was
+   * uploaded, and the moment a target moves they stop being true. Every row
+   * cached before TVL-KPI-001 v1.0 was approved still carries a verdict
+   * against the old 99.50% target.
+   *
+   * SO NOTHING READS THOSE FOUR BACK. Derive them from the two counts, through
+   * bandFor() / achievementFor() / headroomFor(), every time they are needed.
+   * getKpiComparison() in Kpi.gs did read them back, and the Comparison screen
+   * called a section YELLOW that the KPI 1 screen called GREEN - same section,
+   * same month, same figure.
+   */
   KPI_COLUMNS: [
     'Month', 'Scope Type', 'Scope Value', 'Received', 'Total Completed',
     'Completed With Delay', 'Completed Successfully', 'Success Rate',
