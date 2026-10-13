@@ -28,6 +28,11 @@ credentials.json
 # ---------------------------------------------------------------------------
 node_modules/
 package-lock.json
+
+# The harness page is assembled from src/ by tests/harness/build.js. It is a
+# build artifact - half a megabyte that changes on every edit to any source
+# file - so it is rebuilt rather than committed.
+tests/harness/page.html
 .DS_Store
 Thumbs.db
 *.log

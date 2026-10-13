@@ -1,0 +1,12 @@
+{
+  "name": "eas-dashboard-tests",
+  "private": true,
+  "description": "Test suites for the Enterprise Application Services dashboard. Run with: node tests/run.js",
+  "scripts": {
+    "build": "node harness/build.js",
+    "test": "node run.js"
+  },
+  "devDependencies": {
+    "playwright-core": "^1.63.0"
+  }
+}

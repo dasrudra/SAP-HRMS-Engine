@@ -500,10 +500,33 @@
             <select id="fAllPerson" class="select" title="Individual">
               <option value="">All individuals</option>
             </select>
+            <!--
+              Module. Narrows the list to the people who worked in one module
+              AND re-reads their figures for that module only - see
+              applyAllFilter(). Showing whole-person totals under a module's
+              name would be the table saying something untrue: nobody works in
+              exactly one module, because a ticket's module comes from its own
+              Part column before it comes from whose desk it landed on.
+
+              Filled from the cross-tab the rebuild writes. Disabled, with a
+              reason on hover, on a database that has not been rebuilt since
+              that scope was added - an empty dropdown that silently does
+              nothing is worse than one that says why.
+            -->
+            <select id="fAllModule" class="select" title="Module">
+              <option value="">All modules</option>
+            </select>
             <input id="fAllName" class="select" type="search" placeholder="Search name&#x2026;">
             <button class="btn btn-ghost" id="fAllReset">&#x2715; Reset</button>
             <span class="filter-count" id="cAll"></span>
           </div>
+          <!--
+            Shown only while a module is chosen. The figures beside each name
+            are then that person's work IN THAT MODULE, not their whole
+            caseload, and a table that looks identical either way has to say
+            which one you are reading.
+          -->
+          <p class="filter-note" id="kpi1AllPeopleNote" hidden></p>
           <div class="table-wrap">
             <table id="kpi1AllPeople">
               <thead>

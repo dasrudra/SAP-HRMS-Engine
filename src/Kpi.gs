@@ -117,6 +117,42 @@ function recomputeKpiCache() {
                       entry.rows, kpi, computedAt));
     });
 
+    // Each individual AGAIN, split by the module each ticket belonged to.
+    //
+    // WHY A CROSS-TAB RATHER THAN A MODULE COLUMN ON THE PERSON ROW ABOVE
+    // Nobody is in exactly one module. moduleForTicket() reads the module off
+    // the ticket's own Part column first and only falls back to the person's
+    // role, so somebody whose role is PP handles MM tickets and those tickets
+    // ARE MM. Tagging each person with a single module would therefore be a
+    // guess, and filtering the individuals table by that guess would show a
+    // person's whole caseload under one module's name - 2,578 tickets against
+    // MD when a few hundred of them were MD.
+    //
+    // Grouping by both answers the question that was actually asked. Pick a
+    // module and the table shows the people who worked in it and what they
+    // did IN IT, which is the only honest reading of "who works on MD".
+    //
+    // The cost is rows: about as many as there are person-and-module pairs
+    // that really occur, which is far fewer than 37 x 9 because most people
+    // work in one or two. They are written once per rebuild and read like any
+    // other scope.
+    groupByKey(scored, function (row) {
+      // \u0000 as the joiner, not ' :: '. This key is never displayed and a
+      // module or a name containing the display separator would silently merge
+      // two groups into one.
+      return moduleForTicket(row[COL.PART], row[COL.IN_CHARGE], month) + '\u0000' +
+             (matchPerson(row[COL.IN_CHARGE]) ||
+              String(row[COL.IN_CHARGE] || '').trim());
+    }).forEach(function (entry) {
+      const moduleName = entry.key.split('\u0000')[0];
+      const first = entry.rows[0];
+      const who = String(first[COL.IN_CHARGE] || '').trim() || '(unassigned)';
+      const section = sectionFor(who, month, first[COL.DEPARTMENT]);
+      out.push(kpiRow(month, 'PERSON_MODULE',
+                      moduleName + ' :: ' + (section ? section + ' :: ' : '') + who,
+                      entry.rows, kpi, computedAt));
+    });
+
     // Reconciliation between the ITSM's two reports. Not a KPI - a data
     // integrity figure. In August 2026 six tickets sat in a department export
     // and not in the overall one, which is larger than the entire headroom the
@@ -475,6 +511,11 @@ function getKpi1(token, month) {
     parts: [],
     modules: [],
     people: [],
+    // One row per person PER MODULE, so the individuals table can be sliced by
+    // module and still show figures that belong to that module. Empty until a
+    // rebuild has been run since this scope was added - the screen checks and
+    // says so rather than offering a filter that would do nothing.
+    peopleByModule: [],
     sources: [],
     target: kpi.target,
     yellowFloor: kpi.yellowFloor
@@ -531,6 +572,14 @@ function getKpi1(token, month) {
       const split = name.split(' :: ');
       label = split.length > 1 ? split[1] : split[0];
       key = 'PERSON\u0000' + label;
+    } else if (scopeType === 'PERSON_MODULE') {
+      // 'Module :: Section :: Name', or 'Module :: Name' when the person had
+      // no section that month. Read from both ends rather than by position:
+      // the module is always first and the name always last, whether or not
+      // there is a section between them.
+      const split = name.split(' :: ');
+      label = split[split.length - 1];
+      key = 'PERSON_MODULE\u0000' + split[0] + '\u0000' + label;
     } else {
       key = scopeType + '\u0000' + name;
     }
@@ -539,6 +588,7 @@ function getKpi1(token, month) {
       buckets[key] = {
         scope: scopeType, name: label,
         section: '',
+        module: '',
         received: 0, completed: 0, delayed: 0, successful: 0
       };
       order.push(key);
@@ -552,6 +602,15 @@ function getKpi1(token, month) {
       // totals beside it.
       const split = name.split(' :: ');
       if (split.length > 1) b.section = split[0];
+    }
+
+    if (scopeType === 'PERSON_MODULE') {
+      const split = name.split(' :: ');
+      b.module = split[0];
+      // Three parts means a section sits between the module and the name. Two
+      // means the person had none that month, and the section stays blank
+      // rather than being filled with the module's name.
+      if (split.length > 2) b.section = split[1];
     }
 
     b.received   += Number(r[3]) || 0;
@@ -593,6 +652,10 @@ function getKpi1(token, month) {
     } else if (b.scope === 'PERSON') {
       entry.department = b.section;
       result.people.push(entry);
+    } else if (b.scope === 'PERSON_MODULE') {
+      entry.department = b.section;
+      entry.module = b.module;
+      result.peopleByModule.push(entry);
     }
   });
 
@@ -603,6 +666,7 @@ function getKpi1(token, month) {
   result.parts.sort(byReceived);
   result.people.sort(byReceived);
   result.modules.sort(byReceived);
+  result.peopleByModule.sort(byReceived);
 
   return result;
 }

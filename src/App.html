@@ -1120,7 +1120,8 @@
    * mechanism exists to prevent.
    */
   const TRACKED_CONTROLS = [
-    'fSection', 'fModuleK1', 'fModuleK1Name', 'fAllScope', 'fAllPerson', 'fAllName',
+    'fSection', 'fModuleK1', 'fModuleK1Name', 'fAllScope', 'fAllPerson',
+    'fAllModule', 'fAllName',
     'kpi2Month', 'fModule', 'fZone',
     'cmpKpi', 'cmpM1', 'cmpM2', 'cmpM3', 'cmpM4'
   ];
@@ -3028,7 +3029,7 @@
     // be put back. Has to happen here, between building the dropdowns and
     // drawing the tables - any earlier and the <select> has nothing to match.
     applyPendingTo(['fSection', 'fModuleK1', 'fModuleK1Name', 'fAllScope',
-                    'fAllPerson', 'fAllName']);
+                    'fAllPerson', 'fAllModule', 'fAllName']);
 
     applySectionFilter();
     applyModuleFilterK1();
@@ -3872,9 +3873,11 @@
 
     bind('fAllScope', 'change', applyScopeFilter);
     bind('fAllPerson', 'change', function () { applyAllFilter(); saveState(); });
+    bind('fAllModule', 'change', function () { applyAllFilter(); saveState(); });
     bind('fAllName', 'input', function () { applyAllFilter(); saveState(); });
     bind('fAllReset', 'click', function () {
       setValue('fAllPerson', ''); setValue('fAllName', ''); setValue('fAllScope', '');
+      setValue('fAllModule', '');
       applyScopeFilter();          // clears the period and redraws
     });
   }
@@ -3898,6 +3901,38 @@
 
     fillSelect('fModuleK1', 'All modules',
       (k.modules || []).map(function (m) { return m.name; }));
+
+    /*
+      The individuals table's own module filter, listed from the CROSS-TAB
+      rather than from k.modules.
+
+      The two lists are not the same thing and the difference matters. A module
+      can hold tickets that no individual is credited with, and listing a
+      module that slices to nothing would be a filter that empties the table
+      for no visible reason. Offering only what the cross-tab actually holds
+      means every choice in this dropdown returns somebody.
+
+      Empty means the database has not been rebuilt since the cross-tab was
+      added. The dropdown is disabled and says so on hover, rather than sitting
+      there looking usable.
+    */
+    const pairs = k.peopleByModule || [];
+    const names = [];
+    pairs.forEach(function (row) {
+      if (row.module && names.indexOf(row.module) === -1) names.push(row.module);
+    });
+    names.sort();
+    fillSelect('fAllModule', 'All modules', names);
+
+    const moduleSelect = document.getElementById('fAllModule');
+    if (moduleSelect) {
+      moduleSelect.disabled = names.length === 0;
+      moduleSelect.title = names.length
+        ? 'Module'
+        : 'Not available until the figures are rebuilt. Data Uploads \u2192 ' +
+          'Rebuild writes the per-module breakdown this needs.';
+      if (!names.length) moduleSelect.value = '';
+    }
   }
 
 
@@ -4096,13 +4131,46 @@
       return;
     }
 
-    const rows = filterPeople(k.people, 'fAllPerson', 'fAllName')
+    /*
+      WHICH LIST THE ROWS COME FROM.
+
+      With no module chosen: k.people, one row per person, whole-period totals.
+
+      With a module chosen: k.peopleByModule, filtered to that module. Those
+      rows carry the same person's figures FOR THAT MODULE ONLY. Reusing
+      k.people and merely hiding the people who never touched the module would
+      have been a few characters less code and wrong - the table would show a
+      person's entire caseload under one module's heading, because a ticket's
+      module comes from its own Part column before it comes from whose desk it
+      landed on, so nobody's work sits in a single module.
+    */
+    const chosenModule = getValue('fAllModule');
+    const source = chosenModule
+      ? (k.peopleByModule || []).filter(function (p) { return p.module === chosenModule; })
+      : k.people;
+
+    const rows = filterPeople(source, 'fAllPerson', 'fAllName')
                    .sort(function (a, b) { return b.received - a.received; });
 
-    setCount('cAll', rows.length, k.people.length, 'individuals');
+    setCount('cAll', rows.length, source.length, 'individuals');
+
+    // Say it on the screen, not only in the dropdown. Somebody scrolled down
+    // to this table, or reading it over a shoulder, has to be able to tell
+    // that these are a slice rather than everyone's totals.
+    const note = document.getElementById('kpi1AllPeopleNote');
+    if (note) {
+      note.hidden = !chosenModule;
+      if (chosenModule) {
+        note.textContent = 'Figures are for ' + chosenModule +
+          ' only, not each person\u2019s whole caseload.';
+      }
+    }
 
     if (!rows.length) {
-      return emptyTable('#kpi1AllPeople tbody', 9, 'No individuals match the filters.');
+      return emptyTable('#kpi1AllPeople tbody', 9,
+        chosenModule
+          ? 'Nobody handled a ' + chosenModule + ' ticket in this period.'
+          : 'No individuals match the filters.');
     }
 
     fillRows('#kpi1AllPeople tbody', rows, function (p) {
