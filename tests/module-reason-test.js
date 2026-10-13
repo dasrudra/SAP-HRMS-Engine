@@ -75,36 +75,94 @@ const code = why('PP', 'Nobody At All', '2026-08');
 check('and a bare module code matches on the code itself',
   code.module === 'PP' && code.detail === 'pp', code.detail);
 
-// ---- THE TRAP ----
-// Not a hypothetical. This is the real compiled pattern list, in its real
-// order, and these are Part values an ITSM plausibly holds.
-const trap = [
-  ['FI Production Report',  'FI/TR'],
-  ['CO Production Planning','CO'],
-  ['MD Production Data',    'MD'],
-  ['SD Production Order',   'SD'],
-  ['FI Export Statement',   'FI/TR'],
-  ['CO Report Development', 'CO']
+// ---- A MODULE CODE BEATS A DESCRIPTIVE WORD ----
+// This is the defect that put people from Financial, Sales and Supply Chain
+// into PP's individuals list with a ticket or two each, and the same in every
+// other module. The two pattern lists used to be one, sorted longest first,
+// so 'production' at ten characters was tried before 'fi', 'co', 'md' and
+// 'sd' at two - and the word beside the code won.
+//
+// Real Part values, against the real compiled list.
+const pairs = [
+  ['FI Production Report',   'FI/TR'],
+  ['CO Production Planning', 'CO'],
+  ['MD Production Data',     'MD'],
+  ['SD Production Order',    'SD'],
+  ['MM Production Plan',     'MM'],
+  ['FI Export Statement',    'FI/TR'],
+  ['CO Report Development',  'CO'],
+  ['FI Purchase Invoice',    'FI/TR']
 ];
-const stolen = trap.filter(function (pair) {
+const wrong = pairs.filter(function (pair) {
   return why(pair[0], 'Nobody At All', '2026-08').module !== pair[1];
 });
-check('a descriptive word still outranks a module code beside it',
-  stolen.length === trap.length,
-  stolen.map(function (p) {
-    return '"' + p[0] + '" -> ' + why(p[0], 'Nobody At All', '2026-08').module +
-           ' (not ' + p[1] + ')';
-  }).join('; '));
-check('  and the reason given names the word that did it',
-  why('FI Production Report', 'Nobody At All', '2026-08').detail === 'production',
+check('a module code in the Part column beats a descriptive word beside it',
+  wrong.length === 0,
+  wrong.length
+    ? wrong.map(function (p) {
+        return '"' + p[0] + '" -> ' + why(p[0], 'Nobody At All', '2026-08').module +
+               ' (want ' + p[1] + ')';
+      }).join('; ')
+    : pairs.length + ' Part values, each to the module its code names');
+check('  and the reason given names the code that did it, not the word',
+  why('FI Production Report', 'Nobody At All', '2026-08').detail === 'fi',
   'reported as \'' + why('FI Production Report', 'Nobody At All', '2026-08').detail + '\'');
 
-// This check is the one that would go red if the ordering were ever fixed, so
-// it says what to do rather than just failing.
-check('  NOTE: this records current behaviour, not desired behaviour',
-  true,
-  'if these start resolving to the module code, update this suite - the ' +
-  'ordering was deliberately changed');
+// The words still have to work, or the fix would have traded one wrong answer
+// for another: most Part values describe the work and name no module at all.
+const described = [
+  ['Production Planning', 'PP'], ['Production', 'PP'],
+  ['Development',         'SD'], ['Data Export', 'SD'],
+  ['Inventory',           'MM'], ['Purchase',    'MM'],
+  ['Shipping Document',   'SD']
+];
+const lost = described.filter(function (pair) {
+  return why(pair[0], 'Nobody At All', '2026-08').module !== pair[1];
+});
+check('while a Part value that only DESCRIBES the work still lands right',
+  lost.length === 0,
+  lost.map(function (p) { return '"' + p[0] + '"'; }).join(', ') ||
+  described.length + ' values with no module code in them');
+check('  and those are reported as a word, so the two can be told apart',
+  why('Production Planning', 'Nobody At All', '2026-08').detail === 'production',
+  'every code is tried before any word');
+
+// ---- the ordering itself, not just its effects ----
+// Checked as a property of the compiled list so it holds for patterns nobody
+// thought to write a Part value for.
+const compiled = vm.runInContext('ticketModulePatterns()', sb);
+const firstWord = compiled.findIndex(function (p) { return p.kind === 'word'; });
+const lastCode = compiled.map(function (p) { return p.kind; }).lastIndexOf('code');
+check('every code is compiled ahead of every word',
+  firstWord === -1 || lastCode < firstWord,
+  compiled.filter((p) => p.kind === 'code').length + ' codes then ' +
+  compiled.filter((p) => p.kind === 'word').length + ' words');
+check('and longest-first still holds inside each tier',
+  ['code', 'word'].every(function (kind) {
+    const tier = compiled.filter(function (p) { return p.kind === kind; });
+    return tier.every(function (p, i) { return i === 0 || tier[i - 1].length >= p.length; });
+  }),
+  'which is what keeps \'fi/tr\' ahead of \'fi\'');
+check('every module still contributes at least one pattern',
+  CONFIG.TICKET_MODULES.every(function (m) {
+    return compiled.some(function (p) { return p.name === m.name; });
+  }),
+  CONFIG.TICKET_MODULES.map(function (m) { return m.name; }).join(' '));
+
+// The old single-list shape must still score rather than silently filing
+// every ticket as unassigned, in case Config.gs is ever half-pasted.
+check('a module written the old way is still read, as codes',
+  (function () {
+    const box = { console, Object, String, Number, Array, Math, JSON, RegExp,
+                  Date, isFinite, Boolean, Error, parseInt, parseFloat };
+    box.globalThis = box;
+    vm.createContext(box);
+    vm.runInContext(fs.readFileSync(path.join(SRC, 'Config.gs'), 'utf8'), box);
+    vm.runInContext("CONFIG.TICKET_MODULES = [{ name: 'PP', match: ['pp'] }];" +
+                    'TICKET_MODULE_PATTERNS = null;', box);
+    return vm.runInContext('moduleFromPart', box)('PP') === 'PP';
+  })(),
+  'the `match` key is accepted as codes');
 
 // ---------------------------------------------------------------------------
 // reason 2: the person, when the Part column names nothing

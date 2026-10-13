@@ -631,19 +631,48 @@ const CONFIG = {
    * word end after it, which 'E-Accounting' does not give. They are separate
    * modules with separate ticket counts, not one misspelt twice.
    */
+  /*
+    TWO KINDS OF PATTERN, AND THE DIFFERENCE DECIDES WHICH WINS.
+
+    `codes` are what the team writes to MEAN the module: 'pp', 'md', 'fi/tr',
+    'mcd'. If one is in the Part column, somebody put it there on purpose.
+
+    `words` are ordinary English that USUALLY means the module: 'production',
+    'development', 'export', 'purchase', 'inventory'. They catch the many Part
+    values that describe the work instead of naming the module - 'Production
+    Planning' is PP and says 'pp' nowhere.
+
+    EVERY CODE IS TRIED BEFORE ANY WORD. That is the fix for a real defect:
+    the two lists used to be one, sorted longest first, so 'production' (ten
+    characters) beat 'fi', 'co', 'md' and 'sd' (two). 'FI Production Report'
+    was filed under PP rather than FI/TR - the descriptive word outranking the
+    module code sitting right beside it - and the same went for 'CO Report
+    Development' and 'FI Export Statement'. A person from Financial then
+    appeared in PP's individuals list with a ticket or two, and so did people
+    from every other section, in every other module.
+
+    Longest-first still applies WITHIN each tier, which is what keeps 'fi/tr'
+    ahead of 'fi' and 'e-accounting' apart from 'account'.
+  */
   TICKET_MODULES: [
-    { name: 'Account',      match: ['account'] },
-    { name: 'E-Accounting', match: ['e-accounting', 'e accounting', 'eaccounting'] },
+    { name: 'Account',      codes: ['account'] },
+    { name: 'E-Accounting', codes: ['e-accounting', 'e accounting', 'eaccounting'] },
     // FI, TR and FI/TR are ONE module. The ITSM's Part column spells it both
     // ways - 1,441 tickets as 'FI/TR' and 7 as 'FI' - and splitting them made
     // two rows out of one team's work, the smaller of which read as a rounding
     // error rather than as the same thing written differently.
-    { name: 'FI/TR',        match: ['fi/tr', 'fi_tr', 'fi-tr', 'fitr', 'fi tr', 'fi', 'tr'] },
-    { name: 'MM',           match: ['mm', 'mm purchase', 'purchase', 'inventory', 'mcd'] },
-    { name: 'MD',           match: ['md'] },
-    { name: 'PP',           match: ['pp', 'production', 'ypl'] },
-    { name: 'SD',           match: ['sd', 'development', 'export', 'shipping'] },
-    { name: 'CO',           match: ['co'] }
+    { name: 'FI/TR',        codes: ['fi/tr', 'fi_tr', 'fi-tr', 'fitr', 'fi tr', 'fi', 'tr'] },
+    // 'mm purchase' is gone from this list and nothing is lost: 'mm' is a code
+    // and catches it first, which is exactly the behaviour that phrase existed
+    // to force when everything was sorted together by length.
+    { name: 'MM',           codes: ['mm', 'mcd'],
+                            words: ['purchase', 'inventory'] },
+    { name: 'MD',           codes: ['md'] },
+    { name: 'PP',           codes: ['pp', 'ypl'],
+                            words: ['production'] },
+    { name: 'SD',           codes: ['sd'],
+                            words: ['development', 'export', 'shipping'] },
+    { name: 'CO',           codes: ['co'] }
   ],
 
   /**
@@ -1137,40 +1166,62 @@ function moduleFromPart(part) {
 
 
 /**
- * Every ticket-module pattern, compiled once and sorted longest first.
+ * Every ticket-module pattern, compiled once: all CODES, then all WORDS.
  *
  * Built lazily and kept, because this runs on EVERY ticket: rebuilding the
  * regexes inline meant roughly thirty RegExp constructions per ticket, or six
  * hundred thousand for a twenty-thousand-ticket rebuild. Compiled once it is
  * thirty for the whole run.
  *
- * Longest first is what makes 'FI/TR' beat the shorter 'FI' - with the list
- * ordered, the first match is always the most specific one.
+ * THE ORDER IS THE WHOLE POINT. A module code in the Part column was typed to
+ * mean that module; a descriptive word only usually means it. So every code is
+ * tried before any word, and 'FI Production Report' resolves to FI/TR instead
+ * of being claimed by PP's 'production'. See TICKET_MODULES for what that
+ * defect looked like on screen.
+ *
+ * Longest first WITHIN each tier, which is what keeps 'fi/tr' ahead of the
+ * shorter 'fi'. The first match is the answer either way.
  */
 let TICKET_MODULE_PATTERNS = null;
 function ticketModulePatterns() {
   if (TICKET_MODULE_PATTERNS) return TICKET_MODULE_PATTERNS;
 
-  const out = [];
+  const codes = [];
+  const words = [];
+
+  const compile = function (module, pattern, kind) {
+    const safe = pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return {
+      name: module.name,
+      // The text this was built from, kept so a match can say WHICH pattern
+      // caught a ticket. explainModule() in Kpi.gs reports it, and "filed
+      // under PP because the Part column contains 'production'" is the only
+      // form of that answer anybody can check.
+      pattern: pattern,
+      kind: kind,
+      length: pattern.length,
+      re: new RegExp('(^|[^a-z0-9])' + safe + '([^a-z0-9]|$)')
+    };
+  };
+
   CONFIG.TICKET_MODULES.forEach(function (module) {
-    module.match.forEach(function (pattern) {
-      const safe = pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      out.push({
-        name: module.name,
-        // The text this was built from, kept so a match can say WHICH pattern
-        // caught a ticket. explainModule() in Kpi.gs reports it, and "filed
-        // under PP because the Part column contains 'production'" is the only
-        // form of that answer anybody can check.
-        pattern: pattern,
-        length: pattern.length,
-        re: new RegExp('(^|[^a-z0-9])' + safe + '([^a-z0-9]|$)')
-      });
+    // `match` is the shape this list had before codes and words were told
+    // apart. Accepted as codes so a half-updated Config.gs still scores
+    // tickets rather than filing every one of them as unassigned.
+    (module.codes || module.match || []).forEach(function (pattern) {
+      codes.push(compile(module, pattern, 'code'));
+    });
+    (module.words || []).forEach(function (pattern) {
+      words.push(compile(module, pattern, 'word'));
     });
   });
 
-  out.sort(function (a, b) { return b.length - a.length; });
-  TICKET_MODULE_PATTERNS = out;
-  return out;
+  const longestFirst = function (a, b) { return b.length - a.length; };
+  codes.sort(longestFirst);
+  words.sort(longestFirst);
+
+  TICKET_MODULE_PATTERNS = codes.concat(words);
+  return TICKET_MODULE_PATTERNS;
 }
 
 
