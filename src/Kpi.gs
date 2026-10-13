@@ -901,3 +901,181 @@ function runKpiSelfTest() {
 function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
 }
+
+
+// ---------------------------------------------------------------------------
+// WHY IS THIS TICKET IN THIS MODULE?
+// ---------------------------------------------------------------------------
+//
+// Asked the first time somebody noticed people from Financial and Sales under
+// PP on the By individuals table, and it is not a question the screen can
+// answer: it shows the ANSWER (the module) and never the reason.
+//
+// There are three reasons a ticket can be in a module, and they are not
+// equally trustworthy:
+//
+//   1. The Part column named it.  Strong - the ITSM's own categorisation.
+//   2. The person's own module role, from PERSON_MODULES.  Strong - somebody
+//      confirmed it. This is why Md. Abdullah Al Mamun sits in Supply Chain
+//      and his tickets are PP, which is correct and looks wrong.
+//   3. Their section's usual module, from SECTION_MODULES.  A default.
+//
+// And reason 1 has a trap in it. The patterns include ordinary English words -
+// 'production', 'development', 'export', 'purchase', 'inventory' - which are
+// matched BEFORE the short module codes, because the list is sorted longest
+// first. So a Part value of 'FI Production Report' is filed under PP rather
+// than FI/TR: the descriptive word wins over the module code sitting next to
+// it. Whether that is actually happening in this database is a question about
+// the data, not the code, and explainModule() is how to answer it.
+
+
+/**
+ * Which module a ticket lands in, AND why.
+ *
+ * Deliberately a separate function from moduleForTicket() rather than a flag
+ * on it. moduleForTicket runs on every ticket of a twenty-thousand-row
+ * rebuild and must stay a lookup; this one builds an object and is for
+ * reading, not for scoring. They walk the same list in the same order, so
+ * they cannot disagree about the answer.
+ *
+ * @param {string} part      the Part column
+ * @param {string} inCharge  Current Activity In Charge
+ * @param {string} month     'YYYY-MM', for the section the person was in then
+ * @return {{module: string, how: string, detail: string}}
+ *         how is 'part' | 'person' | 'section' | 'none'
+ */
+function whyModule(part, inCharge, month) {
+  const text = String(part || '').toLowerCase().trim();
+
+  if (text) {
+    const patterns = ticketModulePatterns();
+    for (let i = 0; i < patterns.length; i++) {
+      if (patterns[i].re.test(text)) {
+        return { module: patterns[i].name, how: 'part', detail: patterns[i].pattern };
+      }
+    }
+  }
+
+  const theirs = moduleForPerson(inCharge, month);
+  if (theirs) {
+    // Their own entry, or their section's default? The difference matters:
+    // one was confirmed by the team, the other was assumed from where they
+    // sit, and only the second is worth arguing with.
+    const key = matchPerson(inCharge);
+    const listed = key ? personModuleIndex()[key] : '';
+    return listed
+      ? { module: theirs, how: 'person', detail: 'PERSON_MODULES' }
+      : { module: theirs, how: 'section', detail: sectionFor(inCharge, null, '') };
+  }
+
+  return { module: '(unassigned)', how: 'none', detail: '' };
+}
+
+
+/**
+ * Prints why every ticket in one module is in it. Run from the editor.
+ *
+ *   explainModule('PP')             every month
+ *   explainModule('PP', '2026-08')  one month
+ *
+ * Reads the ticket sheet, so it is owner-only like the other maintenance
+ * functions - it prints Part values and names verbatim.
+ *
+ * WHAT TO LOOK FOR
+ * Under BY PERSON, somebody from another section with a handful of tickets is
+ * either genuine cover - which the dashboard should show - or a Part value
+ * that matched the wrong pattern. The example Part text beside each count is
+ * what tells the two apart. 'Production Planning' under PP is right.
+ * 'FI Production Report' under PP is the trap described above.
+ *
+ * @param {string} moduleName  as TICKET_MODULES spells it, e.g. 'PP'
+ * @param {string} [month]     'YYYY-MM', or omitted for every month
+ * @return {Object} the same figures the log prints, for anything that wants them
+ */
+function explainModule(moduleName, month) {
+  requireOwner();
+
+  const want = String(moduleName || '').trim();
+  if (!want) throw new Error('Name a module, e.g. explainModule(\u0027PP\u0027).');
+
+  const tickets = sheetFor(CONFIG.SHEETS.TICKETS);
+  const lastRow = tickets.getLastRow();
+  if (lastRow < 2) {
+    Logger.log('No tickets stored.');
+    return { module: want, total: 0, reasons: {}, people: [] };
+  }
+
+  const rows = tickets.getRange(2, 1, lastRow - 1, COL.WIDTH).getValues();
+  const reasons = {};          // 'part:production' -> count
+  const byPerson = {};         // name -> { count, section, reasons, examples }
+  let total = 0;
+
+  rows.forEach(function (row) {
+    if (!String(row[COL.TICKET_ID] || '').trim()) return;
+    const rowMonth = monthKey(row[COL.REQUEST_DATE]);
+    if (!rowMonth) return;
+    if (month && rowMonth !== month) return;
+
+    const why = whyModule(row[COL.PART], row[COL.IN_CHARGE], rowMonth);
+    if (why.module !== want) return;
+
+    total++;
+    const label = why.how === 'part'
+      ? 'the Part column matched \u0027' + why.detail + '\u0027'
+      : why.how === 'person' ? 'their own module role (PERSON_MODULES)'
+      : why.how === 'section' ? 'their section\u0027s usual module (' + why.detail + ')'
+      : 'nothing - unassigned';
+    reasons[label] = (reasons[label] || 0) + 1;
+
+    const who = String(row[COL.IN_CHARGE] || '').trim() || '(unassigned)';
+    const seen = byPerson[who] || (byPerson[who] = {
+      name: who, count: 0,
+      section: sectionFor(who, rowMonth, row[COL.DEPARTMENT]),
+      reasons: {}, examples: {}
+    });
+    seen.count++;
+    seen.reasons[label] = (seen.reasons[label] || 0) + 1;
+    // Up to three distinct Part values per person: enough to recognise a
+    // pattern, few enough to stay readable in the execution log.
+    const part = String(row[COL.PART] || '').trim() || '(blank)';
+    if (!seen.examples[label]) seen.examples[label] = [];
+    if (seen.examples[label].length < 3 &&
+        seen.examples[label].indexOf(part) === -1) {
+      seen.examples[label].push(part);
+    }
+  });
+
+  const people = Object.keys(byPerson)
+    .map(function (name) { return byPerson[name]; })
+    .sort(function (a, b) { return b.count - a.count; });
+
+  Logger.log('');
+  Logger.log('=========================================================');
+  Logger.log(' %s \u2014 why each ticket is filed here', want);
+  Logger.log(' %s', month || 'every month');
+  Logger.log('=========================================================');
+  Logger.log(' %s tickets', total);
+
+  Logger.log('');
+  Logger.log(' HOW THEY GOT HERE');
+  Object.keys(reasons)
+    .sort(function (a, b) { return reasons[b] - reasons[a]; })
+    .forEach(function (label) {
+      Logger.log('   %6s  %s', reasons[label], label);
+    });
+
+  Logger.log('');
+  Logger.log(' BY PERSON  (section is where they sit, not what the ticket was about)');
+  people.forEach(function (p) {
+    Logger.log('   %-32s %6s   %s', p.name, p.count, p.section || '(no section)');
+    Object.keys(p.reasons).forEach(function (label) {
+      const eg = (p.examples[label] || []).map(function (t) { return '"' + t + '"'; });
+      Logger.log('       %6s  %s%s', p.reasons[label], label,
+                 eg.length ? '   e.g. ' + eg.join(', ') : '');
+    });
+  });
+  Logger.log('=========================================================');
+
+  return { module: want, month: month || '', total: total,
+           reasons: reasons, people: people };
+}

@@ -4161,8 +4161,16 @@
     if (note) {
       note.hidden = !chosenModule;
       if (chosenModule) {
+        // Two sentences, and the second one answers the question this filter
+        // actually gets asked: why is somebody from Financial Applications
+        // listed under PP? Because a SECTION is where a person sits and a
+        // MODULE is what a ticket was about, and the two are not the same
+        // dimension - the Section column beside each name makes that look
+        // like a mistake unless the table says otherwise.
         note.textContent = 'Figures are for ' + chosenModule +
-          ' only, not each person\u2019s whole caseload.';
+          ' only, not each person\u2019s whole caseload. Section is where ' +
+          'someone sits \u2014 people from other sections appear here when ' +
+          'they handled ' + chosenModule + ' tickets.';
       }
     }
 

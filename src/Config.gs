@@ -1157,6 +1157,11 @@ function ticketModulePatterns() {
       const safe = pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       out.push({
         name: module.name,
+        // The text this was built from, kept so a match can say WHICH pattern
+        // caught a ticket. explainModule() in Kpi.gs reports it, and "filed
+        // under PP because the Part column contains 'production'" is the only
+        // form of that answer anybody can check.
+        pattern: pattern,
         length: pattern.length,
         re: new RegExp('(^|[^a-z0-9])' + safe + '([^a-z0-9]|$)')
       });
