@@ -1267,6 +1267,24 @@ function personModuleIndex() {
 
 
 /**
+ * The module somebody is CONFIRMED to work in, or '' if nobody has said.
+ *
+ * PERSON_MODULES only - deliberately NOT falling through to the section the
+ * way moduleForPerson() does. The caller needs to know the difference: a name
+ * in that list was confirmed by the team and must not be overruled by what the
+ * tickets happen to say, while everyone else can be placed from their work.
+ *
+ * @param {string} name  as the ITSM spells it
+ * @return {string} module name, or ''
+ */
+function confirmedModuleFor(name) {
+  const key = matchPerson(name);
+  if (!key) return '';
+  return personModuleIndex()[key] || '';
+}
+
+
+/**
  * Which plant zone did this training belong to?
  *
  * The form's own answer first - from this quarter the feedback form asks for

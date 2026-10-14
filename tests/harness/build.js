@@ -78,11 +78,26 @@ const KPI1 = score({
   delayed: PEOPLE.reduce((a, p) => a + p.delayed, 0)
 });
 
+// Membership, the way assignPersonModules() in Kpi.gs works it out: nobody
+// here is in PERSON_MODULES, so each is placed in the module most of their
+// work is in. Ayesha spans PP and MM and belongs to PP.
+const SCORED_PAIRS = PAIRS.map(score);
+const PEOPLE_WITH_MODULE = PEOPLE.map(score).map(function (person) {
+  const mine = SCORED_PAIRS.filter(function (r) { return r.name === person.name; })
+                           .sort(function (a, b) { return b.received - a.received; });
+  return Object.assign({}, person, {
+    module: mine.length ? mine[0].module : '(unassigned)',
+    moduleWhy: mine.length ? 'busiest' : 'section',
+    moduleShare: mine.length && person.received
+      ? Math.round((mine[0].received / person.received) * 1000) / 10 : 0
+  });
+});
+
 const FIXTURE = {
   month: '2026-08',
   total: KPI1,
-  people: PEOPLE.map(score),
-  peopleByModule: PAIRS.map(score),
+  people: PEOPLE_WITH_MODULE,
+  peopleByModule: SCORED_PAIRS,
   modules: MODULES,
   departments: [],
   parts: [],
@@ -123,7 +138,16 @@ const stub = `
     var k = Object.assign({ hasData: true, allMonths: false, monthsCovered: 1,
                             target: ${K1.target}, yellowFloor: ${K1.yellowFloor},
                             basis: null }, FIXTURE);
-    if (NO_CROSSTAB) k.peopleByModule = [];
+    if (NO_CROSSTAB) {
+      // A database rebuilt before any of this existed: the counts are there,
+      // the cross-tab and the membership it feeds are not.
+      k.peopleByModule = [];
+      k.people = k.people.map(function (p) {
+        var bare = Object.assign({}, p);
+        delete bare.module; delete bare.moduleWhy; delete bare.moduleShare;
+        return bare;
+      });
+    }
     return k;
   }
 

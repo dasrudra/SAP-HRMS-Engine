@@ -223,6 +223,52 @@ check('and the module list is still one row per module',
   k.modules.filter((m) => m.name === 'PP')[0].received === 8,
   k.modules.map((m) => m.name + ':' + m.received).join(' | '));
 
+// ---------------------------------------------------------------------------
+// WHICH MODULE EACH PERSON BELONGS TO
+// ---------------------------------------------------------------------------
+// The cross-tab above answers "whose tickets were PP". This answers "who works
+// in PP", which is a different question and the one the filter asks. Spanner
+// has 6 PP tickets and 2 MM; she belongs to PP and appears there only.
+const member = {};
+k.people.forEach(function (p) { member[p.name] = p; });
+
+check('everybody is given exactly one module',
+  k.people.every(function (p) { return Boolean(p.module); }),
+  k.people.map(function (p) { return p.name + ':' + p.module; }).join(' | '));
+check('and it is the module most of their work is in',
+  member['Ayesha Spanner'].module === 'PP' &&
+  member['Bilal Steady'].module === 'MM' &&
+  member['Carim Struggler'].module === 'PP',
+  ['Ayesha Spanner', 'Bilal Steady', 'Carim Struggler']
+    .map(function (n) { return n.split(' ')[0] + ' ' + member[n].module; }).join(', '));
+check('with the reason recorded, so a guess can be told from a confirmation',
+  k.people.every(function (p) { return p.moduleWhy === 'busiest'; }),
+  'none of these three is in PERSON_MODULES');
+check('and how lopsided the split was, for the ones worth checking',
+  member['Ayesha Spanner'].moduleShare === 75 &&
+  member['Bilal Steady'].moduleShare === 100,
+  'Spanner 6 of 8 = ' + member['Ayesha Spanner'].moduleShare + '%, ' +
+  'Steady 3 of 3 = ' + member['Bilal Steady'].moduleShare + '%');
+
+// The point of the whole change: somebody whose tickets touched a module does
+// not thereby belong to it.
+check('somebody who worked in two modules belongs to only one',
+  k.peopleByModule.filter(function (r) { return r.name === 'Ayesha Spanner'; }).length === 2 &&
+  member['Ayesha Spanner'].module === 'PP',
+  'two cross-tab rows, one membership');
+
+// A confirmed entry beats the count. Md. Nasir Uddin is in PERSON_MODULES as
+// MM, and more of his real tickets are MD - the list still wins.
+const CONFIG_REAL = vm.runInContext('CONFIG', sb);
+const listedName = Object.keys(CONFIG_REAL.PERSON_MODULES)[0];
+check('a name in PERSON_MODULES is placed by the list, not by the count',
+  vm.runInContext('confirmedModuleFor', sb)(listedName) ===
+    CONFIG_REAL.PERSON_MODULES[listedName],
+  listedName + ' -> ' + CONFIG_REAL.PERSON_MODULES[listedName]);
+check('and somebody not on the list reads as unconfirmed',
+  vm.runInContext('confirmedModuleFor', sb)('Ayesha Spanner') === '',
+  'so the count may place them');
+
 // ---- an empty cross-tab must not break anything ----
 // A database rebuilt before this scope existed has no PERSON_MODULE rows. The
 // screen disables the filter and says why; nothing here may throw.

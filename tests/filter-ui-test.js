@@ -85,43 +85,53 @@ const FILE = 'file://' + PAGE;
   check('the note is not shown', await p.locator('#kpi1AllPeopleNote').isHidden());
 
   // ---- one module ----
+  // The question this filter asks is "who works in PP", not "whose tickets
+  // were PP". Ayesha has 6 PP tickets and 2 MM, so she belongs to PP and
+  // appears there only. Bilal is MM and must not appear under PP at all,
+  // however many PP tickets he might have covered.
   await p.selectOption('#fAllModule', 'PP');
   await p.waitForTimeout(400);
   rows = await table(p);
 
-  check('choosing PP leaves only the people who worked in PP',
+  check('choosing PP lists the people who work in PP',
     rows.length === 2 && rows.every((r) => r.name !== 'Bilal Hossain'),
     rows.map((r) => r.name).join(' | '));
 
-  // The assertion the feature exists for.
+  // THE ASSERTION THE CHANGE EXISTS FOR.
   const ayeshaPP = rows.filter((r) => r.name === 'Ayesha Rahman')[0];
-  check('and her figures are her PP work, not her whole caseload',
-    ayeshaPP.received === '6' && ayeshaPP.rate === '83.33%',
-    ayeshaPP.received + ' tickets at ' + ayeshaPP.rate + '  (all modules: 8 at 87.50%)');
-  check('which also moves her band, because it is scored on that rate',
-    ayeshaPP.band === 'RED', ayeshaPP.band + ' on 83.33%');
-  check('her section is still her section, not the module',
+  check('and her figures are her WHOLE caseload, not a slice of it',
+    ayeshaPP.received === '8' && ayeshaPP.rate === '87.50%',
+    ayeshaPP.received + ' tickets at ' + ayeshaPP.rate +
+    '  (her 6 PP tickets alone would read 83.33%)');
+  check('so a row reads the same whichever filter is on',
+    ayeshaPP.received === '8' && ayeshaPP.band === 'YELLOW',
+    'the number means the same thing in both views');
+  check('her section is still her section, not her module',
     ayeshaPP.section === 'Sales Applications', ayeshaPP.section);
 
-  check('the note says the figures are that module only',
+  check('the note says whose list this is',
     await p.locator('#kpi1AllPeopleNote').isVisible() &&
-    /PP only/.test(await p.textContent('#kpi1AllPeopleNote')),
+    /people who work in PP/.test(await p.textContent('#kpi1AllPeopleNote')) &&
+    /whole caseload/.test(await p.textContent('#kpi1AllPeopleNote')),
     (await p.textContent('#kpi1AllPeopleNote')).trim());
-  check('and the count counts within the module',
-    /2 of 2/.test(await p.textContent('#cAll')) ||
-    /2\b/.test(await p.textContent('#cAll')),
-    (await p.textContent('#cAll')).trim());
+  check('and warns which of them were placed by their work rather than confirmed',
+    /placed by where most of their work is/.test(
+      await p.textContent('#kpi1AllPeopleNote')),
+    'those are the ones to correct in PERSON_MODULES');
 
-  // ---- a different module, same person, different numbers ----
+  // ---- somebody belongs to one module and one only ----
   await p.selectOption('#fAllModule', 'MM');
   await p.waitForTimeout(400);
   rows = await table(p);
-  const ayeshaMM = rows.filter((r) => r.name === 'Ayesha Rahman')[0];
-  check('switching to MM re-reads the same person at her MM figures',
-    ayeshaMM.received === '2' && ayeshaMM.rate === '100.00%' && ayeshaMM.band === 'GREEN',
-    ayeshaMM.received + ' at ' + ayeshaMM.rate + ' ' + ayeshaMM.band);
-  check('so one person genuinely reads differently in each module',
-    ayeshaPP.rate !== ayeshaMM.rate, ayeshaPP.rate + ' vs ' + ayeshaMM.rate);
+  check('MM lists only the MM person',
+    rows.length === 1 && rows[0].name === 'Bilal Hossain',
+    rows.map((r) => r.name).join(' | ') || '(none)');
+  check('and the person who merely HANDLED MM tickets is not in it',
+    !rows.some((r) => r.name === 'Ayesha Rahman'),
+    'Ayesha has 2 MM tickets and belongs to PP');
+  check('the two lists together are every individual, counted once',
+    (await p.$$eval('#fAllModule option', (o) => o.length)) === 3,
+    'All modules + PP + MM');
 
   // ---- it ANDs with the filters beside it ----
   await p.fill('#fAllName', 'bilal');

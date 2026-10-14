@@ -668,7 +668,72 @@ function getKpi1(token, month) {
   result.modules.sort(byReceived);
   result.peopleByModule.sort(byReceived);
 
+  assignPersonModules(result);
+
   return result;
+}
+
+
+/**
+ * Gives every individual ONE module: the one they belong to.
+ *
+ * WHICH QUESTION THIS ANSWERS, AND WHICH IT DOES NOT
+ * "Who works in PP" and "whose tickets were PP" are different questions with
+ * different answers, and the By individuals filter was built on the wrong one.
+ * A Financial person who covered a single PP ticket is not in PP; they are in
+ * Financial, and they covered a ticket. The module cross-tab still records
+ * that - it is how the busiest module below is worked out - but it is not who
+ * the module's people are.
+ *
+ * HOW SOMEBODY IS PLACED, best source first:
+ *
+ *   1. PERSON_MODULES. Somebody on the team said so. Nothing overrules it,
+ *      because a confirmed fact beats a count every time - Md. Nasir Uddin is
+ *      MM even though more of his tickets are MD.
+ *
+ *   2. The module most of their tickets are in. This is what makes the filter
+ *      usable at all: the roster can only ever produce five of the eight
+ *      modules, so MD - the largest, 7,362 tickets - would have had nobody in
+ *      it, and so would Account and E-Accounting.
+ *
+ *   3. Their section's usual module, for somebody with no tickets in the
+ *      period being looked at.
+ *
+ *   4. '(unassigned)', visible rather than guessed at.
+ *
+ * `moduleWhy` records which of those it was, so listPersonModules() can show
+ * the derived ones for checking and the confirmed ones can be left alone.
+ *
+ * TO CORRECT ONE: add the person to PERSON_MODULES in Config.gs and rebuild.
+ * That is rule 1, and it wins.
+ */
+function assignPersonModules(result) {
+  // The busiest module per person, from the cross-tab. '(unassigned)' is not
+  // a module somebody can belong to, so it cannot win here.
+  const busiest = {};
+  result.peopleByModule.forEach(function (row) {
+    if (!row.module || row.module === '(unassigned)') return;
+    const seen = busiest[row.name];
+    if (!seen || row.received > seen.received) {
+      busiest[row.name] = { module: row.module, received: row.received };
+    }
+  });
+
+  result.people.forEach(function (person) {
+    const confirmed = confirmedModuleFor(person.name);
+    const byWork = busiest[person.name] ? busiest[person.name].module : '';
+    const bySection = CONFIG.SECTION_MODULES[person.department] || '';
+
+    person.module = confirmed || byWork || bySection || '(unassigned)';
+    person.moduleWhy = confirmed ? 'listed'
+      : byWork ? 'busiest'
+      : bySection ? 'section' : 'none';
+    // How lopsided the split is, so a person who is genuinely half in two
+    // modules can be told from one who is plainly in one.
+    person.moduleShare = (byWork && person.received)
+      ? Math.round((busiest[person.name].received / person.received) * 1000) / 10
+      : 0;
+  });
 }
 
 
@@ -893,6 +958,70 @@ function runKpiSelfTest() {
     k.sources.forEach(function (s) {
       Logger.log('    %-30s %s', s.name, s.count);
     });
+  });
+}
+
+
+/**
+ * Prints who the dashboard thinks works in which module. Run from the editor.
+ *
+ *   listPersonModules()             every month
+ *   listPersonModules('2026-08')    one month
+ *
+ * THIS IS THE LIST TO CHECK. Only the people in PERSON_MODULES were confirmed
+ * by the team; everyone else was placed by where most of their work is, which
+ * is a good guess and still a guess. The ones marked `busiest` are the ones
+ * worth an argument, and the argument is settled by adding that person to
+ * PERSON_MODULES in Config.gs and rebuilding - rule 1 beats rule 2.
+ *
+ * The share column says how lopsided the split was. 100% is somebody who only
+ * ever works in one module; 58% is somebody genuinely spread across two, and
+ * those are the names to look at first.
+ *
+ * Owner-only, like the other maintenance functions: it prints every name.
+ *
+ * @param {string} [month]  'YYYY-MM', or omitted for every month
+ * @return {Array} the same rows the log prints
+ */
+function listPersonModules(month) {
+  requireOwner();
+
+  const k = getKpi1(null, month || null);
+  if (!k.hasData) {
+    Logger.log('No tickets in %s.', month || 'any month');
+    return [];
+  }
+
+  const rows = k.people.slice().sort(function (a, b) {
+    if (a.module !== b.module) return a.module < b.module ? -1 : 1;
+    return b.received - a.received;
+  });
+
+  Logger.log('');
+  Logger.log('=========================================================');
+  Logger.log(' Who works in which module');
+  Logger.log(' %s', month || 'every month');
+  Logger.log('=========================================================');
+  Logger.log(' %-30s %-13s %-9s %6s %6s  %s',
+             'PERSON', 'MODULE', 'DECIDED BY', 'SHARE', 'TICKETS', 'SECTION');
+
+  let guessed = 0;
+  rows.forEach(function (p) {
+    if (p.moduleWhy === 'busiest') guessed++;
+    Logger.log(' %-30s %-13s %-9s %5s%% %6s  %s',
+               p.name, p.module, p.moduleWhy,
+               p.moduleShare || 0, p.received, p.department || '(none)');
+  });
+
+  Logger.log('');
+  Logger.log(' %s people. %s confirmed in PERSON_MODULES, %s placed by their work.',
+             rows.length, rows.length - guessed, guessed);
+  Logger.log(' To correct one: add it to PERSON_MODULES in Config.gs, then rebuild.');
+  Logger.log('=========================================================');
+
+  return rows.map(function (p) {
+    return { name: p.name, module: p.module, why: p.moduleWhy,
+             share: p.moduleShare, tickets: p.received, section: p.department };
   });
 }
 

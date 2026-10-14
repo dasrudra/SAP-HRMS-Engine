@@ -26,6 +26,7 @@ const APP = read('App.html');
 const INDEX = read('Index.html');
 const STYLES = read('Styles.html');
 const REPORT = read('Report.html');
+const KPI = read('Kpi.gs');
 
 // ---------------------------------------------------------------------------
 // it parses
@@ -94,10 +95,10 @@ check('the filter exists in the markup, between the individual filter and the se
   at('fAllPerson') > 0 && at('fAllModule') > at('fAllPerson') &&
   at('fAllName') > at('fAllModule'),
   ['fAllPerson', 'fAllModule', 'fAllName'].map((i) => i + '@' + at(i)).join(' '));
-check('it is filled from the cross-tab, not from the module totals',
-  /fillSelect\('fAllModule'[\s\S]{0,200}/.test(APP) &&
-  /peopleByModule[\s\S]{0,400}fillSelect\('fAllModule'/.test(APP),
-  'a module with no individuals behind it would empty the table for no reason');
+check('it is filled from the module each PERSON belongs to',
+  /fillSelect\('fAllModule'/.test(APP) &&
+  /k\.people[\s\S]{0,300}row\.module[\s\S]{0,300}fillSelect\('fAllModule'/.test(APP),
+  'a module nobody belongs to would be a choice that empties the table');
 const pendingCalls = APP.match(/applyPendingTo\(\[[\s\S]*?\]\)/g) || [];
 check('choosing one re-renders and is remembered',
   /bind\('fAllModule',\s*'change'/.test(APP) &&
@@ -105,17 +106,27 @@ check('choosing one re-renders and is remembered',
   'change handler + restored in ' + pendingCalls.length + ' applyPendingTo call(s)');
 check('Reset clears it with the others',
   /fAllReset[\s\S]{0,400}setValue\('fAllModule',\s*''\)/.test(APP));
-check('the rows come from the cross-tab when a module is chosen',
-  /chosenModule[\s\S]{0,300}peopleByModule[\s\S]{0,200}:\s*k\.people/.test(APP),
-  'not k.people filtered - that would show whole caseloads under one module');
+// A filter on PEOPLE, not on tickets: the rows stay k.people and are narrowed
+// by which module each person belongs to, so a figure never changes meaning
+// depending on which filter happens to be on.
+check('choosing a module narrows the people, and leaves their figures alone',
+  /chosenModule[\s\S]{0,200}k\.people\.filter[\s\S]{0,120}p\.module === chosenModule/.test(APP),
+  'not a slice of the cross-tab');
+check('and the server gives every individual exactly one module',
+  /function assignPersonModules/.test(KPI) &&
+  /person\.module = confirmed \|\| byWork \|\| bySection/.test(KPI),
+  'PERSON_MODULES, then the busiest module, then the section');
 
 // The note is the honesty half. Without it the table looks identical whether
 // it is showing everyone's totals or one module's slice.
-check('a note says the figures are that module only',
+check('a note says whose list it is, and that the figures are whole',
   /id="kpi1AllPeopleNote"/.test(INDEX) &&
   /kpi1AllPeopleNote/.test(APP) &&
-  /not each person/.test(APP),
+  /people who work in/.test(APP) && /whole caseload/.test(APP),
   'shown only while a module is chosen');
+check('and the editor can print who was placed how, for checking',
+  /function listPersonModules/.test(KPI) && /PERSON_MODULES/.test(KPI),
+  'listPersonModules() in Kpi.gs');
 check('and the stylesheet draws it',
   /\.filter-note\s*\{/.test(STYLES));
 check('a dropdown that cannot be used yet is drawn as disabled',

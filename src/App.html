@@ -3903,23 +3903,26 @@
       (k.modules || []).map(function (m) { return m.name; }));
 
     /*
-      The individuals table's own module filter, listed from the CROSS-TAB
-      rather than from k.modules.
+      The individuals table's own module filter, listed from THE MODULE EACH
+      PERSON BELONGS TO - not from the modules their tickets fell into, and
+      not from k.modules.
 
-      The two lists are not the same thing and the difference matters. A module
-      can hold tickets that no individual is credited with, and listing a
-      module that slices to nothing would be a filter that empties the table
-      for no visible reason. Offering only what the cross-tab actually holds
-      means every choice in this dropdown returns somebody.
+      The difference is the whole filter. A module can hold tickets that nobody
+      belongs to: E-Accounting is somebody's side work rather than anybody's
+      module, so it is not offered here even though it has 183 tickets of its
+      own on the By module table above. Offering it would be a choice that
+      empties the table, and somebody would reasonably read that as a bug.
 
-      Empty means the database has not been rebuilt since the cross-tab was
-      added. The dropdown is disabled and says so on hover, rather than sitting
-      there looking usable.
+      Empty means the database has not been rebuilt since each person was given
+      a module. The dropdown is disabled and says so on hover, rather than
+      sitting there looking usable.
     */
-    const pairs = k.peopleByModule || [];
     const names = [];
-    pairs.forEach(function (row) {
-      if (row.module && names.indexOf(row.module) === -1) names.push(row.module);
+    (k.people || []).forEach(function (row) {
+      if (row.module && row.module !== '(unassigned)' &&
+          names.indexOf(row.module) === -1) {
+        names.push(row.module);
+      }
     });
     names.sort();
     fillSelect('fAllModule', 'All modules', names);
@@ -4132,21 +4135,23 @@
     }
 
     /*
-      WHICH LIST THE ROWS COME FROM.
+      THE MODULE FILTER IS A FILTER ON PEOPLE, NOT ON TICKETS.
 
-      With no module chosen: k.people, one row per person, whole-period totals.
+      It was the other way round and that was the wrong question. "Whose
+      tickets were PP" put a Financial person who covered one PP ticket into
+      PP's list; "who works in PP" does not, and the second is what the filter
+      is for. Each individual belongs to exactly one module - see
+      assignPersonModules() in Kpi.gs - so a name appears under one module and
+      no other.
 
-      With a module chosen: k.peopleByModule, filtered to that module. Those
-      rows carry the same person's figures FOR THAT MODULE ONLY. Reusing
-      k.people and merely hiding the people who never touched the module would
-      have been a few characters less code and wrong - the table would show a
-      person's entire caseload under one module's heading, because a ticket's
-      module comes from its own Part column before it comes from whose desk it
-      landed on, so nobody's work sits in a single module.
+      The figures are therefore unchanged by this filter. A person's row reads
+      the same whether you are looking at everyone or at their module alone,
+      which is the property the old behaviour did not have: 2,578 tickets meant
+      2,578 tickets, not 2,578 minus whatever the filter had sliced off.
     */
     const chosenModule = getValue('fAllModule');
     const source = chosenModule
-      ? (k.peopleByModule || []).filter(function (p) { return p.module === chosenModule; })
+      ? k.people.filter(function (p) { return p.module === chosenModule; })
       : k.people;
 
     const rows = filterPeople(source, 'fAllPerson', 'fAllName')
@@ -4154,30 +4159,31 @@
 
     setCount('cAll', rows.length, source.length, 'individuals');
 
-    // Say it on the screen, not only in the dropdown. Somebody scrolled down
-    // to this table, or reading it over a shoulder, has to be able to tell
-    // that these are a slice rather than everyone's totals.
+    // What the filter has done, in the table's own words. Without it the only
+    // clue is a dropdown, and somebody reading over a shoulder cannot tell
+    // this from the full list.
     const note = document.getElementById('kpi1AllPeopleNote');
     if (note) {
       note.hidden = !chosenModule;
       if (chosenModule) {
-        // Two sentences, and the second one answers the question this filter
-        // actually gets asked: why is somebody from Financial Applications
-        // listed under PP? Because a SECTION is where a person sits and a
-        // MODULE is what a ticket was about, and the two are not the same
-        // dimension - the Section column beside each name makes that look
-        // like a mistake unless the table says otherwise.
-        note.textContent = 'Figures are for ' + chosenModule +
-          ' only, not each person\u2019s whole caseload. Section is where ' +
-          'someone sits \u2014 people from other sections appear here when ' +
-          'they handled ' + chosenModule + ' tickets.';
+        // How many were placed by their work rather than confirmed by the
+        // team. Worth saying: those are the ones to argue with, and the
+        // argument is settled by adding them to PERSON_MODULES.
+        const guessed = source.filter(function (p) { return p.moduleWhy === 'busiest'; }).length;
+        note.textContent = 'The people who work in ' + chosenModule +
+          ', with their whole caseload \u2014 not only their ' + chosenModule +
+          ' tickets. Somebody from another module who covered a ' +
+          chosenModule + ' ticket is not listed here.' +
+          (guessed ? '  ' + guessed + ' of these ' + (guessed === 1 ? 'was' : 'were') +
+                     ' placed by where most of their work is, not from the team list.'
+                   : '');
       }
     }
 
     if (!rows.length) {
       return emptyTable('#kpi1AllPeople tbody', 9,
         chosenModule
-          ? 'Nobody handled a ' + chosenModule + ' ticket in this period.'
+          ? 'Nobody is listed as working in ' + chosenModule + '.'
           : 'No individuals match the filters.');
     }
 
