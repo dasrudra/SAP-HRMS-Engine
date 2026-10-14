@@ -117,42 +117,6 @@ function recomputeKpiCache() {
                       entry.rows, kpi, computedAt));
     });
 
-    // Each individual AGAIN, split by the module each ticket belonged to.
-    //
-    // WHY A CROSS-TAB RATHER THAN A MODULE COLUMN ON THE PERSON ROW ABOVE
-    // Nobody is in exactly one module. moduleForTicket() reads the module off
-    // the ticket's own Part column first and only falls back to the person's
-    // role, so somebody whose role is PP handles MM tickets and those tickets
-    // ARE MM. Tagging each person with a single module would therefore be a
-    // guess, and filtering the individuals table by that guess would show a
-    // person's whole caseload under one module's name - 2,578 tickets against
-    // MD when a few hundred of them were MD.
-    //
-    // Grouping by both answers the question that was actually asked. Pick a
-    // module and the table shows the people who worked in it and what they
-    // did IN IT, which is the only honest reading of "who works on MD".
-    //
-    // The cost is rows: about as many as there are person-and-module pairs
-    // that really occur, which is far fewer than 37 x 9 because most people
-    // work in one or two. They are written once per rebuild and read like any
-    // other scope.
-    groupByKey(scored, function (row) {
-      // \u0000 as the joiner, not ' :: '. This key is never displayed and a
-      // module or a name containing the display separator would silently merge
-      // two groups into one.
-      return moduleForTicket(row[COL.PART], row[COL.IN_CHARGE], month) + '\u0000' +
-             (matchPerson(row[COL.IN_CHARGE]) ||
-              String(row[COL.IN_CHARGE] || '').trim());
-    }).forEach(function (entry) {
-      const moduleName = entry.key.split('\u0000')[0];
-      const first = entry.rows[0];
-      const who = String(first[COL.IN_CHARGE] || '').trim() || '(unassigned)';
-      const section = sectionFor(who, month, first[COL.DEPARTMENT]);
-      out.push(kpiRow(month, 'PERSON_MODULE',
-                      moduleName + ' :: ' + (section ? section + ' :: ' : '') + who,
-                      entry.rows, kpi, computedAt));
-    });
-
     // Reconciliation between the ITSM's two reports. Not a KPI - a data
     // integrity figure. In August 2026 six tickets sat in a department export
     // and not in the overall one, which is larger than the entire headroom the
@@ -531,11 +495,6 @@ function readKpi1(month) {
     parts: [],
     modules: [],
     people: [],
-    // One row per person PER MODULE, so the individuals table can be sliced by
-    // module and still show figures that belong to that module. Empty until a
-    // rebuild has been run since this scope was added - the screen checks and
-    // says so rather than offering a filter that would do nothing.
-    peopleByModule: [],
     sources: [],
     target: kpi.target,
     yellowFloor: kpi.yellowFloor
@@ -592,14 +551,6 @@ function readKpi1(month) {
       const split = name.split(' :: ');
       label = split.length > 1 ? split[1] : split[0];
       key = 'PERSON\u0000' + label;
-    } else if (scopeType === 'PERSON_MODULE') {
-      // 'Module :: Section :: Name', or 'Module :: Name' when the person had
-      // no section that month. Read from both ends rather than by position:
-      // the module is always first and the name always last, whether or not
-      // there is a section between them.
-      const split = name.split(' :: ');
-      label = split[split.length - 1];
-      key = 'PERSON_MODULE\u0000' + split[0] + '\u0000' + label;
     } else {
       key = scopeType + '\u0000' + name;
     }
@@ -608,7 +559,6 @@ function readKpi1(month) {
       buckets[key] = {
         scope: scopeType, name: label,
         section: '',
-        module: '',
         received: 0, completed: 0, delayed: 0, successful: 0
       };
       order.push(key);
@@ -624,14 +574,6 @@ function readKpi1(month) {
       if (split.length > 1) b.section = split[0];
     }
 
-    if (scopeType === 'PERSON_MODULE') {
-      const split = name.split(' :: ');
-      b.module = split[0];
-      // Three parts means a section sits between the module and the name. Two
-      // means the person had none that month, and the section stays blank
-      // rather than being filled with the module's name.
-      if (split.length > 2) b.section = split[1];
-    }
 
     b.received   += Number(r[3]) || 0;
     b.completed  += Number(r[4]) || 0;
@@ -672,10 +614,6 @@ function readKpi1(month) {
     } else if (b.scope === 'PERSON') {
       entry.department = b.section;
       result.people.push(entry);
-    } else if (b.scope === 'PERSON_MODULE') {
-      entry.department = b.section;
-      entry.module = b.module;
-      result.peopleByModule.push(entry);
     }
   });
 
@@ -686,74 +624,201 @@ function readKpi1(month) {
   result.parts.sort(byReceived);
   result.people.sort(byReceived);
   result.modules.sort(byReceived);
-  result.peopleByModule.sort(byReceived);
-
-  assignPersonModules(result);
 
   return result;
 }
 
 
 /**
- * Gives every individual ONE module: the one they belong to.
+ * Everything the KPI 1 screen needs. The ENDPOINT - a browser calls this.
  *
- * WHICH QUESTION THIS ANSWERS, AND WHICH IT DOES NOT
- * "Who works in PP" and "whose tickets were PP" are different questions with
- * different answers, and the By individuals filter was built on the wrong one.
- * A Financial person who covered a single PP ticket is not in PP; they are in
- * Financial, and they covered a ticket. The module cross-tab still records
- * that - it is how the busiest module below is worked out - but it is not who
- * the module's people are.
+ * The figures are in readKpi1() below; this is the guard in front of them.
+ * They are two functions because a maintenance function run from the editor
+ * has no token to pass and must not pretend to have one: getKpi1(null, month)
+ * does not skip the check, it fails it, with "Your session has ended" in the
+ * execution log of something nobody was signed in to.
  *
- * HOW SOMEBODY IS PLACED, best source first:
- *
- *   1. PERSON_MODULES. Somebody on the team said so. Nothing overrules it,
- *      because a confirmed fact beats a count every time - Md. Nasir Uddin is
- *      MM even though more of his tickets are MD.
- *
- *   2. The module most of their tickets are in. This is what makes the filter
- *      usable at all: the roster can only ever produce five of the eight
- *      modules, so MD - the largest, 7,362 tickets - would have had nobody in
- *      it, and so would Account and E-Accounting.
- *
- *   3. Their section's usual module, for somebody with no tickets in the
- *      period being looked at.
- *
- *   4. '(unassigned)', visible rather than guessed at.
- *
- * `moduleWhy` records which of those it was, so listPersonModules() can show
- * the derived ones for checking and the confirmed ones can be left alone.
- *
- * TO CORRECT ONE: add the person to PERSON_MODULES in Config.gs and rebuild.
- * That is rule 1, and it wins.
+ * @param {string} token  the caller's session - see Auth.gs
+ * @param {string} month  'YYYY-MM', or ALL_MONTHS for the whole period
+ * @return {Object}
  */
-function assignPersonModules(result) {
-  // The busiest module per person, from the cross-tab. '(unassigned)' is not
-  // a module somebody can belong to, so it cannot win here.
-  const busiest = {};
-  result.peopleByModule.forEach(function (row) {
-    if (!row.module || row.module === '(unassigned)') return;
-    const seen = busiest[row.name];
-    if (!seen || row.received > seen.received) {
-      busiest[row.name] = { module: row.module, received: row.received };
+function getKpi1(token, month) {
+  requireSignedIn(token);
+  return readKpi1(month);
+}
+
+
+/**
+ * The same figures, with no session check. NOT AN ENDPOINT in spirit - every
+ * global in an Apps Script project is reachable, so the rule is that anything
+ * calling this must have checked who is asking first. getKpi1() checks a
+ * token; the editor-only functions check requireOwner().
+ *
+ * WHY AN ALL-MONTHS FIGURE IS NOT AN AVERAGE
+ * Percentages cannot be averaged across periods of different size. January
+ * with 4 completed tickets and one delay scores 75%; August with 2,640 and 11
+ * scores 99.58%. Their mean is 87.29%, which describes nothing that happened.
+ * The true all-time rate is (sum successful / sum completed) x 100.
+ *
+ * So this sums the RAW COUNTS the cache stores beside each rate, then
+ * recomputes rate, achievement, band and headroom from those sums. The answer
+ * is identical to scoring every ticket in one pass, without re-reading the
+ * TICKETS tab.
+ *
+ * @param {string} month  'YYYY-MM', or ALL_MONTHS for the whole period
+ * @return {Object}
+ */
+function readKpi1(month) {
+  const kpi = CONFIG.KPI.RESOLUTION;
+  const everyMonth = (month === ALL_MONTHS);
+
+  // null means "take every month"; otherwise a lookup of the ones wanted.
+  // One month, a quarter's three, or all of them go down the same path - the
+  // summing below does not care how many months it was handed.
+  const wanted = monthsInScope(month);
+
+  const result = {
+    month: month,
+    allMonths: everyMonth,
+    monthsCovered: 0,
+    hasData: false,
+    basis: null,
+    total: null,
+    departments: [],
+    parts: [],
+    modules: [],
+    people: [],
+    sources: [],
+    target: kpi.target,
+    yellowFloor: kpi.yellowFloor
+  };
+
+  const cache = sheetFor(CONFIG.SHEETS.KPI_MONTH);
+  const lastRow = cache.getLastRow();
+  if (lastRow < 2) return result;
+
+  const rows = cache.getRange(2, 1, lastRow - 1, CONFIG.KPI_COLUMNS.length).getValues();
+
+  const buckets = {};        // key -> summed counts
+  const order = [];          // keys in first-seen order, so output is stable
+  const monthsSeen = {};
+  const basis = { scored: 0, total: 0, allDepartment: true, seen: false };
+
+  rows.forEach(function (r) {
+    // monthKey() rather than String(). Sheets may have stored '2026-08' as a
+    // Date, in which case String() gives 'Sat Aug 01 2026 00:00:00 GMT+0600...'
+    // and nothing ever matches. monthKey normalises Date and text alike.
+    const rowMonth = monthKey(r[0]);
+    if (!rowMonth) return;
+    if (wanted && !wanted[rowMonth]) return;
+
+    monthsSeen[rowMonth] = true;
+
+    const scopeType = String(r[1]);
+    const name = String(r[2]);
+
+    if (scopeType === 'BASIS') {
+      basis.seen = true;
+      basis.scored += Number(r[3]) || 0;
+      basis.total  += Number(r[4]) || 0;
+      // Mixed is treated as OVERALL. That direction is the safe one: it warns
+      // that some month in the range counted people outside EAS.
+      if (name !== 'DEPARTMENT') basis.allDepartment = false;
+      return;
+    }
+
+    // EAS is bucketed on scope alone. Its label changes with the basis
+    // ('EAS (department exports)' vs 'All tickets (overall report)'), so
+    // keying on the name would split one total into two across a mixed range.
+    //
+    // PERSON is bucketed on the person, NOT on 'Section :: Person'. Someone
+    // who was in Functional until July and Manufacturing from August carries
+    // two different labels across the range, and keying on the whole string
+    // would list them twice - half their year in each row. The individual is
+    // the unit of that table, so one person is one row.
+    let key;
+    let label = name;
+    if (scopeType === 'EAS') {
+      key = 'EAS';
+    } else if (scopeType === 'PERSON') {
+      const split = name.split(' :: ');
+      label = split.length > 1 ? split[1] : split[0];
+      key = 'PERSON\u0000' + label;
+    } else {
+      key = scopeType + '\u0000' + name;
+    }
+
+    if (!buckets[key]) {
+      buckets[key] = {
+        scope: scopeType, name: label,
+        section: '',
+        received: 0, completed: 0, delayed: 0, successful: 0
+      };
+      order.push(key);
+    }
+
+    const b = buckets[key];
+
+    if (scopeType === 'PERSON') {
+      // Cache rows are written month-ascending, so the last one wins: a person
+      // is shown under the section they are in NOW, with their whole-period
+      // totals beside it.
+      const split = name.split(' :: ');
+      if (split.length > 1) b.section = split[0];
+    }
+
+
+    b.received   += Number(r[3]) || 0;
+    b.completed  += Number(r[4]) || 0;
+    b.delayed    += Number(r[5]) || 0;
+    b.successful += Number(r[6]) || 0;
+  });
+
+  result.monthsCovered = Object.keys(monthsSeen).length;
+
+  if (basis.seen) {
+    result.basis = {
+      source: basis.allDepartment ? 'DEPARTMENT' : 'OVERALL',
+      scored: basis.scored,
+      total: basis.total
+    };
+  }
+
+  order.forEach(function (key) {
+    const b = buckets[key];
+
+    if (b.scope === 'SOURCE') {
+      // Not a KPI - countRow() puts its figure in the received column.
+      result.sources.push({ name: b.name, count: b.received });
+      return;
+    }
+
+    const entry = finaliseEntry(b, kpi);
+
+    if (b.scope === 'EAS') {
+      result.total = entry;
+      result.hasData = true;
+    } else if (b.scope === 'DEPARTMENT') {
+      result.departments.push(entry);
+    } else if (b.scope === 'PART') {
+      result.parts.push(entry);
+    } else if (b.scope === 'MODULE') {
+      result.modules.push(entry);
+    } else if (b.scope === 'PERSON') {
+      entry.department = b.section;
+      result.people.push(entry);
     }
   });
 
-  result.people.forEach(function (person) {
-    const confirmed = confirmedModuleFor(person.name);
-    const byWork = busiest[person.name] ? busiest[person.name].module : '';
-    const bySection = CONFIG.SECTION_MODULES[person.department] || '';
+  // Busiest first. For a single month this reproduces the cache's own order;
+  // across months it is the only order that makes sense, since a name's rank
+  // in January says nothing about its rank overall.
+  result.departments.sort(byReceived);
+  result.parts.sort(byReceived);
+  result.people.sort(byReceived);
+  result.modules.sort(byReceived);
 
-    person.module = confirmed || byWork || bySection || '(unassigned)';
-    person.moduleWhy = confirmed ? 'listed'
-      : byWork ? 'busiest'
-      : bySection ? 'section' : 'none';
-    // How lopsided the split is, so a person who is genuinely half in two
-    // modules can be told from one who is plainly in one.
-    person.moduleShare = (byWork && person.received)
-      ? Math.round((busiest[person.name].received / person.received) * 1000) / 10
-      : 0;
-  });
+  return result;
 }
 
 
@@ -992,20 +1057,27 @@ function runKpiSelfTest() {
 
 
 /**
- * Prints who the dashboard thinks works in which module. Run from the editor.
+ * Prints who mostly works in which module. Run from the editor.
  *
  *   listPersonModules()             every month
  *   listPersonModules('2026-08')    one month
  *
- * THIS IS THE LIST TO CHECK. Only the people in PERSON_MODULES were confirmed
- * by the team; everyone else was placed by where most of their work is, which
- * is a good guess and still a guess. The ones marked `busiest` are the ones
- * worth an argument, and the argument is settled by adding that person to
- * PERSON_MODULES in Config.gs and rebuilding - rule 1 beats rule 2.
+ * NOT what any screen filters by, and that is the point of it. The By
+ * individuals table filters by SECTION, because a section is a fact about a
+ * person - one desk, one team - while the module is what a TICKET was about,
+ * and the two do not line up one to one. This report is for the question that
+ * does not fit in a dropdown: where does each person's work actually fall, and
+ * how spread out is it.
  *
- * The share column says how lopsided the split was. 100% is somebody who only
- * ever works in one module; 58% is somebody genuinely spread across two, and
- * those are the names to look at first.
+ * READ THE SHARE COLUMN. 100% is somebody who only ever works in one module.
+ * Anything in the fifties or sixties is somebody genuinely split across two,
+ * and no single answer would have been right for them - which is why the
+ * filter does not try to give one.
+ *
+ * Reads the ticket sheet directly rather than a cached cross-tab. It is a
+ * once-in-a-while report, and one full read here is cheaper than carrying
+ * roughly a hundred extra rows per month in KPI_MONTHLY for the rest of the
+ * project's life.
  *
  * Owner-only, like the other maintenance functions: it prints every name.
  *
@@ -1015,43 +1087,93 @@ function runKpiSelfTest() {
 function listPersonModules(month) {
   requireOwner();
 
-  const k = readKpi1(month || null);
-  if (!k.hasData) {
-    Logger.log('No tickets in %s.', month || 'any month');
+  const tickets = sheetFor(CONFIG.SHEETS.TICKETS);
+  const lastRow = tickets.getLastRow();
+  if (lastRow < 2) {
+    Logger.log('No tickets stored.');
     return [];
   }
 
-  const rows = k.people.slice().sort(function (a, b) {
-    if (a.module !== b.module) return a.module < b.module ? -1 : 1;
-    return b.received - a.received;
+  const rows = tickets.getRange(2, 1, lastRow - 1, COL.WIDTH).getValues();
+  const people = {};
+
+  rows.forEach(function (row) {
+    if (!String(row[COL.TICKET_ID] || '').trim()) return;
+    const rowMonth = monthKey(row[COL.REQUEST_DATE]);
+    if (!rowMonth) return;
+    if (month && rowMonth !== month) return;
+
+    const who = String(row[COL.IN_CHARGE] || '').trim() || '(unassigned)';
+    const seen = people[who] || (people[who] = {
+      name: who, total: 0, byModule: {},
+      section: sectionFor(who, rowMonth, row[COL.DEPARTMENT])
+    });
+    seen.total++;
+    // The last month seen wins, so somebody who moved mid-year is shown under
+    // the section they are in now.
+    seen.section = sectionFor(who, rowMonth, row[COL.DEPARTMENT]) || seen.section;
+
+    const mod = moduleForTicket(row[COL.PART], row[COL.IN_CHARGE], rowMonth);
+    seen.byModule[mod] = (seen.byModule[mod] || 0) + 1;
+  });
+
+  const out = Object.keys(people).map(function (name) {
+    const p = people[name];
+
+    // '(unassigned)' is not a module somebody can mostly work in, so it cannot
+    // win the count - but it is still reported, because a person whose tickets
+    // are mostly unplaceable is worth knowing about.
+    let best = '', bestCount = 0;
+    Object.keys(p.byModule).forEach(function (mod) {
+      if (mod === '(unassigned)') return;
+      if (p.byModule[mod] > bestCount) { best = mod; bestCount = p.byModule[mod]; }
+    });
+
+    const confirmed = confirmedModuleFor(p.name);
+    const spread = Object.keys(p.byModule)
+      .sort(function (a, b) { return p.byModule[b] - p.byModule[a]; })
+      .map(function (m) { return m + ' ' + p.byModule[m]; })
+      .join(', ');
+
+    return {
+      name: p.name,
+      section: p.section,
+      mostly: best || '(unassigned)',
+      listed: confirmed,
+      share: p.total ? Math.round((bestCount / p.total) * 1000) / 10 : 0,
+      tickets: p.total,
+      spread: spread
+    };
+  }).sort(function (a, b) {
+    if (a.mostly !== b.mostly) return a.mostly < b.mostly ? -1 : 1;
+    return b.tickets - a.tickets;
   });
 
   Logger.log('');
   Logger.log('=========================================================');
-  Logger.log(' Who works in which module');
+  Logger.log(' Where each person\u0027s work falls');
   Logger.log(' %s', month || 'every month');
   Logger.log('=========================================================');
-  Logger.log(' %-30s %-13s %-9s %6s %6s  %s',
-             'PERSON', 'MODULE', 'DECIDED BY', 'SHARE', 'TICKETS', 'SECTION');
+  Logger.log(' %-30s %-13s %6s %7s %-26s %s',
+             'PERSON', 'MOSTLY', 'SHARE', 'TICKETS', 'SECTION', 'THE SPREAD');
 
-  let guessed = 0;
-  rows.forEach(function (p) {
-    if (p.moduleWhy === 'busiest') guessed++;
-    Logger.log(' %-30s %-13s %-9s %5s%% %6s  %s',
-               p.name, p.module, p.moduleWhy,
-               p.moduleShare || 0, p.received, p.department || '(none)');
+  let split = 0;
+  out.forEach(function (p) {
+    if (p.share < 80) split++;
+    Logger.log(' %-30s %-13s %5s%% %7s %-26s %s',
+               p.name, p.mostly + (p.listed ? '*' : ''),
+               p.share, p.tickets, p.section || '(none)', p.spread);
   });
 
   Logger.log('');
-  Logger.log(' %s people. %s confirmed in PERSON_MODULES, %s placed by their work.',
-             rows.length, rows.length - guessed, guessed);
-  Logger.log(' To correct one: add it to PERSON_MODULES in Config.gs, then rebuild.');
+  Logger.log(' %s people. %s of them have less than 80%% of their work in one',
+             out.length, split);
+  Logger.log(' module - those are the ones no single module would describe.');
+  Logger.log(' * = listed in PERSON_MODULES, which is what places their');
+  Logger.log('   unlabelled tickets. Everything else here is counted, not set.');
   Logger.log('=========================================================');
 
-  return rows.map(function (p) {
-    return { name: p.name, module: p.module, why: p.moduleWhy,
-             share: p.moduleShare, tickets: p.received, section: p.department };
-  });
+  return out;
 }
 
 

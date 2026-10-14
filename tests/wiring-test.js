@@ -92,47 +92,48 @@ check('every element id App.html names is in Index.html',
 // claim being made is about order, not about proximity.
 const at = (id) => INDEX.indexOf('id="' + id + '"');
 check('the filter exists in the markup, between the individual filter and the search',
-  at('fAllPerson') > 0 && at('fAllModule') > at('fAllPerson') &&
-  at('fAllName') > at('fAllModule'),
-  ['fAllPerson', 'fAllModule', 'fAllName'].map((i) => i + '@' + at(i)).join(' '));
-check('it is filled from the module each PERSON belongs to',
-  /fillSelect\('fAllModule'/.test(APP) &&
-  /k\.people[\s\S]{0,300}row\.module[\s\S]{0,300}fillSelect\('fAllModule'/.test(APP),
-  'a module nobody belongs to would be a choice that empties the table');
+  at('fAllPerson') > 0 && at('fAllSection') > at('fAllPerson') &&
+  at('fAllName') > at('fAllSection'),
+  ['fAllPerson', 'fAllSection', 'fAllName'].map((i) => i + '@' + at(i)).join(' '));
+check('it is filled from the sections of the people in the table',
+  /fillSelect\('fAllSection'/.test(APP) &&
+  /k\.people[\s\S]{0,300}row\.department[\s\S]{0,300}fillSelect\('fAllSection'/.test(APP),
+  'a section nobody worked in would be a choice that empties the table');
 const pendingCalls = APP.match(/applyPendingTo\(\[[\s\S]*?\]\)/g) || [];
 check('choosing one re-renders and is remembered',
-  /bind\('fAllModule',\s*'change'/.test(APP) &&
-  pendingCalls.some((call) => call.indexOf("'fAllModule'") !== -1),
+  /bind\('fAllSection',\s*'change'/.test(APP) &&
+  pendingCalls.some((call) => call.indexOf("'fAllSection'") !== -1),
   'change handler + restored in ' + pendingCalls.length + ' applyPendingTo call(s)');
 check('Reset clears it with the others',
-  /fAllReset[\s\S]{0,400}setValue\('fAllModule',\s*''\)/.test(APP));
-// A filter on PEOPLE, not on tickets: the rows stay k.people and are narrowed
-// by which module each person belongs to, so a figure never changes meaning
-// depending on which filter happens to be on.
-check('choosing a module narrows the people, and leaves their figures alone',
-  /chosenModule[\s\S]{0,200}k\.people\.filter[\s\S]{0,120}p\.module === chosenModule/.test(APP),
-  'not a slice of the cross-tab');
-check('and the server gives every individual exactly one module',
-  /function assignPersonModules/.test(KPI) &&
-  /person\.module = confirmed \|\| byWork \|\| bySection/.test(KPI),
-  'PERSON_MODULES, then the busiest module, then the section');
+  /fAllReset[\s\S]{0,400}setValue\('fAllSection',\s*''\)/.test(APP));
+// A filter on WHO is listed, not on what the figures mean: the rows stay
+// k.people and are narrowed by the section already beside each name, so a
+// figure never changes meaning depending on which filter happens to be on.
+check('choosing a section narrows the people, and leaves their figures alone',
+  /chosenSection[\s\S]{0,200}k\.people\.filter[\s\S]{0,140}p\.department === chosenSection/.test(APP),
+  'the Section column, nothing derived');
+check('and no module membership is derived for anybody any more',
+  !/assignPersonModules/.test(KPI) && !/peopleByModule/.test(KPI),
+  'a person who works across two modules has no one true module');
+check('nor does the rebuild write a person-and-module cross-tab',
+  !/'PERSON_MODULE'/.test(KPI),
+  'about a hundred rows a month that nothing read'); 
 
 // The note is the honesty half. Without it the table looks identical whether
 // it is showing everyone's totals or one module's slice.
-check('a note says whose list it is, and that the figures are whole',
+check('a note says whose list it is, and that the figures did not move',
   /id="kpi1AllPeopleNote"/.test(INDEX) &&
   /kpi1AllPeopleNote/.test(APP) &&
-  /people who work in/.test(APP) && /whole caseload/.test(APP),
-  'shown only while a module is chosen');
-check('and the editor can print who was placed how, for checking',
-  /function listPersonModules/.test(KPI) && /PERSON_MODULES/.test(KPI),
-  'listPersonModules() in Kpi.gs');
+  /The people in/.test(APP) && /reads the same here/.test(APP),
+  'shown only while a section is chosen');
+check('and where somebody\'s work falls is still answerable, from the editor',
+  /function listPersonModules/.test(KPI) && /sheetFor\(CONFIG\.SHEETS\.TICKETS\)/.test(KPI),
+  'listPersonModules() reads the tickets, not a cached cross-tab');
 check('and the stylesheet draws it',
   /\.filter-note\s*\{/.test(STYLES));
-check('a dropdown that cannot be used yet is drawn as disabled',
-  /\.table-filter \.select:disabled/.test(STYLES) &&
-  /moduleSelect\.disabled/.test(APP),
-  'empty until the figures are rebuilt');
+check('a dropdown that cannot be used yet is still drawn as disabled',
+  /\.table-filter \.select:disabled/.test(STYLES),
+  'the section filter needs no rebuild, so nothing uses this state now');
 
 // ---------------------------------------------------------------------------
 // the whole project is still plain ASCII

@@ -501,20 +501,21 @@
               <option value="">All individuals</option>
             </select>
             <!--
-              Module. Narrows the list to the people who worked in one module
-              AND re-reads their figures for that module only - see
-              applyAllFilter(). Showing whole-person totals under a module's
-              name would be the table saying something untrue: nobody works in
-              exactly one module, because a ticket's module comes from its own
-              Part column before it comes from whose desk it landed on.
+              Section. The same six the By section table above offers, because
+              it is the same question asked of a different table: which part of
+              the team does this person belong to.
 
-              Filled from the cross-tab the rebuild writes. Disabled, with a
-              reason on hover, on a database that has not been rebuilt since
-              that scope was added - an empty dropdown that silently does
-              nothing is worse than one that says why.
+              This replaced a MODULE filter, which was ambiguous and could not
+              be made otherwise. A section is a fact - one person, one desk,
+              one team - while a module is what a ticket was about, and the
+              people and the work do not line up one to one. Nobody works in
+              exactly one module, so a module filter had to either show a
+              person's figures sliced (and no two screens then agreed on what
+              their numbers were) or place each person in a single module by
+              guessing from where most of their work fell.
             -->
-            <select id="fAllModule" class="select" title="Module">
-              <option value="">All modules</option>
+            <select id="fAllSection" class="select" title="Section">
+              <option value="">All sections</option>
             </select>
             <input id="fAllName" class="select" type="search" placeholder="Search name&#x2026;">
             <button class="btn btn-ghost" id="fAllReset">&#x2715; Reset</button>

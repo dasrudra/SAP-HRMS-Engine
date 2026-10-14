@@ -38,14 +38,21 @@ const K1 = CONFIG.KPI.RESOLUTION;
 const PEOPLE = [
   { name: 'Ayesha Rahman',  department: 'Sales Applications',         received: 8, delayed: 1 },
   { name: 'Bilal Hossain',  department: 'Supply Chain Applications',  received: 3, delayed: 0 },
-  { name: 'Carim Uddin',    department: 'Manufacturing Applications', received: 2, delayed: 2 }
+  { name: 'Carim Uddin',    department: 'Manufacturing Applications', received: 2, delayed: 2 },
+  // A second name in a section, so "filter to a section" is distinguishable
+  // from "filter to one person".
+  { name: 'Dina Karim',     department: 'Sales Applications',         received: 5, delayed: 0 }
 ];
 
+// Which module each person's tickets fell into. No screen reads this any more
+// - it is here so the module TOTALS can be worked out the way the By module
+// table gets them, and as a reminder that Ayesha's work is split across two.
 const PAIRS = [
-  { module: 'PP', name: 'Ayesha Rahman', department: 'Sales Applications',         received: 6, delayed: 1 },
-  { module: 'MM', name: 'Ayesha Rahman', department: 'Sales Applications',         received: 2, delayed: 0 },
-  { module: 'MM', name: 'Bilal Hossain', department: 'Supply Chain Applications',  received: 3, delayed: 0 },
-  { module: 'PP', name: 'Carim Uddin',   department: 'Manufacturing Applications', received: 2, delayed: 2 }
+  { module: 'PP', name: 'Ayesha Rahman', received: 6, delayed: 1 },
+  { module: 'MM', name: 'Ayesha Rahman', received: 2, delayed: 0 },
+  { module: 'MM', name: 'Bilal Hossain', received: 3, delayed: 0 },
+  { module: 'PP', name: 'Carim Uddin',   received: 2, delayed: 2 },
+  { module: 'SD', name: 'Dina Karim',    received: 5, delayed: 0 }
 ];
 
 function score(row) {
@@ -78,26 +85,10 @@ const KPI1 = score({
   delayed: PEOPLE.reduce((a, p) => a + p.delayed, 0)
 });
 
-// Membership, the way assignPersonModules() in Kpi.gs works it out: nobody
-// here is in PERSON_MODULES, so each is placed in the module most of their
-// work is in. Ayesha spans PP and MM and belongs to PP.
-const SCORED_PAIRS = PAIRS.map(score);
-const PEOPLE_WITH_MODULE = PEOPLE.map(score).map(function (person) {
-  const mine = SCORED_PAIRS.filter(function (r) { return r.name === person.name; })
-                           .sort(function (a, b) { return b.received - a.received; });
-  return Object.assign({}, person, {
-    module: mine.length ? mine[0].module : '(unassigned)',
-    moduleWhy: mine.length ? 'busiest' : 'section',
-    moduleShare: mine.length && person.received
-      ? Math.round((mine[0].received / person.received) * 1000) / 10 : 0
-  });
-});
-
 const FIXTURE = {
   month: '2026-08',
   total: KPI1,
-  people: PEOPLE_WITH_MODULE,
-  peopleByModule: SCORED_PAIRS,
+  people: PEOPLE.map(score),
   modules: MODULES,
   departments: [],
   parts: [],
@@ -130,24 +121,10 @@ const stub = `
     hasData: false, people: [], peopleByModule: [], modules: []
   });
 
-  // ?nocrosstab=1 stands in for a database rebuilt before the cross-tab
-  // existed: every other figure is there, the per-module rows are not.
-  var NO_CROSSTAB = new URLSearchParams(location.search).get('nocrosstab');
-
   function kpi1() {
     var k = Object.assign({ hasData: true, allMonths: false, monthsCovered: 1,
                             target: ${K1.target}, yellowFloor: ${K1.yellowFloor},
                             basis: null }, FIXTURE);
-    if (NO_CROSSTAB) {
-      // A database rebuilt before any of this existed: the counts are there,
-      // the cross-tab and the membership it feeds are not.
-      k.peopleByModule = [];
-      k.people = k.people.map(function (p) {
-        var bare = Object.assign({}, p);
-        delete bare.module; delete bare.moduleWhy; delete bare.moduleShare;
-        return bare;
-      });
-    }
     return k;
   }
 

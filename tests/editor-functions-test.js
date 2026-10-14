@@ -190,14 +190,14 @@ check('nothing passes a null token to a guarded endpoint',
 const text = logged.map(function (args) {
   return args.map(String).join(' ');
 }).join('\n');
-check('listPersonModules prints each person, their module and how it was decided',
-  /Ayesha Spanner/.test(text) && /busiest/.test(text) && /DECIDED BY/.test(text),
+check('listPersonModules prints each person, where their work mostly falls, and the spread',
+  /Ayesha Spanner/.test(text) && /MOSTLY/.test(text) && /THE SPREAD/.test(text),
   (text.match(/Ayesha Spanner.*/) || [''])[0].trim());
-check('and says how many were confirmed against how many were guessed',
-  /confirmed in PERSON_MODULES/.test(text) && /placed by their work/.test(text),
-  (text.match(/.*people\..*confirmed.*/) || [''])[0].trim());
-check('and how to correct one',
-  /add it to PERSON_MODULES/.test(text));
+check('and counts the people no single module would describe',
+  /less than 80/.test(text) && /module - those are the ones/.test(text),
+  (text.match(/.*people\..*less than 80.*/) || [''])[0].trim());
+check('and marks the ones PERSON_MODULES places, so counted is not read as set',
+  /listed in PERSON_MODULES/.test(text) && /counted, not set/.test(text));
 
 const failed = out.filter((r) => !r).length;
 console.log('\n' + (out.length - failed) + '/' + out.length + ' passed');

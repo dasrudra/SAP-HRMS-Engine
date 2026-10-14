@@ -1,21 +1,18 @@
-// The individuals table, sliced by module.
+// The By individuals table, and what the rebuild writes for it.
 //
-// WHAT THIS PROVES
-// A person is not in exactly one module. moduleForTicket() takes the module
-// off a ticket's own Part column first and only falls back to whose desk it
-// landed on, so somebody whose role is PP handles MM tickets and those tickets
-// ARE MM. That is why the By individuals table cannot filter by module just by
-// hiding rows: it has to re-read each person's figures FOR THAT MODULE, or it
-// shows a whole caseload under one module's name.
+// The table filters by SECTION. A section is a fact about a person - one desk,
+// one team, already beside their name - so the filter needs no derivation and
+// the figures beside each name never change when it is applied.
 //
-// So the round trip below is the point. Real tickets go through the real
-// recomputeKpiCache(), the real getKpi1() reads them back, and the per-module
-// figures are checked against hand-counted totals - not against the whole-
-// person figures the same run produces.
+// It filtered by MODULE for two steps and could not be made unambiguous. A
+// module is what a TICKET was about, and people and work do not line up one to
+// one: in the fixture below Ayesha has 6 PP tickets and 2 MM, so neither "her
+// figures are 8" nor "her figures are 6" is right under a module heading. The
+// cross-tab that made the module filter possible is gone with it, and this
+// suite checks it is gone - it was about a hundred rows a month that nothing
+// read.
 //
-// HOW TO RUN
 //   node tests/module-people-test.js
-// No dependencies. Everything it needs is in src/.
 const fs = require('fs'), vm = require('vm'), path = require('path');
 const SRC = process.env.EAS_SRC || path.join(__dirname, '..', 'src');
 
@@ -149,136 +146,57 @@ const k = vm.runInContext('getKpi1', sb)('any-token', '2026-08');
 check('the month scored at all', k.hasData === true && k.total.received === 13,
   k.total ? k.total.received + ' tickets' : '(nothing)');
 
-// ---- the cross-tab exists and is per person PER MODULE ----
-const pairs = k.peopleByModule || [];
-const key = (p) => p.module + ' / ' + p.name;
-check('the rebuild writes one row per person-and-module pair, not per person',
-  pairs.length === 4, pairs.length + ': ' + pairs.map(key).join(' | '));
+// ---- the counts are per person, once ----
+const byName = {};
+k.people.forEach(function (p) { byName[p.name] = p; });
 
-const find = (mod, who) => pairs.filter((p) => p.module === mod && p.name === who)[0];
+check('one row per person, whatever their tickets touched',
+  k.people.length === 3, k.people.map(function (p) { return p.name; }).join(' | '));
+check('and the figures are their whole caseload',
+  byName['Ayesha Spanner'].received === 8 &&
+  byName['Ayesha Spanner'].delayed === 1 &&
+  byName['Ayesha Spanner'].successful === 7,
+  [byName['Ayesha Spanner'].received, byName['Ayesha Spanner'].delayed].join(' / ') +
+  '  (6 PP + 2 MM)');
+check('with the rate computed over all of it',
+  Math.abs(byName['Ayesha Spanner'].rate - (7 / 8) * 100) < 0.01,
+  byName['Ayesha Spanner'].rate.toFixed(2) + '%');
 
-check('somebody who worked in two modules appears in both',
-  Boolean(find('PP', 'Ayesha Spanner')) && Boolean(find('MM', 'Ayesha Spanner')),
-  pairs.filter((p) => p.name === 'Ayesha Spanner').map((p) => p.module).join(' + '));
+// ---- the section is what the table filters by ----
+// A section is a fact about a person: one desk, one team. It is already beside
+// every name, needs no derivation and cannot be two things at once, which is
+// why the filter is built on it and not on the module.
+check('every individual carries the section they sit in',
+  k.people.every(function (p) { return p.department === 'Manufacturing Applications'; }),
+  k.people.map(function (p) { return p.department; })
+    .filter(function (d, i, a) { return a.indexOf(d) === i; }).join(' | '));
+check('and nothing claims a single module for them',
+  k.people.every(function (p) { return p.module === undefined; }),
+  'a person who works across two modules has no one true module');
 
-// ---- and the figures are the module's, not the person's ----
-const nasirPP = find('PP', 'Ayesha Spanner');
-const nasirMM = find('MM', 'Ayesha Spanner');
-const nasirAll = k.people.filter((p) => p.name === 'Ayesha Spanner')[0];
-
-check('their PP row counts their PP tickets only',
-  nasirPP.received === 6 && nasirPP.delayed === 1 && nasirPP.successful === 5,
-  [nasirPP.received, nasirPP.delayed, nasirPP.successful].join(' / '));
-check('their MM row counts their MM tickets only',
-  nasirMM.received === 2 && nasirMM.delayed === 0 && nasirMM.successful === 2,
-  [nasirMM.received, nasirMM.delayed, nasirMM.successful].join(' / '));
-check('and their whole-person row still counts everything',
-  nasirAll.received === 8 && nasirAll.delayed === 1,
-  nasirAll.received + ' / ' + nasirAll.delayed);
-
-// The assertion the whole feature turns on. If these were equal, filtering by
-// hiding rows would look correct and still be wrong.
-check('the per-module rate DIFFERS from the whole-person rate',
-  Math.abs(nasirPP.rate - nasirAll.rate) > 0.01,
-  'PP ' + nasirPP.rate.toFixed(2) + '%  vs  all ' + nasirAll.rate.toFixed(2) + '%');
-check('  and each is arithmetically right',
-  Math.abs(nasirPP.rate - (5 / 6) * 100) < 0.01 &&
-  Math.abs(nasirAll.rate - (7 / 8) * 100) < 0.01,
-  nasirPP.rate.toFixed(2) + '% / ' + nasirAll.rate.toFixed(2) + '%');
-
-// ---- bands are scored per module too ----
-check('a module row is banded on its own rate',
-  find('PP', 'Carim Struggler').rate === 0 &&
-  find('PP', 'Carim Struggler').band === 'RED',
-  find('PP', 'Carim Struggler').band);
-check('and a clean one is GREEN',
-  find('MM', 'Bilal Steady').rate === 100 && find('MM', 'Bilal Steady').band === 'GREEN',
-  find('MM', 'Bilal Steady').band);
-
-// ---- the section survives the extra key segment ----
-// The scope value is 'Module :: Section :: Name'. Parsed wrongly, the section
-// column would show the module, or the module would be swallowed.
-// Nobody here is on the roster, so sectionFor() falls back to the ticket's own
-// Department column - which is the path that matters here. What is being
-// checked is that the extra key segment did not shift the parse: a section
-// column showing 'PP' would mean the module had been read as the section.
-check('each row still carries the person\'s section, not the module',
-  pairs.every((p) => p.department === 'Manufacturing Applications') &&
-  pairs.every((p) => p.department !== p.module),
-  pairs.map((p) => p.department).filter((d, i, a) => a.indexOf(d) === i).join(' | '));
-check('and the module is the module',
-  pairs.every((p) => p.module === 'PP' || p.module === 'MM'),
-  pairs.map((p) => p.module).filter((m, i, a) => a.indexOf(m) === i).join(' | '));
-
-// ---- the totals must not have moved ----
-// The cross-tab is extra rows on the same tab. If the reader double-counted
-// them, every figure on the KPI 1 screen would be inflated.
-check('the EAS total is unchanged by the extra rows',
+// ---- the per-module totals are unaffected ----
+// Dropping the person-and-module cross-tab must not touch what the By module
+// table reads. Those rows are still grouped straight from the tickets.
+check('the module totals still add up',
+  k.modules.length === 2 &&
+  k.modules.filter(function (m) { return m.name === 'PP'; })[0].received === 8 &&
+  k.modules.filter(function (m) { return m.name === 'MM'; })[0].received === 5,
+  k.modules.map(function (m) { return m.name + ':' + m.received; }).join(' | '));
+check('and the EAS total is unchanged',
   k.total.received === 13 && k.total.delayed === 3 && k.total.successful === 10,
   [k.total.received, k.total.delayed, k.total.successful].join(' / '));
-check('and the whole-person list is still one row per person',
-  k.people.length === 3, k.people.length + ': ' + k.people.map((p) => p.name).join(' | '));
-check('and the module list is still one row per module',
-  k.modules.length === 2 &&
-  k.modules.filter((m) => m.name === 'PP')[0].received === 8,
-  k.modules.map((m) => m.name + ':' + m.received).join(' | '));
 
-// ---------------------------------------------------------------------------
-// WHICH MODULE EACH PERSON BELONGS TO
-// ---------------------------------------------------------------------------
-// The cross-tab above answers "whose tickets were PP". This answers "who works
-// in PP", which is a different question and the one the filter asks. Spanner
-// has 6 PP tickets and 2 MM; she belongs to PP and appears there only.
-const member = {};
-k.people.forEach(function (p) { member[p.name] = p; });
-
-check('everybody is given exactly one module',
-  k.people.every(function (p) { return Boolean(p.module); }),
-  k.people.map(function (p) { return p.name + ':' + p.module; }).join(' | '));
-check('and it is the module most of their work is in',
-  member['Ayesha Spanner'].module === 'PP' &&
-  member['Bilal Steady'].module === 'MM' &&
-  member['Carim Struggler'].module === 'PP',
-  ['Ayesha Spanner', 'Bilal Steady', 'Carim Struggler']
-    .map(function (n) { return n.split(' ')[0] + ' ' + member[n].module; }).join(', '));
-check('with the reason recorded, so a guess can be told from a confirmation',
-  k.people.every(function (p) { return p.moduleWhy === 'busiest'; }),
-  'none of these three is in PERSON_MODULES');
-check('and how lopsided the split was, for the ones worth checking',
-  member['Ayesha Spanner'].moduleShare === 75 &&
-  member['Bilal Steady'].moduleShare === 100,
-  'Spanner 6 of 8 = ' + member['Ayesha Spanner'].moduleShare + '%, ' +
-  'Steady 3 of 3 = ' + member['Bilal Steady'].moduleShare + '%');
-
-// The point of the whole change: somebody whose tickets touched a module does
-// not thereby belong to it.
-check('somebody who worked in two modules belongs to only one',
-  k.peopleByModule.filter(function (r) { return r.name === 'Ayesha Spanner'; }).length === 2 &&
-  member['Ayesha Spanner'].module === 'PP',
-  'two cross-tab rows, one membership');
-
-// A confirmed entry beats the count. Md. Nasir Uddin is in PERSON_MODULES as
-// MM, and more of his real tickets are MD - the list still wins.
-const CONFIG_REAL = vm.runInContext('CONFIG', sb);
-const listedName = Object.keys(CONFIG_REAL.PERSON_MODULES)[0];
-check('a name in PERSON_MODULES is placed by the list, not by the count',
-  vm.runInContext('confirmedModuleFor', sb)(listedName) ===
-    CONFIG_REAL.PERSON_MODULES[listedName],
-  listedName + ' -> ' + CONFIG_REAL.PERSON_MODULES[listedName]);
-check('and somebody not on the list reads as unconfirmed',
-  vm.runInContext('confirmedModuleFor', sb)('Ayesha Spanner') === '',
-  'so the count may place them');
-
-// ---- an empty cross-tab must not break anything ----
-// A database rebuilt before this scope existed has no PERSON_MODULE rows. The
-// screen disables the filter and says why; nothing here may throw.
-tabs[CONFIG.SHEETS.KPI_MONTH].rows =
-  tabs[CONFIG.SHEETS.KPI_MONTH].rows.filter((r) => String(r[1]) !== 'PERSON_MODULE');
-const stale = vm.runInContext('getKpi1', sb)('any-token', '2026-08');
-check('a cache with no cross-tab still reads, with an empty list',
-  Array.isArray(stale.peopleByModule) && stale.peopleByModule.length === 0 &&
-  stale.people.length === 3,
-  stale.peopleByModule.length + ' pairs, ' + stale.people.length + ' people');
+// ---- and nothing writes the cross-tab any more ----
+const cacheRows = tabs[CONFIG.SHEETS.KPI_MONTH].rows;
+check('the rebuild writes no PERSON_MODULE rows',
+  !cacheRows.some(function (r) { return String(r[1]) === 'PERSON_MODULE'; }),
+  'about a hundred rows a month that nothing read');
+check('while every scope the screens do read is still written',
+  ['EAS', 'DEPARTMENT', 'PART', 'MODULE', 'PERSON'].every(function (scope) {
+    return cacheRows.some(function (r) { return String(r[1]) === scope; });
+  }),
+  cacheRows.map(function (r) { return String(r[1]); })
+    .filter(function (v, i, a) { return a.indexOf(v) === i; }).join(' '));
 
 const failed = out.filter((r) => !r).length;
 console.log('\n' + (out.length - failed) + '/' + out.length + ' passed');
