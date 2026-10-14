@@ -53,6 +53,10 @@ function setupDatabase() {
   createSheet(ss, CONFIG.SHEETS.OPERATORS, ['Operator', 'Display Name', 'Role',
                                             'Password Hash', 'Active', 'Created']);
 
+  // The Help screen: questions people ask, and the published answers.
+  createSheet(ss, CONFIG.SHEETS.QUESTIONS, CONFIG.QUESTION_COLUMNS);
+  createSheet(ss, CONFIG.SHEETS.FAQ, CONFIG.FAQ_COLUMNS);
+
   syncKpiConfigSheet(ss);
 
   // A brand-new spreadsheet always has a "Sheet1" we never use.

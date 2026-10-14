@@ -18,7 +18,8 @@
 // that has only Node.
 const path = require('path'), fs = require('fs');
 
-const PAGE = path.join(__dirname, 'harness', 'page.html');
+const PAGE = process.env.EAS_PAGE ||
+             path.join(__dirname, 'harness', 'page.html');
 const BROWSER = process.env.CHROMIUM_PATH || '/opt/pw-browsers/chromium';
 
 let chromium = null;

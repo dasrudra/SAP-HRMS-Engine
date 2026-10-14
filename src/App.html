@@ -96,6 +96,7 @@
     wireOrg();
     wireLogin();
     wireSetup();
+    wireAsk();
     watchActivity();
 
     // Find the token before anything is asked of the server, since every call
@@ -860,6 +861,11 @@
     hide('loader');
     applyRole();
 
+    // The sidebar count, on the first paint rather than only once somebody
+    // opens the Help screen. An admin should be able to see there is something
+    // waiting without going looking for it.
+    showHelpBadge(Number(boot && boot.questionsWaiting) || 0);
+
     if (!boot.configured) {
       show('notConfigured');
       return;
@@ -1073,7 +1079,8 @@
       // The internal name stays `settings`, so every saved link and bookmark
       // with ?view=settings keeps working. Only what people read changes.
       settings: 'Summary',
-      master: 'Accounts'
+      master: 'Accounts',
+      help: 'Help \u00b7 FAQ'
     };
     document.getElementById('viewLabel').textContent = labels[name] || name;
 
@@ -1084,6 +1091,7 @@
     if (name === 'kpi2') loadKpi2();
     if (name === 'uploads') loadUploads();
     if (name === 'master') loadMaster();
+    if (name === 'help') loadHelp();
 
     // A comparison that was on screen before the refresh gets rebuilt. Guarded
     // on state.compare being empty so this costs a server call once and not
@@ -6376,6 +6384,217 @@
           ? '<dt>Orphaned responses</dt><dd>' +
             warn(true, count(boot.orphanedFeedback)) + '</dd>' : '') +
         backupRows(boot.backup, warn);
+    }
+  }
+
+
+  // =========================================================================
+  // HELP & FAQ
+  // =========================================================================
+  //
+  // Three things on one screen, and who sees what is the whole design.
+  //
+  //   the FAQ          everyone. Read from the FAQ tab, so an answer is
+  //                    corrected in the spreadsheet, not in a deployment.
+  //   ask a question   everyone. The employee ID comes from the token on the
+  //                    server, never from a field, so nobody can ask as
+  //                    somebody else.
+  //   your questions   YOURS. The server filters, not the screen - an endpoint
+  //                    that returned everyone's and let the page hide the rest
+  //                    would hand the lot to anyone with a console open.
+  //   the inbox        admins. Guarded by requireAdmin on every call behind it.
+
+  function loadHelp() {
+    callServer('faqEntries').then(renderFaq).catch(onError);
+    loadMyQuestions();
+    if (canAdmin()) loadInbox();
+  }
+
+
+  function renderFaq(entries) {
+    const list = document.getElementById('faqList');
+    if (!list) return;
+
+    const rows = entries || [];
+    setText('faqCount', rows.length + (rows.length === 1 ? ' question' : ' questions'));
+
+    if (!rows.length) {
+      list.innerHTML = '<p class="empty">Nothing published yet.</p>';
+      return;
+    }
+
+    // <details> rather than a scripted accordion: it opens, it closes, it
+    // prints opened, it is reachable from the keyboard, and none of that is
+    // code anybody has to maintain.
+    list.innerHTML = rows.map(function (e) {
+      return '<details class="faq-item">' +
+               '<summary>' + escapeHtml(e.question) + '</summary>' +
+               '<p>' + escapeHtml(e.answer) + '</p>' +
+             '</details>';
+    }).join('');
+  }
+
+
+  function loadMyQuestions() {
+    callServer('myQuestions').then(function (rows) {
+      renderQuestionList('myQList', 'myQCount', rows || [], false);
+    }).catch(onError);
+  }
+
+
+  function loadInbox() {
+    callServer('listQuestions').then(function (rows) {
+      renderQuestionList('inboxList', 'inboxCount', rows || [], true);
+      wireAnswerButtons();
+      // The badge counts what is still waiting, not what is on screen.
+      const waiting = (rows || []).filter(function (q) {
+        return q.status !== 'ANSWERED';
+      }).length;
+      showHelpBadge(waiting);
+    }).catch(onError);
+  }
+
+
+  /**
+   * One list of questions. The inbox form is the only difference between the
+   * admin view and the asker's, so they share everything else.
+   */
+  function renderQuestionList(listId, countId, rows, canAnswer) {
+    const list = document.getElementById(listId);
+    if (!list) return;
+
+    const waiting = rows.filter(function (q) { return q.status !== 'ANSWERED'; }).length;
+    setText(countId, rows.length
+      ? rows.length + (rows.length === 1 ? ' question' : ' questions') +
+        (waiting ? ' \u00b7 ' + waiting + ' waiting' : ' \u00b7 all answered')
+      : '');
+
+    if (!rows.length) {
+      list.innerHTML = '<p class="empty">' +
+        (canAnswer ? 'Nothing waiting.' : 'Nothing yet.') + '</p>';
+      return;
+    }
+
+    list.innerHTML = rows.map(function (q) {
+      const answered = q.status === 'ANSWERED';
+      return '<article class="q-item' + (answered ? ' is-answered' : '') + '">' +
+        '<div class="q-head">' +
+          '<span class="pill ' + (answered ? 'g' : 'a') + '">' +
+            (answered ? 'ANSWERED' : 'WAITING') + '</span>' +
+          (q.topic ? '<span class="q-topic">' + escapeHtml(q.topic) + '</span>' : '') +
+          (canAnswer && q.from
+            ? '<span class="q-from">from ' + escapeHtml(q.from) + '</span>' : '') +
+          '<span class="q-when">' + escapeHtml(whenText(q.askedAt)) + '</span>' +
+        '</div>' +
+        '<p class="q-text">' + escapeHtml(q.question) + '</p>' +
+        (answered
+          ? '<div class="q-answer"><b>Answer</b>' +
+              (q.answeredBy ? ' <span class="q-from">' + escapeHtml(q.answeredBy) +
+                              '</span>' : '') +
+              '<p>' + escapeHtml(q.answer) + '</p></div>'
+          : '') +
+        (canAnswer
+          ? '<div class="q-reply">' +
+              '<textarea class="ask-text" rows="2" data-answer-for="' +
+                escapeHtml(q.id) + '" placeholder="' +
+                (answered ? 'Replace the answer\u2026' : 'Answer\u2026') + '"></textarea>' +
+              '<button class="btn btn-primary" data-answer-go="' +
+                escapeHtml(q.id) + '">' +
+                (answered ? 'Replace' : 'Answer') + '</button>' +
+            '</div>'
+          : '') +
+      '</article>';
+    }).join('');
+  }
+
+
+  function wireAnswerButtons() {
+    document.querySelectorAll('[data-answer-go]').forEach(function (button) {
+      button.addEventListener('click', function () {
+        const id = button.getAttribute('data-answer-go');
+        const box = document.querySelector('[data-answer-for="' + cssEscape(id) + '"]');
+        const text = box ? box.value.trim() : '';
+        if (!text) { if (box) box.focus(); return; }
+
+        button.disabled = true;
+        const wording = button.textContent;
+        button.textContent = 'Saving\u2026';
+
+        callServer('answerQuestion', id, text).then(function (result) {
+          button.disabled = false;
+          button.textContent = wording;
+          if (!result || !result.ok) {
+            return toastHelp((result && result.message) || 'That did not save.');
+          }
+          loadInbox();
+          loadMyQuestions();
+        }).catch(function (err) {
+          button.disabled = false;
+          button.textContent = wording;
+          onError(err);
+        });
+      });
+    });
+  }
+
+
+  function wireAsk() {
+    bind('askGo', 'click', function () {
+      const button = document.getElementById('askGo');
+      const text = getValue('askText').trim();
+      if (!text) { const box = document.getElementById('askText');
+                   if (box) box.focus(); return; }
+
+      button.disabled = true;
+      const wording = button.textContent;
+      button.textContent = 'Sending\u2026';
+
+      callServer('askQuestion', getValue('askTopic').trim(), text)
+        .then(function (result) {
+          button.disabled = false;
+          button.textContent = wording;
+          toastHelp((result && result.message) || 'Sent.');
+          if (result && result.ok) {
+            setValue('askText', '');
+            setValue('askTopic', '');
+            loadMyQuestions();
+            // An admin asking a question is also an admin with one more
+            // question waiting. Without this the inbox and the badge keep the
+            // count they were handed at sign-in, so the badge reads 1 while
+            // three are waiting, and then appears to COUNT UP when one gets
+            // answered. A badge that moves the wrong way is worse than none.
+            if (canAdmin()) loadInbox();
+          }
+        })
+        .catch(function (err) {
+          button.disabled = false;
+          button.textContent = wording;
+          onError(err);
+        });
+    });
+  }
+
+
+  /** A one-line answer under the Send button. Not a dialog - nothing to dismiss. */
+  function toastHelp(message) {
+    const note = document.getElementById('askNote');
+    if (!note) return;
+    note.textContent = message;
+    note.classList.add('is-said');
+    setTimeout(function () { note.classList.remove('is-said'); }, 4000);
+  }
+
+
+  /** The count beside Help in the sidebar. Admins only - see applyRole(). */
+  function showHelpBadge(waiting) {
+    const badge = document.getElementById('helpBadge');
+    if (!badge) return;
+    const show = canAdmin() && waiting > 0;
+    badge.hidden = !show;
+    if (show) {
+      badge.textContent = waiting > 99 ? '99+' : String(waiting);
+      badge.title = waiting + (waiting === 1 ? ' question is' : ' questions are') +
+                    ' waiting for an answer';
     }
   }
 

@@ -11,7 +11,10 @@
 //   node tests/harness/build.js        ->  tests/harness/page.html
 const fs = require('fs'), path = require('path'), vm = require('vm');
 
-const SRC = path.join(__dirname, '..', '..', 'src');
+// Overridable so a mutation run can build a deliberately broken copy of the
+// source to a scratch page, and check that the suite actually fails on it.
+// A test that cannot be made to fail is not testing anything.
+const SRC = process.env.EAS_SRC || path.join(__dirname, '..', '..', 'src');
 const read = (f) => fs.readFileSync(path.join(SRC, f), 'utf8');
 
 // Config.gs is the one source of truth for names, targets and formulas, so the
@@ -128,20 +131,37 @@ const stub = `
     return k;
   }
 
+  // ?role=USER drives the page as a viewer. The role has to be a knob, not a
+  // constant, because the thing worth testing about the Help screen is what a
+  // viewer canNOT see - the inbox and the answer boxes - and MASTER sees
+  // everything.
+  var ROLE = new URLSearchParams(location.search).get('role') || 'MASTER';
+
+  // One question already waiting, so the inbox and the badge have something to
+  // show before anything is typed.
+  var QUESTIONS = [
+    { id: 'Q0', askedAt: '2026-08-02T09:15:00.000Z', from: '20000042',
+      topic: 'KPI 1', question: 'Why is my section showing a delayed ticket?',
+      status: 'NEW', answeredBy: '', answeredAt: '', answer: '' }
+  ];
+
   var HANDLERS = {
     getSession: function () {
-      return { signedIn: true, role: 'MASTER', username: '20000000', mode: 'EXEC' };
+      return { signedIn: true, role: ROLE, username: '20000000', mode: 'EXEC' };
     },
     getBootstrap: function () {
       return {
         ok: true, configured: true,
         appName: ${JSON.stringify(CONFIG.APP_NAME)},
         appVersion: ${JSON.stringify(CONFIG.APP_VERSION)},
-        role: 'MASTER', username: '20000000', mode: 'EXEC',
+        role: ROLE, username: '20000000', mode: 'EXEC',
         departments: ${JSON.stringify(CONFIG.DEPARTMENTS)},
         kpiList: ${JSON.stringify(CONFIG.KPI_ORDER.map((k) => CONFIG.KPI[k]))},
         kpiPolicy: ${JSON.stringify(CONFIG.POLICY)},
         kpiLinks: {},
+        questionsWaiting: QUESTIONS.filter(function (q) {
+          return q.status !== 'ANSWERED';
+        }).length,
         availableMonths: ['2026-08'],
         ticketColumns: ${JSON.stringify(CONFIG.TICKET_COLUMNS)},
         feedbackMonths: [], uploads: [], backup: { on: false },
@@ -149,10 +169,58 @@ const stub = `
       };
     },
     getKpi1: kpi1,
+
+    // The Help screen. QUESTIONS lives in the stub rather than on the page so
+    // asking one and then listing them exercises the round trip, not a
+    // hard-coded array.
+    faqEntries: function () {
+      return [
+        { order: 1, question: 'How do I sign in for the first time?',
+          answer: 'Use the starting login your team gave you.' },
+        { order: 2, question: 'What do GREEN, YELLOW and RED mean?',
+          answer: 'They are the ratings in the approved KPI policy.' }
+      ];
+    },
+    askQuestion: function (token, topic, text) {
+      if (!text || String(text).trim().length < 5) {
+        return { ok: false, id: '', emailed: false,
+                 message: 'Write the question first - a few words at least.' };
+      }
+      var id = 'Q' + (QUESTIONS.length + 1);
+      QUESTIONS.unshift({
+        id: id, askedAt: new Date().toISOString(), from: '20000000',
+        topic: String(topic || ''), question: String(text),
+        status: 'NEW', answeredBy: '', answeredAt: '', answer: ''
+      });
+      return { ok: true, id: id, emailed: true,
+               message: 'Sent. You will see the answer here on this screen.' };
+    },
+    myQuestions: function () {
+      return QUESTIONS.filter(function (q) { return q.from === '20000000'; })
+                      .map(function (q) {
+        return { id: q.id, askedAt: q.askedAt, topic: q.topic,
+                 question: q.question, status: q.status,
+                 answeredAt: q.answeredAt, answer: q.answer };
+      });
+    },
+    listQuestions: function () {
+      if (ROLE === 'USER') throw new Error('That action needs the admin login.');
+      return QUESTIONS.slice();
+    },
+    answerQuestion: function (token, id, answer) {
+      if (ROLE === 'USER') throw new Error('That action needs the admin login.');
+      var hit = QUESTIONS.filter(function (q) { return q.id === id; })[0];
+      if (!hit) return { ok: false, message: 'That question is no longer there.' };
+      hit.status = 'ANSWERED';
+      hit.answer = String(answer);
+      hit.answeredBy = '20000000';
+      hit.answeredAt = new Date().toISOString();
+      return { ok: true, message: 'Answered.' };
+    },
     getKpi2: function () { return { hasData: false }; },
     getUploads: function () { return []; },
     getOrgChart: function () { return { sections: [] }; },
-    renewToken: function () { return { ok: true, token: 't', role: 'MASTER' }; },
+    renewToken: function () { return { ok: true, token: 't', role: ROLE }; },
     logout: function () { return { ok: true }; }
   };
 
@@ -187,7 +255,18 @@ const stub = `
       });
     }
     return make(null, null);
-  })(), history: { replace: function () {} }, host: { close: function () {} } } };
+  })(),
+    // getLocation is how the page reads ?view= and ?month= inside the Apps
+    // Script sandbox, where it cannot see its own address bar. Without it the
+    // page always opened on KPI 1 and no suite could reach another screen.
+    url: {
+      getLocation: function (cb) {
+        var p = {};
+        new URLSearchParams(location.search).forEach(function (v, k) { p[k] = v; });
+        setTimeout(function () { cb({ parameter: p, hash: '' }); }, 2);
+      }
+    },
+    history: { replace: function () {} }, host: { close: function () {} } } };
 
   // The page reads its token from the address bar.
   if (location.search.indexOf('token=') === -1) {
@@ -211,6 +290,6 @@ if (leftover.length) {
   throw new Error('build: unresolved scriptlet(s): ' + leftover.join(', '));
 }
 
-const out = path.join(__dirname, 'page.html');
+const out = process.env.EAS_PAGE || path.join(__dirname, 'page.html');
 fs.writeFileSync(out, html);
 console.log('wrote ' + out + '  (' + html.length + ' bytes)');

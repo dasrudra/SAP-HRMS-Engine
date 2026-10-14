@@ -171,6 +171,13 @@ function getBootstrap(token) {
     // definition link of its own can fall back to it.
     kpiPolicy: CONFIG.POLICY,
 
+    // How many questions are waiting for an answer, for the badge on the Help
+    // nav item. Only an admin is shown it; everyone else gets 0 rather than a
+    // number they cannot act on.
+    questionsWaiting: (configured && rankOf(session.role) >= rankOf(ROLE_ADMIN) &&
+                       typeof unansweredQuestionCount === 'function')
+      ? unansweredQuestionCount() : 0,
+
     // The Document Link column of KPI_CONFIG, keyed by KPI id. Where the
     // Definition buttons actually point: a link lives in a spreadsheet cell so
     // that replacing a corrected PDF is a paste rather than a deployment.

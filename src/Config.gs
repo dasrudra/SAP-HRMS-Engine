@@ -474,8 +474,81 @@ const CONFIG = {
     TRAINING:  'TRAINING',
     UPLOADS:   'UPLOAD_LOG',
     CONFIG:    'KPI_CONFIG',
-    OPERATORS: 'OPERATORS'
+    OPERATORS: 'OPERATORS',
+    QUESTIONS: 'QUESTIONS',
+    FAQ:       'FAQ'
   },
+
+  /** Where this dashboard lives, for the link in a notification email. */
+  DASHBOARD_URL: 'https://tvl-eas.blogspot.com/',
+
+  /**
+   * One question somebody asked, and the answer when it comes.
+   *
+   * `From` is an employee ID, never a name or an address - it is whoever was
+   * signed in, taken from their token, so a question cannot be posted as
+   * somebody else and nobody has to hand over an email to ask one.
+   */
+  QUESTION_COLUMNS: [
+    'Question ID', 'Asked At', 'From', 'Topic', 'Question',
+    'Status', 'Answered By', 'Answered At', 'Answer'
+  ],
+
+  /** The published questions and answers. Edited in the sheet, not in code. */
+  FAQ_COLUMNS: ['Order', 'Question', 'Answer', 'Updated'],
+
+  /**
+   * What the FAQ starts with on a fresh database.
+   *
+   * Seeded into the FAQ tab by syncFaqSheet() and then owned by whoever edits
+   * that tab - the seed never overwrites an answer somebody has changed. These
+   * are the questions this dashboard actually gets asked; add to them in the
+   * sheet rather than here, so it takes a paste and not a deployment.
+   */
+  FAQ_SEED: [
+    ['How do I sign in for the first time?',
+     'Use the starting login your team gave you. The dashboard will then ask ' +
+     'you to set your own password against your employee ID, and you use that ' +
+     'from the next time on.'],
+    ['I forgot my password.',
+     'Ask for a reset. Your password goes back to the starting one and the ' +
+     'dashboard asks you to choose a new one the next time you sign in. ' +
+     'Nobody can read your old password - it is not stored in a form anyone ' +
+     'can read back.'],
+    ['What do GREEN, YELLOW and RED mean?',
+     'They are the ratings in the approved KPI policy. GREEN is at or above ' +
+     'the target, YELLOW is below target and needs improvement, RED is ' +
+     'critical. The exact figures for each indicator are on the Summary ' +
+     'screen under KPI thresholds.'],
+    ['Why does the By individuals table show somebody from another section?',
+     'It does not any more. That table filters by section, and a section is ' +
+     'where somebody sits. Earlier it filtered by module - what a ticket was ' +
+     'about - and the two are not the same thing.'],
+    ['What counts as an open ticket?',
+     'A ticket with no completion date. It was received and has not been ' +
+     'completed, so it is counted in Received and in Open but not in ' +
+     'Completed, and it cannot be delayed yet.'],
+    ['Can I download what is on screen?',
+     'Yes. Every table has a download button in its corner, and it exports ' +
+     'exactly what you are looking at - including any filters you have set.'],
+    ['The figures look wrong for my section.',
+     'Ask below with the month and the section, and say what you expected. ' +
+     'Most of these turn out to be a ticket filed under a different section ' +
+     'in the ITSM export, which we can check against the source.']
+  ],
+
+  /**
+   * How many questions one person may ask in an hour.
+   *
+   * Not about rudeness - about the email quota. Each question sends a
+   * notification, a consumer Google account may send 100 a day in total, and
+   * an accidental double-click on a slow connection should not cost five of
+   * them.
+   */
+  QUESTION_RATE_PER_HOUR: 5,
+
+  /** The longest a question may be, in characters. */
+  QUESTION_MAX: 2000,
 
   /**
    * Column layout of the TICKETS tab.

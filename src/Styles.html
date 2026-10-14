@@ -1340,6 +1340,127 @@
     font-size: 12px; color: var(--amber-ink);
   }
 
+  /* ---------------- help & FAQ ---------------- */
+  /*
+    The count beside Help in the sidebar. Shown to admins only, and only when
+    something is actually waiting - a badge reading 0 is a badge that trains
+    people to stop looking at badges.
+  */
+  .nav-badge {
+    margin-left: auto; min-width: 20px; padding: 1px 6px;
+    border-radius: 999px; background: var(--amber-ink); color: #fff;
+    font-size: 10.5px; font-weight: 700; text-align: center;
+  }
+  /* Collapsed, the sidebar is icons only and there is no room for a number;
+     a dot in the corner still says "there is something here". */
+  .app.is-collapsed .nav-badge {
+    position: absolute; top: 6px; right: 6px;
+    min-width: 8px; height: 8px; padding: 0;
+    font-size: 0; line-height: 0;
+  }
+
+  /*
+    One question and its answer. <details> rather than a scripted accordion:
+    it opens, it closes, it PRINTS OPENED, and the keyboard reaches it without
+    anybody writing the code for that.
+  */
+  .faq-list { padding: 6px 18px 14px; }
+  .faq-item {
+    border-bottom: 1px solid var(--border);
+  }
+  .faq-item:last-child { border-bottom: 0; }
+  .faq-item > summary {
+    list-style: none; cursor: pointer;
+    padding: 13px 26px 13px 0; position: relative;
+    font-size: 13.5px; font-weight: 600; color: var(--navy-700);
+  }
+  .faq-item > summary::-webkit-details-marker { display: none; }
+  /* The chevron, drawn rather than imported, and rotated when it opens. */
+  .faq-item > summary::after {
+    content: ''; position: absolute; right: 6px; top: 50%;
+    width: 7px; height: 7px; margin-top: -5px;
+    border-right: 2px solid var(--text-mut);
+    border-bottom: 2px solid var(--text-mut);
+    transform: rotate(45deg);
+    transition: transform .16s ease, border-color .16s ease;
+  }
+  .faq-item[open] > summary::after {
+    transform: rotate(-135deg); margin-top: -2px;
+    border-color: var(--blue-500);
+  }
+  .faq-item > summary:hover { color: var(--blue-600); }
+  .faq-item > p {
+    margin: 0 0 14px; padding-right: 26px;
+    font-size: 13px; line-height: 1.65; color: var(--text-dim);
+  }
+
+  /* The box for asking something the FAQ does not cover. */
+  .ask-box { padding: 14px 18px 16px; }
+  .ask-field { display: block; margin-bottom: 12px; }
+  .ask-field > span {
+    display: block; margin-bottom: 5px;
+    font-size: 10.5px; font-weight: 700; letter-spacing: .08em;
+    text-transform: uppercase; color: var(--text-mut);
+  }
+  .ask-field > span i {
+    font-style: normal; font-weight: 600; letter-spacing: 0;
+    text-transform: none; color: var(--text-mut); opacity: .75;
+  }
+  .ask-field input, .ask-text { width: 100%; box-sizing: border-box; }
+  .ask-text {
+    padding: 9px 11px; border-radius: 8px;
+    border: 1px solid var(--border-str); background: var(--surface);
+    font-family: inherit; font-size: 13px; line-height: 1.55;
+    color: var(--navy-700); resize: vertical;
+  }
+  .ask-text:focus {
+    outline: none; border-color: var(--blue-500);
+    box-shadow: 0 0 0 3px rgba(37,99,235,.14);
+  }
+  .ask-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .ask-note { font-size: 12px; color: var(--text-mut); }
+  /* What the server just said. Coloured only while it is new, so an answer
+     from four minutes ago does not keep shouting. */
+  .ask-note.is-said { color: var(--green-ink); font-weight: 600; }
+
+  /* A question in a list, with its answer under it when it has one. */
+  .q-list { padding: 4px 18px 14px; }
+  .q-item {
+    padding: 14px 0; border-bottom: 1px solid var(--border);
+  }
+  .q-item:last-child { border-bottom: 0; }
+  .q-head {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    margin-bottom: 7px;
+  }
+  .q-topic {
+    font-size: 12px; font-weight: 650; color: var(--navy-700);
+  }
+  .q-from, .q-when { font-size: 11.5px; color: var(--text-mut); }
+  .q-when { margin-left: auto; }
+  .q-text {
+    margin: 0; font-size: 13px; line-height: 1.6; color: var(--navy-700);
+    white-space: pre-wrap;
+  }
+  /* The answer, set in against a rule so the two are never read as one block
+     of text by somebody skimming. */
+  .q-answer {
+    margin: 10px 0 0; padding: 9px 0 2px 13px;
+    border-left: 3px solid var(--green-ink);
+  }
+  .q-answer b {
+    font-size: 10.5px; font-weight: 700; letter-spacing: .08em;
+    text-transform: uppercase; color: var(--green-ink);
+  }
+  .q-answer p {
+    margin: 5px 0 0; font-size: 13px; line-height: 1.6;
+    color: var(--text-dim); white-space: pre-wrap;
+  }
+  .q-reply { display: flex; gap: 10px; align-items: flex-start; margin-top: 10px; }
+  .q-reply .ask-text { flex: 1; }
+  .q-item.is-answered .q-reply { opacity: .62; }
+  .q-item.is-answered .q-reply:focus-within { opacity: 1; }
+
   /* ---------------- cards & tables ---------------- */
   .card {
     background: var(--surface);
