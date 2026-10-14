@@ -473,7 +473,29 @@ function quarterLabel(key) {
 
 
 /**
- * Everything the KPI 1 screen needs, read from the cache.
+ * Everything the KPI 1 screen needs. The ENDPOINT - a browser calls this.
+ *
+ * The figures are in readKpi1() below; this is the guard in front of them.
+ * They are two functions because a maintenance function run from the editor
+ * has no token to pass and must not pretend to have one: getKpi1(null, month)
+ * does not skip the check, it fails it, with "Your session has ended" in the
+ * execution log of something nobody was signed in to.
+ *
+ * @param {string} token  the caller's session - see Auth.gs
+ * @param {string} month  'YYYY-MM', or ALL_MONTHS for the whole period
+ * @return {Object}
+ */
+function getKpi1(token, month) {
+  requireSignedIn(token);
+  return readKpi1(month);
+}
+
+
+/**
+ * The same figures, with no session check. NOT AN ENDPOINT in spirit - every
+ * global in an Apps Script project is reachable, so the rule is that anything
+ * calling this must have checked who is asking first. getKpi1() checks a
+ * token; the editor-only functions check requireOwner().
  *
  * WHY AN ALL-MONTHS FIGURE IS NOT AN AVERAGE
  * Percentages cannot be averaged across periods of different size. January
@@ -489,9 +511,7 @@ function quarterLabel(key) {
  * @param {string} month  'YYYY-MM', or ALL_MONTHS for the whole period
  * @return {Object}
  */
-function getKpi1(token, month) {
-  // Needs a session - see Auth.gs.
-  requireSignedIn(token);
+function readKpi1(month) {
   const kpi = CONFIG.KPI.RESOLUTION;
   const everyMonth = (month === ALL_MONTHS);
 
@@ -901,6 +921,12 @@ function getKpiComparison(token, months) {
  * and this disagree, the bug is in the UI.
  */
 function runKpiSelfTest() {
+  // Owner-only, like explainModule() and listPersonModules(). It was the one
+  // of the three with no guard, and it is the most expensive: every global in
+  // an Apps Script project is reachable from a browser, so without this a
+  // viewer could trigger a full rebuild of the cache as often as they liked.
+  requireOwner();
+
   const months = recomputeKpiCache();
 
   if (!months.length) {
@@ -909,7 +935,10 @@ function runKpiSelfTest() {
   }
 
   months.forEach(function (month) {
-    const k = getKpi1(null, month);   // run from the editor: the /dev shortcut covers it
+    // readKpi1, not getKpi1. This said "the /dev shortcut covers it" and it
+    // did not: that shortcut lives in doGet and does nothing for a function
+    // run from the editor, so this threw "Your session has ended" every time.
+    const k = readKpi1(month);
 
     if (!k.hasData) {
       Logger.log('%s \u2014 no scored rows found. (cache lookup problem)', month);
@@ -986,7 +1015,7 @@ function runKpiSelfTest() {
 function listPersonModules(month) {
   requireOwner();
 
-  const k = getKpi1(null, month || null);
+  const k = readKpi1(month || null);
   if (!k.hasData) {
     Logger.log('No tickets in %s.', month || 'any month');
     return [];
