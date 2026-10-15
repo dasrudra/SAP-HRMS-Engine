@@ -1394,72 +1394,216 @@
     font-size: 13px; line-height: 1.65; color: var(--text-dim);
   }
 
-  /* The box for asking something the FAQ does not cover. */
-  .ask-box { padding: 14px 18px 16px; }
-  .ask-field { display: block; margin-bottom: 12px; }
-  .ask-field > span {
-    display: block; margin-bottom: 5px;
-    font-size: 10.5px; font-weight: 700; letter-spacing: .08em;
-    text-transform: uppercase; color: var(--text-mut);
+  /* ---------------- the team's inbox ---------------- */
+
+  .thread-list { padding: 4px 18px 16px; }
+  .thread {
+    padding: 15px 0; border-bottom: 1px solid var(--border);
   }
-  .ask-field > span i {
-    font-style: normal; font-weight: 600; letter-spacing: 0;
-    text-transform: none; color: var(--text-mut); opacity: .75;
+  .thread:last-child { border-bottom: 0; }
+  .thread-head {
+    display: flex; align-items: center; gap: 9px; flex-wrap: wrap;
+    margin-bottom: 9px;
   }
-  .ask-field input, .ask-text { width: 100%; box-sizing: border-box; }
-  .ask-text {
-    padding: 9px 11px; border-radius: 8px;
+  .thread-who { font-size: 13px; font-weight: 700; color: var(--navy-700); }
+  .thread-ok { font-size: 11px; color: var(--text-mut); }
+  .q-topic { font-size: 12px; font-weight: 650; color: var(--navy-700); }
+  .q-when { font-size: 11.5px; color: var(--text-mut); margin-left: auto; }
+  .pill-wait {
+    background: var(--amber-bg); color: var(--amber-ink);
+    font-size: 10px; font-weight: 700; letter-spacing: .06em;
+    padding: 2px 7px; border-radius: 5px;
+  }
+
+  /* A conversation from the sign-in page. Nobody proved they are the employee
+     ID on it, and the one moment that matters is the moment somebody is
+     reading a convincing request for a password reset - so it is marked on the
+     card and not only in the email. */
+  .thread.is-unverified {
+    background: var(--amber-bg); border-radius: 10px;
+    padding: 14px 14px 15px; margin: 8px 0; border-bottom: 0;
+  }
+  .thread-warn {
+    background: var(--red-ink); color: #fff;
+    font-size: 10px; font-weight: 700; letter-spacing: .06em;
+    padding: 2px 7px; border-radius: 5px;
+  }
+  .thread-note {
+    margin: 0 0 10px; font-size: 12px; line-height: 1.6;
+    color: var(--amber-ink); font-weight: 600;
+  }
+  .thread-body { margin-bottom: 10px; }
+  .q-reply { display: flex; gap: 10px; align-items: flex-start; }
+  .q-reply textarea {
+    flex: 1; padding: 9px 11px; border-radius: 8px;
     border: 1px solid var(--border-str); background: var(--surface);
     font-family: inherit; font-size: 13px; line-height: 1.55;
-    color: var(--navy-700); resize: vertical;
+    color: var(--navy-700); resize: vertical; box-sizing: border-box;
   }
-  .ask-text:focus {
+  .q-reply textarea:focus {
     outline: none; border-color: var(--blue-500);
     box-shadow: 0 0 0 3px rgba(37,99,235,.14);
   }
-  .ask-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-  .ask-note { font-size: 12px; color: var(--text-mut); }
-  /* What the server just said. Coloured only while it is new, so an answer
-     from four minutes ago does not keep shouting. */
-  .ask-note.is-said { color: var(--green-ink); font-weight: 600; }
 
-  /* A question in a list, with its answer under it when it has one. */
-  .q-list { padding: 4px 18px 14px; }
-  .q-item {
-    padding: 14px 0; border-bottom: 1px solid var(--border);
+  /* ---------------- chat bubbles ---------------- */
+  /* Shared by the inbox and the message panel, so one conversation cannot look
+     like a different thing depending on who is reading it. */
+
+  .bubble { max-width: 82%; margin-bottom: 8px; }
+  .bubble p {
+    margin: 0; padding: 8px 12px; border-radius: 13px;
+    font-size: 13px; line-height: 1.55; white-space: pre-wrap;
+    word-wrap: break-word; overflow-wrap: anywhere;
   }
-  .q-item:last-child { border-bottom: 0; }
-  .q-head {
-    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
-    margin-bottom: 7px;
+  .bubble time {
+    display: block; margin-top: 3px; font-size: 10.5px; color: var(--text-mut);
   }
-  .q-topic {
-    font-size: 12px; font-weight: 650; color: var(--navy-700);
+  .bubble-user p {
+    background: var(--surface-2); color: var(--navy-700);
+    border-bottom-left-radius: 4px;
   }
-  .q-from, .q-when { font-size: 11.5px; color: var(--text-mut); }
-  .q-when { margin-left: auto; }
-  .q-text {
-    margin: 0; font-size: 13px; line-height: 1.6; color: var(--navy-700);
-    white-space: pre-wrap;
+  .bubble-team {
+    margin-left: auto;
   }
-  /* The answer, set in against a rule so the two are never read as one block
-     of text by somebody skimming. */
-  .q-answer {
-    margin: 10px 0 0; padding: 9px 0 2px 13px;
-    border-left: 3px solid var(--green-ink);
+  .bubble-team p {
+    background: var(--blue-500); color: #fff;
+    border-bottom-right-radius: 4px;
   }
-  .q-answer b {
-    font-size: 10.5px; font-weight: 700; letter-spacing: .08em;
-    text-transform: uppercase; color: var(--green-ink);
+  .bubble-team time { text-align: right; }
+
+  /* ---------------- the message bar ---------------- */
+  /* Docked bottom-right on every screen, including the sign-in page. Fixed
+     rather than inside the app shell, because it has to survive the shell not
+     being there. */
+
+  .msgr {
+    /*
+      ABOVE THE SIGN-IN SCREEN, WHICH IS z-index 200 AND COVERS THE VIEWPORT.
+      At 60 this bar was perfectly correct and completely invisible on the one
+      screen it matters most on - the person who cannot sign in is the person
+      it was put there for. Below the confirm dialog at 1000, which must stay
+      the only thing on screen while it is up.
+    */
+    position: fixed; right: 20px; bottom: 0; z-index: 300;
+    display: flex; flex-direction: column; align-items: flex-end;
+    font-family: inherit;
   }
-  .q-answer p {
-    margin: 5px 0 0; font-size: 13px; line-height: 1.6;
-    color: var(--text-dim); white-space: pre-wrap;
+
+  .msgr-bar {
+    display: flex; align-items: center; gap: 9px;
+    padding: 10px 14px; border: 1px solid var(--border);
+    border-bottom: 0; border-radius: 10px 10px 0 0;
+    background: var(--surface); box-shadow: 0 -2px 14px rgba(15,32,66,.13);
+    cursor: pointer; font-family: inherit; font-size: 13px; font-weight: 650;
+    color: var(--navy-700);
   }
-  .q-reply { display: flex; gap: 10px; align-items: flex-start; margin-top: 10px; }
-  .q-reply .ask-text { flex: 1; }
-  .q-item.is-answered .q-reply { opacity: .62; }
-  .q-item.is-answered .q-reply:focus-within { opacity: 1; }
+  .msgr-bar:hover { background: var(--surface-2); }
+  .msgr-bar-icon { display: flex; color: var(--blue-500); }
+  .msgr-chevron { display: flex; color: var(--text-mut); }
+  .msgr.is-open .msgr-bar { display: none; }
+
+  /* The unread count, on the bar so it is visible without opening anything. */
+  .msgr-dot {
+    min-width: 17px; height: 17px; padding: 0 4px; box-sizing: border-box;
+    border-radius: 9px; background: var(--red-ink); color: #fff;
+    font-size: 10.5px; font-weight: 700; line-height: 17px; text-align: center;
+  }
+
+  .msgr-panel {
+    width: 352px; max-width: calc(100vw - 32px);
+    display: flex; flex-direction: column;
+    max-height: min(560px, calc(100vh - 40px));
+    border: 1px solid var(--border); border-bottom: 0;
+    border-radius: 12px 12px 0 0; background: var(--surface);
+    box-shadow: 0 -4px 26px rgba(15,32,66,.2);
+    overflow: hidden;
+  }
+  .msgr-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 11px 14px; border-bottom: 1px solid var(--border);
+    background: var(--navy-700);
+  }
+  .msgr-head h2 {
+    margin: 0; font-size: 13.5px; font-weight: 700; color: #fff;
+  }
+  .msgr-close {
+    display: flex; padding: 3px; border: 0; border-radius: 6px;
+    background: transparent; color: rgba(255,255,255,.8); cursor: pointer;
+  }
+  .msgr-close:hover { background: rgba(255,255,255,.14); color: #fff; }
+
+  .msgr-faq {
+    border-bottom: 1px solid var(--border); background: var(--surface-2);
+    flex: none;
+  }
+  .msgr-faq > summary {
+    padding: 9px 14px; cursor: pointer; list-style: none;
+    font-size: 11.5px; font-weight: 700; letter-spacing: .05em;
+    text-transform: uppercase; color: var(--text-mut);
+  }
+  .msgr-faq > summary::-webkit-details-marker { display: none; }
+  .msgr-faq > summary::after { content: ' \25be'; }
+  .msgr-faq[open] > summary::after { content: ' \25b4'; }
+  .msgr-faq-list { padding: 0 14px 10px; max-height: 190px; overflow-y: auto; }
+  .msgr-faq-list .faq-item > summary { font-size: 12.5px; padding: 7px 0; }
+  .msgr-faq-list .faq-item > p,
+  .msgr-faq-list .faq-answer { font-size: 12px; margin-bottom: 9px; }
+
+  .msgr-thread {
+    flex: 1; min-height: 120px; overflow-y: auto; padding: 14px;
+  }
+  .msgr-thread .bubble { max-width: 88%; }
+  .msgr-empty {
+    margin: 0; font-size: 12.5px; line-height: 1.6; color: var(--text-mut);
+  }
+
+  .msgr-compose {
+    flex: none; padding: 10px 12px 12px; border-top: 1px solid var(--border);
+    background: var(--surface);
+  }
+  .msgr-id { display: block; margin-bottom: 8px; }
+  .msgr-id > span {
+    display: block; margin-bottom: 4px;
+    font-size: 10.5px; font-weight: 700; letter-spacing: .07em;
+    text-transform: uppercase; color: var(--text-mut);
+  }
+  .msgr-id input {
+    width: 100%; box-sizing: border-box; padding: 8px 10px;
+    border: 1px solid var(--border-str); border-radius: 8px;
+    background: var(--surface); font-family: inherit; font-size: 13px;
+    color: var(--navy-700);
+  }
+  .msgr-compose-row { display: flex; gap: 8px; align-items: flex-end; }
+  .msgr-compose textarea {
+    flex: 1; box-sizing: border-box; padding: 9px 11px; max-height: 120px;
+    border: 1px solid var(--border-str); border-radius: 9px;
+    background: var(--surface); font-family: inherit; font-size: 13px;
+    line-height: 1.5; color: var(--navy-700); resize: none; overflow-y: auto;
+  }
+  .msgr-compose textarea:focus, .msgr-id input:focus {
+    outline: none; border-color: var(--blue-500);
+    box-shadow: 0 0 0 3px rgba(37,99,235,.14);
+  }
+  .msgr-send {
+    display: flex; padding: 9px; border: 0; border-radius: 9px;
+    background: var(--blue-500); color: #fff; cursor: pointer;
+  }
+  .msgr-send:hover { background: var(--blue-600); }
+  .msgr-send:disabled { opacity: .55; cursor: default; }
+  .msgr-note {
+    margin: 7px 0 0; font-size: 11.5px; line-height: 1.5; color: var(--text-mut);
+  }
+  .msgr-note.is-said { color: var(--navy-700); }
+
+  /* On a phone the panel is the screen. A 352px card floating over a 360px
+     viewport is a worse version of the same thing. */
+  @media (max-width: 520px) {
+    .msgr { right: 12px; }
+    .msgr-panel {
+      position: fixed; inset: 0; width: auto; max-width: none;
+      max-height: none; border-radius: 0; border: 0;
+    }
+  }
 
   /* ---------------- cards & tables ---------------- */
   .card {

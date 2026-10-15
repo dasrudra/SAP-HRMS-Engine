@@ -476,7 +476,9 @@ const CONFIG = {
     CONFIG:    'KPI_CONFIG',
     OPERATORS: 'OPERATORS',
     QUESTIONS: 'QUESTIONS',
-    FAQ:       'FAQ'
+    FAQ:       'FAQ',
+    THREADS:   'THREADS',
+    MESSAGES:  'MESSAGES'
   },
 
   /** Where this dashboard lives, for the link in a notification email. */
@@ -549,6 +551,53 @@ const CONFIG = {
 
   /** The longest a question may be, in characters. */
   QUESTION_MAX: 2000,
+
+  /**
+   * One conversation. There is exactly one per person per verification state.
+   *
+   * `Verified` is the column that matters. YES means the person was signed in
+   * when they wrote - the employee ID came from their session token, so it is
+   * a fact. NO means the message came from the messenger on the SIGN-IN page,
+   * where nobody is signed in by definition and the employee ID is only what
+   * the sender typed.
+   *
+   * The two never share a thread, and that is a security boundary, not tidiness:
+   *
+   *   - a stranger who types somebody else's ID must not be able to put words
+   *     into that person's conversation, where they would be read as theirs;
+   *   - a reply written to that stranger must never appear on the real
+   *     employee's screen when they next sign in.
+   *
+   * Keying the thread on (person + verified) gets both for free.
+   */
+  THREAD_COLUMNS: [
+    'Thread ID', 'Person', 'Verified', 'Started', 'Topic',
+    'Last Message At', 'Last Message By', 'Status',
+    'Waiting For Team', 'Unread By Person'
+  ],
+
+  /** Every line anybody has typed, in order. Side is USER or TEAM. */
+  MESSAGE_COLUMNS: [
+    'Message ID', 'Thread ID', 'At', 'Side', 'Author', 'Text'
+  ],
+
+  /**
+   * How many messages the sign-in page accepts per hour, across everybody.
+   *
+   * This endpoint takes no token - it cannot, since the whole point is to hear
+   * from somebody who cannot get in. That makes it the one door on this
+   * dashboard open to the whole internet, and the dashboard URL is on a public
+   * Blogger page. Apps Script does not hand out the caller's IP address, so a
+   * per-sender limit is not available and this global one is what there is.
+   *
+   * It is deliberately small. Twenty genuine lock-outs in one hour would be a
+   * remarkable day; twenty messages an hour from a bot is a nuisance that
+   * stops before it has spent a day's email quota.
+   */
+  UNVERIFIED_PER_HOUR: 20,
+
+  /** And how many of those may send an email, so a burst cannot drain 100. */
+  UNVERIFIED_EMAILS_PER_HOUR: 5,
 
   /**
    * Column layout of the TICKETS tab.

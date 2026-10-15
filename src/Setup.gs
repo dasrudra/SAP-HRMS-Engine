@@ -57,6 +57,10 @@ function setupDatabase() {
   createSheet(ss, CONFIG.SHEETS.QUESTIONS, CONFIG.QUESTION_COLUMNS);
   createSheet(ss, CONFIG.SHEETS.FAQ, CONFIG.FAQ_COLUMNS);
 
+  // The messenger: one conversation per person, and every line in it.
+  createSheet(ss, CONFIG.SHEETS.THREADS, CONFIG.THREAD_COLUMNS);
+  createSheet(ss, CONFIG.SHEETS.MESSAGES, CONFIG.MESSAGE_COLUMNS);
+
   syncKpiConfigSheet(ss);
 
   // A brand-new spreadsheet always has a "Sheet1" we never use.

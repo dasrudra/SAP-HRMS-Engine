@@ -171,9 +171,9 @@ function getBootstrap(token) {
     // definition link of its own can fall back to it.
     kpiPolicy: CONFIG.POLICY,
 
-    // How many questions are waiting for an answer, for the badge on the Help
-    // nav item. Only an admin is shown it; everyone else gets 0 rather than a
-    // number they cannot act on.
+    // How many conversations are waiting for a reply, for the badge on the
+    // Help nav item. Only an admin is shown it - everyone else has no Help
+    // screen at all now, and a number nobody can act on is noise.
     questionsWaiting: (configured && rankOf(session.role) >= rankOf(ROLE_ADMIN) &&
                        typeof unansweredQuestionCount === 'function')
       ? unansweredQuestionCount() : 0,

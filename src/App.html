@@ -96,7 +96,7 @@
     wireOrg();
     wireLogin();
     wireSetup();
-    wireAsk();
+    wireMessenger();
     watchActivity();
 
     // Find the token before anything is asked of the server, since every call
@@ -1062,6 +1062,13 @@
   function showView(name, options) {
     options = options || {};
     if (!document.getElementById('view-' + name)) name = 'kpi1';
+
+    // Help is the team's inbox now, and a viewer has no nav item for it. A
+    // saved bookmark or a pasted ?view=help still arrives here though, and
+    // landing on a screen with one empty card and no explanation is worse than
+    // landing on the dashboard. The server refuses them either way - this is
+    // about what they see, not what they can reach.
+    if (name === 'help' && !canAdmin()) name = 'kpi1';
 
     document.querySelectorAll('.view').forEach(function (el) { el.hidden = true; });
     const target = document.getElementById('view-' + name);
@@ -6389,199 +6396,157 @@
 
 
   // =========================================================================
-  // HELP & FAQ
+  // HELP & FAQ - the team's inbox
   // =========================================================================
   //
-  // Three things on one screen, and who sees what is the whole design.
+  // This screen belongs to ADMIN and above. Everybody else reaches the team
+  // through the message bar in the corner, which is further down this file.
   //
-  //   the FAQ          everyone. Read from the FAQ tab, so an answer is
-  //                    corrected in the spreadsheet, not in a deployment.
-  //   ask a question   everyone. The employee ID comes from the token on the
-  //                    server, never from a field, so nobody can ask as
-  //                    somebody else.
-  //   your questions   YOURS. The server filters, not the screen - an endpoint
-  //                    that returned everyone's and let the page hide the rest
-  //                    would hand the lot to anyone with a console open.
-  //   the inbox        admins. Guarded by requireAdmin on every call behind it.
+  // The endpoints behind it check requireAdmin on the server. Hiding the screen
+  // is a courtesy to people who cannot use it, not a security measure -
+  // google.script.run reaches every global in the project from any console.
 
   function loadHelp() {
     callServer('faqEntries').then(renderFaq).catch(onError);
-    loadMyQuestions();
     if (canAdmin()) loadInbox();
   }
 
 
   function renderFaq(entries) {
-    const list = document.getElementById('faqList');
-    if (!list) return;
-
     const rows = entries || [];
     setText('faqCount', rows.length + (rows.length === 1 ? ' question' : ' questions'));
+    paintFaq('faqList', rows);
+  }
+
+
+  /**
+   * The FAQ as a list of <details>, which gives keyboard support, find-in-page
+   * and an open/closed state for nothing.
+   *
+   * Shared by the Help screen and the message panel, so one FAQ cannot drift
+   * from the other.
+   */
+  function paintFaq(listId, rows) {
+    const list = document.getElementById(listId);
+    if (!list) return;
 
     if (!rows.length) {
       list.innerHTML = '<p class="empty">Nothing published yet.</p>';
       return;
     }
-
-    // <details> rather than a scripted accordion: it opens, it closes, it
-    // prints opened, it is reachable from the keyboard, and none of that is
-    // code anybody has to maintain.
     list.innerHTML = rows.map(function (e) {
       return '<details class="faq-item">' +
                '<summary>' + escapeHtml(e.question) + '</summary>' +
-               '<p>' + escapeHtml(e.answer) + '</p>' +
+               '<div class="faq-answer">' + escapeHtml(e.answer) + '</div>' +
              '</details>';
     }).join('');
   }
 
 
-  function loadMyQuestions() {
-    callServer('myQuestions').then(function (rows) {
-      renderQuestionList('myQList', 'myQCount', rows || [], false);
-    }).catch(onError);
-  }
-
-
   function loadInbox() {
-    callServer('listQuestions').then(function (rows) {
-      renderQuestionList('inboxList', 'inboxCount', rows || [], true);
-      wireAnswerButtons();
-      // The badge counts what is still waiting, not what is on screen.
-      const waiting = (rows || []).filter(function (q) {
-        return q.status !== 'ANSWERED';
-      }).length;
-      showHelpBadge(waiting);
+    callServer('listThreads').then(function (rows) {
+      renderInbox(rows || []);
+      showHelpBadge((rows || []).filter(function (t) {
+        return (t.waiting || 0) > 0;
+      }).length);
     }).catch(onError);
   }
 
 
   /**
-   * One list of questions. The inbox form is the only difference between the
-   * admin view and the asker's, so they share everything else.
+   * One card per conversation: who, the whole exchange, and a box to reply.
+   *
+   * THE UNVERIFIED BANNER IS NOT DECORATION. A conversation marked that way
+   * came from the message box on the sign-in page, where nobody is signed in,
+   * so its employee ID is only what somebody typed into a public web page. The
+   * warning goes on the card because the moment it matters is the moment
+   * somebody is reading a convincing request for a password reset.
    */
-  function renderQuestionList(listId, countId, rows, canAnswer) {
-    const list = document.getElementById(listId);
+  function renderInbox(rows) {
+    const list = document.getElementById('inboxList');
     if (!list) return;
 
-    const waiting = rows.filter(function (q) { return q.status !== 'ANSWERED'; }).length;
-    setText(countId, rows.length
-      ? rows.length + (rows.length === 1 ? ' question' : ' questions') +
+    const waiting = rows.filter(function (t) { return (t.waiting || 0) > 0; }).length;
+    setText('inboxCount', rows.length
+      ? rows.length + (rows.length === 1 ? ' conversation' : ' conversations') +
         (waiting ? ' \u00b7 ' + waiting + ' waiting' : ' \u00b7 all answered')
       : '');
 
     if (!rows.length) {
-      list.innerHTML = '<p class="empty">' +
-        (canAnswer ? 'Nothing waiting.' : 'Nothing yet.') + '</p>';
+      list.innerHTML = '<p class="empty">Nothing waiting.</p>';
       return;
     }
 
-    list.innerHTML = rows.map(function (q) {
-      const answered = q.status === 'ANSWERED';
-      return '<article class="q-item' + (answered ? ' is-answered' : '') + '">' +
-        '<div class="q-head">' +
-          '<span class="pill ' + (answered ? 'g' : 'a') + '">' +
-            (answered ? 'ANSWERED' : 'WAITING') + '</span>' +
-          (q.topic ? '<span class="q-topic">' + escapeHtml(q.topic) + '</span>' : '') +
-          (canAnswer && q.from
-            ? '<span class="q-from">from ' + escapeHtml(q.from) + '</span>' : '') +
-          '<span class="q-when">' + escapeHtml(whenText(q.askedAt)) + '</span>' +
+    list.innerHTML = rows.map(function (t) {
+      return '<article class="thread' + (t.verified ? '' : ' is-unverified') + '">' +
+        '<div class="thread-head">' +
+          (t.waiting ? '<span class="pill pill-wait">WAITING</span>' : '') +
+          '<span class="thread-who">' + escapeHtml(t.person) + '</span>' +
+          (t.verified
+            ? '<span class="thread-ok">signed in</span>'
+            : '<span class="thread-warn">NOT VERIFIED</span>') +
+          (t.topic ? '<span class="q-topic">' + escapeHtml(t.topic) + '</span>' : '') +
+          '<span class="q-when">' + escapeHtml(whenText(t.lastAt)) + '</span>' +
         '</div>' +
-        '<p class="q-text">' + escapeHtml(q.question) + '</p>' +
-        (answered
-          ? '<div class="q-answer"><b>Answer</b>' +
-              (q.answeredBy ? ' <span class="q-from">' + escapeHtml(q.answeredBy) +
-                              '</span>' : '') +
-              '<p>' + escapeHtml(q.answer) + '</p></div>'
-          : '') +
-        (canAnswer
-          ? '<div class="q-reply">' +
-              '<textarea class="ask-text" rows="2" data-answer-for="' +
-                escapeHtml(q.id) + '" placeholder="' +
-                (answered ? 'Replace the answer\u2026' : 'Answer\u2026') + '"></textarea>' +
-              '<button class="btn btn-primary" data-answer-go="' +
-                escapeHtml(q.id) + '">' +
-                (answered ? 'Replace' : 'Answer') + '</button>' +
-            '</div>'
-          : '') +
+        (t.verified ? '' :
+          '<p class="thread-note">This came from the sign-in page, where nobody ' +
+          'is signed in. That employee ID is only what the sender typed. Do not ' +
+          'reset a password or share anything on the strength of it - ring them ' +
+          'or check in SAP first. They cannot see a reply here either.</p>') +
+        '<div class="thread-body">' + bubbles(t.messages || []) + '</div>' +
+        '<div class="q-reply">' +
+          '<textarea rows="2" data-reply="' + escapeHtml(t.id) +
+            '" placeholder="Reply' + (t.verified ? '' : ' (they will not see it)') +
+            '\u2026"></textarea>' +
+          '<button class="btn btn-primary" data-reply-go="' + escapeHtml(t.id) +
+            '">Reply</button>' +
+        '</div>' +
       '</article>';
+    }).join('');
+
+    wireReplyButtons();
+  }
+
+
+  /** A run of messages as chat bubbles. Used by the inbox and the panel. */
+  function bubbles(messages) {
+    if (!messages.length) return '<p class="empty">No messages.</p>';
+    return messages.map(function (m) {
+      return '<div class="bubble bubble-' +
+               (m.side === 'TEAM' ? 'team' : 'user') + '">' +
+               '<p>' + escapeHtml(m.text) + '</p>' +
+               '<time>' + escapeHtml(whenText(m.at)) + '</time>' +
+             '</div>';
     }).join('');
   }
 
 
-  function wireAnswerButtons() {
-    document.querySelectorAll('[data-answer-go]').forEach(function (button) {
+  function wireReplyButtons() {
+    document.querySelectorAll('[data-reply-go]').forEach(function (button) {
       button.addEventListener('click', function () {
-        const id = button.getAttribute('data-answer-go');
-        const box = document.querySelector('[data-answer-for="' + cssEscape(id) + '"]');
+        const id = button.getAttribute('data-reply-go');
+        const box = document.querySelector('[data-reply="' + id + '"]');
         const text = box ? box.value.trim() : '';
         if (!text) { if (box) box.focus(); return; }
 
         button.disabled = true;
         const wording = button.textContent;
-        button.textContent = 'Saving\u2026';
+        button.textContent = 'Sending\u2026';
 
-        callServer('answerQuestion', id, text).then(function (result) {
-          button.disabled = false;
-          button.textContent = wording;
-          if (!result || !result.ok) {
-            return toastHelp((result && result.message) || 'That did not save.');
-          }
-          loadInbox();
-          loadMyQuestions();
-        }).catch(function (err) {
-          button.disabled = false;
-          button.textContent = wording;
-          onError(err);
-        });
+        callServer('replyToThread', id, text)
+          .then(function (result) {
+            button.disabled = false;
+            button.textContent = wording;
+            if (result && result.ok) { if (box) box.value = ''; loadInbox(); }
+            else toast((result && result.message) || 'That did not save.');
+          })
+          .catch(function (err) {
+            button.disabled = false;
+            button.textContent = wording;
+            onError(err);
+          });
       });
     });
-  }
-
-
-  function wireAsk() {
-    bind('askGo', 'click', function () {
-      const button = document.getElementById('askGo');
-      const text = getValue('askText').trim();
-      if (!text) { const box = document.getElementById('askText');
-                   if (box) box.focus(); return; }
-
-      button.disabled = true;
-      const wording = button.textContent;
-      button.textContent = 'Sending\u2026';
-
-      callServer('askQuestion', getValue('askTopic').trim(), text)
-        .then(function (result) {
-          button.disabled = false;
-          button.textContent = wording;
-          toastHelp((result && result.message) || 'Sent.');
-          if (result && result.ok) {
-            setValue('askText', '');
-            setValue('askTopic', '');
-            loadMyQuestions();
-            // An admin asking a question is also an admin with one more
-            // question waiting. Without this the inbox and the badge keep the
-            // count they were handed at sign-in, so the badge reads 1 while
-            // three are waiting, and then appears to COUNT UP when one gets
-            // answered. A badge that moves the wrong way is worse than none.
-            if (canAdmin()) loadInbox();
-          }
-        })
-        .catch(function (err) {
-          button.disabled = false;
-          button.textContent = wording;
-          onError(err);
-        });
-    });
-  }
-
-
-  /** A one-line answer under the Send button. Not a dialog - nothing to dismiss. */
-  function toastHelp(message) {
-    const note = document.getElementById('askNote');
-    if (!note) return;
-    note.textContent = message;
-    note.classList.add('is-said');
-    setTimeout(function () { note.classList.remove('is-said'); }, 4000);
   }
 
 
@@ -6593,9 +6558,221 @@
     badge.hidden = !show;
     if (show) {
       badge.textContent = waiting > 99 ? '99+' : String(waiting);
-      badge.title = waiting + (waiting === 1 ? ' question is' : ' questions are') +
-                    ' waiting for an answer';
+      badge.title = waiting +
+        (waiting === 1 ? ' conversation is' : ' conversations are') +
+        ' waiting for a reply';
     }
+  }
+
+
+  // =========================================================================
+  // THE MESSAGE BAR
+  // =========================================================================
+  //
+  // A docked bar in the corner of every screen that opens into one
+  // conversation with the EAS team. It is how everybody who is not an admin
+  // reaches us, and it is on the sign-in page too, because the person most
+  // likely to need it is the one who cannot get in.
+  //
+  // SIGNED IN AND SIGNED OUT ARE DIFFERENT PROGRAMS SHARING A PANEL.
+  //
+  //   signed in   their thread, the team's replies, a dot when one is unread,
+  //               and no field for an employee ID anywhere - the server takes
+  //               it from the session token, so a message cannot be sent in
+  //               somebody else's name.
+  //   signed out  no thread, because there is nobody to have one with, and no
+  //               way to deliver a reply. It asks for an employee ID, which is
+  //               a claim and not a fact, and says so instead of implying an
+  //               answer will appear here.
+  //
+  // It polls while open, and only while open: a panel nobody has opened costs
+  // one call on page load and nothing after that.
+
+  const MSGR_POLL_MS = 45000;
+  let msgrTimer = null;
+  let msgrSignedIn = false;
+  let msgrSeen = 0;
+
+
+  function wireMessenger() {
+    const bar = document.getElementById('msgrBar');
+    const close = document.getElementById('msgrClose');
+    const form = document.getElementById('msgrCompose');
+    const text = document.getElementById('msgrText');
+    if (!bar || !form) return;
+
+    bar.addEventListener('click', function () { openMessenger(true); });
+    if (close) close.addEventListener('click', function (e) {
+      e.stopPropagation();
+      openMessenger(false);
+    });
+
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      sendFromMessenger();
+    });
+
+    // Enter sends, Shift+Enter makes a new line - what every messenger does,
+    // and what fingers expect before they have thought about it.
+    if (text) {
+      text.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendFromMessenger(); }
+      });
+      text.addEventListener('input', function () {
+        text.style.height = 'auto';
+        text.style.height = Math.min(text.scrollHeight, 120) + 'px';
+      });
+    }
+
+    loadMessenger();
+  }
+
+
+  /** One call on page load: the FAQ, the conversation, and the unread count. */
+  function loadMessenger() {
+    callServer('messengerBoot')
+      .then(function (data) {
+        const shell = document.getElementById('msgr');
+        if (shell) shell.hidden = false;
+
+        msgrSignedIn = Boolean(data && data.signedIn);
+        paintFaq('msgrFaq', (data && data.faq) || []);
+
+        const idWrap = document.getElementById('msgrIdWrap');
+        if (idWrap) idWrap.hidden = msgrSignedIn;
+
+        paintThread((data && data.messages) || []);
+        msgrUnread(Number(data && data.unread) || 0);
+        msgrNote(msgrSignedIn
+          ? ''
+          : 'You are not signed in, so a reply cannot come back to this box. ' +
+            'Put your employee ID in and the EAS team will contact you.');
+      })
+      .catch(function () {
+        // The bar is not worth an error banner over the whole page. If the
+        // panel cannot load, it simply does not appear.
+      });
+  }
+
+
+  function openMessenger(open) {
+    const panel = document.getElementById('msgrPanel');
+    const bar = document.getElementById('msgrBar');
+    if (!panel || !bar) return;
+
+    panel.hidden = !open;
+    bar.setAttribute('aria-expanded', open ? 'true' : 'false');
+    document.getElementById('msgr').classList.toggle('is-open', open);
+
+    if (msgrTimer) { clearInterval(msgrTimer); msgrTimer = null; }
+
+    if (!open) return;
+
+    const text = document.getElementById('msgrText');
+    if (text) text.focus();
+    scrollThread();
+
+    if (msgrSignedIn) {
+      // Opening it is reading it.
+      callServer('markMyMessagesRead').catch(function () {});
+      msgrUnread(0);
+      msgrTimer = setInterval(pollMessenger, MSGR_POLL_MS);
+    }
+  }
+
+
+  function pollMessenger() {
+    if (!msgrSignedIn) return;
+    callServer('myMessages').then(function (data) {
+      const messages = (data && data.messages) || [];
+      if (messages.length === msgrSeen) return;      // nothing new, no repaint
+      paintThread(messages);
+      scrollThread();
+      callServer('markMyMessagesRead').catch(function () {});
+    }).catch(function () { /* a dropped poll is not worth saying anything about */ });
+  }
+
+
+  function paintThread(messages) {
+    const box = document.getElementById('msgrThread');
+    if (!box) return;
+    msgrSeen = messages.length;
+
+    if (!msgrSignedIn) {
+      box.innerHTML = '<p class="msgr-empty">Locked out, or something not ' +
+        'working? Send the EAS team a message and they will get back to you.</p>';
+      return;
+    }
+    box.innerHTML = messages.length
+      ? bubbles(messages)
+      : '<p class="msgr-empty">No messages yet. Ask us anything about the ' +
+        'dashboard or your login.</p>';
+  }
+
+
+  function scrollThread() {
+    const box = document.getElementById('msgrThread');
+    if (box) box.scrollTop = box.scrollHeight;
+  }
+
+
+  function sendFromMessenger() {
+    const text = document.getElementById('msgrText');
+    const button = document.getElementById('msgrSend');
+    const body = text ? text.value.trim() : '';
+    if (!body) { if (text) text.focus(); return; }
+
+    const idBox = document.getElementById('msgrId');
+    const claimed = idBox ? idBox.value.trim() : '';
+    if (!msgrSignedIn && !claimed) {
+      msgrNote('Put your employee ID in first - the one you sign in with.');
+      if (idBox) idBox.focus();
+      return;
+    }
+
+    if (button) button.disabled = true;
+
+    const call = msgrSignedIn
+      ? callServer('sendMessage', body)
+      : callServer('sendUnverifiedMessage', claimed, body);
+
+    call.then(function (result) {
+      if (button) button.disabled = false;
+
+      if (!result || !result.ok) {
+        msgrNote((result && result.message) || 'That did not send.');
+        return;
+      }
+      if (text) { text.value = ''; text.style.height = 'auto'; }
+      msgrNote(result.message || 'Sent.');
+
+      if (msgrSignedIn) {
+        paintThread(result.messages || []);
+        scrollThread();
+      }
+    }).catch(function (err) {
+      if (button) button.disabled = false;
+      msgrNote((err && err.message) || 'That did not send.');
+    });
+  }
+
+
+  function msgrUnread(count) {
+    const dot = document.getElementById('msgrDot');
+    const label = document.getElementById('msgrBarLabel');
+    if (dot) {
+      dot.hidden = !(count > 0);
+      if (count > 0) dot.textContent = count > 9 ? '9+' : String(count);
+    }
+    if (label) label.textContent = count > 0 ? 'Messages' : 'Messages';
+  }
+
+
+  function msgrNote(message) {
+    const note = document.getElementById('msgrNote');
+    if (!note) return;
+    note.textContent = message || '';
+    note.classList.toggle('is-said', Boolean(message));
   }
 
 

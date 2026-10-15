@@ -213,12 +213,16 @@
       </button>
 
       <!--
-        Help. Everyone sees it: the FAQ is for everyone and so is the box for
-        asking something that is not on it. The badge beside the label is the
-        count of unanswered questions and is shown to admins only - a number
-        nobody can act on is noise.
+        Help & FAQ. ADMIN and above, hidden from everyone else by applyRole(),
+        because this screen is now the team's inbox rather than a help page.
+
+        Viewers are not losing anything: the FAQ moved into the message bar in
+        the corner, where it sits above their own conversation, and that bar is
+        on every screen including the sign-in page. The badge here is the number
+        of conversations waiting on a reply.
       -->
-      <button class="nav-item" data-view="help" title="Help &amp; FAQ">
+      <button class="nav-item" data-view="help" data-admin-only hidden
+              title="Help &amp; FAQ">
         <svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.3"/><path d="M6.1 6.1a1.95 1.95 0 0 1 3.8.6c0 1.3-1.9 1.6-1.9 2.9"/><path d="M8 12.1h.01"/></svg>
         <span class="nav-text">Help &amp; FAQ</span>
         <span class="nav-badge" id="helpBadge" hidden></span>
@@ -568,9 +572,9 @@
         <div class="page-head">
           <div>
             <h1>Help &amp; FAQ</h1>
-            <p class="sub">The questions this dashboard gets asked. If yours is
-              not here, ask it at the bottom and somebody will answer on this
-              screen.</p>
+            <p class="sub">The published answers, and the conversations people
+              have started. This screen is the team's - everybody else asks from
+              the message bar in the corner.</p>
           </div>
         </div>
 
@@ -589,51 +593,22 @@
         </div>
 
         <!--
-          Ask. The employee ID is NOT a field - it comes from the signed-in
-          token on the server, so a question cannot be posted in somebody
-          else's name and there is nothing here to fill in wrongly.
-        -->
-        <div class="card">
-          <div class="card-head">Ask a question</div>
-          <div class="ask-box">
-            <label class="ask-field">
-              <span>Topic <i>optional</i></span>
-              <input id="askTopic" class="select" type="text" maxlength="80"
-                     placeholder="KPI 1, my login, a figure that looks wrong&#x2026;">
-            </label>
-            <label class="ask-field">
-              <span>Your question</span>
-              <textarea id="askText" class="ask-text" rows="4"
-                        placeholder="Say what you are looking at and what you expected."></textarea>
-            </label>
-            <div class="ask-row">
-              <button class="btn btn-primary" id="askGo">Send</button>
-              <span class="ask-note" id="askNote">It goes to the team with your
-                employee ID on it. The answer appears below.</span>
-            </div>
-          </div>
-        </div>
+          The inbox: one card per person, the whole conversation inside it, and
+          a box to reply. ADMIN and above, hidden from everyone else by
+          applyRole() - and every endpoint behind it checks requireAdmin on the
+          server, because hiding a panel does not stop google.script.run
+          reaching it.
 
-        <!-- Their own questions and the answers. Nobody else's. -->
-        <div class="card">
-          <div class="card-head">Your questions
-            <span class="head-note" id="myQCount"></span>
-          </div>
-          <div class="q-list" id="myQList">
-            <p class="empty">Nothing yet.</p>
-          </div>
-        </div>
-
-        <!--
-          The inbox. ADMIN and above, hidden from everyone else by applyRole() -
-          and every endpoint behind it checks requireAdmin on the server, because
-          hiding a panel does not stop google.script.run reaching it.
+          A conversation marked UNVERIFIED came from the message box on the
+          SIGN-IN page, where nobody is signed in. The employee ID on it is only
+          what somebody typed. Built by renderInbox(), which puts that warning
+          on the card itself rather than trusting anyone to remember it.
         -->
         <div class="card" data-admin-only hidden>
-          <div class="card-head">Questions to answer
+          <div class="card-head">Conversations
             <span class="head-note" id="inboxCount"></span>
           </div>
-          <div class="q-list" id="inboxList">
+          <div class="thread-list" id="inboxList">
             <p class="empty">Nothing waiting.</p>
           </div>
         </div>
@@ -1246,6 +1221,87 @@
 
     </div>
   </main>
+</div>
+
+<!--
+  ============ THE MESSENGER BAR ============
+
+  Outside both the sign-in screen and the app shell on purpose, so the same
+  widget serves both. It is the only way an ordinary viewer can reach the team:
+  they have no Help & FAQ screen, because that screen is the team's inbox.
+
+  THE SIGN-IN STATE IS A DIFFERENT THING WEARING THE SAME COAT. Signed in, this
+  is a conversation - their messages and the team's replies, one thread, going
+  back as far as it goes. On the sign-in page nobody is signed in, so there is
+  no conversation to show and no way to show a reply; it collects an employee ID
+  and one message, and says so plainly rather than implying an answer will
+  appear here. See sendUnverifiedMessage() in Messenger.gs for what happens to
+  it, and why it lands somewhere the real owner of that ID will never see.
+-->
+<div class="msgr" id="msgr" hidden>
+
+  <!-- Collapsed: the bar you see on every screen. -->
+  <button class="msgr-bar" id="msgrBar" aria-expanded="false" aria-controls="msgrPanel">
+    <span class="msgr-bar-icon" aria-hidden="true">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none"
+           stroke="currentColor" stroke-width="2" stroke-linecap="round"
+           stroke-linejoin="round"><path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 8.5 8.5 0 0 1-3.9-.9L3 21l1.9-5.1A8.4 8.4 0 0 1 4 11.5a8.5 8.5 0 0 1 8.5-8.5 8.4 8.4 0 0 1 8.5 8.5z"/></svg>
+    </span>
+    <span class="msgr-bar-label" id="msgrBarLabel">Messages</span>
+    <span class="msgr-dot" id="msgrDot" hidden aria-label="unread"></span>
+    <span class="msgr-chevron" aria-hidden="true">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none"
+           stroke="currentColor" stroke-width="2" stroke-linecap="round"
+           stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>
+    </span>
+  </button>
+
+  <!-- Expanded. -->
+  <section class="msgr-panel" id="msgrPanel" hidden aria-label="Messages">
+    <header class="msgr-head">
+      <h2>Messages</h2>
+      <button class="msgr-close" id="msgrClose" aria-label="Close messages">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none"
+             stroke="currentColor" stroke-width="2" stroke-linecap="round"
+             stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+      </button>
+    </header>
+
+    <!--
+      The FAQ, collapsed, above the conversation. Most people's question is
+      already answered here, and one they answer themselves is one nobody has
+      to answer twice.
+    -->
+    <details class="msgr-faq" id="msgrFaqWrap">
+      <summary>Common questions</summary>
+      <div class="msgr-faq-list" id="msgrFaq"></div>
+    </details>
+
+    <div class="msgr-thread" id="msgrThread"></div>
+
+    <form class="msgr-compose" id="msgrCompose">
+      <!--
+        Only on the sign-in page. Signed in, the employee ID comes from the
+        session token on the server and there is deliberately no field for it,
+        so a message cannot be sent in somebody else's name.
+      -->
+      <label class="msgr-id" id="msgrIdWrap" hidden>
+        <span>Your employee ID</span>
+        <input type="text" id="msgrId" maxlength="40" autocomplete="username"
+               placeholder="The ID you sign in with">
+      </label>
+      <div class="msgr-compose-row">
+        <textarea id="msgrText" rows="1" maxlength="2000"
+                  placeholder="Write a message&#x2026;"></textarea>
+        <button type="submit" class="msgr-send" id="msgrSend" aria-label="Send">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none"
+               stroke="currentColor" stroke-width="2" stroke-linecap="round"
+               stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+        </button>
+      </div>
+      <p class="msgr-note" id="msgrNote"></p>
+    </form>
+  </section>
 </div>
 
 <!--

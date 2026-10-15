@@ -137,13 +137,50 @@ const stub = `
   // everything.
   var ROLE = new URLSearchParams(location.search).get('role') || 'MASTER';
 
-  // One question already waiting, so the inbox and the badge have something to
-  // show before anything is typed.
-  var QUESTIONS = [
-    { id: 'Q0', askedAt: '2026-08-02T09:15:00.000Z', from: '20000042',
-      topic: 'KPI 1', question: 'Why is my section showing a delayed ticket?',
-      status: 'NEW', answeredBy: '', answeredAt: '', answer: '' }
+  // ?signedout=1 drives the page the way the sign-in screen does: the panel has
+  // no conversation and an employee ID field, and the endpoint behind it is the
+  // one that takes no token.
+  var SIGNED_IN = new URLSearchParams(location.search).get('signedout') !== '1';
+
+  // Three conversations: an ordinary one waiting on a reply, one from the
+  // sign-in page that nobody has proved anything about, and the signed-in
+  // person's own with an unread reply on it.
+  var ME = '20000000';
+  var THREADS = [
+    { id: 'T1', person: '20000042', verified: true, topic: 'KPI 1',
+      startedAt: '2026-08-02T09:15:00.000Z', lastAt: '2026-08-02T09:15:00.000Z',
+      lastBy: 'USER', status: 'OPEN', waiting: 1,
+      messages: [ { id: 'M1', at: '2026-08-02T09:15:00.000Z', side: 'USER',
+                    text: 'Why is my section showing a delayed ticket?' } ] },
+    { id: 'T2', person: '20536723', verified: false, topic: '',
+      startedAt: '2026-08-02T10:02:00.000Z', lastAt: '2026-08-02T10:02:00.000Z',
+      lastBy: 'USER', status: 'OPEN', waiting: 1,
+      messages: [ { id: 'M2', at: '2026-08-02T10:02:00.000Z', side: 'USER',
+                    text: 'I am locked out, please reset my password.' } ] },
+    { id: 'T3', person: ME, verified: true, topic: '', unread: 1,
+      startedAt: '2026-08-01T08:00:00.000Z', lastAt: '2026-08-01T08:30:00.000Z',
+      lastBy: 'TEAM', status: 'OPEN', waiting: 0,
+      messages: [
+        { id: 'M3', at: '2026-08-01T08:00:00.000Z', side: 'USER',
+          text: 'Can I get the September export?' },
+        { id: 'M4', at: '2026-08-01T08:30:00.000Z', side: 'TEAM',
+          text: 'Sent it to you just now.' } ] }
   ];
+
+  function myThread() {
+    return THREADS.filter(function (t) { return t.person === ME && t.verified; })[0];
+  }
+  function waitingCount() {
+    return THREADS.filter(function (t) { return t.waiting > 0; }).length;
+  }
+  function faq() {
+    return [
+      { order: 1, question: 'How do I sign in for the first time?',
+        answer: 'Use the starting login your team gave you.' },
+      { order: 2, question: 'What do GREEN, YELLOW and RED mean?',
+        answer: 'They are the ratings in the approved KPI policy.' }
+    ];
+  }
 
   var HANDLERS = {
     getSession: function () {
@@ -159,9 +196,7 @@ const stub = `
         kpiList: ${JSON.stringify(CONFIG.KPI_ORDER.map((k) => CONFIG.KPI[k]))},
         kpiPolicy: ${JSON.stringify(CONFIG.POLICY)},
         kpiLinks: {},
-        questionsWaiting: QUESTIONS.filter(function (q) {
-          return q.status !== 'ANSWERED';
-        }).length,
+        questionsWaiting: waitingCount(),
         availableMonths: ['2026-08'],
         ticketColumns: ${JSON.stringify(CONFIG.TICKET_COLUMNS)},
         feedbackMonths: [], uploads: [], backup: { on: false },
@@ -170,52 +205,71 @@ const stub = `
     },
     getKpi1: kpi1,
 
-    // The Help screen. QUESTIONS lives in the stub rather than on the page so
-    // asking one and then listing them exercises the round trip, not a
+    // The messenger. The threads live in the stub rather than on the page, so
+    // sending one and then listing them exercises the round trip rather than a
     // hard-coded array.
-    faqEntries: function () {
-      return [
-        { order: 1, question: 'How do I sign in for the first time?',
-          answer: 'Use the starting login your team gave you.' },
-        { order: 2, question: 'What do GREEN, YELLOW and RED mean?',
-          answer: 'They are the ratings in the approved KPI policy.' }
-      ];
+    faqEntries: faq,
+
+    messengerBoot: function () {
+      var t = myThread();
+      return {
+        signedIn: SIGNED_IN, faq: faq(),
+        messages: SIGNED_IN && t ? t.messages.slice() : [],
+        unread: SIGNED_IN && t ? (t.unread || 0) : 0,
+        canAnswer: SIGNED_IN && ROLE !== 'USER'
+      };
     },
-    askQuestion: function (token, topic, text) {
-      if (!text || String(text).trim().length < 5) {
-        return { ok: false, id: '', emailed: false,
-                 message: 'Write the question first - a few words at least.' };
+    myMessages: function () {
+      var t = myThread();
+      return { messages: t ? t.messages.slice() : [], unread: t ? (t.unread || 0) : 0 };
+    },
+    markMyMessagesRead: function () {
+      var t = myThread(); if (t) t.unread = 0;
+      return { ok: true };
+    },
+    sendMessage: function (token, text) {
+      if (!SIGNED_IN) return { ok: false, message: 'Your session has ended.' };
+      if (!text || String(text).trim().length < 2) {
+        return { ok: false, message: 'Write the message first.' };
       }
-      var id = 'Q' + (QUESTIONS.length + 1);
-      QUESTIONS.unshift({
-        id: id, askedAt: new Date().toISOString(), from: '20000000',
-        topic: String(topic || ''), question: String(text),
-        status: 'NEW', answeredBy: '', answeredAt: '', answer: ''
-      });
-      return { ok: true, id: id, emailed: true,
-               message: 'Sent. You will see the answer here on this screen.' };
+      var t = myThread();
+      t.messages.push({ id: 'M' + (t.messages.length + 9),
+                        at: new Date().toISOString(), side: 'USER',
+                        text: String(text) });
+      t.waiting = (t.waiting || 0) + 1;
+      return { ok: true, message: 'Sent.', emailed: true,
+               messages: t.messages.slice() };
     },
-    myQuestions: function () {
-      return QUESTIONS.filter(function (q) { return q.from === '20000000'; })
-                      .map(function (q) {
-        return { id: q.id, askedAt: q.askedAt, topic: q.topic,
-                 question: q.question, status: q.status,
-                 answeredAt: q.answeredAt, answer: q.answer };
-      });
+    sendUnverifiedMessage: function (token, employeeId, text) {
+      if (!/^[A-Za-z0-9._-]{3,40}$/.test(String(employeeId || ''))) {
+        return { ok: false, message: 'Put your employee ID in first - the one ' +
+                                     'you sign in with.' };
+      }
+      if (!text || String(text).trim().length < 2) {
+        return { ok: false, message: 'Write the message first.' };
+      }
+      return { ok: true, message: 'Sent to the EAS team. They will contact you ' +
+                                  'directly - the reply cannot come back to ' +
+                                  'this box, because you are not signed in.' };
     },
-    listQuestions: function () {
+    listThreads: function () {
       if (ROLE === 'USER') throw new Error('That action needs the admin login.');
-      return QUESTIONS.slice();
+      return THREADS.slice().sort(function (a, b) {
+        if ((a.waiting > 0) !== (b.waiting > 0)) return a.waiting > 0 ? -1 : 1;
+        return String(b.lastAt).localeCompare(String(a.lastAt));
+      });
     },
-    answerQuestion: function (token, id, answer) {
+    replyToThread: function (token, id, text) {
       if (ROLE === 'USER') throw new Error('That action needs the admin login.');
-      var hit = QUESTIONS.filter(function (q) { return q.id === id; })[0];
-      if (!hit) return { ok: false, message: 'That question is no longer there.' };
-      hit.status = 'ANSWERED';
-      hit.answer = String(answer);
-      hit.answeredBy = '20000000';
-      hit.answeredAt = new Date().toISOString();
-      return { ok: true, message: 'Answered.' };
+      var t = THREADS.filter(function (x) { return x.id === id; })[0];
+      if (!t) return { ok: false, message: 'That conversation is no longer there.' };
+      if (!text || String(text).trim().length < 2) {
+        return { ok: false, message: 'Write the message first.' };
+      }
+      t.messages.push({ id: 'R' + t.messages.length, at: new Date().toISOString(),
+                        side: 'TEAM', text: String(text) });
+      t.waiting = 0; t.lastBy = 'TEAM'; t.lastAt = new Date().toISOString();
+      return { ok: true, message: 'Replied.', messages: t.messages.slice() };
     },
     getKpi2: function () { return { hasData: false }; },
     getUploads: function () { return []; },
