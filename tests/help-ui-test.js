@@ -65,6 +65,10 @@ const FILE = 'file://' + PAGE;
     p.on('console', (m) => {
       if (m.type() !== 'error') return;
       if (/ERR_TUNNEL_CONNECTION_FAILED|ERR_NAME_NOT_RESOLVED|ERR_BLOCKED/.test(m.text())) return;
+      // The stale-deployment probes at the end ask for functions that are not
+      // there ON PURPOSE - that is the condition being tested. Scoped to those
+      // two names so a genuinely missing stub anywhere else still fails.
+      if (/no stub for google\.script\.run\.(myQuestions|listThreads)\b/.test(m.text())) return;
       errors.push('console: ' + m.text());
     });
     await p.goto(FILE + (query || ''));
@@ -275,6 +279,49 @@ const FILE = 'file://' + PAGE;
   check('and the confirmation repeats that they will be contacted directly',
     /contact you directly/.test(note),
     'the one thing they must not do is sit and wait on this box');
+
+  // -------------------------------------------------------------------------
+  // a project whose files are from different versions
+  // -------------------------------------------------------------------------
+  // This is what a half-finished paste looks like from the page: the HTML asks
+  // for a server function the deployed .gs files do not have. It used to
+  // surface as "Cannot read properties of undefined (reading 'apply')", which
+  // names nothing and suggests nothing. The person reading it has no way to
+  // know a paste was missed.
+  const stale = await p.evaluate(() => new Promise((done) => {
+    const runner = google.script.run
+      .withSuccessHandler(() => done('resolved, which it must not'))
+      .withFailureHandler((e) => done(String(e && e.message || e)));
+    // The old App.html called this; the new server does not have it.
+    if (typeof runner.myQuestions !== 'function') {
+      done('UNDEFINED:' + String(runner.myQuestions));
+      return;
+    }
+    runner.myQuestions('token');
+  }));
+  check('a call to a function the deployed script lacks is undefined, as in production',
+    /^UNDEFINED:undefined$/.test(stale), stale);
+
+  const said = await p.evaluate(() => {
+    try {
+      const runner = google.script.run.withSuccessHandler(function () {});
+      runner.myQuestions.apply(runner, ['t']);
+      return 'no error';
+    } catch (e) { return String(e.message || e); }
+  });
+  check('and calling it raw gives the unhelpful message the guard exists to replace',
+    /Cannot read properties of undefined/.test(said), said.slice(0, 60));
+
+  // And the whole way through: a real screen, a real call, the real banner.
+  await p.close();
+  p = await open('?view=help&drop=listThreads');
+  const banner = await p.$eval('body', (el) => el.textContent);
+  check('the error a person actually sees names the missing function',
+    /listThreads/.test(banner), 'not "undefined (reading \'apply\')"');
+  check('and tells them it is a half-pasted project, and what to do',
+    /different versions/.test(banner) && /New version/.test(banner),
+    banner.replace(/\s+/g, ' ').match(/This page asked[^.]*\.[^.]*\./) ?
+      banner.replace(/\s+/g, ' ').match(/This page asked[^.]*\./)[0].slice(0, 90) : 'not found');
 
   check('no JS errors across the whole run', errors.length === 0,
     errors.slice(0, 2).join(' / '));

@@ -931,6 +931,20 @@
       // Every guarded endpoint takes the token first. Injected here rather
       // than at each call site, so a new server call cannot be added without
       // one by forgetting.
+      // A name the deployed script does not have reads back as undefined, and
+      // calling .apply on it produced "Cannot read properties of undefined
+      // (reading 'apply')" - which says nothing about the actual problem. The
+      // actual problem is always the same one: the HTML files and the .gs
+      // files in the project are from different versions, because a paste was
+      // missed or a deployment was not made. Say so.
+      if (typeof runner[fnName] !== 'function') {
+        reject(new Error(
+          'This page asked the server for "' + fnName + '", which is not in ' +
+          'the deployed script. The HTML and the .gs files are from different ' +
+          'versions - paste the matching set of files, save every one, then ' +
+          'Deploy > Manage deployments > pencil > New version.'));
+        return;
+      }
       runner[fnName].apply(runner, [AUTH.token].concat(args));
     });
   }

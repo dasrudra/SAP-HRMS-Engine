@@ -287,7 +287,16 @@ const stub = `
         withSuccessHandler: function (fn) { return make(fn, onFail); },
         withFailureHandler: function (fn) { return make(onOk, fn); }
       };
-      Object.keys(HANDLERS).forEach(function (name) {
+      // ?drop=listThreads removes a handler, which is what a project with a
+      // half-pasted set of files looks like from the page: the HTML asks for
+      // something the deployed script does not have. There is no other way to
+      // test that path, and it is the one a person actually hits.
+      var DROPPED = (new URLSearchParams(location.search).get('drop') || '')
+                      .split(',').filter(Boolean);
+
+      Object.keys(HANDLERS).filter(function (name) {
+        return DROPPED.indexOf(name) === -1;
+      }).forEach(function (name) {
         api[name] = function () {
           var args = arguments;
           setTimeout(function () {
@@ -296,15 +305,18 @@ const stub = `
           }, 4);
         };
       });
-      // Anything the page calls that is not stubbed should be loud here rather
-      // than silently doing nothing and leaving a panel mysteriously empty.
+      // A name the real google.script.run does not have is UNDEFINED, not a
+      // function that quietly does nothing. That is worth copying exactly: it
+      // is how a project whose HTML and .gs files are from different versions
+      // announces itself, and the page now turns it into a sentence that says
+      // so. A harness that handed back a working stub for every name could
+      // never have shown that.
       return new Proxy(api, {
         get: function (target, prop) {
           if (prop in target) return target[prop];
           if (typeof prop !== 'string') return undefined;
-          return function () {
-            console.error('harness: no stub for google.script.run.' + prop);
-          };
+          console.error('harness: no stub for google.script.run.' + prop);
+          return undefined;
         }
       });
     }
