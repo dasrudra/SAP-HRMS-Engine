@@ -37,6 +37,10 @@ function makeSheet(name) {
     // from every write, so a fake tab is as narrow as what was put in it.
     getLastColumn: function () { return sheet.width; },
     setFrozenRows: function () { return sheet; },
+    // Row 2 is the first data row, so deleting row n drops rows[n-2] - and
+    // everything below shuffles up, which is the whole reason deleteThread
+    // walks backwards.
+    deleteRow: function (r) { sheet.rows.splice(r - 2, 1); return sheet; },
     appendRow: function (row) {
       sheet.rows.push(row.slice());
       sheet.width = Math.max(sheet.width, row.length);
@@ -503,6 +507,84 @@ check('an older, narrower tab is widened rather than thrown at',
 check('and everything in it still reads back',
   threads(ADMIN).length > 0 && Boolean(threads(ADMIN)[0].id),
   threads(ADMIN).length + ' conversations survived');
+
+// ---------------------------------------------------------------------------
+// who replied
+// ---------------------------------------------------------------------------
+// Both sides need this and for different reasons: the person who asked wants
+// to know who owns their answer, and the next admin to open the inbox wants to
+// know a colleague has already picked it up rather than writing a second reply
+// underneath the first.
+cache = {};
+const mineNow = mine(USER).messages;
+const teamLines = mineNow.filter((m) => m.side === 'TEAM');
+check('a reply carries who wrote it, all the way to the asker\'s own panel',
+  teamLines.length > 0 && teamLines.every((m) => Boolean(m.by)),
+  teamLines.length ? teamLines[teamLines.length - 1].by : 'no team lines');
+check('and it carries the employee ID even before that admin has a name',
+  /20000099/.test(teamLines[teamLines.length - 1].by),
+  teamLines[teamLines.length - 1].by);
+check('their own lines carry no author at all',
+  mineNow.filter((m) => m.side === 'USER').every((m) => m.by === undefined),
+  'they know who they are, and the team has the thread header');
+
+// A name is stamped when the reply is written, not looked up when it is read.
+send(ADMIN, 'Setting my own name.', 'Shahriar Kabir');
+cache = {};
+reply(ADMIN, findThreadId('20000002', 'YES'), 'Having a look at that now.');
+const named2 = mine(OTHER).messages.filter((m) => m.side === 'TEAM');
+check('once an admin has a name, their replies carry it',
+  /Shahriar Kabir/.test(named2[named2.length - 1].by),
+  named2[named2.length - 1].by);
+
+// ---------------------------------------------------------------------------
+// deleting a conversation
+// ---------------------------------------------------------------------------
+const del = vm.runInContext('deleteThread', sb);
+
+check('deleting needs ADMIN',
+  /admin login/i.test(threw(() => del(USER, findThreadId('20000002', 'YES')))),
+  'it destroys somebody else\'s words, so a viewer must not reach it');
+check('and a conversation that is not there says so',
+  del(ADMIN, 'T-nope').ok === false, del(ADMIN, 'T-nope').message);
+
+// A thread with several messages, written AROUND another thread's, so the
+// rows are interleaved on the tab the way they really are.
+cache = {};
+const victimId = findThreadId('20000002', 'YES');
+send(OTHER, 'One line.');
+send(USER, 'Somebody else, in between.');
+cache = {};
+send(OTHER, 'Another line.');
+send(USER, 'And again in between.');
+
+const beforeT = tabs[T].rows.length;
+const beforeM = tabs[M].rows.length;
+const victimLines = tabs[M].rows.filter((r) => r[1] === victimId).length;
+const survivorId = findThreadId('20536723', 'YES');
+const survivorLines = tabs[M].rows.filter((r) => r[1] === survivorId).length;
+
+const gone = del(ADMIN, victimId);
+check('an admin can delete one', gone.ok === true, gone.message);
+check('the conversation row goes',
+  tabs[T].rows.length === beforeT - 1 && !findThreadId('20000002', 'YES'),
+  beforeT + ' -> ' + tabs[T].rows.length + ' threads');
+
+// THE ONE THAT WOULD HAVE BEEN WRONG. Deleting row 5 moves row 6 up to 5, so
+// walking downwards skips every second match and leaves half a conversation
+// behind - which looks exactly like it worked.
+check('and EVERY message in it goes, not every other one',
+  tabs[M].rows.filter((r) => r[1] === victimId).length === 0,
+  victimLines + ' lines, ' +
+  tabs[M].rows.filter((r) => r[1] === victimId).length + ' left');
+check('while nobody else loses a line',
+  tabs[M].rows.filter((r) => r[1] === survivorId).length === survivorLines &&
+  tabs[M].rows.length === beforeM - victimLines,
+  beforeM + ' -> ' + tabs[M].rows.length + ' messages, ' +
+  victimLines + ' expected to go');
+check('and the person it belonged to has nothing left to read',
+  mine(OTHER).messages.length === 0,
+  'it goes from their panel too, which is the part worth asking about first');
 
 function findThreadName(person, verified) {
   const hit = tabs[T].rows.filter((r) => r[1] === person && r[2] === verified)[0];

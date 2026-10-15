@@ -6515,11 +6515,18 @@
           '<span class="thread-who">' +
             escapeHtml(t.name ? t.name + ' (' + t.person + ')' : t.person) +
           '</span>' +
-          (t.verified
-            ? '<span class="thread-ok">signed in</span>'
-            : '<span class="thread-warn">NOT VERIFIED</span>') +
+          // Only the unverified mark is worth a label. "signed in" was on
+          // every other card, which made it furniture - and a word that is on
+          // everything is a word nobody reads on the one that matters.
+          (t.verified ? '' : '<span class="thread-warn">NOT VERIFIED</span>') +
           (t.topic ? '<span class="q-topic">' + escapeHtml(t.topic) + '</span>' : '') +
           '<span class="q-when">' + escapeHtml(whenText(t.lastAt)) + '</span>' +
+          '<button class="thread-del" data-del="' + escapeHtml(t.id) +
+            '" title="Delete this conversation" aria-label="Delete this conversation">' +
+            '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" ' +
+            'stroke="currentColor" stroke-width="2" stroke-linecap="round" ' +
+            'stroke-linejoin="round"><path d="M4 7h16M10 7V4h4v3M6 7l1 13h10l1-13"/>' +
+            '</svg></button>' +
         '</div>' +
         (t.verified ? '' :
           '<p class="thread-note">This came from the sign-in page, where nobody ' +
@@ -6538,6 +6545,7 @@
     }).join('');
 
     wireReplyButtons();
+    wireDeleteButtons();
   }
 
 
@@ -6545,10 +6553,19 @@
   function bubbles(messages) {
     if (!messages.length) return '<p class="empty">No messages.</p>';
     return messages.map(function (m) {
+      // WHO REPLIED, on every team line. The person who asked should know who
+      // owns the answer, and the next admin to open the inbox should be able
+      // to see at a glance that a colleague has already picked it up rather
+      // than writing a second reply underneath the first.
+      // The separator is in the markup, not in a ::after rule. CSS collapsed
+      // the trailing space in its content and ran the name into the time; it
+      // also kept the byline out of textContent, where a test could see it.
+      const by = m.side === 'TEAM' && m.by
+        ? '<span class="bubble-by">' + escapeHtml(m.by) + '</span> \u00b7 ' : '';
       return '<div class="bubble bubble-' +
                (m.side === 'TEAM' ? 'team' : 'user') + '">' +
                '<p>' + escapeHtml(m.text) + '</p>' +
-               '<time>' + escapeHtml(whenText(m.at)) + '</time>' +
+               '<time>' + by + escapeHtml(whenText(m.at)) + '</time>' +
              '</div>';
     }).join('');
   }
@@ -6578,6 +6595,49 @@
             button.textContent = wording;
             onError(err);
           });
+      });
+    });
+  }
+
+
+  /**
+   * Deleting a whole conversation. Admin and above, and guarded on the server.
+   *
+   * It asks first, and names who the conversation is with, because this is the
+   * one action on this screen that destroys something somebody else wrote and
+   * there is nothing to undo it with.
+   */
+  function wireDeleteButtons() {
+    document.querySelectorAll('[data-del]').forEach(function (button) {
+      button.addEventListener('click', function () {
+        const id = button.getAttribute('data-del');
+        const card = button.closest('.thread');
+        const whoWith = card
+          ? (card.querySelector('.thread-who') || {}).textContent || id : id;
+        const lines = card ? card.querySelectorAll('.bubble').length : 0;
+
+        confirmDialog({
+          title: 'Delete this conversation?',
+          subtitle: whoWith,
+          target:
+            '<span class="modal-target"><b>' + escapeHtml(whoWith) + '</b>' +
+            '<span>' + lines + ' message' + (lines === 1 ? '' : 's') +
+            '</span></span>',
+          body:
+            '<p>The whole conversation goes, both sides of it, and it ' +
+            '<strong>cannot be brought back</strong>.</p>' +
+            '<p>It disappears from their message panel too, so anything they ' +
+            'were told here goes with it.</p>',
+          confirmLabel: 'Delete it'
+        }).then(function (yes) {
+          if (!yes) return;
+          callServer('deleteThread', id)
+            .then(function (result) {
+              toast((result && result.message) || 'Deleted.');
+              loadInbox();
+            })
+            .catch(onError);
+        });
       });
     });
   }

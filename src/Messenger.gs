@@ -267,7 +267,8 @@ function replyToThread(token, threadId, text) {
   if (!thread) return { ok: false, message: 'That conversation is no longer there.' };
 
   appendToThread(thread.person, thread.verified, SIDE_TEAM,
-                 String(session.u || ''), body.text);
+                 String(session.u || ''), body.text,
+                 null, null, null, null, nameOf(String(session.u || '')));
 
   return { ok: true, message: 'Replied.',
            messages: threadMessageList(thread.id) };
@@ -428,7 +429,8 @@ function readMessages() {
         at: r[2] ? new Date(r[2]).toISOString() : '',
         side: String(r[3] || SIDE_USER),
         author: String(r[4] || ''),
-        text: String(r[5] || '')
+        text: String(r[5] || ''),
+        authorName: String(r[6] || '')
       };
     })
     .filter(function (m) { return m.id && m.threadId; });
@@ -444,7 +446,14 @@ function threadMessageList(threadId) {
   return readMessages()
     .filter(function (m) { return m.threadId === want; })
     .map(function (m) {
-      return { id: m.id, at: m.at, side: m.side, text: m.text };
+      // The author goes out on a TEAM line and not on a USER one. A reply with
+      // no name on it leaves the person wondering whether anybody owns it, and
+      // leaves the next admin unable to tell that a colleague has it in hand.
+      // The asker's own ID is left off their own lines - they know who they
+      // are, and the thread header carries it for the team.
+      const out = { id: m.id, at: m.at, side: m.side, text: m.text };
+      if (m.side === SIDE_TEAM) out.by = who(m.author, m.authorName);
+      return out;
     });
 }
 
@@ -469,7 +478,7 @@ function threadMessageList(threadId) {
  * @return {{threadId: string, messageId: string, wasWaiting: boolean}}
  */
 function appendToThread(person, verified, side, author, text, whenIso, forceId,
-                       topic, name) {
+                       topic, name, authorName) {
   const who = String(person || '').trim();
   const level = verified === VERIFIED_NO ? VERIFIED_NO : VERIFIED_YES;
   const when = whenIso ? new Date(whenIso) : new Date();
@@ -488,7 +497,8 @@ function appendToThread(person, verified, side, author, text, whenIso, forceId,
   const wasWaiting = (Number(thread.waitingForTeam) || 0) > 0;
   const messageId = forceId || ('M' + stamp(when) + '-' + shortId());
 
-  messageTab().appendRow([messageId, thread.id, when, side, String(author || ''), text]);
+  messageTab().appendRow([messageId, thread.id, when, side, String(author || ''),
+                          text, cleanName(authorName)]);
 
   // Counters after the message. See the note above.
   const waiting = side === SIDE_USER ? (Number(thread.waitingForTeam) || 0) + 1 : 0;
@@ -515,6 +525,52 @@ function setThreadField(row, column, value) {
   const col = CONFIG.THREAD_COLUMNS.indexOf(column) + 1;
   if (col < 1) throw new Error('No such THREADS column: ' + column);
   threadTab().getRange(row, col).setValue(value);
+}
+
+
+/**
+ * Deletes one conversation and everything in it. Admin and above.
+ *
+ * It really is gone - the thread row and every message row with it. There is
+ * no undo, which is why the screen asks first and names who the conversation
+ * is with.
+ *
+ * Messages are removed from the bottom up. Deleting row 5 moves row 6 to 5,
+ * so walking downwards skips every second match - the kind of bug that leaves
+ * half a conversation behind and looks like it worked.
+ */
+function deleteThread(token, threadId) {
+  requireAdmin(token);
+
+  const thread = threadById(threadId);
+  if (!thread) return { ok: false, message: 'That conversation is no longer there.' };
+
+  const messages = messageTab();
+  const last = messages.getLastRow();
+  if (last >= 2) {
+    const ids = messages.getRange(2, 2, last - 1, 1).getValues();
+    for (let i = ids.length - 1; i >= 0; i--) {
+      if (String(ids[i][0] || '').trim() === thread.id) messages.deleteRow(i + 2);
+    }
+  }
+
+  threadTab().deleteRow(thread.row);
+  Logger.log('Deleted conversation %s with %s.', thread.id, thread.person);
+
+  return { ok: true, message: 'Conversation deleted.' };
+}
+
+
+/**
+ * The name this employee ID is known by, or ''.
+ *
+ * Read from their own conversation, which is the only place the dashboard
+ * currently holds a name. When the sign-up card starts asking for one this
+ * should read the account instead, and everything above it keeps working.
+ */
+function nameOf(employeeId) {
+  const thread = findThread(employeeId, VERIFIED_YES);
+  return thread ? thread.name : '';
 }
 
 

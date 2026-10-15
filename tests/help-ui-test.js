@@ -103,6 +103,12 @@ const FILE = 'file://' + PAGE;
   // the marker reports ONE failure and lets the rest of the suite run. The
   // first version crashed here, which hid every assertion after it - exactly
   // when you most want to know what else broke.
+  check('the card is headed "Queries by name"',
+    /Queries by name/i.test(await p.$eval('#view-help', (el) => el.textContent)));
+  check('and no conversation wears a "signed in" badge',
+    (await p.$$eval('.thread-ok', (ns) => ns.length)) === 0,
+    'a label on every card is furniture; only the unverified one earns one');
+
   check('a conversation is headed by the name, with the ID in brackets',
     /Rudra \(20536723\)/.test(cards.map((c) => c.text).join(' ')) &&
     /Ayesha Rahman \(20000042\)/.test(cards.map((c) => c.text).join(' ')),
@@ -132,7 +138,10 @@ const FILE = 'file://' + PAGE;
     const REPLY = 'Fixed - it was filed under <Sales> & re-run.' +
                   '<img src=y onerror="window.__owned2=1">';
     await box.fill(REPLY);
-    await p.click('#inboxList .thread:not(.is-unverified) button');
+    // Named, not "the first button in the card" - the delete control sits in
+    // the header and comes first in the DOM, so the loose selector started
+    // clicking that instead the moment it was added.
+    await p.click('#inboxList .thread:not(.is-unverified) [data-reply-go]');
     await p.waitForTimeout(700);
     const after = await p.$eval('#inboxList', (el) => el.textContent);
     check('replying adds it to the conversation without a reload',
@@ -145,6 +154,53 @@ const FILE = 'file://' + PAGE;
     check('and the waiting badge comes DOWN by one',
       Number(now) === Number(badge) - 1, badge + ' -> ' + (now || '(empty)'));
   }
+
+  // -------------------------------------------------------------------------
+  // who replied
+  // -------------------------------------------------------------------------
+  const inboxBylines = await p.$$eval('#inboxList .bubble-team time',
+                                      (ns) => ns.map((n) => n.textContent.trim()));
+  check('every reply says who wrote it, on the team\'s own screen',
+    inboxBylines.length > 0 &&
+    inboxBylines.every((t) => /\(\d{6,}\) \u00b7 /.test(t)),
+    inboxBylines.join(' | '));
+  check('including the one just sent, by whoever is signed in',
+    inboxBylines.some((t) => /Rudra Das \(20000000\)/.test(t)),
+    'so the next admin can see it is already in hand');
+  check('and an older one still names the colleague who answered it',
+    inboxBylines.some((t) => /Pritam Saha \(20467174\)/.test(t)),
+    'the name is stamped when the reply is written, not looked up later');
+
+  // -------------------------------------------------------------------------
+  // deleting a conversation
+  // -------------------------------------------------------------------------
+  const delButtons = await p.$$eval('[data-del]', (ns) => ns.length);
+  check('every conversation has a delete control', delButtons === 3,
+    delButtons + ' of 3');
+  check('which is quiet until the card is wanted',
+    await p.$eval('[data-del]', (el) => Number(getComputedStyle(el).opacity) === 0),
+    'the one control here that destroys something should not lead the eye');
+
+  const cardsBefore = await p.$$eval('#inboxList .thread', (ns) => ns.length);
+  await p.$eval('[data-del]', (el) => el.click());
+  await p.waitForTimeout(400);
+
+  check('it asks before deleting anything',
+    await p.$eval('#modalBackdrop', (el) => !el.hidden),
+    'there is nothing to undo it with');
+  const asked = await p.$eval('#modal', (el) => el.textContent);
+  check('and names who the conversation is with',
+    /Rudra \(20536723\)/.test(asked), 'so you can see what you are about to lose');
+  check('and says it goes from their panel too',
+    /cannot be brought back/.test(asked) && /their message panel/.test(asked),
+    'deleting it takes away what they were told, not just your copy');
+
+  // Say no, and nothing happens.
+  await p.$eval('#modalCancel, #modal button', (el) => el.click());
+  await p.waitForTimeout(400);
+  check('saying no leaves it alone',
+    (await p.$$eval('#inboxList .thread', (ns) => ns.length)) === cardsBefore,
+    cardsBefore + ' conversations still there');
 
   // -------------------------------------------------------------------------
   // THE ONE THAT MATTERS: a message is data, not markup
@@ -184,6 +240,11 @@ const FILE = 'file://' + PAGE;
   const thread = await p.$$eval('#msgrThread .bubble', (ns) => ns.map((n) => ({
     side: n.className, text: n.textContent
   })));
+  const panelReply = await p.$eval('#msgrThread .bubble-team time',
+                                   (el) => el.textContent);
+  check('and the person who asked sees who answered them, in their own panel',
+    /Pritam Saha \(20467174\)/.test(panelReply), panelReply.trim());
+
   check('their own conversation is in it, both sides',
     thread.length === 2 &&
     /bubble-user/.test(thread[0].side) && /bubble-team/.test(thread[1].side),

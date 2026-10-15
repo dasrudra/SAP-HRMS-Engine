@@ -164,6 +164,7 @@ const stub = `
         { id: 'M3', at: '2026-08-01T08:00:00.000Z', side: 'USER',
           text: 'Can I get the September export?' },
         { id: 'M4', at: '2026-08-01T08:30:00.000Z', side: 'TEAM',
+          by: 'Pritam Saha (20467174)',
           text: 'Sent it to you just now.' } ] }
   ];
 
@@ -262,6 +263,13 @@ const stub = `
                                   'directly - the reply cannot come back to ' +
                                   'this box, because you are not signed in.' };
     },
+    deleteThread: function (token, id) {
+      if (ROLE === 'USER') throw new Error('That action needs the admin login.');
+      const at = THREADS.findIndex(function (t) { return t.id === id; });
+      if (at === -1) return { ok: false, message: 'That conversation is no longer there.' };
+      THREADS.splice(at, 1);
+      return { ok: true, message: 'Conversation deleted.' };
+    },
     listThreads: function () {
       if (ROLE === 'USER') throw new Error('That action needs the admin login.');
       return THREADS.slice().sort(function (a, b) {
@@ -277,7 +285,8 @@ const stub = `
         return { ok: false, message: 'Write the message first.' };
       }
       t.messages.push({ id: 'R' + t.messages.length, at: new Date().toISOString(),
-                        side: 'TEAM', text: String(text) });
+                        side: 'TEAM', by: 'Rudra Das (20000000)',
+                        text: String(text) });
       t.waiting = 0; t.lastBy = 'TEAM'; t.lastAt = new Date().toISOString();
       return { ok: true, message: 'Replied.', messages: t.messages.slice() };
     },

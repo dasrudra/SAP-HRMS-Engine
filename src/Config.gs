@@ -591,9 +591,19 @@ const CONFIG = {
     'Waiting For Team', 'Unread By Person', 'Name'
   ],
 
-  /** Every line anybody has typed, in order. Side is USER or TEAM. */
+  /**
+   * Every line anybody has typed, in order. Side is USER or TEAM.
+   *
+   * `Author` is the employee ID of whoever wrote it, and on a TEAM line that
+   * is the whole point: somebody asking a question should be able to see who
+   * answered them, and the next admin to open the inbox should be able to see
+   * that a colleague has already dealt with it. `Author Name` is that person's
+   * name if the dashboard knows one, stamped at the time rather than looked up
+   * later - a name read back months afterwards would be whatever it is now,
+   * not who actually replied.
+   */
   MESSAGE_COLUMNS: [
-    'Message ID', 'Thread ID', 'At', 'Side', 'Author', 'Text'
+    'Message ID', 'Thread ID', 'At', 'Side', 'Author', 'Text', 'Author Name'
   ],
 
   /**
