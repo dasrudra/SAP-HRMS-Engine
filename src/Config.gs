@@ -570,10 +570,25 @@ const CONFIG = {
    *
    * Keying the thread on (person + verified) gets both for free.
    */
+  /*
+   * `Name` is what the person typed into the Name box, and it is the ONLY
+   * thing on this row they chose themselves. `Person` is the employee ID, and
+   * where it came from is the difference between the two kinds of thread: on a
+   * verified one it came from the session token and is a fact; on an
+   * unverified one somebody typed it.
+   *
+   * So a name is never identification. It is what to call somebody in a reply,
+   * which an employee ID is bad at. The screen shows "Rudra (20536723)" and
+   * the ID is the half that means anything.
+   *
+   * Last, because a tab created before this column existed must keep working -
+   * sheetWithHeaders widens the header row, and a row written when the column
+   * was not there simply reads back empty.
+   */
   THREAD_COLUMNS: [
     'Thread ID', 'Person', 'Verified', 'Started', 'Topic',
     'Last Message At', 'Last Message By', 'Status',
-    'Waiting For Team', 'Unread By Person'
+    'Waiting For Team', 'Unread By Person', 'Name'
   ],
 
   /** Every line anybody has typed, in order. Side is USER or TEAM. */

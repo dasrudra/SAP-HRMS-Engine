@@ -30,12 +30,22 @@ function makeSheet(name) {
   const sheet = {
     name: name,
     rows: [],
+    width: 0,
     getLastRow: function () { return sheet.rows.length + 1; },
+    // The real one reports how wide the sheet actually is, which is what
+    // sheetWithHeaders uses to decide whether a tab predates a column. Tracked
+    // from every write, so a fake tab is as narrow as what was put in it.
+    getLastColumn: function () { return sheet.width; },
     setFrozenRows: function () { return sheet; },
-    appendRow: function (row) { sheet.rows.push(row.slice()); return sheet; },
+    appendRow: function (row) {
+      sheet.rows.push(row.slice());
+      sheet.width = Math.max(sheet.width, row.length);
+      return sheet;
+    },
     getRange: function (r, c, n, w) {
       const height = n === undefined ? 1 : n;
       const width = w === undefined ? 1 : w;
+      sheet.width = Math.max(sheet.width, c - 1 + width);
       const api = {
         getValues: function () {
           const got = [];
@@ -175,6 +185,7 @@ const send = vm.runInContext('sendMessage', sb);
 // one place. This one ignores it - that is the point of it.
 const sendAnonRaw = vm.runInContext('sendUnverifiedMessage', sb);
 const sendAnon = (id, text) => sendAnonRaw(null, id, text);
+const sendAnonNamed = (id, text, name) => sendAnonRaw(null, id, text, name);
 const mine = vm.runInContext('myMessages', sb);
 const markRead = vm.runInContext('markMyMessagesRead', sb);
 const threads = vm.runInContext('listThreads', sb);
@@ -430,6 +441,72 @@ check('an admin is',
 function findThreadId(person, verified) {
   const hit = tabs[T].rows.filter((r) => r[1] === person && r[2] === verified)[0];
   return hit ? hit[0] : '';
+}
+
+// ---------------------------------------------------------------------------
+// what somebody is called, and what they are
+// ---------------------------------------------------------------------------
+// The name is typed; the employee ID on a verified thread comes from the
+// session token. So a name can never be identification, and the pair is only
+// as good as its second half.
+cache = {};
+const named = send(USER, 'One more question about the export.', '  Rudra   Das ');
+check('a name sent with a message is kept on the conversation',
+  named.ok === true && findThreadName('20536723', 'YES') === 'Rudra Das',
+  JSON.stringify(findThreadName('20536723', 'YES')));
+check('and tidied, so a stray double space is not somebody\'s name forever',
+  findThreadName('20536723', 'YES').indexOf('  ') === -1);
+
+check('the inbox shows both halves, name first',
+  threads(ADMIN).filter((t) => t.person === '20536723' && t.verified)[0].name === 'Rudra Das',
+  'the screen writes it as Rudra Das (20536723)');
+check('and the panel hands the name back, so nobody types it twice',
+  boot(USER).name === 'Rudra Das', boot(USER).name);
+
+cache = {};
+send(USER, 'Correcting my name.', 'Rudra');
+check('a later message can correct it',
+  findThreadName('20536723', 'YES') === 'Rudra', findThreadName('20536723', 'YES'));
+cache = {};
+send(USER, 'And this one leaves the box empty.', '');
+check('but leaving the box empty does not erase it',
+  findThreadName('20536723', 'YES') === 'Rudra',
+  'otherwise the name vanishes the first time somebody is in a hurry');
+
+cache = {};
+sendAnonNamed('20217473', 'I cannot sign in.', 'Not Rudra At All');
+check('a name on an UNVERIFIED thread is stored like any other',
+  findThreadName('20217473', 'NO') === 'Not Rudra At All',
+  'it is a label, not a claim the system can check');
+check('and that thread is still marked unverified, name or no name',
+  threads(ADMIN).filter((t) => t.person === '20217473')[0].verified === false,
+  'a name must never make something look more checked than it is');
+
+check('the email says who it is from, name and ID together',
+  sent.length > 0 && /Rudra/.test(sent[sent.length - 1].body + sent[sent.length - 1].subject),
+  (sent[sent.length - 1] || {}).subject);
+
+// ---------------------------------------------------------------------------
+// a tab made before the Name column existed
+// ---------------------------------------------------------------------------
+// His THREADS tab was created yesterday, one column short. Reading a range
+// wider than the sheet throws, so this is the difference between the messenger
+// working on Thursday and not.
+const narrow = tabs[T];
+narrow.width = CONFIG.THREAD_COLUMNS.length - 1;
+const was = narrow.width;                  // read BEFORE the call widens it
+const after = vm.runInContext('threadTab', sb)();
+check('an older, narrower tab is widened rather than thrown at',
+  was === CONFIG.THREAD_COLUMNS.length - 1 &&
+  after.width >= CONFIG.THREAD_COLUMNS.length,
+  was + ' -> ' + after.width + ' columns');
+check('and everything in it still reads back',
+  threads(ADMIN).length > 0 && Boolean(threads(ADMIN)[0].id),
+  threads(ADMIN).length + ' conversations survived');
+
+function findThreadName(person, verified) {
+  const hit = tabs[T].rows.filter((r) => r[1] === person && r[2] === verified)[0];
+  return hit ? String(hit[10] || '') : '';
 }
 
 const failed = out.filter((r) => !r).length;

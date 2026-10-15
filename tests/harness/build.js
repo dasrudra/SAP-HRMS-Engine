@@ -147,17 +147,17 @@ const stub = `
   // person's own with an unread reply on it.
   var ME = '20000000';
   var THREADS = [
-    { id: 'T1', person: '20000042', verified: true, topic: 'KPI 1',
+    { id: 'T1', person: '20000042', name: 'Ayesha Rahman', verified: true, topic: 'KPI 1',
       startedAt: '2026-08-02T09:15:00.000Z', lastAt: '2026-08-02T09:15:00.000Z',
       lastBy: 'USER', status: 'OPEN', waiting: 1,
       messages: [ { id: 'M1', at: '2026-08-02T09:15:00.000Z', side: 'USER',
                     text: 'Why is my section showing a delayed ticket?' } ] },
-    { id: 'T2', person: '20536723', verified: false, topic: '',
+    { id: 'T2', person: '20536723', name: 'Rudra', verified: false, topic: '',
       startedAt: '2026-08-02T10:02:00.000Z', lastAt: '2026-08-02T10:02:00.000Z',
       lastBy: 'USER', status: 'OPEN', waiting: 1,
       messages: [ { id: 'M2', at: '2026-08-02T10:02:00.000Z', side: 'USER',
                     text: 'I am locked out, please reset my password.' } ] },
-    { id: 'T3', person: ME, verified: true, topic: '', unread: 1,
+    { id: 'T3', person: ME, name: 'Rudra Das', verified: true, topic: '', unread: 1,
       startedAt: '2026-08-01T08:00:00.000Z', lastAt: '2026-08-01T08:30:00.000Z',
       lastBy: 'TEAM', status: 'OPEN', waiting: 0,
       messages: [
@@ -210,13 +210,22 @@ const stub = `
     // hard-coded array.
     faqEntries: faq,
 
-    messengerBoot: function () {
+    // THIS ONE READS THE TOKEN IT IS GIVEN, and so must any stub standing in
+    // for a server function whose answer depends on one. The first version
+    // ignored it and reported SIGNED_IN from the query string, which meant a
+    // page calling this BEFORE the token had been read looked perfectly
+    // correct here and shipped broken: everybody signed in got the signed-out
+    // panel. A stub more generous than the server it stands for is not a
+    // simplification, it is a blind spot.
+    messengerBoot: function (token) {
+      var signedIn = SIGNED_IN && Boolean(token);
       var t = myThread();
       return {
-        signedIn: SIGNED_IN, faq: faq(),
-        messages: SIGNED_IN && t ? t.messages.slice() : [],
-        unread: SIGNED_IN && t ? (t.unread || 0) : 0,
-        canAnswer: SIGNED_IN && ROLE !== 'USER'
+        signedIn: signedIn, faq: faq(),
+        messages: signedIn && t ? t.messages.slice() : [],
+        unread: signedIn && t ? (t.unread || 0) : 0,
+        name: signedIn && t ? (t.name || '') : '',
+        canAnswer: signedIn && ROLE !== 'USER'
       };
     },
     myMessages: function () {
@@ -227,7 +236,7 @@ const stub = `
       var t = myThread(); if (t) t.unread = 0;
       return { ok: true };
     },
-    sendMessage: function (token, text) {
+    sendMessage: function (token, text, name) {
       if (!SIGNED_IN) return { ok: false, message: 'Your session has ended.' };
       if (!text || String(text).trim().length < 2) {
         return { ok: false, message: 'Write the message first.' };
@@ -237,10 +246,11 @@ const stub = `
                         at: new Date().toISOString(), side: 'USER',
                         text: String(text) });
       t.waiting = (t.waiting || 0) + 1;
-      return { ok: true, message: 'Sent.', emailed: true,
+      if (name) t.name = String(name);
+      return { ok: true, message: 'Sent.', emailed: true, name: t.name,
                messages: t.messages.slice() };
     },
-    sendUnverifiedMessage: function (token, employeeId, text) {
+    sendUnverifiedMessage: function (token, employeeId, text, name) {
       if (!/^[A-Za-z0-9._-]{3,40}$/.test(String(employeeId || ''))) {
         return { ok: false, message: 'Put your employee ID in first - the one ' +
                                      'you sign in with.' };

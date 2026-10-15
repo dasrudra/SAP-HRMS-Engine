@@ -178,6 +178,20 @@ function sheetWithHeaders(name, headers) {
     sheet.getRange(1, 1, 1, headers.length).setValues([headers])
          .setFontWeight('bold').setBackground('#1e3a5f').setFontColor('#ffffff');
     sheet.setFrozenRows(1);
+    return sheet;
+  }
+
+  // A tab made before a column was added must keep working. Reading a range
+  // wider than the sheet throws, so the header row is widened to match - which
+  // only ever ADDS columns on the right and never touches a cell that has
+  // something in it. Existing rows then read back empty in the new column,
+  // which is exactly what "this was written before we asked" should look like.
+  const have = sheet.getLastColumn();
+  if (have < headers.length) {
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers])
+         .setFontWeight('bold').setBackground('#1e3a5f').setFontColor('#ffffff');
+    Logger.log('Tab "%s": widened from %s to %s columns.',
+               name, have, headers.length);
   }
   return sheet;
 }

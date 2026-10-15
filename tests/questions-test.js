@@ -29,12 +29,22 @@ function makeSheet(name) {
   const sheet = {
     name: name,
     rows: [],                        // data rows only; row 1 is the header
+    width: 0,
     getLastRow: function () { return sheet.rows.length + 1; },
+    // The real one reports how wide the sheet actually is, which is what
+    // sheetWithHeaders uses to decide whether a tab predates a column. Tracked
+    // from every write, so a fake tab is as narrow as what was put in it.
+    getLastColumn: function () { return sheet.width; },
     setFrozenRows: function () { return sheet; },
-    appendRow: function (row) { sheet.rows.push(row.slice()); return sheet; },
+    appendRow: function (row) {
+      sheet.rows.push(row.slice());
+      sheet.width = Math.max(sheet.width, row.length);
+      return sheet;
+    },
     getRange: function (r, c, n, w) {
       const height = n === undefined ? 1 : n;
       const width = w === undefined ? 1 : w;
+      sheet.width = Math.max(sheet.width, c - 1 + width);
       const api = {
         getValues: function () {
           const got = [];

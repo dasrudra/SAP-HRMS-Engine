@@ -1550,37 +1550,42 @@
   .msgr-faq-list .faq-answer { font-size: 12px; margin-bottom: 9px; }
 
   .msgr-thread {
-    flex: 1; min-height: 120px; overflow-y: auto; padding: 14px;
+    flex: 1; min-height: 90px; overflow-y: auto; padding: 14px;
   }
+  .msgr-thread:empty { display: none; }
   .msgr-thread .bubble { max-width: 88%; }
-  .msgr-empty {
-    margin: 0; font-size: 12.5px; line-height: 1.6; color: var(--text-mut);
-  }
 
   .msgr-compose {
     flex: none; padding: 10px 12px 12px; border-top: 1px solid var(--border);
     background: var(--surface);
   }
-  .msgr-id { display: block; margin-bottom: 8px; }
-  .msgr-id > span {
+
+  /* Name, and on the sign-in page the employee ID beside it. Side by side so
+     two short fields cost one row rather than two - the panel is 352px wide
+     and every stacked label pushes the message box further down it. */
+  .msgr-who { display: flex; gap: 8px; margin-bottom: 8px; }
+  .msgr-field { flex: 1; min-width: 0; display: block; }
+  .msgr-field > span {
     display: block; margin-bottom: 4px;
-    font-size: 10.5px; font-weight: 700; letter-spacing: .07em;
+    font-size: 10px; font-weight: 700; letter-spacing: .07em;
     text-transform: uppercase; color: var(--text-mut);
   }
-  .msgr-id input {
-    width: 100%; box-sizing: border-box; padding: 8px 10px;
+  .msgr-field input {
+    width: 100%; box-sizing: border-box; padding: 7px 10px;
     border: 1px solid var(--border-str); border-radius: 8px;
     background: var(--surface); font-family: inherit; font-size: 13px;
     color: var(--navy-700);
   }
+
   .msgr-compose-row { display: flex; gap: 8px; align-items: flex-end; }
   .msgr-compose textarea {
-    flex: 1; box-sizing: border-box; padding: 9px 11px; max-height: 120px;
+    flex: 1; box-sizing: border-box; padding: 10px 11px;
+    min-height: 72px; max-height: 150px;
     border: 1px solid var(--border-str); border-radius: 9px;
     background: var(--surface); font-family: inherit; font-size: 13px;
     line-height: 1.5; color: var(--navy-700); resize: none; overflow-y: auto;
   }
-  .msgr-compose textarea:focus, .msgr-id input:focus {
+  .msgr-compose textarea:focus, .msgr-field input:focus {
     outline: none; border-color: var(--blue-500);
     box-shadow: 0 0 0 3px rgba(37,99,235,.14);
   }
@@ -1590,9 +1595,14 @@
   }
   .msgr-send:hover { background: var(--blue-600); }
   .msgr-send:disabled { opacity: .55; cursor: default; }
+
+  /* Only ever holds what the server just said, and only while it is new. An
+     explanation that stands there permanently is read once and then becomes
+     part of the furniture. */
   .msgr-note {
     margin: 7px 0 0; font-size: 11.5px; line-height: 1.5; color: var(--text-mut);
   }
+  .msgr-note:empty { display: none; }
   .msgr-note.is-said { color: var(--navy-700); }
 
   /* On a phone the panel is the screen. A 352px card floating over a 360px

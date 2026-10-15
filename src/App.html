@@ -244,6 +244,17 @@
 
 
   function onSession(session) {
+    // THE MESSAGE PANEL LOADS HERE AND NOWHERE EARLIER. It used to load from
+    // DOMContentLoaded, which runs before loadToken() has finished - and
+    // loadToken is asynchronous, so messengerBoot went to the server with an
+    // empty token. Everybody signed in was handed the signed-OUT panel: asked
+    // for an employee ID they had already typed to get in, and told they were
+    // not signed in while the masthead said they were.
+    //
+    // By here the token is settled either way, so the panel is right the first
+    // time it is drawn rather than correcting itself a moment later.
+    loadMessenger();
+
     if (session && session.signedIn) {
       state.role = session.role;
       state.username = session.username || '';
@@ -6501,7 +6512,9 @@
       return '<article class="thread' + (t.verified ? '' : ' is-unverified') + '">' +
         '<div class="thread-head">' +
           (t.waiting ? '<span class="pill pill-wait">WAITING</span>' : '') +
-          '<span class="thread-who">' + escapeHtml(t.person) + '</span>' +
+          '<span class="thread-who">' +
+            escapeHtml(t.name ? t.name + ' (' + t.person + ')' : t.person) +
+          '</span>' +
           (t.verified
             ? '<span class="thread-ok">signed in</span>'
             : '<span class="thread-warn">NOT VERIFIED</span>') +
@@ -6640,11 +6653,12 @@
       });
       text.addEventListener('input', function () {
         text.style.height = 'auto';
-        text.style.height = Math.min(text.scrollHeight, 120) + 'px';
+        text.style.height = Math.min(text.scrollHeight, 150) + 'px';
       });
     }
 
-    loadMessenger();
+    // Wiring only. The content is loaded from onSession(), once the token has
+    // actually been read - see the note there.
   }
 
 
@@ -6663,10 +6677,8 @@
 
         paintThread((data && data.messages) || []);
         msgrUnread(Number(data && data.unread) || 0);
-        msgrNote(msgrSignedIn
-          ? ''
-          : 'You are not signed in, so a reply cannot come back to this box. ' +
-            'Put your employee ID in and the EAS team will contact you.');
+        setValue('msgrName', (data && data.name) || '');
+        msgrNote('');
       })
       .catch(function () {
         // The bar is not worth an error banner over the whole page. If the
@@ -6718,15 +6730,8 @@
     if (!box) return;
     msgrSeen = messages.length;
 
-    if (!msgrSignedIn) {
-      box.innerHTML = '<p class="msgr-empty">Locked out, or something not ' +
-        'working? Send the EAS team a message and they will get back to you.</p>';
-      return;
-    }
-    box.innerHTML = messages.length
-      ? bubbles(messages)
-      : '<p class="msgr-empty">No messages yet. Ask us anything about the ' +
-        'dashboard or your login.</p>';
+    if (!msgrSignedIn) { box.innerHTML = ''; return; }
+    box.innerHTML = messages.length ? bubbles(messages) : '';
   }
 
 
@@ -6752,9 +6757,10 @@
 
     if (button) button.disabled = true;
 
+    const said = getValue('msgrName').trim();
     const call = msgrSignedIn
-      ? callServer('sendMessage', body)
-      : callServer('sendUnverifiedMessage', claimed, body);
+      ? callServer('sendMessage', body, said)
+      : callServer('sendUnverifiedMessage', claimed, body, said);
 
     call.then(function (result) {
       if (button) button.disabled = false;

@@ -103,6 +103,11 @@ const FILE = 'file://' + PAGE;
   // the marker reports ONE failure and lets the rest of the suite run. The
   // first version crashed here, which hid every assertion after it - exactly
   // when you most want to know what else broke.
+  check('a conversation is headed by the name, with the ID in brackets',
+    /Rudra \(20536723\)/.test(cards.map((c) => c.text).join(' ')) &&
+    /Ayesha Rahman \(20000042\)/.test(cards.map((c) => c.text).join(' ')),
+    'the name is what to call somebody; the ID is the half that means anything');
+
   const flagged = cards.filter((c) => c.unverified);
   const first = flagged[0] || { text: '' };
   check('the sign-in-page conversation is marked on the card itself',
@@ -190,6 +195,28 @@ const FILE = 'file://' + PAGE;
     await p.$eval('#msgrIdWrap', (el) => el.hidden),
     'a field for it would be a field to put somebody else in');
 
+  // THE ONE THAT WAS WRONG ON THE LIVE SITE. The panel used to load from
+  // DOMContentLoaded, which runs before the token has been read - loadToken is
+  // asynchronous - so messengerBoot arrived with an empty token and everybody
+  // signed in got the signed-OUT panel: asked for an employee ID they had
+  // already typed to get in, under a masthead saying they were signed in.
+  check('a signed-in person is not asked to prove who they are all over again',
+    await p.$eval('#msgrIdWrap', (el) => el.hidden) &&
+    await p.$eval('#msgrNote', (el) => !/not signed in/.test(el.textContent)),
+    'the panel must load after the token, not beside it');
+
+  check('the name box arrives already filled in',
+    (await p.$eval('#msgrName', (el) => el.value)) === 'Rudra Das',
+    'asked once, not every time');
+  check('and the message box is big enough to write in',
+    await p.$eval('#msgrText', (el) => el.getBoundingClientRect().height >= 60),
+    await p.$eval('#msgrText', (el) =>
+      Math.round(el.getBoundingClientRect().height) + 'px tall'));
+  check('with nothing above it but the conversation',
+    (await p.$eval('#msgrThread', (el) => el.textContent.trim()))
+      .indexOf('Locked out') === -1,
+    'the standing explanation is gone');
+
   await p.fill('#msgrText', 'One more thing - can I get October as well?');
   await p.click('#msgrSend');
   await p.waitForTimeout(700);
@@ -251,12 +278,13 @@ const FILE = 'file://' + PAGE;
 
   await p.click('#msgrBar');
   await p.waitForTimeout(400);
-  check('signed out, the panel asks for an employee ID',
-    await p.$eval('#msgrIdWrap', (el) => !el.hidden));
-  check('and says plainly that no reply can come back here',
-    /not signed in/.test(await p.$eval('#msgrNote', (el) => el.textContent)) &&
-    /cannot come back/.test(await p.$eval('#msgrNote', (el) => el.textContent)),
-    'implying an answer will appear would be the cruel version');
+  check('signed out, the panel asks for an employee ID as well as a name',
+    await p.$eval('#msgrIdWrap', (el) => !el.hidden) &&
+    await p.$eval('#msgrName', (el) => !el.closest('label').hidden),
+    'without a session there is no ID to take, and the team needs one');
+  check('and nothing stands there explaining itself before anybody has typed',
+    (await p.$eval('#msgrNote', (el) => el.textContent.trim())) === '',
+    'a permanent explanation becomes part of the furniture');
   check('with no conversation shown, because there is nobody to have one with',
     (await p.$$eval('#msgrThread .bubble', (ns) => ns.length)) === 0);
   check('the FAQ is still there though',
@@ -276,8 +304,12 @@ const FILE = 'file://' + PAGE;
   const note = await p.$eval('#msgrNote', (el) => el.textContent);
   check('with one, it goes',
     /Sent to the EAS team/.test(note), note.slice(0, 48));
-  check('and the confirmation repeats that they will be contacted directly',
-    /contact you directly/.test(note),
+  // The standing note was removed, so this is now the ONLY place the person is
+  // told a reply cannot come back here. It has to carry that weight, and this
+  // is the better moment for it anyway: after they have sent something, rather
+  // than before they have decided to.
+  check('and that is where they are told a reply cannot come back here',
+    /cannot come back to this box/.test(note) && /contact you directly/.test(note),
     'the one thing they must not do is sit and wait on this box');
 
   // -------------------------------------------------------------------------

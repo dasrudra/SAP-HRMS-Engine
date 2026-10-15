@@ -71,6 +71,7 @@ function messengerBoot(token) {
     faq: faqEntries(),
     messages: [],
     unread: 0,
+    name: '',
     canAnswer: false
   };
 
@@ -80,6 +81,7 @@ function messengerBoot(token) {
   if (thread) {
     out.messages = threadMessageList(thread.id);
     out.unread = Number(thread.unreadByPerson) || 0;
+    out.name = thread.name;        // so nobody types their name twice
   }
 
   try {
@@ -97,7 +99,7 @@ function messengerBoot(token) {
  * The employee ID comes from the token. There is no field for it and no way to
  * pass one, so a message cannot be written in somebody else's name.
  */
-function sendMessage(token, text) {
+function sendMessage(token, text, name) {
   const session = currentSession(token);
   if (!session) {
     return { ok: false, message: 'Your session has ended. Reload the page and ' +
@@ -115,7 +117,8 @@ function sendMessage(token, text) {
                       'them - somebody will reply here.' };
   }
 
-  const result = appendToThread(who, VERIFIED_YES, SIDE_USER, who, body.text);
+  const result = appendToThread(who, VERIFIED_YES, SIDE_USER, who, body.text,
+                                null, null, null, cleanName(name));
   noteQuestionAsked(who);
 
   // Only nudge if the team is not already sitting on something unanswered from
@@ -123,10 +126,12 @@ function sendMessage(token, text) {
   // interruption, not four, and four emails out of a hundred.
   const emailed = result.wasWaiting
     ? false
-    : alertTeamOfMessage(who, body.text, VERIFIED_YES, result.threadId);
+    : alertTeamOfMessage(who, body.text, VERIFIED_YES, result.threadId,
+                         cleanName(name));
 
   return { ok: true, id: result.messageId, emailed: emailed,
            messages: threadMessageList(result.threadId),
+           name: cleanName(name),
            message: 'Sent.' };
 }
 
@@ -153,7 +158,7 @@ function sendMessage(token, text) {
  *                            ACCOUNTS on purpose - see the file header.
  * @param {string} text       the message
  */
-function sendUnverifiedMessage(ignoredToken, employeeId, text) {
+function sendUnverifiedMessage(ignoredToken, employeeId, text, name) {
   const who = String(employeeId == null ? '' : employeeId).trim().slice(0, 40);
   if (!/^[A-Za-z0-9._-]{3,40}$/.test(who)) {
     return { ok: false, message: 'Put your employee ID in first - the one you ' +
@@ -176,12 +181,14 @@ function sendUnverifiedMessage(ignoredToken, employeeId, text) {
                       'We have them - somebody will be in touch.' };
   }
 
-  const result = appendToThread(who, VERIFIED_NO, SIDE_USER, who, body.text);
+  const result = appendToThread(who, VERIFIED_NO, SIDE_USER, who, body.text,
+                                null, null, null, cleanName(name));
   noteQuestionAsked('anon-' + who);
 
   const mayEmail = !result.wasWaiting &&
     takeFromHourlyBucket('EAS_UNVERIFIED_MAIL', CONFIG.UNVERIFIED_EMAILS_PER_HOUR);
-  if (mayEmail) alertTeamOfMessage(who, body.text, VERIFIED_NO, result.threadId);
+  if (mayEmail) alertTeamOfMessage(who, body.text, VERIFIED_NO, result.threadId,
+                                   cleanName(name));
 
   // Deliberately identical whether or not that employee ID exists.
   return { ok: true,
@@ -234,7 +241,8 @@ function listThreads(token) {
   return readThreads()
     .map(function (t) {
       return {
-        id: t.id, person: t.person, verified: t.verified === VERIFIED_YES,
+        id: t.id, person: t.person, name: t.name,
+        verified: t.verified === VERIFIED_YES,
         topic: t.topic, startedAt: t.startedAt, lastAt: t.lastAt,
         lastBy: t.lastBy, status: t.status,
         waiting: Number(t.waitingForTeam) || 0,
@@ -377,7 +385,8 @@ function readThreads() {
         lastBy: String(r[6] || ''),
         status: String(r[7] || THREAD_OPEN),
         waitingForTeam: Number(r[8]) || 0,
-        unreadByPerson: Number(r[9]) || 0
+        unreadByPerson: Number(r[9]) || 0,
+        name: String(r[10] || '')
       };
     })
     .filter(function (t) { return t.id && t.person; });
@@ -459,7 +468,8 @@ function threadMessageList(threadId) {
  * @param {string=} topic    only used when the thread is being created
  * @return {{threadId: string, messageId: string, wasWaiting: boolean}}
  */
-function appendToThread(person, verified, side, author, text, whenIso, forceId, topic) {
+function appendToThread(person, verified, side, author, text, whenIso, forceId,
+                       topic, name) {
   const who = String(person || '').trim();
   const level = verified === VERIFIED_NO ? VERIFIED_NO : VERIFIED_YES;
   const when = whenIso ? new Date(whenIso) : new Date();
@@ -469,7 +479,7 @@ function appendToThread(person, verified, side, author, text, whenIso, forceId, 
     const threadId = 'T' + stamp(when) + '-' + shortId();
     threadTab().appendRow([
       threadId, who, level, when, String(topic || '').trim().slice(0, 80),
-      when, side, THREAD_OPEN, 0, 0
+      when, side, THREAD_OPEN, 0, 0, String(name || '')
     ]);
     thread = findThread(who, level);
     if (!thread) throw new Error('Could not create a conversation for ' + who);
@@ -491,6 +501,11 @@ function appendToThread(person, verified, side, author, text, whenIso, forceId, 
   if (!thread.topic && topic) {
     setThreadField(thread.row, 'Topic', String(topic).trim().slice(0, 80));
   }
+  // A name given later replaces one given earlier - somebody correcting a typo
+  // in their own name should not have to live with it. An empty one never
+  // overwrites a name already there, so leaving the box blank on a later
+  // message does not erase it.
+  if (name) setThreadField(thread.row, 'Name', name);
 
   return { threadId: thread.id, messageId: messageId, wasWaiting: wasWaiting };
 }
@@ -500,6 +515,34 @@ function setThreadField(row, column, value) {
   const col = CONFIG.THREAD_COLUMNS.indexOf(column) + 1;
   if (col < 1) throw new Error('No such THREADS column: ' + column);
   threadTab().getRange(row, col).setValue(value);
+}
+
+
+/**
+ * A name somebody typed, trimmed to something a line of an email can hold.
+ *
+ * Deliberately permissive about what is in it - people have apostrophes and
+ * hyphens and more than three words in their names, and this is a label, not a
+ * key. It is escaped wherever it is shown, which is where that question is
+ * actually settled.
+ */
+function cleanName(name) {
+  return String(name == null ? '' : name).replace(/\s+/g, ' ').trim().slice(0, 60);
+}
+
+
+/**
+ * How a person is written wherever both halves are shown: "Rudra (20536723)".
+ *
+ * The ID is the half that means anything, so it is always there; the name is a
+ * courtesy and may be missing. On an unverified thread BOTH are only what
+ * somebody typed, which is why the word UNVERIFIED travels beside this and not
+ * inside it.
+ */
+function who(employeeId, name) {
+  const id = String(employeeId || '').trim();
+  const said = cleanName(name);
+  return said ? said + ' (' + id + ')' : 'employee ID ' + id;
 }
 
 
@@ -544,7 +587,7 @@ function takeFromHourlyBucket(key, cap) {
  *
  * @return {boolean} whether anything was sent
  */
-function alertTeamOfMessage(from, text, verified, threadId) {
+function alertTeamOfMessage(from, text, verified, threadId, name) {
   const to = questionAlertList();
   if (!to.length) return false;
 
@@ -554,7 +597,7 @@ function alertTeamOfMessage(from, text, verified, threadId) {
     MailApp.sendEmail({
       to: to.join(','),
       subject: (unverified ? 'EAS dashboard - UNVERIFIED message from ' :
-                             'EAS dashboard - a message from ') + from,
+                             'EAS dashboard - a message from ') + who(from, name),
       body: [
         unverified
           ? 'Somebody used the message box on the SIGN-IN page, where nobody is'
@@ -563,7 +606,7 @@ function alertTeamOfMessage(from, text, verified, threadId) {
           ? 'signed in. The employee ID below is only what they typed.'
           : 'dashboard.',
         '',
-        'From:     employee ID ' + from,
+        'From:     ' + who(from, name),
         'Identity: ' + (unverified
           ? 'NOT VERIFIED - they were not signed in'
           : 'verified - they were signed in as this ID'),
