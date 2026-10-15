@@ -136,6 +136,40 @@ check('a dropdown that cannot be used yet is still drawn as disabled',
   'the section filter needs no rebuild, so nothing uses this state now');
 
 // ---------------------------------------------------------------------------
+// nothing restores a button to the label it was given while working
+// ---------------------------------------------------------------------------
+// Every "do something" button on this dashboard follows the same shape: keep
+// the label, swap it for Working/Sending/Creating, put the first one back when
+// the server answers. The sign-up button got that in the wrong order - it
+// captured the label one line AFTER overwriting it - so anybody who hit a
+// validation message was left looking at a button that said "Creating..."
+// forever. It had re-enabled; it just never stopped saying otherwise.
+//
+// Checked over the whole file rather than that one button, because the pattern
+// is written out by hand in a dozen places and the mistake is invisible when
+// you are looking straight at it.
+const BUSY = /(Creating|Sending|Signing in|Saving|Working|Rebuilding|Uploading)\\u2026/;
+const lines = APP.split('\n');
+const wrongOrder = [];
+lines.forEach(function (line, i) {
+  const captured = line.match(/(?:const|let|var)\s+(\w+)\s*=\s*(\w+)\s*(?:\?\s*)?\2?\.?textContent/);
+  if (!captured) return;
+  const button = captured[2];
+  // Did the same button get a working-label in the dozen lines above this?
+  for (let back = Math.max(0, i - 12); back < i; back++) {
+    if (new RegExp(button + '\\.textContent\\s*=').test(lines[back]) &&
+        BUSY.test(lines[back])) {
+      wrongOrder.push('line ' + (i + 1) + ': ' + line.trim().slice(0, 56));
+      return;
+    }
+  }
+});
+check('no button captures its label after overwriting it',
+  wrongOrder.length === 0,
+  wrongOrder.join('; ') || 'every one reads the label first');
+
+
+// ---------------------------------------------------------------------------
 // the whole project is still plain ASCII
 // ---------------------------------------------------------------------------
 // A single stray byte in a paste has taken this project down before. Checked

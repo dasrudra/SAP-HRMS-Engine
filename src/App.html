@@ -341,9 +341,15 @@
       const button = document.getElementById('setupGo');
       const box = document.getElementById('setupError');
       if (box) box.hidden = true;
+
+      // READ THE LABEL BEFORE OVERWRITING IT. This used to be captured on the
+      // line after "Creating..." was already in place, so the label it put back
+      // was "Creating..." - and anybody who hit a validation message sat
+      // looking at a button that said it was still working. The button did
+      // re-enable; it just never stopped saying otherwise.
+      const wording = button ? button.textContent : '';
       if (button) { button.disabled = true; button.textContent = 'Creating\u2026'; }
 
-      const wording = button ? button.textContent : '';
       const done = function () {
         if (button) { button.disabled = false; button.textContent = wording; }
       };

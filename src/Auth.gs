@@ -740,9 +740,22 @@ function registerAccount(setupToken, employeeId, password, confirm) {
     // Said plainly on purpose. Somebody registering their OWN id and being
     // told nothing useful would simply try again; and an id already being
     // taken is not a secret worth keeping from the person it belongs to.
-    return fail('An account already exists for employee ID ' + id + '. Sign in ' +
-                'with it, or ask for the password to be reset if it is yours ' +
-                'and you have forgotten it.');
+    //
+    // AND IT HAS TO SAY WHAT TO DO NEXT. The first version ended "or ask for
+    // the password to be reset if it is yours and you have forgotten it",
+    // which is a dead end for the exact person most likely to read it:
+    // somebody whose password HAS just been reset, who signed in with the
+    // shared starting login because that is what they were given last time,
+    // and who is now being told to go and ask for the thing they already have.
+    // The way through is to put their own employee ID in the username box -
+    // the same starting password then brings them back to this card, bound to
+    // them, ready to set a password. It does not say whether a reset is
+    // pending, which would make this box a way to ask.
+    return fail('An account already exists for employee ID ' + id + '. Put ' +
+                id + ' in the username box on the sign-in card instead of "' +
+                BOOTSTRAP_USER + '". If the password has just been reset for ' +
+                'you, use the starting password there and this card comes ' +
+                'back, ready for you to choose your own.');
   }
 
   const now = new Date();
