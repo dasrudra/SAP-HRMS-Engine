@@ -290,6 +290,30 @@ const stub = `
       t.waiting = 0; t.lastBy = 'TEAM'; t.lastAt = new Date().toISOString();
       return { ok: true, message: 'Replied.', messages: t.messages.slice() };
     },
+    // Accounts, deliberately out of order by last sign-in and with two edge
+    // cases in it: somebody who has never signed in, and the shared starting
+    // login, which is not a person and has no sign-in of its own.
+    masterListAccounts: function () {
+      return [
+        { username: '20217450', role: 'USER', created: '2026-10-05T06:46:00.000Z',
+          lastSignIn: '2026-10-05T06:46:00.000Z', signIns: 1, mustChange: false },
+        { username: '20536723', role: 'MASTER', created: '2026-10-04T09:15:00.000Z',
+          lastSignIn: '2026-10-18T02:19:00.000Z', signIns: 29, mustChange: false },
+        { username: '20217474', role: 'ADMIN', created: '2026-10-15T06:49:00.000Z',
+          lastSignIn: '2026-10-17T02:20:00.000Z', signIns: 3, mustChange: false },
+        { username: '20900001', role: 'USER', created: '2026-10-16T04:00:00.000Z',
+          lastSignIn: '', signIns: 0, mustChange: true },
+        { username: '20467174', role: 'ADMIN', created: '2026-10-04T09:33:00.000Z',
+          lastSignIn: '2026-10-15T03:17:00.000Z', signIns: 17, mustChange: false },
+        // Deliberately the MOST RECENT date in the list. With an empty one it
+        // sank to the bottom whether the bootstrap rule worked or not, so the
+        // rule was untested - removing it changed nothing the suite could see.
+        { username: 'user', role: 'USER', bootstrap: true, created: '',
+          lastSignIn: '2026-10-18T09:00:00.000Z', signIns: 0, mustChange: false }
+      ];
+    },
+    masterAuditLog: function () { return []; },
+
     getKpi2: function () { return { hasData: false }; },
     getUploads: function () { return []; },
     getOrgChart: function () { return { sections: [] }; },

@@ -5703,18 +5703,37 @@
       return true;
     });
 
+    // NEWEST SIGN-IN AT THE TOP. Who was here this morning is the question
+    // this table gets asked; the alphabetical order of employee IDs answers
+    // nothing. Sorted on a copy, because `rows` is a filtered view of
+    // state.master.accounts and sorting in place would quietly reorder the
+    // stored list as a side effect of drawing it.
+    const ordered = rows.slice().sort(function (a, b) {
+      // The shared starting login is not a person. It has no sign-in of its
+      // own today, but it is an account somebody could one day stamp, and it
+      // belongs at the bottom either way.
+      if (a.bootstrap !== b.bootstrap) return a.bootstrap ? 1 : -1;
+
+      // Descending on an ISO date string, which also puts anybody who has
+      // never signed in at the bottom for free: '' sorts before every real
+      // date, so reversed it sorts after all of them. There WAS a branch here
+      // guarding that case explicitly, with a comment about 1970. It never
+      // ran - removing it changed nothing, which is how it was found.
+      return (b.lastSignIn || '').localeCompare(a.lastSignIn || '');
+    });
+
     setText('masterCount', all.length + ' account' + (all.length === 1 ? '' : 's'));
     setCount('cMaster', rows.length, all.length, 'accounts');
 
-    if (!rows.length) return emptyTable('#masterTable tbody', 7, 'No accounts match.');
+    if (!ordered.length) return emptyTable('#masterTable tbody', 6, 'No accounts match.');
 
-    fillRows('#masterTable tbody', rows, function (a) {
+    fillRows('#masterTable tbody', ordered, function (a) {
       // The shared starting login is a row like any other, but it is not a
       // person and none of the actions make sense on it.
       if (a.bootstrap) {
         return '<td class="name">' + escapeHtml(a.username) + '</td>' +
                '<td>' + rolePill('USER') + '</td>' +
-               '<td colspan="4" class="muted">' +
+               '<td colspan="3" class="muted">' +
                'The shared starting login. Everyone uses it once, to reach the ' +
                'card that creates their own.</td>' +
                '<td class="muted">\u2014</td>';
@@ -5740,7 +5759,6 @@
              '<td>' + status + '</td>' +
              '<td>' + escapeHtml(whenText(a.created)) + '</td>' +
              '<td>' + escapeHtml(whenText(a.lastSignIn)) + '</td>' +
-             '<td class="r">' + count(a.signIns) + '</td>' +
              '<td class="master-actions">' +
                (a.role !== 'ADMIN' && a.role !== 'MASTER' ? make('admin', 'Make admin') : '') +
                (a.role === 'ADMIN' ? make('viewer', 'Remove admin') : '') +

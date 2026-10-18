@@ -1511,24 +1511,99 @@
     font-family: inherit;
   }
 
+  /*
+    THE BAR: FROSTED GLASS, A SOFT GLOW, AND A LIFT ON HOVER.
+
+    It has to read on two very different backgrounds - a near-white dashboard
+    and the dark photograph behind the sign-in card - so the glass is a light
+    translucent wash rather than a tint of either. Over the dashboard it is
+    barely-there frosted white; over the photograph it is a lit panel. Navy
+    text carries both.
+
+    THE LIFT WITHOUT A GAP. Raising something docked to the bottom edge opens
+    a strip of page underneath it. So the bar rests four pixels BELOW the edge
+    with four extra pixels of bottom padding - the overhang is off-screen, and
+    hovering translates it exactly those four pixels, which reads as the bar
+    rising out of the edge rather than detaching from it.
+  */
   .msgr-bar {
-    display: flex; align-items: center; gap: 9px;
-    padding: 10px 14px; border: 1px solid var(--border);
-    border-bottom: 0; border-radius: 10px 10px 0 0;
-    background: var(--surface); box-shadow: 0 -2px 14px rgba(15,32,66,.13);
-    cursor: pointer; font-family: inherit; font-size: 13px; font-weight: 650;
+    display: flex; align-items: center; gap: 10px;
+    box-sizing: border-box; min-width: 258px;
+    margin-bottom: -4px;
+    padding: 13px 18px 17px;
+    border: 1px solid rgba(255, 255, 255, .5);
+    border-bottom: 0; border-radius: 14px 14px 0 0;
+    cursor: pointer; font-family: inherit; font-size: 13.5px; font-weight: 650;
     color: var(--navy-700);
+
+    background: rgba(255, 255, 255, .62);
+    -webkit-backdrop-filter: blur(18px) saturate(180%);
+    backdrop-filter: blur(18px) saturate(180%);
+
+    /* Inset top line is the lit edge of the glass; the two outward shadows are
+       the weight and the blue glow. Nothing is drawn downwards - there is no
+       page down there to cast onto. */
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, .85),
+      0 -10px 34px rgba(15, 32, 66, .16),
+      0 -2px 12px rgba(37, 99, 235, .10);
+
+    /* Quint-out, long enough to feel like weight rather than a snap. */
+    transition:
+      transform .38s cubic-bezier(.22, 1, .36, 1),
+      box-shadow .38s cubic-bezier(.22, 1, .36, 1),
+      background .38s cubic-bezier(.22, 1, .36, 1),
+      border-color .38s cubic-bezier(.22, 1, .36, 1);
+    will-change: transform;
   }
-  .msgr-bar:hover { background: var(--surface-2); }
+  .msgr-bar:hover,
+  .msgr-bar:focus-visible {
+    transform: translateY(-4px);
+    background: rgba(255, 255, 255, .8);
+    border-color: rgba(255, 255, 255, .78);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, .95),
+      0 -18px 48px rgba(15, 32, 66, .2),
+      0 -5px 22px rgba(37, 99, 235, .3);
+  }
+  .msgr-bar:active { transform: translateY(-1px); transition-duration: .1s; }
+
+  /* Without backdrop-filter the glass is just a pale wash over whatever is
+     behind it, which on the sign-in photograph is unreadable. Opaque instead. */
+  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    .msgr-bar { background: var(--surface); border-color: var(--border); }
+    .msgr-bar:hover { background: var(--surface); }
+  }
+
+  /* Somebody who has asked not to be moved gets the colour and the glow and
+     none of the travel. */
+  @media (prefers-reduced-motion: reduce) {
+    .msgr-bar { transition-duration: .01ms; }
+    .msgr-bar:hover, .msgr-bar:focus-visible, .msgr-bar:active {
+      transform: none;
+    }
+  }
+
+  .msgr-bar-label { margin-right: auto; }
   .msgr-bar-icon { display: flex; color: var(--blue-500); }
-  .msgr-chevron { display: flex; color: var(--text-mut); }
+  .msgr-chevron {
+    display: flex; color: var(--text-mut);
+    transition: transform .38s cubic-bezier(.22, 1, .36, 1);
+  }
+  .msgr-bar:hover .msgr-chevron { transform: translateY(-2px); }
   .msgr.is-open .msgr-bar { display: none; }
 
-  /* The unread count, on the bar so it is visible without opening anything. */
+  /* The unread count, on the bar so it is visible without opening anything.
+     Glowing, because it is the one thing here that wants to be noticed. */
   .msgr-dot {
-    min-width: 17px; height: 17px; padding: 0 4px; box-sizing: border-box;
+    min-width: 18px; height: 18px; padding: 0 5px; box-sizing: border-box;
     border-radius: 9px; background: var(--red-ink); color: #fff;
-    font-size: 10.5px; font-weight: 700; line-height: 17px; text-align: center;
+    font-size: 10.5px; font-weight: 700; line-height: 18px; text-align: center;
+    box-shadow: 0 0 0 3px rgba(160, 31, 31, .16), 0 2px 8px rgba(160, 31, 31, .4);
+    transition: box-shadow .38s cubic-bezier(.22, 1, .36, 1);
+  }
+  .msgr-bar:hover .msgr-dot {
+    box-shadow: 0 0 0 5px rgba(160, 31, 31, .2), 0 3px 12px rgba(160, 31, 31, .55);
   }
 
   .msgr-panel {
