@@ -105,53 +105,84 @@ const check = (n, ok, d) => {
     const css = getComputedStyle(el);
     return {
       width: Math.round(r.width), height: Math.round(r.height),
-      overhang: Math.round(r.bottom - window.innerHeight),
+      gap: Math.round(window.innerHeight - r.bottom),
+      radius: css.borderRadius,
       blur: css.backdropFilter || css.webkitBackdropFilter || '',
+      background: css.backgroundImage,
       shadow: css.boxShadow,
       transition: css.transitionDuration
     };
   });
-  check('the bar is a bar, not a pill', bar.width >= 250,
+  check('the bar is wide enough to read as a bar', bar.width >= 250,
     bar.width + ' x ' + bar.height);
+
+  // THE ROUNDING IS THE SHAPE. A pill flush against the bottom edge would have
+  // half of it cut off by the edge it sits on, so the bar floats clear.
+  check('it is a full pill, not a rounded rectangle',
+    parseFloat(bar.radius) >= bar.height / 2,
+    bar.radius + ' on a ' + bar.height + 'px bar');
+  check('and floats clear of the bottom edge rather than sitting on it',
+    bar.gap >= 10 && bar.gap <= 30, bar.gap + 'px of air beneath');
+
   check('it is frosted glass rather than a flat panel',
     /blur/.test(bar.blur), bar.blur || '(no backdrop-filter)');
-  check('with a glow under it',
-    /rgba?\(/.test(bar.shadow) && bar.shadow.split('rgb').length - 1 >= 2,
-    'inset highlight plus two outward shadows');
+  check('tinted, because clear glass on a white page is invisible',
+    /gradient/.test(bar.background), bar.background.slice(0, 60));
+  check('with an inset highlight and a glow outside it',
+    bar.shadow.split('rgb').length - 1 >= 3,
+    (bar.shadow.split('rgb').length - 1) + ' layers');
   check('and it moves slowly enough to be felt rather than noticed',
     parseFloat(bar.transition) >= 0.25,
     bar.transition);
 
-  // THE LIFT WITHOUT A GAP. The bar rests four pixels below the viewport edge
-  // so that raising it on hover does not open a strip of page underneath.
-  check('at rest it overhangs the bottom edge',
-    bar.overhang >= 3 && bar.overhang <= 6, bar.overhang + 'px below');
-
   const before = await p.$eval('#msgrBar', (el) => getComputedStyle(el).transform);
   await p.hover('#msgrBar');
   await p.waitForTimeout(600);
-  const after = await p.$eval('#msgrBar', (el) => {
-    const r = el.getBoundingClientRect();
-    return { transform: getComputedStyle(el).transform,
-             overhang: Math.round(r.bottom - window.innerHeight) };
-  });
-  check('hovering lifts it', after.transform !== before,
-    before + '  ->  ' + after.transform);
-  check('exactly far enough to sit flush, not to float',
-    Math.abs(after.overhang) <= 1,
-    after.overhang + 'px below the edge once lifted');
+  const after = await p.$eval('#msgrBar', (el) => getComputedStyle(el).transform);
+  check('hovering lifts it', after !== before, before + '  ->  ' + after);
 
-  // A fixed element hanging past the bottom must not give the page a scrollbar.
-  const scroll = await p.evaluate(() => {
-    const doc = document.documentElement;
-    const withBar = doc.scrollHeight;
-    document.getElementById('msgr').style.display = 'none';
-    const without = doc.scrollHeight;
-    document.getElementById('msgr').style.display = '';
-    return withBar - without;
+  // The open panel reaches the floor; only the collapsed pill floats. If both
+  // floated, the panel would sit on a shelf of empty page.
+  await p.click('#msgrBar');
+  await p.waitForTimeout(500);
+  const panelGap = await p.$eval('#msgrPanel', (el) =>
+    Math.round(window.innerHeight - el.getBoundingClientRect().bottom));
+  check('but the open panel still reaches the bottom edge', panelGap === 0,
+    panelGap + 'px of gap under the panel');
+  await p.click('#msgrClose');
+  await p.waitForTimeout(400);
+
+  // ---------------------------------------------------------------------------
+  // the mark
+  // ---------------------------------------------------------------------------
+  const mark = await p.$eval('#msgrBar .msgr-bar-icon', (el) => {
+    const css = getComputedStyle(el);
+    const r = el.getBoundingClientRect();
+    return { image: css.backgroundImage.slice(0, 40),
+             width: Math.round(r.width), height: Math.round(r.height),
+             label: el.getAttribute('aria-label') };
   });
-  check('and the overhang costs the page no scroll at all', scroll === 0,
-    scroll + 'px added');
+  check('the message icon is the mark, carried inside the page',
+    /^url\("data:image\//.test(mark.image), mark.image + '...');
+  check('at the shape it was drawn in, not squashed',
+    Math.abs(mark.width / mark.height - 157 / 72) < 0.12,
+    mark.width + 'x' + mark.height + ' is ' +
+    (mark.width / mark.height).toFixed(2) + ':1, drawn at 2.18:1');
+  check('and it is named for anybody who cannot see it',
+    mark.label === 'Messages', mark.label);
+
+  // It has to actually decode. A data URI that is one character short is a
+  // broken image, and a background-image that fails leaves no trace in the DOM.
+  const decoded = await p.evaluate(() => new Promise((done) => {
+    const css = getComputedStyle(document.querySelector('.msgr-bar-icon'));
+    const url = css.backgroundImage.slice(5, -2);
+    const img = new Image();
+    img.onload = () => done(img.naturalWidth + 'x' + img.naturalHeight);
+    img.onerror = () => done('FAILED TO DECODE');
+    img.src = url;
+  }));
+  check('and the browser can actually decode it', /^\d+x\d+$/.test(decoded),
+    decoded);
 
   check('no JS errors across the whole run', errors.length === 0,
     errors.slice(0, 2).join(' / '));

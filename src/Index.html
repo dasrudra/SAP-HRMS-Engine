@@ -1241,11 +1241,14 @@
 
   <!-- Collapsed: the bar you see on every screen. -->
   <button class="msgr-bar" id="msgrBar" aria-expanded="false" aria-controls="msgrPanel">
-    <span class="msgr-bar-icon" aria-hidden="true">
-      <svg viewBox="0 0 24 24" width="18" height="18" fill="none"
-           stroke="currentColor" stroke-width="2" stroke-linecap="round"
-           stroke-linejoin="round"><path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 8.5 8.5 0 0 1-3.9-.9L3 21l1.9-5.1A8.4 8.4 0 0 1 4 11.5a8.5 8.5 0 0 1 8.5-8.5 8.4 8.4 0 0 1 8.5 8.5z"/></svg>
-    </span>
+    <!--
+      The mark, drawn in Styles.html as a background image rather than an <img>
+      here. It is a data URI - about four kilobytes - so it travels inside the
+      page and needs nothing hosted anywhere. Apps Script serves this file from
+      a sandbox with no asset folder of its own, and a mark that depends on an
+      outside URL is a mark that disappears the day that URL moves.
+    -->
+    <span class="msgr-bar-icon" role="img" aria-label="Messages"></span>
     <span class="msgr-bar-label" id="msgrBarLabel">Messages</span>
     <span class="msgr-dot" id="msgrDot" hidden aria-label="unread"></span>
     <span class="msgr-chevron" aria-hidden="true">

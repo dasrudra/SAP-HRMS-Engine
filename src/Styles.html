@@ -1506,9 +1506,12 @@
       it was put there for. Below the confirm dialog at 1000, which must stay
       the only thing on screen while it is up.
     */
-    position: fixed; right: 20px; bottom: 0; z-index: 300;
+    position: fixed; right: 20px; bottom: 18px; z-index: 300;
     display: flex; flex-direction: column; align-items: flex-end;
     font-family: inherit;
+    /* The open panel reaches the floor; the collapsed pill floats above it.
+       Nudged back down by exactly the gap, so the panel is not left hovering
+       on a shelf of its own. */
   }
 
   /*
@@ -1526,53 +1529,73 @@
     hovering translates it exactly those four pixels, which reads as the bar
     rising out of the edge rather than detaching from it.
   */
+  /*
+    THE BAR: A FLOATING GLASS PILL.
+
+    Fully rounded and lifted clear of the bottom edge, because a pill docked
+    flush would have half its shape cut off by the edge it sits on - the
+    rounding IS the shape here, not a detail of it.
+
+    The tint is a pale lilac-to-ice sweep rather than flat white. Clear glass
+    over a white dashboard is invisible; the sweep is what makes it read as a
+    pane with something behind it. It has to work over the dark photograph on
+    the sign-in screen too, so the whole thing stays light - over the
+    photograph it reads as a lit pane, over the dashboard as frosted glass.
+
+    Three shadows: an inset top line for the lit upper edge of the glass, an
+    inset bottom line for the light coming back off whatever is under it, and
+    two outward - one for weight, one for the colour of the glow.
+  */
   .msgr-bar {
-    display: flex; align-items: center; gap: 10px;
+    display: flex; align-items: center; gap: 11px;
     box-sizing: border-box; min-width: 258px;
-    margin-bottom: -4px;
-    padding: 13px 18px 17px;
-    border: 1px solid rgba(255, 255, 255, .5);
-    border-bottom: 0; border-radius: 14px 14px 0 0;
+    padding: 11px 20px 11px 14px;
+    border: 1px solid rgba(255, 255, 255, .72);
+    border-radius: 999px;
     cursor: pointer; font-family: inherit; font-size: 13.5px; font-weight: 650;
     color: var(--navy-700);
 
-    background: rgba(255, 255, 255, .62);
-    -webkit-backdrop-filter: blur(18px) saturate(180%);
-    backdrop-filter: blur(18px) saturate(180%);
+    background:
+      linear-gradient(118deg,
+        rgba(255, 255, 255, .78) 0%,
+        rgba(238, 228, 255, .60) 26%,
+        rgba(223, 231, 255, .54) 52%,
+        rgba(224, 244, 255, .62) 78%,
+        rgba(255, 255, 255, .76) 100%);
+    -webkit-backdrop-filter: blur(16px) saturate(175%);
+    backdrop-filter: blur(16px) saturate(175%);
 
-    /* Inset top line is the lit edge of the glass; the two outward shadows are
-       the weight and the blue glow. Nothing is drawn downwards - there is no
-       page down there to cast onto. */
     box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, .85),
-      0 -10px 34px rgba(15, 32, 66, .16),
-      0 -2px 12px rgba(37, 99, 235, .10);
+      inset 0 1px 1px rgba(255, 255, 255, .95),
+      inset 0 -1px 1px rgba(255, 255, 255, .45),
+      0 10px 30px rgba(28, 40, 86, .20),
+      0 2px 14px rgba(128, 140, 255, .22);
 
     /* Quint-out, long enough to feel like weight rather than a snap. */
     transition:
       transform .38s cubic-bezier(.22, 1, .36, 1),
       box-shadow .38s cubic-bezier(.22, 1, .36, 1),
-      background .38s cubic-bezier(.22, 1, .36, 1),
       border-color .38s cubic-bezier(.22, 1, .36, 1);
     will-change: transform;
   }
   .msgr-bar:hover,
   .msgr-bar:focus-visible {
-    transform: translateY(-4px);
-    background: rgba(255, 255, 255, .8);
-    border-color: rgba(255, 255, 255, .78);
+    transform: translateY(-3px);
+    border-color: rgba(255, 255, 255, .92);
     box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, .95),
-      0 -18px 48px rgba(15, 32, 66, .2),
-      0 -5px 22px rgba(37, 99, 235, .3);
+      inset 0 1px 1px rgba(255, 255, 255, 1),
+      inset 0 -1px 1px rgba(255, 255, 255, .6),
+      0 18px 44px rgba(28, 40, 86, .26),
+      0 4px 24px rgba(128, 140, 255, .42);
   }
   .msgr-bar:active { transform: translateY(-1px); transition-duration: .1s; }
 
-  /* Without backdrop-filter the glass is just a pale wash over whatever is
-     behind it, which on the sign-in photograph is unreadable. Opaque instead. */
+  /* Without backdrop-filter the tint is a pale wash over whatever is behind
+     it, which on the sign-in photograph is unreadable. Opaque instead. */
   @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-    .msgr-bar { background: var(--surface); border-color: var(--border); }
-    .msgr-bar:hover { background: var(--surface); }
+    .msgr-bar {
+      background: var(--surface); border-color: var(--border);
+    }
   }
 
   /* Somebody who has asked not to be moved gets the colour and the glow and
@@ -1584,8 +1607,20 @@
     }
   }
 
+  /*
+    The mark. A background image rather than an <img>, so the aspect ratio is
+    held by the box and nothing can reflow it while the page is still settling.
+    Served as a data URI: Apps Script has no asset folder, and a mark that
+    depends on an outside URL is one that vanishes the day the URL moves.
+  */
+  .msgr-bar-icon {
+    flex: none; width: 46px; height: 21px;
+    background-image: url('data:image/webp;base64,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');
+    background-size: contain; background-repeat: no-repeat;
+    background-position: center;
+  }
+
   .msgr-bar-label { margin-right: auto; }
-  .msgr-bar-icon { display: flex; color: var(--blue-500); }
   .msgr-chevron {
     display: flex; color: var(--text-mut);
     transition: transform .38s cubic-bezier(.22, 1, .36, 1);
@@ -1607,6 +1642,7 @@
   }
 
   .msgr-panel {
+    margin-bottom: -18px;
     width: 352px; max-width: calc(100vw - 32px);
     display: flex; flex-direction: column;
     max-height: min(560px, calc(100vh - 40px));
