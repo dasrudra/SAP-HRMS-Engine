@@ -1480,18 +1480,18 @@
     font-weight: 650; color: var(--navy-700);
   }
 
-  .bubble-user p {
+  /* MINE and THEIRS, not USER and TEAM. Which of those is which depends on
+     who is looking at the screen - see bubbles() in App.html. */
+  .bubble-theirs p {
     background: var(--surface-2); color: var(--navy-700);
     border-bottom-left-radius: 4px;
   }
-  .bubble-team {
-    margin-left: auto;
-  }
-  .bubble-team p {
+  .bubble-mine { margin-left: auto; }
+  .bubble-mine p {
     background: var(--blue-500); color: #fff;
     border-bottom-right-radius: 4px;
   }
-  .bubble-team time { text-align: right; }
+  .bubble-mine time { text-align: right; }
 
   /* ---------------- the message bar ---------------- */
   /* Docked bottom-right on every screen, including the sign-in page. Fixed
@@ -1669,7 +1669,11 @@
     margin-bottom: -18px;
     width: 352px; max-width: calc(100vw - 32px);
     display: flex; flex-direction: column;
-    max-height: min(560px, calc(100vh - 40px));
+    /* A HEIGHT, not just a ceiling. Sized to its content, the panel shrank to
+       fit whatever was in it and the compose box ended up a third of a short
+       panel - the conversation is the point, so it gets the slack instead. */
+    height: min(520px, calc(100vh - 56px));
+    max-height: calc(100vh - 56px);
     border: 1px solid var(--border); border-bottom: 0;
     border-radius: 12px 12px 0 0; background: var(--surface);
     box-shadow: 0 -4px 26px rgba(15,32,66,.2);
@@ -1714,22 +1718,22 @@
   .msgr-thread .bubble { max-width: 88%; }
 
   .msgr-compose {
-    flex: none; padding: 10px 12px 12px; border-top: 1px solid var(--border);
+    flex: none; padding: 8px 12px 10px; border-top: 1px solid var(--border);
     background: var(--surface);
   }
 
   /* Name, and on the sign-in page the employee ID beside it. Side by side so
      two short fields cost one row rather than two - the panel is 352px wide
      and every stacked label pushes the message box further down it. */
-  .msgr-who { display: flex; gap: 8px; margin-bottom: 8px; }
+  .msgr-who { display: flex; gap: 8px; margin-bottom: 6px; }
   .msgr-field { flex: 1; min-width: 0; display: block; }
   .msgr-field > span {
-    display: block; margin-bottom: 4px;
-    font-size: 10px; font-weight: 700; letter-spacing: .07em;
+    display: block; margin-bottom: 2px;
+    font-size: 9.5px; font-weight: 700; letter-spacing: .07em;
     text-transform: uppercase; color: var(--text-mut);
   }
   .msgr-field input {
-    width: 100%; box-sizing: border-box; padding: 7px 10px;
+    width: 100%; box-sizing: border-box; padding: 5px 9px;
     border: 1px solid var(--border-str); border-radius: 8px;
     background: var(--surface); font-family: inherit; font-size: 13px;
     color: var(--navy-700);
@@ -1737,8 +1741,11 @@
 
   .msgr-compose-row { display: flex; gap: 8px; align-items: flex-end; }
   .msgr-compose textarea {
-    flex: 1; box-sizing: border-box; padding: 10px 11px;
-    min-height: 72px; max-height: 150px;
+    flex: 1; box-sizing: border-box; padding: 8px 11px;
+    /* Two comfortable lines. It was three, which ate a third of the panel
+       while the conversation above it had to scroll. It still grows as the
+       message does, up to the maximum. */
+    min-height: 46px; max-height: 140px;
     border: 1px solid var(--border-str); border-radius: 9px;
     background: var(--surface); font-family: inherit; font-size: 13px;
     line-height: 1.5; color: var(--navy-700); resize: none; overflow-y: auto;
@@ -1758,7 +1765,7 @@
      explanation that stands there permanently is read once and then becomes
      part of the furniture. */
   .msgr-note {
-    margin: 7px 0 0; font-size: 11.5px; line-height: 1.5; color: var(--text-mut);
+    margin: 5px 0 0; font-size: 11px; line-height: 1.45; color: var(--text-mut);
   }
   .msgr-note:empty { display: none; }
   .msgr-note.is-said { color: var(--navy-700); }

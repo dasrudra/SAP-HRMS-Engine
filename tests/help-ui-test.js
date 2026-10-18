@@ -158,7 +158,7 @@ const FILE = 'file://' + PAGE;
   // -------------------------------------------------------------------------
   // who replied
   // -------------------------------------------------------------------------
-  const inboxBylines = await p.$$eval('#inboxList .bubble-team time',
+  const inboxBylines = await p.$$eval('#inboxList .bubble-mine time',
                                       (ns) => ns.map((n) => n.textContent.trim()));
   check('every reply says who wrote it, on the team\'s own screen',
     inboxBylines.length > 0 &&
@@ -240,15 +240,30 @@ const FILE = 'file://' + PAGE;
   const thread = await p.$$eval('#msgrThread .bubble', (ns) => ns.map((n) => ({
     side: n.className, text: n.textContent
   })));
-  const panelReply = await p.$eval('#msgrThread .bubble-team time',
+  const panelReply = await p.$eval('#msgrThread .bubble-theirs time',
                                    (el) => el.textContent);
   check('and the person who asked sees who answered them, in their own panel',
     /Pritam Saha \(20467174\)/.test(panelReply), panelReply.trim());
 
-  check('their own conversation is in it, both sides',
+  // WHICH SIDE IS MINE DEPENDS ON WHO IS LOOKING. The same two messages are on
+  // both screens and have to sit on OPPOSITE sides of each. One renderer
+  // served both for a while, with the inbox's answer, so people watched their
+  // own words arrive from the other side of their own screen.
+  check('in their own panel, their message is theirs and sits on the right',
     thread.length === 2 &&
-    /bubble-user/.test(thread[0].side) && /bubble-team/.test(thread[1].side),
+    /bubble-mine/.test(thread[0].side) && /bubble-theirs/.test(thread[1].side),
     thread.map((t) => t.side.replace('bubble ', '')).join(' then '));
+
+  const inboxSides = await p.$$eval('#inboxList .thread:last-child .bubble',
+    (ns) => ns.map((n) => (n.className.match(/bubble-\w+/) || [''])[0]));
+  check('and on the team\'s screen the same exchange is the other way round',
+    inboxSides.length >= 2 &&
+    inboxSides[0] === 'bubble-theirs' && inboxSides[1] === 'bubble-mine',
+    inboxSides.join(' then '));
+  check('so nobody ever sees their own words coming in from the other side',
+    thread[0].side.indexOf('bubble-mine') !== -1 &&
+    inboxSides[0] === 'bubble-theirs',
+    'same message, opposite sides, because "us" is a different person');
   check('the FAQ is in the panel too, so a viewer still has it',
     (await p.$$eval('#msgrFaq details', (ns) => ns.length)) === 2,
     'they have no Help screen to read it on');
@@ -269,10 +284,21 @@ const FILE = 'file://' + PAGE;
   check('the name box arrives already filled in',
     (await p.$eval('#msgrName', (el) => el.value)) === 'Rudra Das',
     'asked once, not every time');
-  check('and the message box is big enough to write in',
-    await p.$eval('#msgrText', (el) => el.getBoundingClientRect().height >= 60),
-    await p.$eval('#msgrText', (el) =>
-      Math.round(el.getBoundingClientRect().height) + 'px tall'));
+  // Two requests that pull against each other, so both are written down:
+  // big enough to write a sentence in, and small enough that the conversation
+  // is still the thing you are looking at. It was one line, then three; the
+  // second ate a third of a short panel.
+  const compose = await p.evaluate(() => {
+    const box = document.getElementById('msgrText').getBoundingClientRect();
+    const whole = document.querySelector('.msgr-compose').getBoundingClientRect();
+    const panel = document.getElementById('msgrPanel').getBoundingClientRect();
+    return { box: Math.round(box.height),
+             share: Math.round(100 * whole.height / panel.height) };
+  });
+  check('the message box holds a couple of lines without being typed into',
+    compose.box >= 44 && compose.box <= 80, compose.box + 'px tall');
+  check('and the whole compose block stays a minority of the panel',
+    compose.share <= 30, compose.share + '% of the panel');
   check('with nothing above it but the conversation',
     (await p.$eval('#msgrThread', (el) => el.textContent.trim()))
       .indexOf('Locked out') === -1,

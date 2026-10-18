@@ -256,6 +256,11 @@
     loadMessenger();
 
     if (session && session.signedIn) {
+      // Role first, then the badge watcher - it checks canAdmin() and there is
+      // nothing to check until state.role is set.
+      state.role = session.role;
+      watchForMessages();
+
       state.role = session.role;
       state.username = session.username || '';
       state.mode = session.mode || 'EXEC';
@@ -6551,7 +6556,7 @@
           'is signed in. That employee ID is only what the sender typed. Do not ' +
           'reset a password or share anything on the strength of it - ring them ' +
           'or check in SAP first. They cannot see a reply here either.</p>') +
-        '<div class="thread-body">' + bubbles(t.messages || []) + '</div>' +
+        '<div class="thread-body">' + bubbles(t.messages || [], true) + '</div>' +
         '<div class="q-reply">' +
           '<textarea rows="2" data-reply="' + escapeHtml(t.id) +
             '" placeholder="Reply' + (t.verified ? '' : ' (they will not see it)') +
@@ -6567,10 +6572,27 @@
   }
 
 
-  /** A run of messages as chat bubbles. Used by the inbox and the panel. */
-  function bubbles(messages) {
+  /**
+   * A run of messages as chat bubbles.
+   *
+   * WHOSE SIDE IS THE RIGHT-HAND SIDE DEPENDS ON WHO IS LOOKING. Both screens
+   * draw the same conversation and mean opposite things by it:
+   *
+   *   the team's inbox   "us" is TEAM. Our replies go right, their messages
+   *                      left - we are reading somebody else's conversation.
+   *   somebody's panel   "us" is USER. THEIR OWN messages go right and our
+   *                      replies come in on the left, which is what every
+   *                      chat window anybody has ever used does.
+   *
+   * One function served both for a while, with the inbox's answer, so people
+   * saw their own words arriving from the other side of their own screen.
+   *
+   * @param {boolean} mineIsTeam true on the team's inbox, false in the panel
+   */
+  function bubbles(messages, mineIsTeam) {
     if (!messages.length) return '<p class="empty">No messages.</p>';
     return messages.map(function (m) {
+      const mine = (m.side === 'TEAM') === Boolean(mineIsTeam);
       // WHO REPLIED, on every team line. The person who asked should know who
       // owns the answer, and the next admin to open the inbox should be able
       // to see at a glance that a colleague has already picked it up rather
@@ -6580,8 +6602,7 @@
       // also kept the byline out of textContent, where a test could see it.
       const by = m.side === 'TEAM' && m.by
         ? '<span class="bubble-by">' + escapeHtml(m.by) + '</span> \u00b7 ' : '';
-      return '<div class="bubble bubble-' +
-               (m.side === 'TEAM' ? 'team' : 'user') + '">' +
+      return '<div class="bubble bubble-' + (mine ? 'mine' : 'theirs') + '">' +
                '<p>' + escapeHtml(m.text) + '</p>' +
                '<time>' + by + escapeHtml(whenText(m.at)) + '</time>' +
              '</div>';
@@ -6605,8 +6626,15 @@
           .then(function (result) {
             button.disabled = false;
             button.textContent = wording;
-            if (result && result.ok) { if (box) box.value = ''; loadInbox(); }
-            else toast((result && result.message) || 'That did not save.');
+            if (result && result.ok) {
+              if (box) box.value = '';
+              loadInbox();
+              // The panel polls every 45 seconds, which is a long time to sit
+              // looking at a reply you just wrote and cannot see. Refresh it
+              // now - this is the ordinary case while testing, where the same
+              // person is on both sides.
+              if (msgrSignedIn) pollMessenger();
+            } else toast((result && result.message) || 'That did not save.');
           })
           .catch(function (err) {
             button.disabled = false;
@@ -6700,6 +6728,21 @@
   // one call on page load and nothing after that.
 
   const MSGR_POLL_MS = 45000;
+
+  /*
+    HOW OFTEN THE BADGE LOOKS FOR NEW MESSAGES.
+
+    It used to be set once at sign-in and then refreshed only by opening the
+    Help screen, so an admin working on KPI 1 all morning never learned that
+    anybody had written to them - which is most of what a badge is for.
+
+    Ninety seconds, not the panel's forty-five: this runs for the whole
+    session whether or not anything is open, where the panel's poll only runs
+    while somebody is looking at it. Admins only, because nobody else has the
+    badge or the endpoint behind it.
+  */
+  const BADGE_POLL_MS = 90000;
+  let badgeTimer = null;
   let msgrTimer = null;
   let msgrSignedIn = false;
   let msgrSeen = 0;
@@ -6731,12 +6774,27 @@
       });
       text.addEventListener('input', function () {
         text.style.height = 'auto';
-        text.style.height = Math.min(text.scrollHeight, 150) + 'px';
+        text.style.height = Math.min(text.scrollHeight, 140) + 'px';
       });
     }
 
     // Wiring only. The content is loaded from onSession(), once the token has
     // actually been read - see the note there.
+  }
+
+
+  /** Keeps the Help badge honest while somebody works on another screen. */
+  function watchForMessages() {
+    if (badgeTimer) { clearInterval(badgeTimer); badgeTimer = null; }
+    if (!canAdmin()) return;
+
+    const look = function () {
+      callServer('messagesWaiting')
+        .then(function (n) { showHelpBadge(Number(n) || 0); })
+        .catch(function () { /* a dropped poll is not worth saying anything about */ });
+    };
+    badgeTimer = setInterval(look, BADGE_POLL_MS);
+    look();
   }
 
 
@@ -6809,7 +6867,7 @@
     msgrSeen = messages.length;
 
     if (!msgrSignedIn) { box.innerHTML = ''; return; }
-    box.innerHTML = messages.length ? bubbles(messages) : '';
+    box.innerHTML = messages.length ? bubbles(messages, false) : '';
   }
 
 
@@ -6853,6 +6911,8 @@
       if (msgrSignedIn) {
         paintThread(result.messages || []);
         scrollThread();
+        // An admin who writes a message is an admin with one more waiting.
+        if (canAdmin()) watchForMessages();
       }
     }).catch(function (err) {
       if (button) button.disabled = false;

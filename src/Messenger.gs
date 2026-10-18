@@ -275,7 +275,24 @@ function replyToThread(token, threadId, text) {
 }
 
 
-/** How many conversations are waiting on us. For the badge. */
+/**
+ * How many conversations are waiting on us, for a signed-in admin.
+ *
+ * The badge was set once at sign-in and then only refreshed by opening the
+ * Help screen, so an admin working on KPI 1 never learned that anybody had
+ * written to them. The screen polls this.
+ *
+ * Guarded, unlike the unguarded count below it: that one is called by
+ * getBootstrap on the server, where there is no token to check and the caller
+ * has already been identified.
+ */
+function messagesWaiting(token) {
+  requireAdmin(token);
+  return unansweredQuestionCount();
+}
+
+
+/** How many conversations are waiting on us. Called server-side only. */
 function unansweredQuestionCount() {
   try {
     return readThreads().filter(function (t) {
@@ -598,7 +615,7 @@ function cleanName(name) {
 function who(employeeId, name) {
   const id = String(employeeId || '').trim();
   const said = cleanName(name);
-  return said ? said + ' (' + id + ')' : 'employee ID ' + id;
+  return said ? said + ' (' + id + ')' : id;
 }
 
 

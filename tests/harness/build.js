@@ -313,6 +313,10 @@ const stub = `
       ];
     },
     masterAuditLog: function () { return []; },
+    messagesWaiting: function () {
+      if (ROLE === 'USER') throw new Error('That action needs the admin login.');
+      return waitingCount();
+    },
 
     getKpi2: function () { return { hasData: false }; },
     getUploads: function () { return []; },

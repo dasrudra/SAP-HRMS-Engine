@@ -586,6 +586,26 @@ check('and the person it belonged to has nothing left to read',
   mine(OTHER).messages.length === 0,
   'it goes from their panel too, which is the part worth asking about first');
 
+// ---------------------------------------------------------------------------
+// how somebody is written, and who may ask what is waiting
+// ---------------------------------------------------------------------------
+const nameOf = vm.runInContext('who', sb);
+check('somebody with a name is written name first, ID in brackets',
+  nameOf('20536723', 'Rudra Das') === 'Rudra Das (20536723)',
+  nameOf('20536723', 'Rudra Das'));
+check('and somebody without one is just the ID',
+  nameOf('20467174', '') === '20467174', nameOf('20467174', ''));
+check('with no "employee ID" said out loud on a line that is already an ID',
+  !/employee/i.test(nameOf('20467174', '')) &&
+  !/employee/i.test(nameOf('20536723', 'Rudra Das')),
+  'the screen has one line per message - two words of label is a third of it');
+
+const waitingFor = vm.runInContext('messagesWaiting', sb);
+check('the count behind the badge needs ADMIN',
+  /admin login/i.test(threw(() => waitingFor(USER))), threw(() => waitingFor(USER)));
+check('and gives an admin the same number the badge shows',
+  waitingFor(ADMIN) === waiting(), waitingFor(ADMIN) + ' waiting');
+
 function findThreadName(person, verified) {
   const hit = tabs[T].rows.filter((r) => r[1] === person && r[2] === verified)[0];
   return hit ? String(hit[10] || '') : '';
