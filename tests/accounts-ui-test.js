@@ -158,16 +158,28 @@ const check = (n, ok, d) => {
   const mark = await p.$eval('#msgrBar .msgr-bar-icon', (el) => {
     const css = getComputedStyle(el);
     const r = el.getBoundingClientRect();
+    const text = document.getElementById('msgrBarLabel').getBoundingClientRect();
     return { image: css.backgroundImage.slice(0, 40),
              width: Math.round(r.width), height: Math.round(r.height),
+             textHeight: Math.round(text.height),
              label: el.getAttribute('aria-label') };
   });
-  check('the message icon is the mark, carried inside the page',
+  check('the message icon is the avatar, carried inside the page',
     /^url\("data:image\//.test(mark.image), mark.image + '...');
-  check('at the shape it was drawn in, not squashed',
-    Math.abs(mark.width / mark.height - 157 / 72) < 0.12,
+
+  // A whole standing figure is about 3 wide to 4 high. Squashing it to the
+  // square an icon slot usually wants would be the one thing that cannot be
+  // done to a photograph of somebody.
+  check('at the shape a standing figure actually is, not squashed to a square',
+    Math.abs(mark.width / mark.height - 121 / 162) < 0.08,
     mark.width + 'x' + mark.height + ' is ' +
-    (mark.width / mark.height).toFixed(2) + ':1, drawn at 2.18:1');
+    (mark.width / mark.height).toFixed(2) + ':1, drawn at 0.75:1');
+  // Not "taller than the bar" - the bar grows to hold it, so that compares a
+  // thing to itself. The property that matters is that a whole standing figure
+  // got room to be one, which means much taller than the word beside it.
+  check('and given real height, so a whole figure is legible at all',
+    mark.height >= mark.textHeight * 2.5,
+    mark.height + 'px tall beside ' + mark.textHeight + 'px text');
   check('and it is named for anybody who cannot see it',
     mark.label === 'Messages', mark.label);
 
