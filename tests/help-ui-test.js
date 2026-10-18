@@ -94,6 +94,51 @@ const FILE = 'file://' + PAGE;
   })));
   check('every conversation is on the screen', cards.length === 3,
     cards.length + ' of 3');
+
+  // -------------------------------------------------------------------------
+  // a stack, not a wall
+  // -------------------------------------------------------------------------
+  // Every conversation used to be drawn out in full, one under another. With
+  // two that reads as a page; with twenty it is a wall, and finding the one
+  // somebody is waiting on means scrolling past everything already dealt with.
+  check('nothing is opened until it is asked for',
+    (await p.$$eval('#inboxList .thread-open:not([hidden])', (n) => n.length)) === 0,
+    'three closed rows');
+  check('but a closed row still says who, what about, and the last thing said',
+    /Ayesha Rahman/.test(cards[1].text) && /KPI 1/.test(cards[1].text) &&
+    /delayed ticket/.test(cards[1].text),
+    'enough to triage without opening anything');
+
+  await p.click('#inboxList .thread:nth-child(2) .thread-row');
+  await p.waitForTimeout(350);
+  check('clicking a row opens that conversation',
+    (await p.$$eval('#inboxList .thread-open:not([hidden])', (n) => n.length)) === 1);
+  check('and the reply box lands under the one you opened',
+    await p.$eval('#inboxList .thread:nth-child(2) [data-reply]',
+                  (el) => !el.closest('.thread-open').hidden));
+
+  await p.click('#inboxList .thread:nth-child(3) .thread-row');
+  await p.waitForTimeout(350);
+  const openNow = await p.$$eval('#inboxList .thread.is-open',
+    (ns) => ns.map((n) => n.getAttribute('data-thread')));
+  check('opening another closes the first - one reply box at a time',
+    openNow.length === 1 && openNow[0] === 'T3',
+    openNow.join(', ') + ' open');
+
+  await p.click('#inboxList .thread:nth-child(3) .thread-row');
+  await p.waitForTimeout(350);
+  check('and clicking the open one closes it again',
+    (await p.$$eval('#inboxList .thread.is-open', (n) => n.length)) === 0);
+
+  // The bin sits inside the row and means something else entirely.
+  await p.click('#inboxList .thread:nth-child(2) [data-del]');
+  await p.waitForTimeout(400);
+  check('the delete control does not count as opening the conversation',
+    (await p.$$eval('#inboxList .thread.is-open', (n) => n.length)) === 0 &&
+    await p.$eval('#modalBackdrop', (el) => !el.hidden),
+    'it asks to delete instead');
+  await p.$eval('#modalCancel, #modal button', (el) => el.click());
+  await p.waitForTimeout(350);
   check('the ones waiting on us are at the top',
     /WAITING/.test(cards[0].text) && /WAITING/.test(cards[1].text) &&
     !/WAITING/.test(cards[2].text),
@@ -122,7 +167,8 @@ const FILE = 'file://' + PAGE;
   check('with the warning spelled out, not just a label',
     /Do not reset a password/.test(first.text) &&
     /only what the sender typed/.test(first.text),
-    'the label alone would be read as decoration');
+    'the label alone would be read as decoration - it is in the card, ready ' +
+    'the moment the conversation is opened');
   check('and it says a reply will not reach them',
     /cannot see a reply/.test(first.text),
     'otherwise somebody types one and assumes it landed');
@@ -132,8 +178,10 @@ const FILE = 'file://' + PAGE;
     'a warning on everything is a warning on nothing');
 
   // replying
+  await p.click('#inboxList .thread:not(.is-unverified) .thread-row');
+  await p.waitForTimeout(350);
   const box = await p.$('#inboxList .thread:not(.is-unverified) textarea');
-  check('each conversation has somewhere to reply', Boolean(box));
+  check('each conversation has somewhere to reply, once opened', Boolean(box));
   if (box) {
     const REPLY = 'Fixed - it was filed under <Sales> & re-run.' +
                   '<img src=y onerror="window.__owned2=1">';
@@ -153,6 +201,9 @@ const FILE = 'file://' + PAGE;
     const now = await p.$eval('#helpBadge', (el) => el.textContent.trim());
     check('and the waiting badge comes DOWN by one',
       Number(now) === Number(badge) - 1, badge + ' -> ' + (now || '(empty)'));
+    check('and the conversation stays open across the redraw',
+      (await p.$$eval('#inboxList .thread.is-open', (n) => n.length)) === 1,
+      'having it snap shut would mean reopening it to read what you just wrote');
   }
 
   // -------------------------------------------------------------------------

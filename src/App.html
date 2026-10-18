@@ -6516,6 +6516,20 @@
    * warning goes on the card because the moment it matters is the moment
    * somebody is reading a convincing request for a password reset.
    */
+  /**
+   * The inbox as a STACK: one row per conversation, opened by clicking it.
+   *
+   * It used to draw every conversation in full, one under another. With two
+   * of them that read as a page; with twenty it is a wall, and finding the
+   * one somebody is waiting on means scrolling past everything already dealt
+   * with. A row carries what you need to triage - who, what about, the last
+   * thing said, and whether it is waiting - and the conversation itself opens
+   * only when you ask for it.
+   *
+   * One open at a time, on purpose. Two open conversations put two reply
+   * boxes on screen, and the whole point of this screen is knowing which one
+   * you are answering.
+   */
   function renderInbox(rows) {
     const list = document.getElementById('inboxList');
     if (!list) return;
@@ -6531,9 +6545,26 @@
       return;
     }
 
+    // Whichever was open before the redraw stays open. A reply redraws this
+    // list, and having it snap shut the moment you answered would mean
+    // reopening it to read what you just wrote.
+    const wasOpen = openThreadId;
+
     list.innerHTML = rows.map(function (t) {
-      return '<article class="thread' + (t.verified ? '' : ' is-unverified') + '">' +
-        '<div class="thread-head">' +
+      const open = t.id === wasOpen;
+      const last = (t.messages || [])[(t.messages || []).length - 1];
+      const peek = last ? last.text : '';
+
+      return '<article class="thread' + (t.verified ? '' : ' is-unverified') +
+               (open ? ' is-open' : '') + '" data-thread="' + escapeHtml(t.id) + '">' +
+
+        '<div class="thread-row" role="button" tabindex="0" ' +
+             'aria-expanded="' + (open ? 'true' : 'false') + '">' +
+          '<span class="thread-caret" aria-hidden="true">' +
+            '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" ' +
+            'stroke="currentColor" stroke-width="2.2" stroke-linecap="round" ' +
+            'stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>' +
+          '</span>' +
           (t.waiting ? '<span class="pill pill-wait">WAITING</span>' : '') +
           '<span class="thread-who">' +
             escapeHtml(t.name ? t.name + ' (' + t.person + ')' : t.person) +
@@ -6543,6 +6574,7 @@
           // everything is a word nobody reads on the one that matters.
           (t.verified ? '' : '<span class="thread-warn">NOT VERIFIED</span>') +
           (t.topic ? '<span class="q-topic">' + escapeHtml(t.topic) + '</span>' : '') +
+          '<span class="thread-peek">' + escapeHtml(peek) + '</span>' +
           '<span class="q-when">' + escapeHtml(whenText(t.lastAt)) + '</span>' +
           '<button class="thread-del" data-del="' + escapeHtml(t.id) +
             '" title="Delete this conversation" aria-label="Delete this conversation">' +
@@ -6551,24 +6583,71 @@
             'stroke-linejoin="round"><path d="M4 7h16M10 7V4h4v3M6 7l1 13h10l1-13"/>' +
             '</svg></button>' +
         '</div>' +
-        (t.verified ? '' :
-          '<p class="thread-note">This came from the sign-in page, where nobody ' +
-          'is signed in. That employee ID is only what the sender typed. Do not ' +
-          'reset a password or share anything on the strength of it - ring them ' +
-          'or check in SAP first. They cannot see a reply here either.</p>') +
-        '<div class="thread-body">' + bubbles(t.messages || [], true) + '</div>' +
-        '<div class="q-reply">' +
-          '<textarea rows="2" data-reply="' + escapeHtml(t.id) +
-            '" placeholder="Reply' + (t.verified ? '' : ' (they will not see it)') +
-            '\u2026"></textarea>' +
-          '<button class="btn btn-primary" data-reply-go="' + escapeHtml(t.id) +
-            '">Reply</button>' +
+
+        '<div class="thread-open"' + (open ? '' : ' hidden') + '>' +
+          (t.verified ? '' :
+            '<p class="thread-note">This came from the sign-in page, where nobody ' +
+            'is signed in. That employee ID is only what the sender typed. Do not ' +
+            'reset a password or share anything on the strength of it - ring them ' +
+            'or check in SAP first. They cannot see a reply here either.</p>') +
+          '<div class="thread-body">' + bubbles(t.messages || [], true) + '</div>' +
+          '<div class="q-reply">' +
+            '<textarea rows="2" data-reply="' + escapeHtml(t.id) +
+              '" placeholder="Reply' + (t.verified ? '' : ' (they will not see it)') +
+              '\u2026"></textarea>' +
+            '<button class="btn btn-primary" data-reply-go="' + escapeHtml(t.id) +
+              '">Reply</button>' +
+          '</div>' +
         '</div>' +
       '</article>';
     }).join('');
 
+    wireThreadRows();
     wireReplyButtons();
     wireDeleteButtons();
+  }
+
+
+  /** Which conversation is open, so a redraw does not close it. */
+  let openThreadId = '';
+
+
+  function wireThreadRows() {
+    document.querySelectorAll('#inboxList .thread-row').forEach(function (row) {
+      const open = function () {
+        const card = row.closest('.thread');
+        if (!card) return;
+        toggleThread(card.getAttribute('data-thread'));
+      };
+      row.addEventListener('click', function (e) {
+        // The bin lives in this row and means something else entirely.
+        if (e.target.closest('[data-del]')) return;
+        open();
+      });
+      row.addEventListener('keydown', function (e) {
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        e.preventDefault();
+        open();
+      });
+    });
+  }
+
+
+  function toggleThread(id) {
+    openThreadId = (openThreadId === id) ? '' : id;
+
+    document.querySelectorAll('#inboxList .thread').forEach(function (card) {
+      const isOpen = card.getAttribute('data-thread') === openThreadId;
+      card.classList.toggle('is-open', isOpen);
+      const body = card.querySelector('.thread-open');
+      if (body) body.hidden = !isOpen;
+      const row = card.querySelector('.thread-row');
+      if (row) row.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+      if (isOpen) {
+        const box = card.querySelector('[data-reply]');
+        if (box) box.focus();
+      }
+    });
   }
 
 

@@ -104,6 +104,17 @@ function backupNow() {
   // hand-rolled export would the moment a column is added.
   file.makeCopy(name, folder);
 
+  // AFTER the copy, never before. The backups are the only archive of old
+  // sign-in history there is, so today's copy has to be taken while the rows
+  // that are about to be dropped are still in it. Pruning first would have
+  // thrown them away and then photographed what was left.
+  //
+  // Wrapped, because a backup that worked must not be reported as failed over
+  // some tidying afterwards.
+  try { pruneAuthLog(); } catch (e) {
+    Logger.log('Sign-in log not pruned: %s', e.message);
+  }
+
   const kept = pruneBackups(folder);
 
   const props = PropertiesService.getScriptProperties();

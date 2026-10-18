@@ -1214,6 +1214,10 @@ function masterAuditLog(token, limit) {
   requireMaster(token);
   const want = Math.min(Math.max(Number(limit) || 200, 1), 1000);
 
+  // Pruned before it is read, so what comes back is already inside the window
+  // and the sheet does not quietly grow for months between backups.
+  try { pruneAuthLog(); } catch (e) { /* a full log is better than no log */ }
+
   let sheet;
   try { sheet = authLogTab(); } catch (e) { return []; }
 
@@ -1462,6 +1466,50 @@ function writeAccounts(accounts) {
  * Never throws. An account action that half-succeeded because the log was
  * unreachable would be worse than an action with no line written about it.
  */
+/**
+ * Drops sign-in history older than CONFIG.AUTH_LOG_DAYS.
+ *
+ * ONLY EVER DELETES A PREFIX. The log is appended in time order, so everything
+ * expired sits at the top in one block - this finds the first row still inside
+ * the window and removes everything above it, in a single deleteRows call.
+ *
+ * Written that way rather than "delete every row older than the cutoff"
+ * deliberately. If a clock ever skews, or somebody pastes a row in by hand,
+ * the sheet stops being perfectly sorted - and a rule that deletes by age
+ * alone would then reach past fresh rows to get at an old one, taking the
+ * fresh ones with it. Stopping at the first row worth keeping cannot do that:
+ * at worst it leaves a few stale rows behind, which costs nothing.
+ *
+ * @return {number} how many rows were removed
+ */
+function pruneAuthLog() {
+  const sheet = authLogTab();
+  const last = sheet.getLastRow();
+  if (last < 3) return 0;                     // a header and at most one row
+
+  const cutoff = Date.now() - (CONFIG.AUTH_LOG_DAYS * 24 * 60 * 60 * 1000);
+  const when = sheet.getRange(2, 1, last - 1, 1).getValues();
+
+  let keepFrom = 0;                           // index of the first row to keep
+  while (keepFrom < when.length) {
+    const at = when[keepFrom][0];
+    const stamp = at instanceof Date ? at.getTime() : Date.parse(String(at));
+    if (!(stamp < cutoff)) break;             // also stops on an unreadable date
+    keepFrom++;
+  }
+  if (!keepFrom) return 0;
+
+  // Never empty the tab outright on a sheet of unreadable dates.
+  if (keepFrom >= when.length) keepFrom = when.length - 1;
+  if (!keepFrom) return 0;
+
+  sheet.deleteRows(2, keepFrom);
+  Logger.log('Sign-in log: removed %s row(s) older than %s days.',
+             keepFrom, CONFIG.AUTH_LOG_DAYS);
+  return keepFrom;
+}
+
+
 function logAuth(name, event, role, detail) {
   try {
     const sheet = authLogTab();

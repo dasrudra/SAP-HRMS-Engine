@@ -553,6 +553,22 @@ const CONFIG = {
   QUESTION_MAX: 2000,
 
   /**
+   * How many days of sign-in history to keep.
+   *
+   * The log gains a row on every sign-in, password change and reset, so it
+   * only ever grows - a few people signing in daily is a few thousand rows a
+   * year, and the screen that shows it has to load all of them to show the
+   * last twenty. Thirty days answers every question anybody actually asks of
+   * it ("who has been in this week", "when did that reset happen") and none
+   * of the ones nobody asks.
+   *
+   * Rows older than this are deleted. There is no archive: if a year of
+   * sign-in history ever matters, it will matter in the backups, which are
+   * whole-spreadsheet copies taken before the pruning runs.
+   */
+  AUTH_LOG_DAYS: 30,
+
+  /**
    * One conversation. There is exactly one per person per verification state.
    *
    * `Verified` is the column that matters. YES means the person was signed in

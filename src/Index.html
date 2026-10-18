@@ -1197,9 +1197,15 @@
         <div class="card">
           <div class="card-head" data-report="masterLog">
             Sign-in log
-            <span class="head-note">Newest first</span>
+            <span class="head-note">Newest first &#183; kept for 30 days</span>
           </div>
-          <div class="table-wrap">
+          <!--
+            Capped and scrolled rather than allowed to run down the page. The
+            log gains a row on every sign-in, so left alone it becomes the
+            longest thing on this screen within a fortnight and pushes
+            everything else out of reach.
+          -->
+          <div class="table-wrap is-capped">
             <table id="masterLog">
               <thead>
                 <tr>

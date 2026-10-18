@@ -98,6 +98,45 @@ const check = (n, ok, d) => {
     shared === rows.length - 1, 'row ' + (shared + 1) + ' of ' + rows.length);
 
   // ---------------------------------------------------------------------------
+  // the sign-in log is capped
+  // ---------------------------------------------------------------------------
+  // It gains a row on every sign-in, so left to its own height it becomes the
+  // longest thing on this screen within a fortnight and pushes everything
+  // else out of reach.
+  const log = await p.evaluate(() => {
+    const wrap = document.querySelector('#masterLog').closest('.table-wrap');
+    const head = document.querySelector('#masterLog thead th');
+    return {
+      rows: document.querySelectorAll('#masterLog tbody tr').length,
+      box: Math.round(wrap.getBoundingClientRect().height),
+      content: wrap.scrollHeight,
+      sticky: getComputedStyle(head).position
+    };
+  });
+  check('a long log is loaded in full', log.rows >= 100, log.rows + ' rows');
+  check('but the box it sits in stays a normal size',
+    log.box > 0 && log.box <= 420, log.box + 'px tall for ' + log.content + 'px of rows');
+  check('and scrolls inside itself rather than down the page',
+    log.content > log.box + 100,
+    log.content + 'px of content in a ' + log.box + 'px box');
+  check('with the headings staying put while it scrolls',
+    log.sticky === 'sticky',
+    'a column of dates with no headings above it is worse than a long table');
+
+  const scrolled = await p.evaluate(() => {
+    const wrap = document.querySelector('#masterLog').closest('.table-wrap');
+    wrap.scrollTop = 250;
+    const head = document.querySelector('#masterLog thead th').getBoundingClientRect();
+    return Math.round(head.top - wrap.getBoundingClientRect().top);
+  });
+  check('which it demonstrably does', Math.abs(scrolled) <= 2,
+    'heading sits ' + scrolled + 'px from the top of the box after scrolling');
+
+  check('and the screen says how long the log is kept',
+    /30 days/.test(await p.$eval('#view-master', (el) => el.textContent)),
+    'otherwise a missing row looks like a bug rather than the rule');
+
+  // ---------------------------------------------------------------------------
   // the message bar
   // ---------------------------------------------------------------------------
   const bar = await p.$eval('#msgrBar', (el) => {

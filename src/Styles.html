@@ -1397,18 +1397,37 @@
   /* ---------------- the team's inbox ---------------- */
 
   .thread-list { padding: 4px 18px 16px; }
-  .thread {
-    padding: 15px 0; border-bottom: 1px solid var(--border);
-  }
+  .thread { border-bottom: 1px solid var(--border); }
   .thread:last-child { border-bottom: 0; }
-  .thread-head {
-    display: flex; align-items: center; gap: 9px; flex-wrap: wrap;
-    margin-bottom: 9px;
+
+  /* The closed row. Everything needed to triage, on one line: who, what
+     about, the last thing said, whether it is waiting. */
+  .thread-row {
+    display: flex; align-items: center; gap: 9px;
+    padding: 11px 6px 11px 0; cursor: pointer;
+    border-radius: 8px;
   }
+  .thread-row:hover { background: var(--surface-2); }
+  .thread-row:focus-visible {
+    outline: 2px solid var(--blue-500); outline-offset: -2px;
+  }
+  .thread-caret {
+    display: flex; flex: none; color: var(--text-mut);
+    transition: transform .22s cubic-bezier(.22, 1, .36, 1);
+  }
+  .thread.is-open .thread-caret { transform: rotate(90deg); }
+
+  /* The last thing said, clipped to one line. It is the single most useful
+     thing on a closed row and the only part allowed to be long. */
+  .thread-peek {
+    flex: 1; min-width: 0; font-size: 12.5px; color: var(--text-mut);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .thread-open { padding: 2px 0 15px 23px; }
   .thread-who { font-size: 13px; font-weight: 700; color: var(--navy-700); }
   .thread-ok { font-size: 11px; color: var(--text-mut); }
   .q-topic { font-size: 12px; font-weight: 650; color: var(--navy-700); }
-  .q-when { font-size: 11.5px; color: var(--text-mut); margin-left: auto; }
+  .q-when { font-size: 11.5px; color: var(--text-mut); flex: none; }
   .pill-wait {
     background: var(--amber-bg); color: var(--amber-ink);
     font-size: 10px; font-weight: 700; letter-spacing: .06em;
@@ -1421,8 +1440,11 @@
      card and not only in the email. */
   .thread.is-unverified {
     background: var(--amber-bg); border-radius: 10px;
-    padding: 14px 14px 15px; margin: 8px 0; border-bottom: 0;
+    margin: 6px 0; border-bottom: 0;
   }
+  .thread.is-unverified .thread-row { padding-left: 10px; }
+  .thread.is-unverified .thread-row:hover { background: rgba(255,255,255,.45); }
+  .thread.is-unverified .thread-open { padding: 2px 12px 14px 33px; }
   .thread-warn {
     background: var(--red-ink); color: #fff;
     font-size: 10px; font-weight: 700; letter-spacing: .06em;
@@ -1896,6 +1918,22 @@
   }
 
   .table-wrap { overflow-x: auto; }
+
+  /*
+    A table that is allowed to be long, inside a box that is not. The log
+    gains a row on every sign-in; left to its own height it becomes the
+    longest thing on the Accounts screen within a fortnight.
+
+    The header stays put while the body scrolls - a column of dates with no
+    headings above it is a worse answer than a long table.
+  */
+  .table-wrap.is-capped {
+    max-height: 360px; overflow-y: auto;
+    border-bottom: 1px solid var(--border);
+  }
+  .table-wrap.is-capped thead th {
+    position: sticky; top: 0; z-index: 2;
+  }
   table { width: 100%; border-collapse: collapse; font-size: 13px; }
   thead th {
     background: var(--navy-700); color: #fff;

@@ -40,6 +40,7 @@ function makeSheet(name, headers) {
     setFrozenRows: () => sheet,
     appendRow: function (r) { sheet.rows.push(r.slice()); return sheet; },
     deleteRow: function (r) { sheet.rows.splice(r - 2, 1); return sheet; },
+    deleteRows: function (r, n) { sheet.rows.splice(r - 2, n); return sheet; },
     getRange: function (r, c, n, w) {
       const h = n === undefined ? 1 : n, width = w === undefined ? 1 : w;
       const api = {
@@ -260,6 +261,74 @@ check('the new password works on the next sign-in',
 check('and the starting password no longer opens his account',
   login('20217473', STARTING).ok === false,
   'or every reset would leave a second way in forever');
+
+// ---------------------------------------------------------------------------
+// the sign-in log does not grow forever
+// ---------------------------------------------------------------------------
+// It gains a row on every sign-in, password change and reset. Left alone that
+// is a few thousand rows a year, all of which the Accounts screen loads to
+// show the last twenty.
+const prune = vm.runInContext('pruneAuthLog', sb);
+const CONFIG = vm.runInContext('CONFIG', sb);
+const logTab = vm.runInContext('authLogTab', sb)();
+const DAY = 24 * 60 * 60 * 1000;
+const ago = (days) => new Date(Date.now() - days * DAY);
+
+logTab.rows = [];
+[95, 60, 40, 31, 29, 10, 2, 0].forEach(function (d, i) {
+  logTab.rows.push([ago(d), '2053672' + i, 'SIGNIN', 'MASTER', '']);
+});
+const before = logTab.rows.length;
+const dropped = prune();
+
+check('rows older than the window are dropped',
+  dropped === 4, dropped + ' of ' + before + ' removed');
+check('and everything inside it is kept, untouched',
+  logTab.rows.length === 4 &&
+  logTab.rows.every(function (r) {
+    return (Date.now() - r[0].getTime()) < CONFIG.AUTH_LOG_DAYS * DAY;
+  }),
+  logTab.rows.length + ' left, newest to ' + CONFIG.AUTH_LOG_DAYS + ' days old');
+check('running it again removes nothing',
+  prune() === 0, 'it is not a sliding window that eats its own tail');
+
+// THE ONE THAT WOULD HAVE BEEN WRONG. "Delete every row older than the cutoff"
+// is the obvious rule and it is unsafe: the moment a sheet is not perfectly
+// sorted - a clock skew, a row pasted in by hand - it reaches PAST fresh rows
+// to get at an old one and takes the fresh ones with it. Stopping at the first
+// row worth keeping cannot do that.
+logTab.rows = [
+  [ago(90), 'old-1', 'SIGNIN', 'MASTER', ''],
+  [ago(88), 'old-2', 'SIGNIN', 'MASTER', ''],
+  [ago(1),  'TODAY', 'SIGNIN', 'MASTER', ''],      // out of order, on purpose
+  [ago(80), 'old-3', 'SIGNIN', 'MASTER', ''],
+  [ago(2),  'fresh', 'SIGNIN', 'MASTER', '']
+];
+prune();
+check('an out-of-order sheet never costs a row that is still inside the window',
+  logTab.rows.some(function (r) { return r[1] === 'TODAY'; }) &&
+  logTab.rows.some(function (r) { return r[1] === 'fresh'; }),
+  logTab.rows.map(function (r) { return r[1]; }).join(', '));
+check('and the expired block above it still goes',
+  !logTab.rows.some(function (r) { return r[1] === 'old-1' || r[1] === 'old-2'; }),
+  'it stops at TODAY and leaves old-3 - stale, harmless, gone next time');
+
+// THREE expired rows, not one. With a single row the function returns before
+// it prunes anything, so a one-row fixture passed whether the guard below was
+// there or not - it was asserting the early exit, not the rule.
+logTab.rows = [
+  [ago(400), 'ancient-1', 'SIGNIN', 'MASTER', ''],
+  [ago(300), 'ancient-2', 'SIGNIN', 'MASTER', ''],
+  [ago(200), 'ancient-3', 'SIGNIN', 'MASTER', '']
+];
+prune();
+check('a log of nothing but expired rows keeps the last one rather than emptying',
+  logTab.rows.length === 1 && logTab.rows[0][1] === 'ancient-3',
+  'an empty tab reads as a broken feature; one stale row reads as a quiet ' +
+  'month - ' + logTab.rows.length + ' left');
+
+logTab.rows = [];
+check('and an empty log is not something to trip over', prune() === 0);
 
 const failed = out.filter((r) => !r).length;
 console.log('\n' + (out.length - failed) + '/' + out.length + ' passed');

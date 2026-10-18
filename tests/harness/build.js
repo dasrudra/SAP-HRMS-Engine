@@ -312,7 +312,17 @@ const stub = `
           lastSignIn: '2026-10-18T09:00:00.000Z', signIns: 0, mustChange: false }
       ];
     },
-    masterAuditLog: function () { return []; },
+    // Long on purpose: the point of the capped table is what happens when
+    // there are more rows than fit, and an empty log proves nothing.
+    masterAuditLog: function () {
+      var out = [];
+      for (var i = 0; i < 120; i++) {
+        out.push({ when: new Date(Date.UTC(2026, 9, 18, 9, 0) - i * 36e5).toISOString(),
+                   username: i % 3 ? '20536723' : '20467174',
+                   event: 'SIGNIN', role: i % 3 ? 'MASTER' : 'ADMIN', detail: '' });
+      }
+      return out;
+    },
     messagesWaiting: function () {
       if (ROLE === 'USER') throw new Error('That action needs the admin login.');
       return waitingCount();
