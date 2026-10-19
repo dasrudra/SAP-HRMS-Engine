@@ -929,6 +929,35 @@
   }
 
 
+  /**
+   * A short confirmation for something that worked and left no trace.
+   *
+   * Deleting a conversation is the case this exists for: the proof is a row
+   * no longer being there, which is indistinguishable from nothing having
+   * happened. It clears itself after a few seconds - there is nothing to
+   * dismiss and nothing to act on.
+   *
+   * IT WAS CALLED BEFORE IT WAS WRITTEN. Two places called toast() and no
+   * such function existed, so confirming a delete threw "toast is not
+   * defined" - AFTER the server had already deleted the conversation, and
+   * before the line that would have refreshed the list. The row stayed on
+   * screen under an error, looking like a delete that had failed, when it had
+   * in fact succeeded.
+   */
+  let toastTimer = null;
+  function toast(message) {
+    const box = document.getElementById('noticeBox');
+    const text = document.getElementById('noticeText');
+    if (!box || !text) return;
+
+    text.textContent = String(message == null ? '' : message);
+    box.hidden = false;
+
+    if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { box.hidden = true; }, 5000);
+  }
+
+
   function onError(err) {
     // A session that ran out is not an error to report, it is a sign-in to
     // ask for. The direct getSession/getBootstrap calls do not go through
@@ -6781,8 +6810,12 @@
           if (!yes) return;
           callServer('deleteThread', id)
             .then(function (result) {
-              toast((result && result.message) || 'Deleted.');
+              // The refresh FIRST. It is the part that matters, and the
+              // confirmation is the part that is only ever decoration -
+              // ordering them the other way round once meant a thrown notice
+              // left a deleted conversation sitting on screen.
               loadInbox();
+              toast((result && result.message) || 'Deleted.');
             })
             .catch(onError);
         });

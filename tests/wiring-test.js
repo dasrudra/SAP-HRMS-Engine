@@ -136,6 +136,94 @@ check('a dropdown that cannot be used yet is still drawn as disabled',
   'the section filter needs no rebuild, so nothing uses this state now');
 
 // ---------------------------------------------------------------------------
+// every function the page calls actually exists
+// ---------------------------------------------------------------------------
+// Twice in one week a function was called that had never been written -
+// openMessenger, lost in a rewrite, and toast, which was invented at a call
+// site and never defined at all. Both are invisible until the exact line
+// runs: toast() sat on the SUCCESS path of deleting a conversation, which no
+// test had ever taken, so the server deleted the row, the page threw, and the
+// row stayed on screen looking like a failure.
+//
+// A parser would be the thorough answer. This is the cheap one: collect what
+// is defined, collect what is called, subtract the things a browser provides.
+// It cannot see a typo'd METHOD name - only bare calls - which is most of
+// what has actually gone wrong here.
+// EVERY script block, not the first one. Taking only the first found an
+// empty block, extracted nothing, and the check passed on a list of nought -
+// which is how a test that cannot fail looks from the outside.
+const APP_JS = (APP.match(/<script[^>]*>[\s\S]*?<\/script>/g) || [])
+  .map(function (block) { return block.replace(/<\/?script[^>]*>/g, ''); })
+  .join('\n');
+
+// Comments out first. Prose mentions functions by name - "installBackupTrigger()
+// has not been run", "requireMaster(token) guards it" - and every one of those
+// reads as a call to a regex. The ":" guard keeps https:// out of it.
+const CODE = APP_JS
+  // Comments first: prose names functions - "run installBackupTrigger()" -
+  // and every one of those reads as a call. The ":" guard spares https://.
+  .replace(/\/\*[\s\S]*?\*\//g, ' ')
+  .replace(/([^:])\/\/[^\n]*/g, '$1')
+  // Then strings, which are full of things shaped like calls and are not:
+  // 'var(--text-dim)', ':not(#setupCard)', ' unique tickets ('.
+  .replace(/'(?:[^'\\\n]|\\.)*'/g, "''")
+  .replace(/"(?:[^"\\\n]|\\.)*"/g, '""')
+  .replace(/`(?:[^`\\]|\\.)*`/g, '``')
+  // And regex literals, for the same reason: /train(ee|ing)/ is not a call to
+  // train. Only where one can legally start, so division survives.
+  .replace(/([=(,:[!&|?{};]|\breturn)(\s*)\/(?![*\/])(?:[^\/\\\n[]|\\.|\[(?:[^\]\\]|\\.)*\])+\/[gimsuy]*/g,
+           '$1$2/RE/');
+
+const defined = new Set();
+let hit;
+
+// Parameters count as defined: resolve and reject are not globals, they are
+// arguments, and a check that does not know that reports them as missing.
+const params = /(?:function\s*[\w$]*\s*\(([^)]*)\)|\(([^)]*)\)\s*=>)/g;
+while ((hit = params.exec(CODE))) {
+  (hit[1] || hit[2] || '').split(',').forEach(function (raw) {
+    const name = raw.trim().replace(/[^\w$].*$/, '');
+    if (name) defined.add(name);
+  });
+}
+const declare = /\bfunction\s+([A-Za-z_$][\w$]*)\s*\(/g;
+while ((hit = declare.exec(CODE))) defined.add(hit[1]);
+// const x = function () {} / const x = (a) => / const x = a =>
+const assigned = /\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:function\b|\(?[\w$,\s]*\)?\s*=>)/g;
+while ((hit = assigned.exec(CODE))) defined.add(hit[1]);
+
+// Anything a browser, the language, or the Apps Script client already gives us.
+const PROVIDED = new Set([
+  'if', 'for', 'while', 'switch', 'catch', 'return', 'typeof', 'function',
+  'do', 'else', 'new', 'delete', 'void', 'in', 'of', 'await', 'yield', 'case',
+  'Number', 'String', 'Boolean', 'Array', 'Object', 'Date', 'Math', 'JSON',
+  'RegExp', 'Error', 'Promise', 'Set', 'Map', 'parseInt', 'parseFloat',
+  'isNaN', 'isFinite', 'encodeURIComponent', 'decodeURIComponent', 'escape',
+  'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'alert',
+  'confirm', 'prompt', 'fetch', 'Blob', 'URL', 'FileReader', 'FormData',
+  'Image', 'Intl', 'URLSearchParams', 'requestAnimationFrame', 'google',
+  'window', 'document', 'console', 'localStorage', 'sessionStorage', 'Chart'
+]);
+
+const called = new Set();
+// A bare name followed by "(" that is NOT preceded by a dot, and not a
+// property key or a declaration of its own.
+const call = /(^|[^.\w$])([A-Za-z_$][\w$]*)\s*\(/g;
+while ((hit = call.exec(CODE))) called.add(hit[2]);
+
+const neverWritten = Array.from(called)
+  .filter((n) => !defined.has(n) && !PROVIDED.has(n))
+  // Not a call: these read as one to a regex and are not.
+  .filter((n) => !/^(?:[A-Z][\w$]*)$/.test(n) || defined.has(n))
+  .sort();
+
+check('every function the page calls is defined somewhere in it',
+  neverWritten.length === 0,
+  neverWritten.length ? 'never defined: ' + neverWritten.join(', ')
+                      : defined.size + ' functions, all of them real');
+
+
+// ---------------------------------------------------------------------------
 // nothing restores a button to the label it was given while working
 // ---------------------------------------------------------------------------
 // Every "do something" button on this dashboard follows the same shape: keep

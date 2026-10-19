@@ -253,6 +253,38 @@ const FILE = 'file://' + PAGE;
     (await p.$$eval('#inboxList .thread', (ns) => ns.length)) === cardsBefore,
     cardsBefore + ' conversations still there');
 
+  // AND SAY YES. This suite only ever cancelled, so the success path was
+  // never run once - and it called a toast() that did not exist. The server
+  // deleted the conversation, the page threw "toast is not defined" before
+  // reaching the refresh, and the row sat there under an error looking like a
+  // delete that had failed.
+  // The UNVERIFIED one, deliberately: it is the conversation this screen most
+  // wants rid of, and deleting it leaves the verified ones that later
+  // assertions here are about.
+  const doomed = await p.$eval('#inboxList .thread.is-unverified',
+                               (el) => el.getAttribute('data-thread'));
+  await p.$eval('#inboxList .thread.is-unverified [data-del]', (el) => el.click());
+  await p.waitForTimeout(400);
+  await p.$eval('#modalGo, #modal .btn-danger, #modal button:last-of-type',
+                (el) => el.click());
+  await p.waitForTimeout(900);
+
+  check('saying yes actually removes it from the screen',
+    (await p.$$eval('#inboxList .thread', (ns) => ns.length)) === cardsBefore - 1,
+    cardsBefore + ' -> ' +
+    (await p.$$eval('#inboxList .thread', (ns) => ns.length)));
+  check('and the one that went is the one that was asked about',
+    !(await p.$$eval('#inboxList .thread',
+      (ns) => ns.map((n) => n.getAttribute('data-thread')))).includes(doomed),
+    doomed + ' is gone');
+  check('with a word to say so, since the proof is an absence',
+    await p.$eval('#noticeBox', (el) => !el.hidden) &&
+    /deleted/i.test(await p.$eval('#noticeText', (el) => el.textContent)),
+    await p.$eval('#noticeText', (el) => el.textContent));
+  check('and no error banner anywhere near it',
+    await p.$eval('#errorBox', (el) => el.hidden),
+    await p.$eval('#errorText', (el) => el.textContent) || 'clean');
+
   // -------------------------------------------------------------------------
   // THE ONE THAT MATTERS: a message is data, not markup
   // -------------------------------------------------------------------------
