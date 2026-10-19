@@ -244,17 +244,6 @@
 
 
   function onSession(session) {
-    // THE MESSAGE PANEL LOADS HERE AND NOWHERE EARLIER. It used to load from
-    // DOMContentLoaded, which runs before loadToken() has finished - and
-    // loadToken is asynchronous, so messengerBoot went to the server with an
-    // empty token. Everybody signed in was handed the signed-OUT panel: asked
-    // for an employee ID they had already typed to get in, and told they were
-    // not signed in while the masthead said they were.
-    //
-    // By here the token is settled either way, so the panel is right the first
-    // time it is drawn rather than correcting itself a moment later.
-    loadMessenger();
-
     if (session && session.signedIn) {
       // Role first, then the badge watcher - it checks canAdmin() and there is
       // nothing to check until state.role is set.
@@ -267,6 +256,10 @@
       startApp();
       return;
     }
+
+    // Nobody is signed in, so the panel is the sign-in page's: an employee ID
+    // box and no conversation. startApp() loads the other one.
+    loadMessenger();
 
     // Opening the link fresh is the ordinary way to arrive here, so there is
     // nothing to explain. Only an expiry mid-session gets a note, and that is
@@ -582,6 +575,21 @@
   function startApp() {
     resetIdle();
     hide('loginScreen');
+
+    // THE MESSAGE PANEL IS LOADED HERE, not once at page load.
+    //
+    // It used to load from onSession() only. That is the right moment for
+    // somebody arriving with a token already in hand, and the wrong one for
+    // everybody else: signing in through the form and finishing the set-up
+    // card both land in startApp() WITHOUT going back through onSession. So
+    // the panel kept whatever it had loaded before the sign-in - the
+    // anonymous one, asking for an employee ID and holding no history - for
+    // the rest of the session, under a masthead naming the person it was
+    // asking about.
+    //
+    // startApp() is the one place every way into the signed-in dashboard
+    // passes through, which is why it belongs here.
+    loadMessenger();
     const root = document.getElementById('appRoot');
     if (root) root.hidden = false;
     show('loader');
@@ -6990,8 +6998,13 @@
       if (msgrSignedIn) {
         paintThread(result.messages || []);
         scrollThread();
-        // An admin who writes a message is an admin with one more waiting.
-        if (canAdmin()) watchForMessages();
+        // An admin who writes a message is an admin with one more waiting -
+        // and if they are looking at the Help screen while they write it,
+        // the conversation should appear there rather than in 90 seconds.
+        if (canAdmin()) {
+          watchForMessages();
+          if (state.view === 'help') loadInbox();
+        }
       }
     }).catch(function (err) {
       if (button) button.disabled = false;

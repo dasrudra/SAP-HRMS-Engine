@@ -493,6 +493,44 @@ const FILE = 'file://' + PAGE;
     banner.replace(/\s+/g, ' ').match(/This page asked[^.]*\.[^.]*\./) ?
       banner.replace(/\s+/g, ' ').match(/This page asked[^.]*\./)[0].slice(0, 90) : 'not found');
 
+  // -------------------------------------------------------------------------
+  // signing in through the form
+  // -------------------------------------------------------------------------
+  // THE PATH EVERY OTHER TEST SKIPPED. They all arrive with a token already in
+  // hand, which goes through onSession - and the message panel was loaded
+  // from onSession only. Signing in through the FORM lands in startApp()
+  // without passing back through it, so the panel kept the anonymous version
+  // it had loaded before the sign-in: an employee ID box, no history, and
+  // "you are not signed in" under a masthead naming the person.
+  await p.close();
+  p = await open('?signin=1');
+
+  check('the sign-in card comes up when nobody is signed in',
+    await p.$eval('#loginScreen', (el) => !el.hidden));
+  check('and the panel is the anonymous one, correctly',
+    await p.$eval('#msgrIdWrap', (el) => !el.hidden),
+    'nobody is signed in yet, so it asks who this is');
+
+  await p.fill('#loginUser', '20536723');
+  await p.fill('#loginPass', 'whatever');
+  await p.click('#loginGo');
+  await p.waitForTimeout(2500);
+
+  check('signing in opens the dashboard',
+    await p.$eval('#appRoot', (el) => !el.hidden));
+  check('AND the panel stops asking who they are',
+    await p.$eval('#msgrIdWrap', (el) => el.hidden),
+    'they just typed an employee ID to get in');
+  check('and stops telling them they are not signed in',
+    !/not signed in/.test(await p.$eval('#msgrNote', (el) => el.textContent)),
+    'the masthead says their ID; the panel must not disagree with it');
+
+  await p.click('#msgrBar');
+  await p.waitForTimeout(700);
+  check('and their conversation is in it',
+    (await p.$$eval('#msgrThread .bubble', (n) => n.length)) > 0,
+    (await p.$$eval('#msgrThread .bubble', (n) => n.length)) + ' messages');
+
   check('no JS errors across the whole run', errors.length === 0,
     errors.slice(0, 2).join(' / '));
 

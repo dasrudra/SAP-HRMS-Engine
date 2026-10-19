@@ -142,6 +142,22 @@ const stub = `
   // one that takes no token.
   var SIGNED_IN = new URLSearchParams(location.search).get('signedout') !== '1';
 
+  /*
+    ?signin=1 starts the page with NOBODY signed in, so the sign-in card comes
+    up and the test can drive the form.
+
+    Worth the trouble because it is the only way to reach a bug that lived for
+    two releases: the message panel was loaded once, from onSession, and
+    signing in through the FORM does not go back through onSession. Every
+    suite arrived with a token already in hand, took the one path that
+    happened to work, and saw nothing.
+
+    SIGNED_IN flips to true once login() succeeds, exactly as the server's
+    answer would change.
+  */
+  var MUST_SIGN_IN = new URLSearchParams(location.search).get('signin') === '1';
+  var HAS_SIGNED_IN = !MUST_SIGN_IN;
+
   // Three conversations: an ordinary one waiting on a reply, one from the
   // sign-in page that nobody has proved anything about, and the signed-in
   // person's own with an unread reply on it.
@@ -185,7 +201,16 @@ const stub = `
 
   var HANDLERS = {
     getSession: function () {
-      return { signedIn: true, role: ROLE, username: '20000000', mode: 'EXEC' };
+      return { signedIn: HAS_SIGNED_IN, role: ROLE, username: '20000000',
+               mode: 'EXEC' };
+    },
+    login: function (username, password) {
+      if (!username || !password) {
+        return { ok: false, message: 'That username and password do not match.' };
+      }
+      HAS_SIGNED_IN = true;
+      return { ok: true, setup: false, role: ROLE, username: String(username),
+               token: 'harness', message: '' };
     },
     getBootstrap: function () {
       return {
@@ -219,7 +244,7 @@ const stub = `
     // panel. A stub more generous than the server it stands for is not a
     // simplification, it is a blind spot.
     messengerBoot: function (token) {
-      var signedIn = SIGNED_IN && Boolean(token);
+      var signedIn = SIGNED_IN && HAS_SIGNED_IN && Boolean(token);
       var t = myThread();
       return {
         signedIn: signedIn, faq: faq(),
