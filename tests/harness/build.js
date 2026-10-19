@@ -173,7 +173,16 @@ const stub = `
       lastBy: 'USER', status: 'OPEN', waiting: 1,
       messages: [ { id: 'M2', at: '2026-08-02T10:02:00.000Z', side: 'USER',
                     text: 'I am locked out, please reset my password.' } ] },
-    { id: 'T3', person: ME, name: 'Rudra Das', verified: true, topic: '', unread: 1,
+    { id: 'T4', person: ME, name: 'Rudra Das', verified: true, unread: 0,
+      topic: 'Affiliate table',
+      startedAt: '2026-08-03T04:00:00.000Z', lastAt: '2026-08-03T04:05:00.000Z',
+      lastBy: 'USER', status: 'OPEN', waiting: 1,
+      messages: [
+        { id: 'M5', at: '2026-08-03T04:00:00.000Z', side: 'USER',
+          text: 'Could you add an affiliate-wise table?' },
+        { id: 'M6', at: '2026-08-03T04:05:00.000Z', side: 'USER',
+          text: 'No rush on it.' } ] },
+    { id: 'T3', person: ME, name: 'Rudra Das', verified: true, topic: 'September export', unread: 1,
       startedAt: '2026-08-01T08:00:00.000Z', lastAt: '2026-08-01T08:30:00.000Z',
       lastBy: 'TEAM', status: 'OPEN', waiting: 0,
       messages: [
@@ -184,6 +193,20 @@ const stub = `
           text: 'Sent it to you just now.' } ] }
   ];
 
+  // Every query of this person's, newest activity first. The panel lists these
+  // and opens one; the single-thread version it replaced could not show that a
+  // person with four running questions has an answer to the second.
+  function myThreadList() {
+    return THREADS
+      .filter(function (t) { return t.person === ME && t.verified; })
+      .map(function (t) {
+        return { id: t.id, topic: t.topic, startedAt: t.startedAt,
+                 lastAt: t.lastAt, lastBy: t.lastBy,
+                 waiting: t.waiting || 0, unread: t.unread || 0,
+                 messages: t.messages.slice() };
+      })
+      .sort(function (a, b) { return String(b.lastAt).localeCompare(String(a.lastAt)); });
+  }
   function myThread() {
     return THREADS.filter(function (t) { return t.person === ME && t.verified; })[0];
   }
@@ -245,36 +268,57 @@ const stub = `
     // simplification, it is a blind spot.
     messengerBoot: function (token) {
       var signedIn = SIGNED_IN && HAS_SIGNED_IN && Boolean(token);
+      var list = signedIn ? myThreadList() : [];
       var t = myThread();
       return {
         signedIn: signedIn, faq: faq(),
-        messages: signedIn && t ? t.messages.slice() : [],
-        unread: signedIn && t ? (t.unread || 0) : 0,
+        threads: list,
+        unread: list.reduce(function (n, x) { return n + (x.unread || 0); }, 0),
         name: signedIn && t ? (t.name || '') : '',
-        canAnswer: signedIn && ROLE !== 'USER'
+        canAnswer: signedIn && ROLE !== 'USER',
+        canDelete: signedIn && ROLE === 'MASTER'
       };
     },
     myMessages: function () {
-      var t = myThread();
-      return { messages: t ? t.messages.slice() : [], unread: t ? (t.unread || 0) : 0 };
+      var list = myThreadList();
+      return { threads: list,
+               unread: list.reduce(function (n, x) { return n + (x.unread || 0); }, 0) };
     },
-    markMyMessagesRead: function () {
-      var t = myThread(); if (t) t.unread = 0;
-      return { ok: true };
+    markMyMessagesRead: function (token, id) {
+      var t = THREADS.filter(function (x) { return x.id === id; })[0];
+      if (t) t.unread = 0;
+      return { ok: Boolean(t) };
     },
-    sendMessage: function (token, text, name) {
-      if (!SIGNED_IN) return { ok: false, message: 'Your session has ended.' };
+    sendMessage: function (token, threadId, topic, text, name) {
+      if (!SIGNED_IN || !HAS_SIGNED_IN) {
+        return { ok: false, message: 'Your session has ended.' };
+      }
       if (!text || String(text).trim().length < 2) {
         return { ok: false, message: 'Write the message first.' };
       }
-      var t = myThread();
+      var t = threadId
+        ? THREADS.filter(function (x) {
+            return x.id === threadId && x.person === ME && x.verified;
+          })[0]
+        : null;
+      if (threadId && !t) {
+        return { ok: false, message: 'That conversation is no longer there.' };
+      }
+      if (!t) {
+        t = { id: 'T' + (THREADS.length + 9), person: ME, name: name || '',
+              verified: true, topic: String(topic || ''), unread: 0,
+              startedAt: new Date().toISOString(), lastAt: new Date().toISOString(),
+              lastBy: 'USER', status: 'OPEN', waiting: 0, messages: [] };
+        THREADS.unshift(t);
+      }
       t.messages.push({ id: 'M' + (t.messages.length + 9),
                         at: new Date().toISOString(), side: 'USER',
                         text: String(text) });
       t.waiting = (t.waiting || 0) + 1;
+      t.lastAt = new Date().toISOString();
       if (name) t.name = String(name);
       return { ok: true, message: 'Sent.', emailed: true, name: t.name,
-               messages: t.messages.slice() };
+               threadId: t.id, threads: myThreadList() };
     },
     sendUnverifiedMessage: function (token, employeeId, text, name) {
       if (!/^[A-Za-z0-9._-]{3,40}$/.test(String(employeeId || ''))) {
@@ -289,7 +333,9 @@ const stub = `
                                   'this box, because you are not signed in.' };
     },
     deleteThread: function (token, id) {
-      if (ROLE === 'USER') throw new Error('That action needs the admin login.');
+      if (ROLE !== 'MASTER') {
+        throw new Error('That action needs the master login.');
+      }
       const at = THREADS.findIndex(function (t) { return t.id === id; });
       if (at === -1) return { ok: false, message: 'That conversation is no longer there.' };
       THREADS.splice(at, 1);

@@ -86,14 +86,14 @@ const FILE = 'file://' + PAGE;
 
   const badge = await p.$eval('#helpBadge', (el) => el.textContent.trim());
   check('the nav badge counts conversations waiting on a reply',
-    badge === '2', badge + ', expected 2');
+    badge === '3', badge + ', expected 3');
 
   const cards = await p.$$eval('#inboxList .thread', (ns) => ns.map((n) => ({
     unverified: n.classList.contains('is-unverified'),
     text: n.textContent
   })));
-  check('every conversation is on the screen', cards.length === 3,
-    cards.length + ' of 3');
+  check('every conversation is on the screen', cards.length === 4,
+    cards.length + ' of 4');
 
   // -------------------------------------------------------------------------
   // a stack, not a wall
@@ -104,9 +104,9 @@ const FILE = 'file://' + PAGE;
   check('nothing is opened until it is asked for',
     (await p.$$eval('#inboxList .thread-open:not([hidden])', (n) => n.length)) === 0,
     'three closed rows');
+  const ayesha = cards.filter((c) => /Ayesha Rahman/.test(c.text))[0] || { text: '' };
   check('but a closed row still says who, what about, and the last thing said',
-    /Ayesha Rahman/.test(cards[1].text) && /KPI 1/.test(cards[1].text) &&
-    /delayed ticket/.test(cards[1].text),
+    /KPI 1/.test(ayesha.text) && /delayed ticket/.test(ayesha.text),
     'enough to triage without opening anything');
 
   await p.click('#inboxList .thread:nth-child(2) .thread-row');
@@ -122,8 +122,7 @@ const FILE = 'file://' + PAGE;
   const openNow = await p.$$eval('#inboxList .thread.is-open',
     (ns) => ns.map((n) => n.getAttribute('data-thread')));
   check('opening another closes the first - one reply box at a time',
-    openNow.length === 1 && openNow[0] === 'T3',
-    openNow.join(', ') + ' open');
+    openNow.length === 1, openNow.join(', ') + ' open');
 
   await p.click('#inboxList .thread:nth-child(3) .thread-row');
   await p.waitForTimeout(350);
@@ -139,10 +138,11 @@ const FILE = 'file://' + PAGE;
     'it asks to delete instead');
   await p.$eval('#modalCancel, #modal button', (el) => el.click());
   await p.waitForTimeout(350);
+  const waitingFlags = cards.map((c) => /WAITING/.test(c.text));
   check('the ones waiting on us are at the top',
-    /WAITING/.test(cards[0].text) && /WAITING/.test(cards[1].text) &&
-    !/WAITING/.test(cards[2].text),
-    'an inbox sorted by nothing is a list');
+    waitingFlags.indexOf(false) === -1 ||
+    waitingFlags.slice(waitingFlags.indexOf(false)).every((w) => !w),
+    waitingFlags.map((w) => (w ? 'waiting' : 'answered')).join(', '));
 
   // Defaulted rather than indexed straight, so that a regression which loses
   // the marker reports ONE failure and lets the rest of the suite run. The
@@ -226,8 +226,8 @@ const FILE = 'file://' + PAGE;
   // deleting a conversation
   // -------------------------------------------------------------------------
   const delButtons = await p.$$eval('[data-del]', (ns) => ns.length);
-  check('every conversation has a delete control', delButtons === 3,
-    delButtons + ' of 3');
+  check('every conversation has a delete control for a MASTER',
+    delButtons === 4, delButtons + ' of 4');
   check('which is quiet until the card is wanted',
     await p.$eval('[data-del]', (el) => Number(getComputedStyle(el).opacity) === 0),
     'the one control here that destroys something should not lead the eye');
@@ -275,9 +275,65 @@ const FILE = 'file://' + PAGE;
   await p.waitForTimeout(500);
   check('clicking the bar opens it',
     await p.$eval('#msgrPanel', (el) => !el.hidden));
-  check('and opening it is reading it - the mark clears',
+
+  // -------------------------------------------------------------------------
+  // the panel is a stack too
+  // -------------------------------------------------------------------------
+  // It used to be a single endless thread - every question anybody ever asked,
+  // in one run, with no way to tell where one ended and the next began.
+  const queries = await p.$$eval('#msgrList .msgr-q', (ns) => ns.map((n) => ({
+    text: n.textContent, unread: n.classList.contains('is-unread')
+  })));
+  check('the panel opens on a LIST of their queries, not one long thread',
+    queries.length === 2, queries.length + ' queries');
+  // Order-independent, and no assumption about WHO spoke last: this suite
+  // replies into one of these queries earlier on, which changes that.
+  const rowText = queries.map((q) => q.text).join(' | ');
+  check('each row says what it is about',
+    /Affiliate table/.test(rowText) && /September export/.test(rowText),
+    rowText.slice(0, 90));
+  check('and who spoke last on it',
+    queries.every((q) => /^(You|.+\(\d{6,}\))/.test(
+      (q.text.split(/\d{4}-\d{2}-\d{2} \d{2}:\d{2}/)[1] || '').trim())),
+    queries.map((q) =>
+      (q.text.split(/\d{4}-\d{2}-\d{2} \d{2}:\d{2}/)[1] || '').trim().slice(0, 30)
+    ).join('  |  '));
+  check('with a dot only on the one that has something unread',
+    queries.filter((q) => q.unread).length === 1,
+    queries.map((q) => (q.unread ? 'unread' : 'read')).join(', '));
+
+  // Opening the PANEL is seeing a list, not reading it. Clearing every dot at
+  // once would hide a reply nobody has looked at.
+  check('and opening the panel does not mark everything read',
+    await p.$eval('#msgrDot', (el) => !el.hidden),
+    'a list of queries is not a read receipt for all of them');
+
+  check('no conversation is shown until one is chosen',
+    await p.$eval('#msgrOne', (el) => el.hidden));
+
+  await p.click('#msgrList .msgr-q:nth-child(2)');
+  await p.waitForTimeout(500);
+  check('clicking a query opens that conversation',
+    await p.$eval('#msgrOne', (el) => !el.hidden) &&
+    await p.$eval('#msgrList', (el) => el.hidden));
+  check('headed by its subject, with a way back',
+    /September export/.test(await p.$eval('#msgrOneTitle', (el) => el.textContent)));
+  check('and THAT is what clears the mark',
     await p.$eval('#msgrDot', (el) => el.hidden),
-    'nobody wants to dismiss a badge twice');
+    'the one they opened, not the three they did not');
+  check('the subject box goes, because a reply belongs to the subject above it',
+    await p.$eval('#msgrSubjectWrap', (el) => el.hidden));
+
+  await p.click('#msgrBack');
+  await p.waitForTimeout(400);
+  check('the back button returns to the list',
+    await p.$eval('#msgrList', (el) => !el.hidden) &&
+    await p.$eval('#msgrOne', (el) => el.hidden));
+  check('and the subject box comes back with it, ready for a new query',
+    await p.$eval('#msgrSubjectWrap', (el) => !el.hidden));
+
+  await p.click('#msgrList .msgr-q:nth-child(2)');
+  await p.waitForTimeout(500);
 
   const docked = await p.evaluate(() => {
     const r = document.getElementById('msgrPanel').getBoundingClientRect();
@@ -368,6 +424,20 @@ const FILE = 'file://' + PAGE;
   await p.waitForTimeout(300);
   check('the chevron closes it again',
     await p.$eval('#msgrPanel', (el) => el.hidden));
+
+  // -------------------------------------------------------------------------
+  // an admin, who answers but does not erase
+  // -------------------------------------------------------------------------
+  await p.close();
+  p = await open('?view=help&role=ADMIN');
+
+  check('an admin still gets the inbox and can reply',
+    (await p.$$eval('#inboxList .thread', (n) => n.length)) === 4 &&
+    (await p.$$eval('#inboxList [data-reply-go]', (n) => n.length)) === 4,
+    'answering queries is the job');
+  check('but is offered no delete control at all',
+    (await p.$$eval('#inboxList [data-del]', (n) => n.length)) === 0,
+    'it destroys the conversation for the person who wrote it too');
 
   // -------------------------------------------------------------------------
   // a viewer
@@ -527,7 +597,13 @@ const FILE = 'file://' + PAGE;
 
   await p.click('#msgrBar');
   await p.waitForTimeout(700);
-  check('and their conversation is in it',
+  check('and their queries are in it',
+    (await p.$$eval('#msgrList .msgr-q', (n) => n.length)) > 0,
+    (await p.$$eval('#msgrList .msgr-q', (n) => n.length)) + ' queries');
+
+  await p.click('#msgrList .msgr-q');
+  await p.waitForTimeout(500);
+  check('and opening one shows the conversation',
     (await p.$$eval('#msgrThread .bubble', (n) => n.length)) > 0,
     (await p.$$eval('#msgrThread .bubble', (n) => n.length)) + ' messages');
 

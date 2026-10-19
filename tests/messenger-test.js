@@ -167,6 +167,7 @@ vm.runInContext(AUTH.match(/const ROLE_USER[\s\S]*?const ROLE_MASTER = 'MASTER';
 vm.runInContext(AUTH.match(/const ROLE_RANK = \{[\s\S]*?\};/)[0], sb);
 vm.runInContext(AUTH.match(/function rankOf[\s\S]*?\n}/)[0], sb);
 vm.runInContext(AUTH.match(/function requireAdmin[\s\S]*?\n}/)[0], sb);
+vm.runInContext(AUTH.match(/function requireMaster[\s\S]*?\n}/)[0], sb);
 // A token is 'ROLE:employeeId' here; null is nobody.
 vm.runInContext(
   'function currentSession(token) {\n' +
@@ -184,13 +185,31 @@ vm.runInContext('ROLES_BY_ID["20000099"] = "ADMIN";', sb);
 
 const CONFIG = vm.runInContext('CONFIG', sb);
 const boot = vm.runInContext('messengerBoot', sb);
-const send = vm.runInContext('sendMessage', sb);
+const sendRaw = vm.runInContext('sendMessage', sb);
+const myThreads = vm.runInContext('myThreads', sb);
+
+// A person has MANY queries now, each its own conversation. send() with no
+// thread starts a new one; replyIn() adds a line to one they already own.
+const send = (token, text, name) => sendRaw(token, '', '', text, name);
+const askAbout = (token, topic, text, name) => sendRaw(token, '', topic, text, name);
+const replyIn = (token, id, text, name) => sendRaw(token, id, '', text, name);
 // The token slot is first on every endpoint, so the client can inject it in
 // one place. This one ignores it - that is the point of it.
 const sendAnonRaw = vm.runInContext('sendUnverifiedMessage', sb);
 const sendAnon = (id, text) => sendAnonRaw(null, id, text);
 const sendAnonNamed = (id, text, name) => sendAnonRaw(null, id, text, name);
-const mine = vm.runInContext('myMessages', sb);
+const myMessagesRaw = vm.runInContext('myMessages', sb);
+
+/** Every line of theirs, across every query, oldest first. */
+const mine = function (token) {
+  const data = myMessagesRaw(token);
+  const threads = data.threads || [];
+  const flat = [];
+  threads.slice().reverse().forEach(function (t) {
+    t.messages.forEach(function (m) { flat.push(m); });
+  });
+  return { threads: threads, messages: flat, unread: data.unread };
+};
 const markRead = vm.runInContext('markMyMessagesRead', sb);
 const threads = vm.runInContext('listThreads', sb);
 const reply = vm.runInContext('replyToThread', sb);
@@ -200,6 +219,7 @@ const T = CONFIG.SHEETS.THREADS, M = CONFIG.SHEETS.MESSAGES;
 const USER = 'USER:20536723';
 const OTHER = 'USER:20000002';
 const ADMIN = 'ADMIN:20000099';
+const MASTER = 'MASTER:20000001';
 const threw = (fn) => { try { fn(); return ''; } catch (e) { return String(e.message || e); } };
 
 // ---------------------------------------------------------------------------
@@ -220,21 +240,31 @@ check('with the message on it, from the USER side',
   tabs[M].rows.length === 1 && tabs[M].rows[0][3] === 'USER' &&
   /cannot see September/.test(tabs[M].rows[0][5]));
 
-send(USER, 'Never mind - I had the month filter set to August.');
-check('a second message joins the same conversation, not a new one',
-  tabs[T].rows.length === 1 && tabs[M].rows.length === 2,
-  tabs[T].rows.length + ' thread(s), ' + tabs[M].rows.length + ' messages');
+// EACH QUESTION IS ITS OWN QUERY NOW. Sending with no thread starts a new
+// one; a run of unrelated questions used to pile into a single endless
+// conversation with no way to tell where one ended and the next began.
+send(USER, 'Separately - who do I ask about a purchase order?');
+check('a message with no thread starts a NEW query',
+  tabs[T].rows.length === 2 && tabs[M].rows.length === 2,
+  tabs[T].rows.length + ' queries, ' + tabs[M].rows.length + ' messages');
 
-check('the person sees their whole conversation in order',
-  mine(USER).messages.length === 2 &&
-  /cannot see September/.test(mine(USER).messages[0].text),
-  'oldest first, like a chat');
+replyIn(USER, first.threadId, 'Never mind - the month filter was on August.');
+check('and a reply into one joins that query rather than starting another',
+  tabs[T].rows.length === 2 && tabs[M].rows.length === 3,
+  tabs[T].rows.length + ' queries, ' + tabs[M].rows.length + ' messages');
+
+const firstQuery = mine(USER).threads.filter((t) => t.id === first.threadId)[0];
+check('and that query reads in order, oldest first',
+  firstQuery.messages.length === 2 &&
+  /cannot see September/.test(firstQuery.messages[0].text),
+  'like a chat');
 
 // ---------------------------------------------------------------------------
 // the email is a nudge, and only one per pending conversation
 // ---------------------------------------------------------------------------
 check('with nobody on the alert list nothing is sent, and the message lands',
-  sent.length === 0 && tabs[M].rows.length === 2);
+  sent.length === 0 && tabs[M].rows.length === 3,
+  sent.length + ' sent, ' + tabs[M].rows.length + ' messages stored');
 
 vm.runInContext('setQuestionAlerts', sb)('boss@example.com, lead@example.com');
 cache = {};                                  // a fresh hour
@@ -253,15 +283,16 @@ check('as plain text, so nothing somebody typed can be markup',
 check('and it says the identity was verified',
   /Identity: verified/.test(sent[0].body), 'they were signed in');
 
-const followUp = send(THIRD, 'Sorry - I mean 2025, not 2024.');
+const followUp = replyIn(THIRD, opened.threadId, 'Sorry - I mean 2025, not 2024.');
 check('a follow-up while we already owe them a reply does NOT email again',
   followUp.ok === true && followUp.emailed === false && sent.length === 1,
   'somebody thinking out loud is one interruption, not four');
 
-const third = send(USER, 'Actually it is still wrong - September shows zero.');
-check('and the same is true of a conversation already waiting on us',
+const third = replyIn(USER, first.threadId,
+                      'Actually it is still wrong - September shows zero.');
+check('and the same is true of a query already waiting on us',
   third.ok === true && third.emailed === false && sent.length === 1,
-  'USER already had two unanswered when the alert list was set');
+  'that query already had an unanswered line when the alert list was set');
 
 // THE ONE THAT MATTERS.
 mailWorks = false;
@@ -280,11 +311,11 @@ check('a message still lands when the email fails outright',
 // ---------------------------------------------------------------------------
 // one person's conversation is one person's
 // ---------------------------------------------------------------------------
-check('a person sees only their own thread',
-  mine(USER).messages.length === 3 &&
+check('a person sees only their own queries',
   !mine(USER).messages.some((m) => /empty file/.test(m.text)) &&
   !mine(USER).messages.some((m) => /last year/.test(m.text)),
-  mine(USER).messages.length + ' of their own'); 
+  mine(USER).threads.length + ' queries, ' +
+  mine(USER).messages.length + ' lines, none of them anybody else\'s'); 
 check('and no employee ID is echoed back on their own lines',
   mine(USER).messages.every((m) => m.author === undefined),
   'they know who they are');
@@ -396,12 +427,17 @@ check('an admin can reply', answer.ok === true, answer.message);
 check('and the reply lands in that person\'s own messenger',
   mine(USER).messages.some((m) => /wrong section/.test(m.text) && m.side === 'TEAM'),
   'one conversation, both sides, one place to look');
-const beforeThanks = mine(USER).messages.length;
-check('the person can answer the reply, and it stays one thread',
-  send(USER, 'Thank you, that is right now.').ok === true &&
-  mine(USER).messages.length === beforeThanks + 1 &&
-  tabs[T].rows.filter((r) => r[1] === '20536723' && r[2] === 'YES').length === 1,
-  beforeThanks + ' -> ' + mine(USER).messages.length + ' in one conversation');
+const answered = mine(USER).threads.filter((t) =>
+  t.messages.some((m) => /wrong section/.test(m.text)))[0];
+const beforeThanks = answered.messages.length;
+const queriesBefore = mine(USER).threads.length;
+check('the person can answer the reply, and it stays in that query',
+  replyIn(USER, answered.id, 'Thank you, that is right now.').ok === true &&
+  mine(USER).threads.filter((t) => t.id === answered.id)[0].messages.length
+    === beforeThanks + 1 &&
+  mine(USER).threads.length === queriesBefore,
+  beforeThanks + ' -> ' + (beforeThanks + 1) + ' lines, still ' +
+  queriesBefore + ' queries');
 
 // ---------------------------------------------------------------------------
 // unread counts
@@ -411,9 +447,15 @@ send(OTHER, 'One more thing about the download.');
 reply(ADMIN, findThreadId('20000002', 'YES'), 'Looking at it now.');
 check('a reply raises an unread count on the asker\'s bar',
   mine(OTHER).unread > 0, mine(OTHER).unread + ' unread');
-markRead(OTHER);
-check('and opening the panel clears it',
-  mine(OTHER).unread === 0);
+// Per query, not all at once: opening one conversation is not reading the
+// others, and clearing their dots would hide a reply nobody has looked at.
+const unreadQuery = mine(OTHER).threads.filter((t) => t.unread > 0)[0];
+markRead(OTHER, unreadQuery.id);
+check('and opening that one clears its dot',
+  mine(OTHER).threads.filter((t) => t.id === unreadQuery.id)[0].unread === 0);
+check('without reaching into anybody else\'s',
+  markRead(USER, unreadQuery.id).ok === false,
+  'a thread ID is not a key to it');
 check('without touching anybody else\'s',
   mine(USER).unread === 0 || typeof mine(USER).unread === 'number');
 
@@ -428,24 +470,63 @@ const signedOut = boot(null);
 check('the panel works signed out, for the sign-in page',
   signedOut.signedIn === false && signedOut.faq.length > 0,
   signedOut.faq.length + ' FAQ entries');
-check('and carries no conversation there, because there is nobody to have one',
-  signedOut.messages.length === 0 && signedOut.canAnswer === false);
+check('and carries no queries there, because there is nobody to have one',
+  signedOut.threads.length === 0 && signedOut.canAnswer === false);
+check('and offers nobody the delete control',
+  signedOut.canDelete === false);
 
 const asUser = boot(USER);
-check('a signed-in person is handed the FAQ and their own conversation',
+check('a signed-in person is handed the FAQ and every query of theirs',
   asUser.signedIn === true && asUser.faq.length > 0 &&
-  asUser.messages.length === mine(USER).messages.length &&
-  asUser.messages.length > 0,
-  asUser.messages.length + ' messages');
+  asUser.threads.length === mine(USER).threads.length &&
+  asUser.threads.length > 1,
+  asUser.threads.length + ' queries');
 check('and is not told they can answer',
   asUser.canAnswer === false, 'the Help screen is the team\'s, not theirs');
 check('an admin is',
   boot(ADMIN).canAnswer === true, 'so the screen knows whether to offer it');
 
+// Deleting destroys somebody else's record of what they were told, so it is
+// not a thing every admin should be able to do on a mis-click.
+check('an admin is NOT offered the delete control',
+  boot(ADMIN).canDelete === false, 'it would be refused anyway');
+
 function findThreadId(person, verified) {
   const hit = tabs[T].rows.filter((r) => r[1] === person && r[2] === verified)[0];
   return hit ? hit[0] : '';
 }
+
+// ---------------------------------------------------------------------------
+// one person, many queries
+// ---------------------------------------------------------------------------
+cache = {};
+const subject = askAbout(USER, 'Affiliate table',
+                         'Could you add an affiliate-wise table?');
+check('a new query can carry a subject',
+  subject.ok === true &&
+  mine(USER).threads.filter((t) => t.id === subject.threadId)[0].topic
+    === 'Affiliate table',
+  'it is what the panel and the inbox put on the row');
+
+check('and the list comes back newest activity first',
+  mine(USER).threads[0].id === subject.threadId,
+  'the one just touched is the one most likely wanted');
+
+// THE ONE THAT MATTERS. A thread ID is not a key to that thread - without the
+// ownership check a signed-in person could paste any conversation's ID into
+// the call and write a line into somebody else's query, signed with that
+// person's name, to be read as theirs by whoever answers it.
+const notMine = mine(OTHER).threads[0];
+const trespass = replyIn(USER, notMine.id, 'Writing into somebody else\'s query.');
+check('a thread ID is not a key to that thread',
+  trespass.ok === false, trespass.message);
+check('and nothing of theirs was written',
+  !mine(OTHER).messages.some((m) => /somebody else/.test(m.text)) &&
+  !tabs[M].rows.some((r) => /somebody else's query/.test(r[5])),
+  'refused before anything touched the sheet');
+check('an unverified thread is not reachable from a signed-in session either',
+  replyIn(USER, findThreadId('20536723', 'NO'), 'Mine now.').ok === false,
+  'the two kinds stay apart in both directions');
 
 // ---------------------------------------------------------------------------
 // what somebody is called, and what they are
@@ -460,6 +541,13 @@ check('a name sent with a message is kept on the conversation',
   JSON.stringify(findThreadName('20536723', 'YES')));
 check('and tidied, so a stray double space is not somebody\'s name forever',
   findThreadName('20536723', 'YES').indexOf('  ') === -1);
+
+check('a name written once shows on EVERY query of theirs',
+  mine(USER).threads.length > 1 &&
+  threads(ADMIN).filter((t) => t.person === '20536723' && t.verified)
+                .every((t) => t.name === 'Rudra Das'),
+  'written to one row only, the inbox would name them on one card and show a ' +
+  'bare employee ID on the next');
 
 check('the inbox shows both halves, name first',
   threads(ADMIN).filter((t) => t.person === '20536723' && t.verified)[0].name === 'Rudra Das',
@@ -542,33 +630,46 @@ check('once an admin has a name, their replies carry it',
 // ---------------------------------------------------------------------------
 const del = vm.runInContext('deleteThread', sb);
 
-check('deleting needs ADMIN',
-  /admin login/i.test(threw(() => del(USER, findThreadId('20000002', 'YES')))),
-  'it destroys somebody else\'s words, so a viewer must not reach it');
+// MASTER, not ADMIN. Deleting destroys the conversation for the person who
+// wrote it as well as for the team - their copy goes from their own panel
+// with everything they were told in it.
+check('deleting is refused to a viewer',
+  /session|master|admin/i.test(threw(() => del(USER, findThreadId('20000002', 'YES')))),
+  threw(() => del(USER, findThreadId('20000002', 'YES'))));
+check('and refused to an ADMIN too',
+  /master access only/i.test(threw(() => del(ADMIN, findThreadId('20000002', 'YES')))),
+  'an admin answers queries; they do not erase somebody else\'s record');
 check('and a conversation that is not there says so',
-  del(ADMIN, 'T-nope').ok === false, del(ADMIN, 'T-nope').message);
+  del(MASTER, 'T-nope').ok === false, del(MASTER, 'T-nope').message);
 
 // A thread with several messages, written AROUND another thread's, so the
 // rows are interleaved on the tab the way they really are.
+// Several lines INTO one query, written around other people's, so the rows
+// are interleaved on the tab the way they really are.
 cache = {};
-const victimId = findThreadId('20000002', 'YES');
-send(OTHER, 'One line.');
+const victimId = mine(OTHER).threads[0].id;
+replyIn(OTHER, victimId, 'One line.');
 send(USER, 'Somebody else, in between.');
 cache = {};
-send(OTHER, 'Another line.');
+replyIn(OTHER, victimId, 'Another line.');
 send(USER, 'And again in between.');
 
 const beforeT = tabs[T].rows.length;
 const beforeM = tabs[M].rows.length;
 const victimLines = tabs[M].rows.filter((r) => r[1] === victimId).length;
-const survivorId = findThreadId('20536723', 'YES');
+const survivorId = mine(USER).threads[0].id;
 const survivorLines = tabs[M].rows.filter((r) => r[1] === survivorId).length;
+const otherQueriesBefore = mine(OTHER).threads.length;
 
-const gone = del(ADMIN, victimId);
-check('an admin can delete one', gone.ok === true, gone.message);
+const gone = del(MASTER, victimId);
+check('the master can delete one', gone.ok === true, gone.message);
 check('the conversation row goes',
-  tabs[T].rows.length === beforeT - 1 && !findThreadId('20000002', 'YES'),
+  tabs[T].rows.length === beforeT - 1 &&
+  !tabs[T].rows.some((r) => r[0] === victimId),
   beforeT + ' -> ' + tabs[T].rows.length + ' threads');
+check('and only that one of theirs',
+  mine(OTHER).threads.length === otherQueriesBefore - 1,
+  otherQueriesBefore + ' -> ' + mine(OTHER).threads.length + ' queries');
 
 // THE ONE THAT WOULD HAVE BEEN WRONG. Deleting row 5 moves row 6 up to 5, so
 // walking downwards skips every second match and leaves half a conversation
@@ -582,8 +683,8 @@ check('while nobody else loses a line',
   tabs[M].rows.length === beforeM - victimLines,
   beforeM + ' -> ' + tabs[M].rows.length + ' messages, ' +
   victimLines + ' expected to go');
-check('and the person it belonged to has nothing left to read',
-  mine(OTHER).messages.length === 0,
+check('and the person it belonged to cannot read it any more either',
+  !mine(OTHER).messages.some((m) => /One line\.|Another line\./.test(m.text)),
   'it goes from their panel too, which is the part worth asking about first');
 
 // ---------------------------------------------------------------------------

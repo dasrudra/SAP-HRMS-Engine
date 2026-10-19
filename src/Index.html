@@ -1285,7 +1285,28 @@
       <div class="msgr-faq-list" id="msgrFaq"></div>
     </details>
 
-    <div class="msgr-thread" id="msgrThread"></div>
+    <!--
+      TWO VIEWS IN ONE PANEL, like the team's inbox on the Help screen.
+
+      The list is what opens first: one row per query, so somebody with four
+      running conversations can see which one has been answered. Opening a row
+      swaps to that conversation, with a way back.
+
+      It used to be a single endless thread - every question anybody ever
+      asked, in one run, with no way to tell where one ended and the next
+      began.
+    -->
+    <div class="msgr-list" id="msgrList"></div>
+
+    <div class="msgr-one" id="msgrOne" hidden>
+      <button type="button" class="msgr-back" id="msgrBack">
+        <svg viewBox="0 0 24 24" width="13" height="13" fill="none"
+             stroke="currentColor" stroke-width="2.4" stroke-linecap="round"
+             stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+        <span id="msgrOneTitle">All queries</span>
+      </button>
+      <div class="msgr-thread" id="msgrThread"></div>
+    </div>
 
     <form class="msgr-compose" id="msgrCompose">
       <!--
@@ -1312,6 +1333,17 @@
           <span>Employee ID</span>
           <input type="text" id="msgrId" maxlength="40" autocomplete="username"
                  placeholder="The ID you sign in with">
+        </label>
+        <!--
+          Beside the name rather than under it. Both are short, and the panel
+          is 352px wide - every stacked label pushes the message box further
+          down it. Only on a NEW query: a reply belongs to the subject it is
+          already under.
+        -->
+        <label class="msgr-field" id="msgrSubjectWrap">
+          <span>Subject <i>optional</i></span>
+          <input type="text" id="msgrSubject" maxlength="80"
+                 placeholder="What it is about">
         </label>
       </div>
       <div class="msgr-compose-row">

@@ -830,6 +830,19 @@
   }
 
 
+  /**
+   * MASTER only, for the things an admin must not do.
+   *
+   * Deleting a conversation is one: it destroys it for the person who wrote it
+   * as well as for the team, and their copy goes from their own panel with
+   * everything they were told in it. requireMaster guards the endpoint - this
+   * only stops the button being offered to somebody it would refuse.
+   */
+  function canMaster() {
+    return state.role === 'MASTER';
+  }
+
+
   function applyRole() {
     // Ranked, not matched. A master is an admin and more, so testing for the
     // word ADMIN would have hidden the upload button from the one person who
@@ -6584,12 +6597,14 @@
           (t.topic ? '<span class="q-topic">' + escapeHtml(t.topic) + '</span>' : '') +
           '<span class="thread-peek">' + escapeHtml(peek) + '</span>' +
           '<span class="q-when">' + escapeHtml(whenText(t.lastAt)) + '</span>' +
-          '<button class="thread-del" data-del="' + escapeHtml(t.id) +
-            '" title="Delete this conversation" aria-label="Delete this conversation">' +
-            '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" ' +
-            'stroke="currentColor" stroke-width="2" stroke-linecap="round" ' +
-            'stroke-linejoin="round"><path d="M4 7h16M10 7V4h4v3M6 7l1 13h10l1-13"/>' +
-            '</svg></button>' +
+          (canMaster()
+            ? '<button class="thread-del" data-del="' + escapeHtml(t.id) +
+              '" title="Delete this conversation" aria-label="Delete this conversation">' +
+              '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" ' +
+              'stroke="currentColor" stroke-width="2" stroke-linecap="round" ' +
+              'stroke-linejoin="round"><path d="M4 7h16M10 7V4h4v3M6 7l1 13h10l1-13"/>' +
+              '</svg></button>'
+            : '') +
         '</div>' +
 
         '<div class="thread-open"' + (open ? '' : ' hidden') + '>' +
@@ -6832,7 +6847,10 @@
   let badgeTimer = null;
   let msgrTimer = null;
   let msgrSignedIn = false;
+  let msgrCanDelete = false;
   let msgrSeen = 0;
+  let msgrThreads = [];
+  let openQueryId = '';
 
 
   function wireMessenger() {
@@ -6847,6 +6865,8 @@
       e.stopPropagation();
       openMessenger(false);
     });
+
+    bind('msgrBack', 'click', showQueryList);
 
     form.addEventListener('submit', function (e) {
       e.preventDefault();
@@ -6885,7 +6905,7 @@
   }
 
 
-  /** One call on page load: the FAQ, the conversation, and the unread count. */
+  /** One call on page load: the FAQ, every query of theirs, and the unread count. */
   function loadMessenger() {
     callServer('messengerBoot')
       .then(function (data) {
@@ -6893,20 +6913,85 @@
         if (shell) shell.hidden = false;
 
         msgrSignedIn = Boolean(data && data.signedIn);
+        msgrCanDelete = Boolean(data && data.canDelete);
         paintFaq('msgrFaq', (data && data.faq) || []);
 
         const idWrap = document.getElementById('msgrIdWrap');
         if (idWrap) idWrap.hidden = msgrSignedIn;
 
-        paintThread((data && data.messages) || []);
-        msgrUnread(Number(data && data.unread) || 0);
+        msgrThreads = (data && data.threads) || [];
         setValue('msgrName', (data && data.name) || '');
+        showQueryList();
+        msgrUnread(Number(data && data.unread) || 0);
         msgrNote('');
       })
       .catch(function () {
         // The bar is not worth an error banner over the whole page. If the
         // panel cannot load, it simply does not appear.
       });
+  }
+
+
+  /**
+   * The list of this person's queries - the panel's front page.
+   *
+   * Signed out there is nothing to list: no session, no identity, nothing of
+   * anybody's to show. That state gets the compose box and the honest note
+   * about where a reply can and cannot go.
+   */
+  function showQueryList() {
+    openQueryId = '';
+
+    const list = document.getElementById('msgrList');
+    const one = document.getElementById('msgrOne');
+    if (one) one.hidden = true;
+    if (list) list.hidden = false;
+
+    const subject = document.getElementById('msgrSubjectWrap');
+    if (subject) subject.hidden = !msgrSignedIn;
+
+    const box = document.getElementById('msgrText');
+    if (box) box.placeholder = msgrSignedIn
+      ? 'Ask something new\u2026' : 'Write a message\u2026';
+
+    if (!list) return;
+    if (!msgrSignedIn) { list.innerHTML = ''; return; }
+
+    if (!msgrThreads.length) {
+      list.innerHTML = '<p class="msgr-empty">Nothing yet. Ask us anything ' +
+        'about the dashboard or your login - each question gets its own ' +
+        'conversation here.</p>';
+      return;
+    }
+
+    list.innerHTML = msgrThreads.map(function (t) {
+      const last = (t.messages || [])[(t.messages || []).length - 1];
+      const peek = last ? last.text : '';
+      // Who said the last thing, so a list of four queries says which the team
+      // has come back on without opening any of them.
+      const from = !last ? ''
+        : last.side === 'TEAM'
+          ? '<span class="msgr-q-by">' + escapeHtml(last.by || 'EAS team') + '</span> '
+          : '<span class="msgr-q-by">You</span> ';
+
+      return '<button type="button" class="msgr-q' +
+               (t.unread ? ' is-unread' : '') +
+               '" data-query="' + escapeHtml(t.id) + '">' +
+          '<span class="msgr-q-head">' +
+            '<span class="msgr-q-topic">' +
+              escapeHtml(t.topic || 'Query') + '</span>' +
+            (t.unread ? '<span class="msgr-q-dot" aria-label="unread"></span>' : '') +
+            '<span class="msgr-q-when">' + escapeHtml(whenText(t.lastAt)) + '</span>' +
+          '</span>' +
+          '<span class="msgr-q-peek">' + from + escapeHtml(peek) + '</span>' +
+        '</button>';
+    }).join('');
+
+    list.querySelectorAll('[data-query]').forEach(function (row) {
+      row.addEventListener('click', function () {
+        showQuery(row.getAttribute('data-query'));
+      });
+    });
   }
 
 
@@ -6928,23 +7013,43 @@
     scrollThread();
 
     if (msgrSignedIn) {
-      // Opening it is reading it.
-      callServer('markMyMessagesRead').catch(function () {});
-      msgrUnread(0);
+      // NOT marked read here. Opening the panel is seeing a LIST of queries,
+      // not reading them - clearing every dot at once would hide a reply
+      // nobody has looked at yet. showQuery() marks the one that gets opened.
       msgrTimer = setInterval(pollMessenger, MSGR_POLL_MS);
     }
   }
 
 
-  function pollMessenger() {
-    if (!msgrSignedIn) return;
-    callServer('myMessages').then(function (data) {
-      const messages = (data && data.messages) || [];
-      if (messages.length === msgrSeen) return;      // nothing new, no repaint
-      paintThread(messages);
-      scrollThread();
-      callServer('markMyMessagesRead').catch(function () {});
-    }).catch(function () { /* a dropped poll is not worth saying anything about */ });
+  /** One query, with a way back to the list. */
+  function showQuery(id) {
+    const thread = msgrThreads.filter(function (t) { return t.id === id; })[0];
+    if (!thread) return showQueryList();
+
+    openQueryId = id;
+
+    const list = document.getElementById('msgrList');
+    const one = document.getElementById('msgrOne');
+    if (list) list.hidden = true;
+    if (one) one.hidden = false;
+
+    setText('msgrOneTitle', thread.topic || 'Query');
+
+    // A reply belongs to the subject it sits under, so the subject box goes.
+    const subject = document.getElementById('msgrSubjectWrap');
+    if (subject) subject.hidden = true;
+    const box = document.getElementById('msgrText');
+    if (box) box.placeholder = 'Reply\u2026';
+
+    paintThread(thread.messages || []);
+    scrollThread();
+
+    // Opening it is reading it.
+    if (thread.unread) {
+      callServer('markMyMessagesRead', id).catch(function () {});
+      thread.unread = 0;
+      msgrUnread(msgrThreads.reduce(function (n, t) { return n + (t.unread || 0); }, 0));
+    }
   }
 
 
@@ -6952,8 +7057,6 @@
     const box = document.getElementById('msgrThread');
     if (!box) return;
     msgrSeen = messages.length;
-
-    if (!msgrSignedIn) { box.innerHTML = ''; return; }
     box.innerHTML = messages.length ? bubbles(messages, false) : '';
   }
 
@@ -6961,6 +7064,27 @@
   function scrollThread() {
     const box = document.getElementById('msgrThread');
     if (box) box.scrollTop = box.scrollHeight;
+  }
+
+
+  function pollMessenger() {
+    if (!msgrSignedIn) return;
+    callServer('myMessages').then(function (data) {
+      msgrThreads = (data && data.threads) || [];
+      msgrUnread(Number(data && data.unread) || 0);
+
+      if (!openQueryId) return showQueryList();
+
+      const open = msgrThreads.filter(function (t) {
+        return t.id === openQueryId;
+      })[0];
+      if (!open) return showQueryList();      // deleted while they watched
+
+      if (open.messages.length === msgrSeen) return;   // nothing new, no repaint
+      paintThread(open.messages);
+      scrollThread();
+      callServer('markMyMessagesRead', openQueryId).catch(function () {});
+    }).catch(function () { /* a dropped poll is not worth saying anything about */ });
   }
 
 
@@ -6982,7 +7106,8 @@
 
     const said = getValue('msgrName').trim();
     const call = msgrSignedIn
-      ? callServer('sendMessage', body, said)
+      ? callServer('sendMessage', openQueryId, getValue('msgrSubject').trim(),
+                   body, said)
       : callServer('sendUnverifiedMessage', claimed, body, said);
 
     call.then(function (result) {
@@ -6995,16 +7120,21 @@
       if (text) { text.value = ''; text.style.height = 'auto'; }
       msgrNote(result.message || 'Sent.');
 
-      if (msgrSignedIn) {
-        paintThread(result.messages || []);
-        scrollThread();
-        // An admin who writes a message is an admin with one more waiting -
-        // and if they are looking at the Help screen while they write it,
-        // the conversation should appear there rather than in 90 seconds.
-        if (canAdmin()) {
-          watchForMessages();
-          if (state.view === 'help') loadInbox();
-        }
+      if (!msgrSignedIn) return;
+
+      setValue('msgrSubject', '');
+      msgrThreads = result.threads || [];
+      // Stay on the query it went into - a new one opens on itself, so the
+      // person sees what they just sent rather than a list they have to
+      // hunt through for it.
+      showQuery(result.threadId || openQueryId);
+
+      // An admin who writes a message is an admin with one more waiting -
+      // and if they are looking at the Help screen while they write it,
+      // the conversation should appear there rather than in 90 seconds.
+      if (canAdmin()) {
+        watchForMessages();
+        if (state.view === 'help') loadInbox();
       }
     }).catch(function (err) {
       if (button) button.disabled = false;

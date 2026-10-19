@@ -69,70 +69,128 @@ function messengerBoot(token) {
   const out = {
     signedIn: Boolean(session),
     faq: faqEntries(),
-    messages: [],
+    threads: [],
     unread: 0,
     name: '',
-    canAnswer: false
+    canAnswer: false,
+    canDelete: false
   };
 
   if (!session) return out;
 
-  const thread = findThread(String(session.u || '').trim(), VERIFIED_YES);
-  if (thread) {
-    out.messages = threadMessageList(thread.id);
-    out.unread = Number(thread.unreadByPerson) || 0;
-    out.name = thread.name;        // so nobody types their name twice
-  }
+  out.threads = myThreads(token);
+  out.unread = out.threads.reduce(function (n, t) { return n + t.unread; }, 0);
+
+  out.name = nameOf(String(session.u || '').trim());
 
   try {
-    out.canAnswer = rankOf(liveRoleOf(session.u)) >= rankOf(ROLE_ADMIN);
+    const rank = rankOf(liveRoleOf(session.u));
+    out.canAnswer = rank >= rankOf(ROLE_ADMIN);
+    // Deleting a conversation destroys it for the person who wrote it too, so
+    // it belongs to whoever owns the dashboard rather than to every admin.
+    out.canDelete = rank >= rankOf(ROLE_MASTER);
   } catch (e) {
     out.canAnswer = false;
+    out.canDelete = false;
   }
   return out;
 }
 
 
 /**
- * Sends a message as the signed-in person.
+ * This person's own queries, newest activity first, each with its conversation.
  *
- * The employee ID comes from the token. There is no field for it and no way to
- * pass one, so a message cannot be written in somebody else's name.
+ * Theirs and nobody else's, decided here. An endpoint that returned everybody's
+ * and let the panel show the right one would be handing the lot to anyone who
+ * opened a console.
+ *
+ * Only VERIFIED threads. A message somebody typed from the sign-in page with
+ * this employee ID on it is not this person's to read - see the note at the
+ * top of the file about why those live apart.
  */
-function sendMessage(token, text, name) {
+function myThreads(token) {
+  const session = currentSession(token);
+  if (!session) return [];
+  const me = String(session.u || '').trim();
+
+  return readThreads()
+    .filter(function (t) {
+      return t.person === me && t.verified === VERIFIED_YES;
+    })
+    .map(function (t) {
+      return {
+        id: t.id,
+        topic: t.topic,
+        startedAt: t.startedAt,
+        lastAt: t.lastAt,
+        lastBy: t.lastBy,
+        waiting: Number(t.waitingForTeam) || 0,
+        unread: Number(t.unreadByPerson) || 0,
+        messages: threadMessageList(t.id)
+      };
+    })
+    .sort(function (a, b) {
+      return String(b.lastAt).localeCompare(String(a.lastAt));
+    });
+}
+
+
+/**
+ * Starts a NEW query, or adds a line to one this person already owns.
+ *
+ * @param {string} token     the sender's session
+ * @param {string} threadId  '' to start a new query, otherwise one of theirs
+ * @param {string} topic     a short subject, only used on a new query
+ * @param {string} text      the message
+ * @param {string} name      what to call them
+ */
+function sendMessage(token, threadId, topic, text, name) {
   const session = currentSession(token);
   if (!session) {
     return { ok: false, message: 'Your session has ended. Reload the page and ' +
                                  'sign in again.' };
   }
-  const who = String(session.u || '').trim();
+  const me = String(session.u || '').trim();
 
   const body = cleanMessage(text);
   if (body.bad) return { ok: false, message: body.bad };
 
-  if (questionsLeftThisHour(who) <= 0) {
+  // THE THREAD HAS TO BE THEIRS. Without this check a signed-in person could
+  // paste any conversation's ID into the call and write a line into somebody
+  // else's query, signed with that person's name - and it would be read as
+  // theirs by the team answering it.
+  let into = null;
+  const wanted = String(threadId || '').trim();
+  if (wanted) {
+    into = threadById(wanted);
+    if (!into || into.person !== me || into.verified !== VERIFIED_YES) {
+      return { ok: false, message: 'That conversation is no longer there.' };
+    }
+  }
+
+  if (questionsLeftThisHour(me) <= 0) {
     return { ok: false,
              message: 'You have sent ' + CONFIG.QUESTION_RATE_PER_HOUR +
                       ' messages in the last hour, which is the limit. We have ' +
                       'them - somebody will reply here.' };
   }
 
-  const result = appendToThread(who, VERIFIED_YES, SIDE_USER, who, body.text,
-                                null, null, null, cleanName(name));
-  noteQuestionAsked(who);
+  const result = appendToThread(me, VERIFIED_YES, SIDE_USER, me, body.text,
+                                null, null, wanted ? null : topic,
+                                cleanName(name), null, into);
+  noteQuestionAsked(me);
 
-  // Only nudge if the team is not already sitting on something unanswered from
-  // this person. Four messages in a row while they think out loud is one
-  // interruption, not four, and four emails out of a hundred.
+  // Only nudge if the team is not already sitting on something unanswered in
+  // THIS query. Four lines in a row while somebody thinks out loud is one
+  // interruption, not four.
   const emailed = result.wasWaiting
     ? false
-    : alertTeamOfMessage(who, body.text, VERIFIED_YES, result.threadId,
+    : alertTeamOfMessage(me, body.text, VERIFIED_YES, result.threadId,
                          cleanName(name));
 
-  return { ok: true, id: result.messageId, emailed: emailed,
-           messages: threadMessageList(result.threadId),
-           name: cleanName(name),
-           message: 'Sent.' };
+  return { ok: true, id: result.messageId, threadId: result.threadId,
+           emailed: emailed, threads: myThreads(token),
+           name: cleanName(name), message: 'Sent.' };
 }
 
 
@@ -182,7 +240,7 @@ function sendUnverifiedMessage(ignoredToken, employeeId, text, name) {
   }
 
   const result = appendToThread(who, VERIFIED_NO, SIDE_USER, who, body.text,
-                                null, null, null, cleanName(name));
+                                null, null, null, cleanName(name), null, null);
   noteQuestionAsked('anon-' + who);
 
   const mayEmail = !result.wasWaiting &&
@@ -198,26 +256,32 @@ function sendUnverifiedMessage(ignoredToken, employeeId, text, name) {
 }
 
 
-/** New messages in this person's own thread. Used by the panel while open. */
+/** This person's queries again, for the panel's poll while it is open. */
 function myMessages(token) {
-  const session = currentSession(token);
-  if (!session) return { messages: [], unread: 0 };
-
-  const thread = findThread(String(session.u || '').trim(), VERIFIED_YES);
-  if (!thread) return { messages: [], unread: 0 };
-
-  return { messages: threadMessageList(thread.id),
-           unread: Number(thread.unreadByPerson) || 0 };
+  const threads = myThreads(token);
+  return {
+    threads: threads,
+    unread: threads.reduce(function (n, t) { return n + t.unread; }, 0)
+  };
 }
 
 
-/** Marks the team's replies as seen, so the dot on the bar goes out. */
-function markMyMessagesRead(token) {
+/**
+ * Marks the team's replies in ONE query as seen.
+ *
+ * Per query rather than all at once: opening one conversation is not reading
+ * the others, and clearing their dots would hide a reply the person has not
+ * looked at yet.
+ */
+function markMyMessagesRead(token, threadId) {
   const session = currentSession(token);
   if (!session) return { ok: false };
+  const me = String(session.u || '').trim();
 
-  const thread = findThread(String(session.u || '').trim(), VERIFIED_YES);
-  if (!thread) return { ok: true };
+  const thread = threadById(String(threadId || '').trim());
+  if (!thread || thread.person !== me || thread.verified !== VERIFIED_YES) {
+    return { ok: false };
+  }
 
   setThreadField(thread.row, 'Unread By Person', 0);
   return { ok: true };
@@ -495,19 +559,22 @@ function threadMessageList(threadId) {
  * @return {{threadId: string, messageId: string, wasWaiting: boolean}}
  */
 function appendToThread(person, verified, side, author, text, whenIso, forceId,
-                       topic, name, authorName) {
+                       topic, name, authorName, intoThread) {
   const who = String(person || '').trim();
   const level = verified === VERIFIED_NO ? VERIFIED_NO : VERIFIED_YES;
   const when = whenIso ? new Date(whenIso) : new Date();
 
-  let thread = findThread(who, level);
+  // An explicit thread means "this line belongs to THAT conversation". Without
+  // one the unverified door still falls back to the single thread per claimed
+  // ID - it is a lifeline channel, not a list of tickets.
+  let thread = intoThread || (level === VERIFIED_NO ? findThread(who, level) : null);
   if (!thread) {
     const threadId = 'T' + stamp(when) + '-' + shortId();
     threadTab().appendRow([
       threadId, who, level, when, String(topic || '').trim().slice(0, 80),
       when, side, THREAD_OPEN, 0, 0, String(name || '')
     ]);
-    thread = findThread(who, level);
+    thread = threadById(threadId);
     if (!thread) throw new Error('Could not create a conversation for ' + who);
   }
 
@@ -528,11 +595,16 @@ function appendToThread(person, verified, side, author, text, whenIso, forceId,
   if (!thread.topic && topic) {
     setThreadField(thread.row, 'Topic', String(topic).trim().slice(0, 80));
   }
-  // A name given later replaces one given earlier - somebody correcting a typo
-  // in their own name should not have to live with it. An empty one never
-  // overwrites a name already there, so leaving the box blank on a later
-  // message does not erase it.
-  if (name) setThreadField(thread.row, 'Name', name);
+  // A NAME BELONGS TO THE PERSON, NOT TO ONE OF THEIR QUERIES. Written onto
+  // this row only, it would be missing from every other conversation they
+  // have - the team's inbox would name them on one card and show a bare
+  // employee ID on the next, and the panel would ask them to type it again
+  // depending on which query it happened to read.
+  //
+  // A name given later replaces one given earlier, so somebody correcting a
+  // typo in their own name is not stuck with it. An empty one never overwrites
+  // a name already there, so leaving the box blank is not an erasure.
+  if (name) nameEverywhere(who, level, name);
 
   return { threadId: thread.id, messageId: messageId, wasWaiting: wasWaiting };
 }
@@ -546,18 +618,22 @@ function setThreadField(row, column, value) {
 
 
 /**
- * Deletes one conversation and everything in it. Admin and above.
+ * Deletes one conversation and everything in it. MASTER only.
  *
- * It really is gone - the thread row and every message row with it. There is
- * no undo, which is why the screen asks first and names who the conversation
- * is with.
+ * It really is gone - the thread row and every message row with it, from
+ * everybody's screen at once. There is no undo, which is why the screen asks
+ * first and names who the conversation is with.
  *
  * Messages are removed from the bottom up. Deleting row 5 moves row 6 to 5,
  * so walking downwards skips every second match - the kind of bug that leaves
  * half a conversation behind and looks like it worked.
  */
 function deleteThread(token, threadId) {
-  requireAdmin(token);
+  // MASTER, not ADMIN. This destroys a conversation for the person who wrote
+  // it as well as for the team - their copy disappears from their own panel
+  // with everything they were told in it. That is not a thing every admin
+  // should be able to do to somebody else's record on a mis-click.
+  requireMaster(token);
 
   const thread = threadById(threadId);
   if (!thread) return { ok: false, message: 'That conversation is no longer there.' };
@@ -578,16 +654,32 @@ function deleteThread(token, threadId) {
 }
 
 
+/** Puts a name on every one of this person's conversations at that level. */
+function nameEverywhere(person, verified, name) {
+  const said = cleanName(name);
+  if (!said) return;
+
+  readThreads().forEach(function (t) {
+    if (t.person !== person || t.verified !== verified) return;
+    if (t.name === said) return;              // nothing to write
+    setThreadField(t.row, 'Name', said);
+  });
+}
+
+
 /**
  * The name this employee ID is known by, or ''.
  *
- * Read from their own conversation, which is the only place the dashboard
- * currently holds a name. When the sign-up card starts asking for one this
+ * Read from their conversations, which is the only place the dashboard
+ * currently holds a name - any of them will do, since a name is written to
+ * all of them at once. When the sign-up card starts asking for one this
  * should read the account instead, and everything above it keeps working.
  */
 function nameOf(employeeId) {
-  const thread = findThread(employeeId, VERIFIED_YES);
-  return thread ? thread.name : '';
+  const hit = readThreads().filter(function (t) {
+    return t.person === employeeId && t.verified === VERIFIED_YES && t.name;
+  })[0];
+  return hit ? hit.name : '';
 }
 
 
