@@ -131,18 +131,18 @@ check('nor does the rebuild write a person-and-module cross-tab',
   !/'PERSON_MODULE'/.test(KPI),
   'about a hundred rows a month that nothing read'); 
 
-// The note is the honesty half. Without it the table looks identical whether
-// it is showing everyone's totals or one module's slice.
-check('a note says whose list it is, and that the figures did not move',
-  /id="kpi1AllPeopleNote"/.test(INDEX) &&
-  /kpi1AllPeopleNote/.test(APP) &&
-  /The people in/.test(APP) && /reads the same here/.test(APP),
-  'shown only while a section is chosen');
+// REMOVED ON REQUEST. The table used to carry an amber line saying what the
+// filters had done to the figures. It was right about the arithmetic and it
+// was in the way: the person reading this screen is the person who set the
+// filter, and they do not need telling twice. Checked as gone rather than
+// just deleted, so it cannot creep back in with a later paste.
+check('the filter note is gone from the table, and from the stylesheet',
+  !/kpi1AllPeopleNote/.test(INDEX) && !/kpi1AllPeopleNote/.test(APP) &&
+  !/\.filter-note\s*\{/.test(STYLES),
+  'the dropdowns say what is on; the table does not repeat it');
 check('and where somebody\'s work falls is still answerable, from the editor',
   /function listPersonModules/.test(KPI) && /sheetFor\(CONFIG\.SHEETS\.TICKETS\)/.test(KPI),
   'listPersonModules() reads the tickets, not a cached cross-tab');
-check('and the stylesheet draws it',
-  /\.filter-note\s*\{/.test(STYLES));
 check('a dropdown that cannot be used yet is still drawn as disabled',
   /\.table-filter \.select:disabled/.test(STYLES),
   'the section filter needs no rebuild, so nothing uses this state now');

@@ -390,8 +390,6 @@
               much there is to read. Set by renderCoverage().
             -->
             <p class="coverage-note" id="kpi1Coverage" hidden></p>
-            <!-- Only appears for the All-months view. Set by renderPeriod(). -->
-            <p class="period-note" id="kpi1Period" hidden></p>
 
             <!--
               WHICH STANDARD THIS PAGE IS SCORED AGAINST.
@@ -418,7 +416,6 @@
                       aria-pressed="false"></button>
             </div>
             <input type="hidden" id="fKpi1Standard" value="COMPANY">
-            <p class="standard-note" id="kpi1StandardNote" hidden></p>
           </div>
           <div class="page-actions">
             <!--
@@ -602,13 +599,6 @@
             <button class="btn btn-ghost" id="fAllReset">&#x2715; Reset</button>
             <span class="filter-count" id="cAll"></span>
           </div>
-          <!--
-            Shown only while a module is chosen. The figures beside each name
-            are then that person's work IN THAT MODULE, not their whole
-            caseload, and a table that looks identical either way has to say
-            which one you are reading.
-          -->
-          <p class="filter-note" id="kpi1AllPeopleNote" hidden></p>
           <div class="table-wrap">
             <table id="kpi1AllPeople">
               <thead>

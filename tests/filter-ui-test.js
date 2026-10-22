@@ -77,8 +77,6 @@ const FILE = 'file://' + PAGE;
   let rows = await table(p);
   check('with no section chosen, every individual is listed',
     rows.length === 4, rows.map((r) => r.name).join(' | '));
-  check('the note is not shown', await p.locator('#kpi1AllPeopleNote').isHidden());
-
   const ayeshaAll = rows.filter((r) => r.name === 'Ayesha Rahman')[0];
   check('and a row reads her whole caseload',
     ayeshaAll.received === '8' && ayeshaAll.rate === '87.50%',
@@ -105,13 +103,13 @@ const FILE = 'file://' + PAGE;
     ayeshaSales.band === ayeshaAll.band,
     ayeshaSales.received + ' at ' + ayeshaSales.rate + ' either way');
 
-  check('the note says whose list this is',
-    await p.locator('#kpi1AllPeopleNote').isVisible() &&
-    /people in Sales Applications/.test(await p.textContent('#kpi1AllPeopleNote')),
-    (await p.textContent('#kpi1AllPeopleNote')).trim());
-  check('and that the figures did not move',
-    /reads the same here as it does with no filter/.test(
-      await p.textContent('#kpi1AllPeopleNote')));
+  // The amber line that used to explain this was removed on request. What it
+  // asserted still has to be true, so it is asserted off the TABLE instead -
+  // which is the better place for it anyway: a note can say the figures did
+  // not move while the figures move.
+  check('and the count beside the table says how many of how many',
+    /2\b/.test(await p.textContent('#cAll')),
+    (await p.textContent('#cAll')).trim());
 
   // ---- a section with one person in it ----
   await p.selectOption('#fAllSection', 'Supply Chain Applications');
@@ -148,7 +146,6 @@ const FILE = 'file://' + PAGE;
   check('Reset clears the section with everything else',
     rows.length === 4 && (await p.inputValue('#fAllSection')) === '',
     rows.length + ' rows');
-  check('and the note goes with it', await p.locator('#kpi1AllPeopleNote').isHidden());
 
   await p.close();
 
@@ -204,28 +201,39 @@ const FILE = 'file://' + PAGE;
     }),
     'one affiliate cannot be more work than all of them');
 
-  const note = await q.$eval('#kpi1AllPeopleNote', (el) => ({
-    shown: !el.hidden, text: el.textContent
-  }));
-  check('and the table says so in its own words',
-    note.shown && /KSL tickets only/.test(note.text) &&
-    /not the whole caseload/.test(note.text),
-    'a row of 2,664 on one screen and 812 on another needs explaining');
-
-  // The two filters stack, and the note has to account for both.
+  // The amber line explaining this was removed on request, so what it claimed
+  // is read off the table itself. THE TWO FILTERS STACK: an affiliate narrows
+  // nothing and re-adds the figures, a section narrows who is listed and
+  // leaves them alone, and applying both has to do both.
   await q.selectOption('#fAllSection', 'Sales Applications');
-  await q.waitForTimeout(600);
-  const both = await q.$eval('#kpi1AllPeopleNote', (el) => el.textContent);
-  check('the two filters stack, and the note names both',
-    /KSL tickets only/.test(both) && /Sales Applications/.test(both),
-    both.slice(0, 80));
+  await q.waitForTimeout(700);
+  const stacked = await q.$$eval('#kpi1AllPeople tbody tr', (trs) => trs.map((tr) => ({
+    name: tr.cells[0].textContent.trim(),
+    section: tr.cells[1].textContent.trim(),
+    received: tr.cells[2].textContent.trim()
+  })));
+
+  check('the two filters stack - this section, that affiliate\'s figures',
+    stacked.length > 0 &&
+    stacked.every((r) => r.section === 'Sales Applications') &&
+    stacked.every(function (r) {
+      const whole = ksl.filter((k) => k.name === r.name)[0];
+      return whole && whole.received === r.received;
+    }),
+    stacked.map((r) => r.name + ':' + r.received).join(' | '));
 
   await q.selectOption('#fAllAffiliate', '');
-  await q.waitForTimeout(700);
-  const back = await q.$eval('#kpi1AllPeopleNote', (el) => el.textContent);
-  check('and dropping the affiliate goes back to the whole caseload',
-    /whole caseload/.test(back) && /reads the same here/.test(back),
-    back.slice(0, 70));
+  await q.waitForTimeout(800);
+  const back = await q.$$eval('#kpi1AllPeople tbody tr', (trs) => trs.map((tr) => ({
+    name: tr.cells[0].textContent.trim(),
+    received: tr.cells[2].textContent.trim()
+  })));
+  check('and dropping the affiliate puts the whole caseload back',
+    back.every(function (r) {
+      const all = whole.filter((w) => w.name === r.name)[0];
+      return all && all.received === r.received;
+    }),
+    back.map((r) => r.name + ':' + r.received).join(' | '));
   await q.close();
 
   // ---------------------------------------------------------------------------
@@ -297,10 +305,17 @@ const FILE = 'file://' + PAGE;
     (await z.$eval('.standard-opt[data-standard="COMPANY"]',
                    (n) => n.getAttribute('aria-pressed'))) === 'false');
 
-  check('with a line naming the document the figures were scored against',
-    /Layer 3/.test(await z.$eval('#kpi1StandardNote', (n) => n.textContent)) &&
-    !(await z.$eval('#kpi1StandardNote', (n) => n.hidden)),
-    await z.$eval('#kpi1StandardNote', (n) => n.textContent.slice(0, 54)));
+  // The line that named the source document under the toggle was removed on
+  // request. The toggle itself still has to say which standard is on, and
+  // which document stands behind it is still carried as the hover - and into
+  // the downloaded report, which is checked further down.
+  check('and the chosen option names its standard and its target',
+    /EAS KPI/.test(await z.$eval('.standard-opt[data-standard="EAS"]',
+                                 (n) => n.textContent)) &&
+    /Layer 3/.test(await z.$eval('.standard-opt[data-standard="EAS"]',
+                                 (n) => n.getAttribute('title') || '')),
+    await z.$eval('.standard-opt[data-standard="EAS"]',
+                  (n) => (n.getAttribute('title') || '').slice(0, 50)));
 
   // The affiliate slice is a SEPARATE server call, so switching standard has
   // to go back for it too. Left alone it would sit in the same table as rows
