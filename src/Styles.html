@@ -2471,6 +2471,53 @@
     the destructive one behind the same click as the harmless ones.
   */
   .master-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+
+  /* The Name and Email boxes on the Accounts table.
+
+     Deliberately almost invisible until you touch one. The table is read far
+     more often than it is edited, and a row of framed input boxes reads as a
+     form to fill in rather than as a list of accounts. The border arrives on
+     hover and focus, which is when it means something. */
+  .cell-edit {
+    width: 100%;
+    min-width: 120px;
+    padding: 5px 7px;
+    border: 1px solid transparent;
+    border-radius: 7px;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    font-size: 13px;
+  }
+  .cell-edit::placeholder { color: var(--text-mut); font-style: italic; opacity: .75; }
+  .cell-edit:hover { border-color: var(--border-str); background: var(--surface-2); }
+  .cell-edit:focus {
+    outline: none;
+    border-color: var(--blue-500);
+    background: var(--surface);
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, .14);
+  }
+  .cell-edit:disabled { opacity: .55; }
+  .cell-edit.is-bad {
+    border-color: var(--red);
+    box-shadow: 0 0 0 3px rgba(220, 38, 38, .12);
+  }
+  .cell-note {
+    display: block;
+    margin: 2px 0 0 7px;
+    font-size: 11px;
+    color: var(--text-mut);
+  }
+
+  /* "optional" beside a field label on the sign-in cards. */
+  .field-hint {
+    font-style: normal;
+    font-weight: 500;
+    font-size: 11px;
+    letter-spacing: .02em;
+    color: var(--text-mut);
+    opacity: .85;
+  }
   .btn-sm {
     padding: 4px 9px; font-size: 11.5px; border-radius: 6px;
   }

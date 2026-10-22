@@ -132,6 +132,25 @@
                autocapitalize="off" spellcheck="false" required>
       </label>
 
+      <!--
+        ASKED HERE AND NOWHERE ELSE. This is the one card everybody fills in
+        exactly once, and it already knows who they are. On the sign-in card
+        it would be asked every morning and answered slightly differently
+        each time; in the message panel - where it used to be asked - it made
+        the name a property of a message instead of of a person.
+
+        Not required. Somebody who skips it is shown by their employee ID,
+        exactly as before this box existed, and can give a name later from
+        the message panel. Refusing to create an account over a missing
+        courtesy would be the wrong trade.
+      -->
+      <label class="login-field">
+        <span>Your name <em class="field-hint" id="setupNameHint">optional</em></span>
+        <input type="text" id="setupName" name="name"
+               autocomplete="name" maxlength="60"
+               placeholder="What your colleagues call you">
+      </label>
+
       <label class="login-field login-secret">
         <span>Choose a password</span>
         <input type="password" id="setupPass" name="new-password"
@@ -1199,15 +1218,22 @@
               <thead>
                 <tr>
                   <th>Employee ID</th>
+                  <th>Name</th>
                   <th>Role</th>
                   <th>Status</th>
-                  <th>Signed up</th>
+                  <!--
+                    Where a new query is emailed. Only admins and masters are
+                    told, so an address on a viewer is stored and quietly
+                    unused - the cell says which, rather than leaving somebody
+                    wondering why they hear nothing.
+                  -->
+                  <th>Email for alerts</th>
                   <th>Last signed in</th>
                   <th>Action</th>
                 </tr>
               </thead>
               <tbody>
-                <tr><td colspan="6" class="empty">Loading&#x2026;</td></tr>
+                <tr><td colspan="7" class="empty">Loading&#x2026;</td></tr>
               </tbody>
             </table>
           </div>
@@ -1343,7 +1369,18 @@
         is what the UNVERIFIED mark on the inbox card is about.
       -->
       <div class="msgr-who">
-        <label class="msgr-field">
+        <!--
+          ASKED ONLY WHILE THE ACCOUNT HAS NO NAME ON IT. Everybody signing up
+          from now on gives one on the card where they choose a password, and
+          this box is hidden for them. It stays for the people who signed up
+          before that card asked - they are asked once, here, and what they
+          type is written onto their account rather than onto the message, so
+          they are not asked again tomorrow.
+
+          It also stays on the sign-in page, where there is no account to read
+          a name from at all.
+        -->
+        <label class="msgr-field" id="msgrNameWrap">
           <span>Your name</span>
           <input type="text" id="msgrName" maxlength="60" autocomplete="name"
                  placeholder="What to call you">

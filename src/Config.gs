@@ -1667,3 +1667,23 @@ function headroomFor(completed, successful, kpi) {
   const minimumNeeded = Math.ceil((kpi.target / 100) * completed);
   return successful - minimumNeeded;
 }
+
+
+/**
+ * A person's name, tidied: one space between words, trimmed, 60 characters.
+ *
+ * HERE RATHER THAN BESIDE ONE OF ITS CALLERS because two different parts of
+ * the dashboard take a name from a person and have to agree on what they
+ * stored. Auth.gs takes it on the card where somebody sets their password;
+ * Messenger.gs took it from a box in the message panel. If those two trimmed
+ * differently, the same person would be "Rudra  Das" in one place and
+ * "Rudra Das" in another, and the panel would keep asking for a name it had
+ * already been given because the two did not match.
+ *
+ * It does not reject anything. A name is what somebody says they are called,
+ * and a dashboard is not the place to have an opinion about that - the only
+ * limits are the ones a column needs.
+ */
+function cleanName(name) {
+  return String(name == null ? '' : name).replace(/\s+/g, ' ').trim().slice(0, 60);
+}

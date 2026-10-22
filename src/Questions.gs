@@ -102,20 +102,47 @@ function setQuestionAlerts(list) {
     .setProperty(QUESTION_ALERTS_KEY, clean.join(','));
 
   Logger.log(clean.length
-    ? 'Messages will be emailed to: ' + clean.join(', ')
-    : 'Message emails are OFF. Messages are still saved and still show on ' +
-      'the Help screen with an unread count.');
+    ? 'Extra addresses stored: ' + clean.join(', ')
+    : 'The extra address list is now empty.');
+  Logger.log('These are IN ADDITION to every admin and master account that ' +
+             'has an email on the Accounts screen. Run questionAlerts() to ' +
+             'see the whole list.');
   return clean;
 }
 
 
-/** Prints the current alert list without changing it. */
+/**
+ * Prints who is emailed, and where each address came from. Changes nothing.
+ *
+ * Says which is which because the two behave differently: an address that is
+ * there because of a role STOPS being emailed when that role is taken away,
+ * and an address in the extras stays until somebody removes it by hand. When
+ * a person leaves, that difference is the whole thing you need to know.
+ */
 function questionAlerts() {
   requireOwner();
-  const who = questionAlertList();
-  Logger.log(who.length ? who.join(', ')
-                        : '(nobody - run setQuestionAlerts to set it)');
-  return who;
+
+  const everybody = questionAlertList();
+  const extras = extraAlertList().map(function (a) { return a.toLowerCase(); });
+
+  if (!everybody.length) {
+    Logger.log('Nobody is emailed when a query comes in.');
+    Logger.log('Put an email on an admin account on the Accounts screen, or ' +
+               'run setQuestionAlerts for addresses that have no account.');
+    return everybody;
+  }
+
+  Logger.log('A new query is emailed to %s address(es):', everybody.length);
+  everybody.forEach(function (address) {
+    Logger.log('  %s   %s', address,
+               extras.indexOf(address.toLowerCase()) === -1
+                 ? '(from their admin account)'
+                 : '(from the extras list)');
+  });
+  Logger.log('');
+  Logger.log('Remaining emails Google will let this account send today: %s',
+             MailApp.getRemainingDailyQuota());
+  return everybody;
 }
 
 
@@ -242,8 +269,23 @@ function requireAdminSession(token) {
 }
 
 
-/** The alert list, or an empty list when nobody has set one. */
+/**
+ * Everybody a new query is emailed to.
+ *
+ * This used to be the stored property alone, which meant the list was a thing
+ * somebody had to remember to edit in the Apps Script editor every time an
+ * admin joined or left - and so it was the list of whoever was an admin on
+ * the day it was last edited. It is now built from the ACCOUNTS tab, with the
+ * property kept as extras; see alertEmailList() in Auth.gs for which is which
+ * and why both.
+ */
 function questionAlertList() {
+  return alertEmailList();
+}
+
+
+/** Only the hand-entered extras, for setQuestionAlerts() to print back. */
+function extraAlertList() {
   const raw = PropertiesService.getScriptProperties()
                 .getProperty(QUESTION_ALERTS_KEY) || '';
   return raw.split(',').map(function (a) { return a.trim(); })

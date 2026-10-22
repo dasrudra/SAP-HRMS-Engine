@@ -74,7 +74,7 @@ const check = (n, ok, d) => {
   // ---------------------------------------------------------------------------
   const rows = await p.$$eval('#masterTable tbody tr', (rs) => rs.map((r) => ({
     id: r.cells[0].textContent.trim(),
-    last: r.cells[4] ? r.cells[4].textContent.trim() : ''
+    last: r.cells[5] ? r.cells[5].textContent.trim() : ''
   })));
 
   check('the person here most recently is at the top',
@@ -234,6 +234,89 @@ const check = (n, ok, d) => {
   }));
   check('and the browser can actually decode it', /^\d+x\d+$/.test(decoded),
     decoded);
+
+  // ---------------------------------------------------------------------------
+  // the name, and the address a query is emailed to
+  // ---------------------------------------------------------------------------
+  // Both are typed straight into the table. This is the screen the master
+  // comes to in order to CHANGE them, so the test drives them the way a
+  // person would: type, leave the box, and see what came back.
+  const headRow = await p.$$eval('#masterTable thead th',
+                                 (ts) => ts.map((t) => t.textContent.trim()));
+  check('the table has a Name column and an Email column',
+    headRow.some((h) => /^name$/i.test(h)) &&
+    headRow.some((h) => /email/i.test(h)),
+    headRow.join(' | '));
+
+  const boxFor = (id, field) =>
+    p.locator('input[data-detail="' + field + '"][data-id="' + id + '"]');
+
+  check('a name already on an account is shown in its row',
+    (await boxFor('20536723', 'name').inputValue()) === 'Rudra Das',
+    await boxFor('20536723', 'name').inputValue());
+  check('and an account with none shows that it has none',
+    (await boxFor('20217474', 'name').inputValue()) === '' &&
+    /not given/i.test(await boxFor('20217474', 'name').getAttribute('placeholder')),
+    await boxFor('20217474', 'name').getAttribute('placeholder'));
+
+  // ---- setting one ----
+  // THE ADDRESS FIRST, then the name. In the other order the last assertion
+  // here proves nothing: a save that wrongly carried the whole row would
+  // blank a field that had not been filled in yet.
+  //
+  // And each one checks the box is NOT marked, because the box keeps whatever
+  // was typed into it either way - asking it what it holds asks what the test
+  // just typed, not what the server did with it.
+  const marked = (id, field) =>
+    boxFor(id, field).evaluate((el) => el.classList.contains('is-bad'));
+
+  await boxFor('20217474', 'email').fill('shahriar@youngone.com');
+  await boxFor('20217474', 'email').blur();
+  await p.waitForTimeout(600);
+  check('an address typed into the table is stored',
+    (await boxFor('20217474', 'email').inputValue()) === 'shahriar@youngone.com' &&
+    !(await marked('20217474', 'email')),
+    await boxFor('20217474', 'email').inputValue());
+
+  await boxFor('20217474', 'name').fill('  Shahriar   Kabir  ');
+  await boxFor('20217474', 'name').blur();
+  await p.waitForTimeout(600);
+  check('and so is a name, tidied on the way',
+    (await boxFor('20217474', 'name').inputValue()) === 'Shahriar Kabir' &&
+    !(await marked('20217474', 'name')),
+    'the screen shows what was stored, not what was typed');
+
+  // ONE FIELD AT A TIME. Saving the name must not carry the email box along
+  // with it - that is how correcting one quietly blanks the other.
+  check('saving the name leaves the address beside it alone',
+    (await boxFor('20217474', 'email').inputValue()) === 'shahriar@youngone.com',
+    await boxFor('20217474', 'email').inputValue() || '(blanked)');
+
+  // ---- what is refused ----
+  await boxFor('20217474', 'email').fill('shahriar.at.work');
+  await boxFor('20217474', 'email').blur();
+  await p.waitForTimeout(600);
+  const badClass = await boxFor('20217474', 'email').getAttribute('class');
+  check('something that is not an address is marked, not stored',
+    /is-bad/.test(badClass || ''), badClass);
+
+  // ---- a viewer's address is stored and not used ----
+  const viewerRow = await p.$$eval('#masterTable tbody tr', (rs) => {
+    const hit = rs.filter((r) => r.cells[0].textContent.trim() === '20217450')[0];
+    return hit ? hit.textContent : '';
+  });
+  check('a viewer carrying an address is told it is not written to',
+    /viewers are not emailed/i.test(viewerRow),
+    'otherwise somebody fills it in and waits for email that was never coming');
+
+  // ---- and the shared login is still nobody ----
+  const sharedCells = await p.$$eval('#masterTable tbody tr', (rs) => {
+    const hit = rs.filter((r) => r.cells[0].textContent.trim() === 'user')[0];
+    return hit ? Array.from(hit.cells).map((c) => c.textContent.trim()) : [];
+  });
+  check('the shared starting login is given no name box to fill in',
+    sharedCells.length > 1 && sharedCells[1] === '—',
+    'it is a door, not a person');
 
   check('no JS errors across the whole run', errors.length === 0,
     errors.slice(0, 2).join(' / '));

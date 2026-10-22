@@ -116,6 +116,13 @@ html = html.replace(/<\?=\s*CONFIG\.([A-Z0-9_]+)\s*\?>/g, (whole, key) => {
   return hit[1];
 });
 
+// EVERY BACKSLASH IN HERE HAS TO BE DOUBLED.
+//
+// This is a template literal, so \s is not an escape JavaScript knows and the
+// backslash is simply dropped on the way through: a regex written /\s+/g
+// arrives in the built page as /s+/g, which matches the letter s. It is not a
+// syntax error and nothing warns - the stub just quietly tests something else.
+// The check after this block catches it if it happens again.
 const stub = `
 <script>
 (function () {
@@ -162,6 +169,32 @@ const stub = `
   // sign-in page that nobody has proved anything about, and the signed-in
   // person's own with an unread reply on it.
   var ME = '20000000';
+  // What the signed-in person's ACCOUNT says they are called, and the switch
+  // for the one case that still has to be asked.
+  var NO_NAME = new URLSearchParams(location.search).get('noname') === '1';
+  var MY_NAME = NO_NAME ? '' : 'Rudra Das';
+  var ACCOUNTS = [
+    { username: '20217450', role: 'USER', created: '2026-10-05T06:46:00.000Z',
+      lastSignIn: '2026-10-05T06:46:00.000Z', signIns: 1, mustChange: false,
+      fullName: 'Ayesha Rahman', email: 'ayesha@example.com' },
+    { username: '20536723', role: 'MASTER', created: '2026-10-04T09:15:00.000Z',
+      lastSignIn: '2026-10-18T02:19:00.000Z', signIns: 29, mustChange: false,
+      fullName: 'Rudra Das', email: 'rudra@example.com' },
+    { username: '20217474', role: 'ADMIN', created: '2026-10-15T06:49:00.000Z',
+      lastSignIn: '2026-10-17T02:20:00.000Z', signIns: 3, mustChange: false,
+      fullName: '', email: '' },
+    { username: '20900001', role: 'USER', created: '2026-10-16T04:00:00.000Z',
+      lastSignIn: '', signIns: 0, mustChange: true, fullName: '', email: '' },
+    { username: '20467174', role: 'ADMIN', created: '2026-10-04T09:33:00.000Z',
+      lastSignIn: '2026-10-15T03:17:00.000Z', signIns: 17, mustChange: false,
+      fullName: 'Pritam Saha', email: '' },
+    // Deliberately the MOST RECENT date in the list. With an empty one it
+    // sank to the bottom whether the bootstrap rule worked or not, so the
+    // rule was untested - removing it changed nothing the suite could see.
+    { username: 'user', role: 'USER', bootstrap: true, created: '',
+      lastSignIn: '2026-10-18T09:00:00.000Z', signIns: 0, mustChange: false }
+  ];
+
   var THREADS = [
     { id: 'T1', person: '20000042', name: 'Ayesha Rahman', verified: true, topic: 'KPI 1',
       startedAt: '2026-08-02T09:15:00.000Z', lastAt: '2026-08-02T09:15:00.000Z',
@@ -270,11 +303,18 @@ const stub = `
       var signedIn = SIGNED_IN && HAS_SIGNED_IN && Boolean(token);
       var list = signedIn ? myThreadList() : [];
       var t = myThread();
+      // The name comes off the ACCOUNT now, so the stub answers from the
+      // same place the server does rather than from a thread. ?noname=1
+      // gives this person an account with no name on it - which is every
+      // account that existed before the column did, and the one case where
+      // the panel still has to ask for one.
+      var onAccount = signedIn ? MY_NAME : '';
       return {
         signedIn: signedIn, faq: faq(),
         threads: list,
         unread: list.reduce(function (n, x) { return n + (x.unread || 0); }, 0),
-        name: signedIn && t ? (t.name || '') : '',
+        name: onAccount || (signedIn && t ? (t.name || '') : ''),
+        nameOnAccount: Boolean(onAccount),
         canAnswer: signedIn && ROLE !== 'USER',
         canDelete: signedIn && ROLE === 'MASTER'
       };
@@ -316,8 +356,15 @@ const stub = `
                         text: String(text) });
       t.waiting = (t.waiting || 0) + 1;
       t.lastAt = new Date().toISOString();
+      // A name typed by somebody whose account has none is kept ON THE
+      // ACCOUNT, which is what stops the panel asking again tomorrow. The
+      // server does this through setMyName; the stub does the same thing to
+      // MY_NAME so the panel sees the same answer come back.
+      if (name && !MY_NAME) { MY_NAME = String(name); NO_NAME = false; }
       if (name) t.name = String(name);
-      return { ok: true, message: 'Sent.', emailed: true, name: t.name,
+      return { ok: true, message: 'Sent.', emailed: true,
+               name: MY_NAME || t.name,
+               nameOnAccount: Boolean(MY_NAME),
                threadId: t.id, threads: myThreadList() };
     },
     sendUnverifiedMessage: function (token, employeeId, text, name) {
@@ -364,24 +411,43 @@ const stub = `
     // Accounts, deliberately out of order by last sign-in and with two edge
     // cases in it: somebody who has never signed in, and the shared starting
     // login, which is not a person and has no sign-in of its own.
+    // Names and emails are deliberately PATCHY: one admin with both, one
+    // admin with neither, a viewer carrying an address that is stored and
+    // never written to. A fixture where everybody had both would not show
+    // what an unanswered cell looks like, which is most of this screen's job.
     masterListAccounts: function () {
-      return [
-        { username: '20217450', role: 'USER', created: '2026-10-05T06:46:00.000Z',
-          lastSignIn: '2026-10-05T06:46:00.000Z', signIns: 1, mustChange: false },
-        { username: '20536723', role: 'MASTER', created: '2026-10-04T09:15:00.000Z',
-          lastSignIn: '2026-10-18T02:19:00.000Z', signIns: 29, mustChange: false },
-        { username: '20217474', role: 'ADMIN', created: '2026-10-15T06:49:00.000Z',
-          lastSignIn: '2026-10-17T02:20:00.000Z', signIns: 3, mustChange: false },
-        { username: '20900001', role: 'USER', created: '2026-10-16T04:00:00.000Z',
-          lastSignIn: '', signIns: 0, mustChange: true },
-        { username: '20467174', role: 'ADMIN', created: '2026-10-04T09:33:00.000Z',
-          lastSignIn: '2026-10-15T03:17:00.000Z', signIns: 17, mustChange: false },
-        // Deliberately the MOST RECENT date in the list. With an empty one it
-        // sank to the bottom whether the bootstrap rule worked or not, so the
-        // rule was untested - removing it changed nothing the suite could see.
-        { username: 'user', role: 'USER', bootstrap: true, created: '',
-          lastSignIn: '2026-10-18T09:00:00.000Z', signIns: 0, mustChange: false }
-      ];
+      return ACCOUNTS.map(function (a) {
+        var alerted = (a.role === 'ADMIN' || a.role === 'MASTER');
+        return { username: a.username, role: a.role, created: a.created,
+                 lastSignIn: a.lastSignIn, signIns: a.signIns,
+                 mustChange: a.mustChange, bootstrap: Boolean(a.bootstrap),
+                 fullName: a.fullName || '', email: a.email || '',
+                 alerted: alerted && Boolean(a.email) };
+      });
+    },
+    // The real one tidies a name, refuses an address that is not one, and
+    // reads null as "leave that field alone". A stub that simply said yes
+    // would let the screen look right while storing anything at all.
+    masterSetDetails: function (token, employeeId, fullName, email) {
+      var hit = ACCOUNTS.filter(function (a) {
+        return a.username === String(employeeId);
+      })[0];
+      if (!hit) throw new Error('No account for employee ID ' + employeeId + '.');
+
+      if (fullName !== undefined && fullName !== null) {
+        hit.fullName = String(fullName).replace(/\\s+/g, ' ').trim().slice(0, 60);
+      }
+      if (email !== undefined && email !== null) {
+        var address = String(email).trim();
+        if (address && !/^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$/.test(address)) {
+          throw new Error('That does not look like an email address: ' + address);
+        }
+        hit.email = address;
+      }
+      return { ok: true, username: hit.username, fullName: hit.fullName || '',
+               email: hit.email || '',
+               alerted: (hit.role === 'ADMIN' || hit.role === 'MASTER') &&
+                        Boolean(hit.email) };
     },
     // Long on purpose: the point of the capped table is what happens when
     // there are more rows than fit, and an empty log proves nothing.
@@ -508,6 +574,25 @@ const leftover = (html.match(/<\?[\s\S]*?\?>/g) || [])
   .filter((s) => !/^<\?=\s*devToken\s*\?>$/.test(s));
 if (leftover.length) {
   throw new Error('build: unresolved scriptlet(s): ' + leftover.join(', '));
+}
+
+// A BACKSLASH THAT DID NOT SURVIVE THE TEMPLATE LITERAL.
+//
+// The stub above is a template literal, where \s is not an escape JavaScript
+// recognises and the backslash is dropped without a word. A regex written
+// /\s+/g arrives as /s+/g - still valid, still silent, and now matching the
+// letter s instead of whitespace. It cost an afternoon once; it is two lines
+// to notice.
+//
+// Checked by looking for the mangled forms rather than the correct ones, so
+// this keeps working when the stub grows new regexes of its own.
+const mangled = ['/s+/', '/d+/', '/w+/', '[^@s]', '/S+/', '/D+/', '/W+/']
+  .filter((bad) => html.indexOf(bad) !== -1);
+if (mangled.length) {
+  throw new Error(
+    'build: a backslash was eaten by the stub template literal - ' +
+    mangled.join(', ') + ' should be \\s, \\d, \\w and so on. Double every ' +
+    'backslash inside the `stub` template.');
 }
 
 const out = process.env.EAS_PAGE || path.join(__dirname, 'page.html');

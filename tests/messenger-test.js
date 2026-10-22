@@ -162,12 +162,18 @@ vm.runInContext(fs.readFileSync(path.join(SRC, 'Config.gs'), 'utf8'), sb);
 vm.runInContext('function getSpreadsheetId() { return "fake"; }', sb);
 vm.runInContext('function CONFIG_TZ() { return "Asia/Dhaka"; }', sb);
 
-const AUTH = fs.readFileSync(path.join(SRC, 'Auth.gs'), 'utf8');
-vm.runInContext(AUTH.match(/const ROLE_USER[\s\S]*?const ROLE_MASTER = 'MASTER';/)[0], sb);
-vm.runInContext(AUTH.match(/const ROLE_RANK = \{[\s\S]*?\};/)[0], sb);
-vm.runInContext(AUTH.match(/function rankOf[\s\S]*?\n}/)[0], sb);
-vm.runInContext(AUTH.match(/function requireAdmin[\s\S]*?\n}/)[0], sb);
-vm.runInContext(AUTH.match(/function requireMaster[\s\S]*?\n}/)[0], sb);
+// THE WHOLE OF Auth.gs, not five functions picked out of it.
+//
+// It used to be five: the role constants, rankOf and the two guards. That was
+// enough while the messenger kept everything it knew about a person on their
+// conversations. It knows where to look now - a name lives on the ACCOUNT -
+// so the real account store has to be here, or these tests would be checking
+// a stand-in that answers whatever is convenient. Three bugs in this project
+// have already hidden behind a test double more generous than the server.
+//
+// The stubs below are applied AFTER it, and a later declaration wins, so
+// currentSession and liveRoleOf are still the simple test versions.
+vm.runInContext(fs.readFileSync(path.join(SRC, 'Auth.gs'), 'utf8'), sb);
 // A token is 'ROLE:employeeId' here; null is nobody.
 vm.runInContext(
   'function currentSession(token) {\n' +

@@ -294,6 +294,34 @@ check('no button captures its label after overwriting it',
 
 
 // ---------------------------------------------------------------------------
+// the name box on the card where somebody sets their password
+// ---------------------------------------------------------------------------
+// CHECKED HERE because no browser suite reaches that card: it only appears
+// for somebody signing up or coming back from a reset, neither of which the
+// harness can be in the middle of. The server half is covered properly in
+// reset-journey-test - registerAccount stores the name, tidies it, and keeps
+// the old one when the box is left empty. What is left is the wire between
+// them, and dropping the argument is a silent change: registerAccount simply
+// receives undefined and every new account goes in nameless.
+check('the setup card has a name box',
+  /id="setupName"/.test(INDEX), 'it is the one card everybody fills in once');
+check('and the card sends it to the server',
+  /registerAccount\([\s\S]{0,220}getValue\('setupName'\)/.test(APP),
+  'left off, every account created from here would be nameless and nothing ' +
+  'would say so');
+check('with the name AFTER the two passwords, where the server expects it',
+  /registerAccount\(pendingSetupToken,[\s\S]{0,200}setupConfirm'\),\s*\n\s*getValue\('setupName'\)/.test(APP),
+  'an argument in the wrong slot would store a password as somebody\'s name');
+
+// The panel asks for a name only while the account has none. Hiding it on the
+// signed-OUT page would be wrong in the other direction: there is no account
+// there to have read one from.
+check('the panel hides its name box only for somebody signed in with one',
+  /nameWrap\.hidden = msgrSignedIn && msgrNameOnAccount/.test(APP),
+  'on the sign-in page there is no account to take a name from');
+
+
+// ---------------------------------------------------------------------------
 // the whole project is still plain ASCII
 // ---------------------------------------------------------------------------
 // A single stray byte in a paste has taken this project down before. Checked

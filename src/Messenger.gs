@@ -72,16 +72,23 @@ function messengerBoot(token) {
     threads: [],
     unread: 0,
     name: '',
+    // Whether that name is on their ACCOUNT, as opposed to one they typed
+    // into this panel once. The panel asks for a name only while this is
+    // false - a box that keeps asking for something already answered is how
+    // the same person ends up stored three different ways.
+    nameOnAccount: false,
     canAnswer: false,
     canDelete: false
   };
 
   if (!session) return out;
 
+  const me = String(session.u || '').trim();
   out.threads = myThreads(token);
   out.unread = out.threads.reduce(function (n, t) { return n + t.unread; }, 0);
 
-  out.name = nameOf(String(session.u || '').trim());
+  out.name = nameOf(me);
+  out.nameOnAccount = Boolean(accountNameOf(me));
 
   try {
     const rank = rankOf(liveRoleOf(session.u));
@@ -175,9 +182,29 @@ function sendMessage(token, threadId, topic, text, name) {
                       'them - somebody will reply here.' };
   }
 
+  // WHAT THIS PERSON IS CALLED, decided once rather than per message.
+  // The account wins if it has a name: correcting a name is something done on
+  // purpose, from the prompt or the Accounts screen, and not a side effect of
+  // sending a message - otherwise a typo in the panel would silently rename
+  // somebody across every conversation they have.
+  // A name typed by somebody whose account has none is kept ON THE ACCOUNT,
+  // which is what stops the panel asking again tomorrow.
+  let myName = accountNameOf(me);
+  if (!myName) {
+    const said = cleanName(name);
+    if (said) {
+      // Saved if it can be. If it cannot - an account removed while its owner
+      // still holds a token - the message still goes out under the name they
+      // typed, because failing to store a courtesy is no reason to strip it
+      // off the line they are sending.
+      const saved = setMyName(token, said);
+      myName = (saved && saved.ok && saved.name) || said;
+    }
+  }
+
   const result = appendToThread(me, VERIFIED_YES, SIDE_USER, me, body.text,
                                 null, null, wanted ? null : topic,
-                                cleanName(name), null, into);
+                                myName, null, into);
   noteQuestionAsked(me);
 
   // Only nudge if the team is not already sitting on something unanswered in
@@ -185,12 +212,12 @@ function sendMessage(token, threadId, topic, text, name) {
   // interruption, not four.
   const emailed = result.wasWaiting
     ? false
-    : alertTeamOfMessage(me, body.text, VERIFIED_YES, result.threadId,
-                         cleanName(name));
+    : alertTeamOfMessage(me, body.text, VERIFIED_YES, result.threadId, myName);
 
   return { ok: true, id: result.messageId, threadId: result.threadId,
            emailed: emailed, threads: myThreads(token),
-           name: cleanName(name), message: 'Sent.' };
+           name: myName, nameOnAccount: Boolean(accountNameOf(me)),
+           message: 'Sent.' };
 }
 
 
@@ -867,24 +894,25 @@ function nameEverywhere(person, verified, name) {
  * should read the account instead, and everything above it keeps working.
  */
 function nameOf(employeeId) {
+  // THE ACCOUNT FIRST. A name used to live only on the conversations somebody
+  // had started, which meant the dashboard could not name a person until they
+  // had written to it - an admin replying for the first time signed their
+  // reply with a bare employee ID. It is a fact about a person, so it is kept
+  // on the person now, and asked for on the card where they set a password.
+  const onAccount = accountNameOf(employeeId);
+  if (onAccount) return onAccount;
+
+  // Falling back to the threads, for everybody who gave a name in the message
+  // panel before the account had a column to keep one in.
   const hit = readThreads().filter(function (t) {
     return t.person === employeeId && t.verified === VERIFIED_YES && t.name;
   })[0];
   return hit ? hit.name : '';
 }
 
-
-/**
- * A name somebody typed, trimmed to something a line of an email can hold.
- *
- * Deliberately permissive about what is in it - people have apostrophes and
- * hyphens and more than three words in their names, and this is a label, not a
- * key. It is escaped wherever it is shown, which is where that question is
- * actually settled.
- */
-function cleanName(name) {
-  return String(name == null ? '' : name).replace(/\s+/g, ' ').trim().slice(0, 60);
-}
+// cleanName() lives in Config.gs - Auth.gs needs the same one now, and two
+// copies that trimmed differently would have the panel asking for a name it
+// had already been given.
 
 
 /**

@@ -576,7 +576,12 @@ function setAccount(username, password, role) {
     passwordSet: now,
     lastSignIn: (existing && existing.lastSignIn) || '',
     signIns: (existing && existing.signIns) || 0,
-    note: (existing && existing.note) || ''
+    note: (existing && existing.note) || '',
+    // Carried, not rebuilt. This writes the whole row, so anything left out
+    // here is erased - and a password change is no reason to forget somebody's
+    // name or where their notifications go.
+    fullName: (existing && existing.fullName) || '',
+    email: (existing && existing.email) || ''
   });
 
   Logger.log('Account "%s" saved with role %s.', name, role);
@@ -693,7 +698,7 @@ function login(username, password) {
  * @param {string} password    at least MIN_PASSWORD characters
  * @param {string} confirm     typed again
  */
-function registerAccount(setupToken, employeeId, password, confirm) {
+function registerAccount(setupToken, employeeId, password, confirm, fullName) {
   const fail = function (message) {
     return { ok: false, role: '', username: '', token: '', message: message };
   };
@@ -766,6 +771,23 @@ function registerAccount(setupToken, employeeId, password, confirm) {
   // granting access ahead of time would silently undo itself.
   const role = (existing && existing.role) || ROLE_USER;
 
+  // THE NAME IS ASKED FOR HERE because this is the one card everybody fills
+  // in exactly once, and it already knows who they are. Asking on the sign-in
+  // card instead would ask every morning and get a slightly different answer
+  // each time; asking in the message panel - where it used to be asked - made
+  // the name a property of a message rather than of a person.
+  //
+  // A blank one is allowed. Somebody who leaves it empty is shown by their
+  // employee ID, which is what happened before this column existed, and they
+  // can give a name later. Refusing to create an account over a missing
+  // courtesy would be the wrong trade entirely.
+  //
+  // An empty box never erases a name already on the account: that is what
+  // somebody who left it blank on a password reset would expect, and the
+  // opposite would quietly blank the name of everybody whose password is ever
+  // reset.
+  const said = cleanName(fullName);
+
   const account = {
     role: role, salt: salt, hash: hashOf(pass, salt),
     created: (existing && existing.created) || now.toISOString(),
@@ -773,7 +795,9 @@ function registerAccount(setupToken, employeeId, password, confirm) {
     lastSignIn: now.toISOString(),
     signIns: ((existing && Number(existing.signIns)) || 0) + 1,
     mustChange: false,
-    note: ''
+    note: '',
+    fullName: said || (existing && existing.fullName) || '',
+    email: (existing && existing.email) || ''
   };
   saveAccount(name, account);
   logAuth(name, existing && existing.hash ? 'PASSWORD' : 'SIGNUP', role,
@@ -1061,9 +1085,158 @@ function masterListAccounts(token) {
       hasPassword: Boolean(a.hash),
       mustChange:  Boolean(a.mustChange),
       bootstrap:   name === BOOTSTRAP_USER,
-      note:        a.note || ''
+      note:        a.note || '',
+      fullName:    a.fullName || '',
+      email:       a.email || '',
+      // Whether this account's email actually matters. An address on a viewer
+      // is stored and simply not written to - it is only admins and masters
+      // who are told when somebody asks a question - and the screen says so
+      // rather than leaving somebody to wonder why they hear nothing.
+      alerted:     rankOf(a.role) >= rankOf(ROLE_ADMIN) && Boolean(a.email)
     };
   });
+}
+
+
+/**
+ * The addresses a new query is emailed to.
+ *
+ * TWO SOURCES, DELIBERATELY. Every ADMIN and MASTER account with an email on
+ * it, plus whatever setQuestionAlerts() holds. The accounts are the list that
+ * maintains itself - make somebody an admin and they start being told; take
+ * it away and they stop - which is the whole reason the column exists. The
+ * property stays because not every address belongs to an account: a shared
+ * team inbox, somebody's second address, a manager who is not an admin.
+ *
+ * Deduplicated case-insensitively, because the same address typed two ways is
+ * one person who would otherwise be emailed twice.
+ */
+function alertEmailList() {
+  const seen = {};
+  const out = [];
+  const add = function (raw) {
+    const address = String(raw || '').trim();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(address)) return;
+    const key = address.toLowerCase();
+    if (seen[key]) return;
+    seen[key] = true;
+    out.push(address);
+  };
+
+  try {
+    const accounts = readAccounts();
+    Object.keys(accounts).forEach(function (name) {
+      const a = accounts[name];
+      if (rankOf(a.role) >= rankOf(ROLE_ADMIN)) add(a.email);
+    });
+  } catch (e) {
+    // No accounts to read is a reason to fall back to the property, not a
+    // reason to send nothing.
+  }
+
+  try {
+    const raw = PropertiesService.getScriptProperties()
+                  .getProperty('EAS_QUESTION_ALERTS') || '';
+    raw.split(',').forEach(add);
+  } catch (e) { /* the accounts above are enough */ }
+
+  return out;
+}
+
+
+/** The name on an account, or '' - what Messenger.gs writes beside an ID. */
+function accountNameOf(employeeId) {
+  const name = String(employeeId || '').trim().toLowerCase();
+  if (!name) return '';
+  try {
+    const account = readAccounts()[name];
+    return (account && account.fullName) || '';
+  } catch (e) {
+    return '';
+  }
+}
+
+
+/**
+ * Somebody setting their own name, after the account already exists.
+ *
+ * Everybody who signs up from now on is asked on the card where they choose
+ * a password. Everybody who signed up BEFORE that column existed - which is
+ * every account on the dashboard today - never saw it, so the page asks once
+ * and sends it here.
+ *
+ * Their own and nobody else's: the ID comes from the signed token, never from
+ * the call, so this cannot be used to rename a colleague.
+ */
+function setMyName(token, fullName) {
+  const session = currentSession(token);
+  if (!session) {
+    return { ok: false, message: 'Your session has ended. Reload the page and ' +
+                                 'sign in again.' };
+  }
+
+  const said = cleanName(fullName);
+  if (!said) {
+    return { ok: false, message: 'Put the name you would like to be called by.' };
+  }
+
+  const accounts = readAccounts();
+  const account = accounts[session.u];
+  if (!account) return { ok: false, message: 'That account no longer exists.' };
+
+  account.fullName = said;
+  saveAccount(session.u, account);
+
+  // Their past messages carry a name stamped at the time, so the conversations
+  // they have already started would keep the old one. This brings them with.
+  try { nameEverywhere(session.u, 'YES', said); } catch (e) { /* no threads */ }
+
+  return { ok: true, name: said, message: 'Thank you - you are ' + said + ' now.' };
+}
+
+
+/**
+ * The master correcting a name, or setting where somebody's alerts go.
+ *
+ * MASTER, not admin. An admin who could edit the email column could point a
+ * colleague's notifications somewhere else, and the Accounts screen is master
+ * only for exactly this family of reasons.
+ *
+ * Either field may be left out - passing undefined leaves that one alone, so
+ * setting an email does not blank a name. Passing an empty string clears it
+ * on purpose, which is how a wrong address is removed.
+ */
+function masterSetDetails(token, employeeId, fullName, email) {
+  const session = requireMaster(token);
+  const name = String(employeeId || '').trim().toLowerCase();
+
+  const accounts = readAccounts();
+  const account = accounts[name];
+  if (!account) throw new Error('No account for employee ID ' + employeeId + '.');
+
+  if (fullName !== undefined && fullName !== null) {
+    account.fullName = cleanName(fullName);
+  }
+
+  if (email !== undefined && email !== null) {
+    const address = String(email).trim();
+    if (address && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(address)) {
+      throw new Error('That does not look like an email address: ' + address);
+    }
+    account.email = address;
+  }
+
+  saveAccount(name, account);
+  logAuth(name, 'DETAILS', account.role, 'by ' + session.u);
+
+  if (account.fullName) {
+    try { nameEverywhere(name, 'YES', account.fullName); } catch (e) { /* none */ }
+  }
+
+  return { ok: true, username: name, fullName: account.fullName,
+           email: account.email,
+           alerted: rankOf(account.role) >= rankOf(ROLE_ADMIN) &&
+                    Boolean(account.email) };
 }
 
 
@@ -1274,9 +1447,27 @@ function countMasters(accounts) {
 const ACCOUNTS_TAB = 'ACCOUNTS';
 const AUTH_LOG_TAB = 'AUTH_LOG';
 
+// Name and Email are on the END on purpose. Adding a column anywhere else
+// would shift every cell to its right by one, and the rows already on the
+// sheet would read back with the salt in the hash's place - which is an
+// account nobody can sign in to, for every account at once.
+//
+// WHAT EACH OF THE TWO IS FOR
+// Name is what a person is called on a query or a reply, so a message reads
+// "Rudra Das (20536723)" rather than a bare number. The ID comes from the
+// signed token and cannot be typed; the name is typed and carries no
+// authority at all - which is the right way round, because a name is a
+// courtesy and an ID is an identity.
+//
+// Email is where that person's notifications go. It is NOT used to sign in,
+// it is not a second identity, and Google never tells us what it is - this
+// deployment is published to "Anyone", so Session.getActiveUser().getEmail()
+// is always the empty string here. See the note in Ingest.gs. Somebody has to
+// type it, and on this dashboard that somebody is the master, on the Accounts
+// screen, beside the role it belongs to.
 const ACCOUNT_COLUMNS = ['Employee ID', 'Role', 'Salt', 'Hash', 'Created',
                          'Password Set', 'Last Sign In', 'Sign Ins',
-                         'Must Change', 'Note'];
+                         'Must Change', 'Note', 'Name', 'Email'];
 const AUTH_LOG_COLUMNS = ['When', 'Employee ID', 'Event', 'Role', 'Detail'];
 
 
@@ -1297,6 +1488,24 @@ function authTab(name, headers) {
     // Employee IDs are digits but they are NOT numbers - an ID with a leading
     // zero must keep it, and none of them is ever added up.
     sheet.getRange(2, 1, sheet.getMaxRows() - 1, 1).setNumberFormat('@');
+    return sheet;
+  }
+
+  // A TAB MADE BEFORE A COLUMN EXISTED HAS TO KEEP WORKING. This one is the
+  // ACCOUNTS tab, so the alternative is every account on the dashboard
+  // becoming unreadable the moment a column is added - reading a range wider
+  // than the sheet throws, and readAccounts() asks for the full width.
+  //
+  // Only ever ADDS headers on the right. It never writes to a cell that has
+  // something in it, so the existing rows simply read back empty in the new
+  // column, which is exactly what "this was written before we asked" should
+  // look like. The same thing sheetWithHeaders() does in Questions.gs.
+  const have = sheet.getLastColumn();
+  if (have < headers.length) {
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers])
+         .setFontWeight('bold');
+    Logger.log('Tab "%s": widened from %s to %s columns.',
+               name, have, headers.length);
   }
   return sheet;
 }
@@ -1400,7 +1609,11 @@ function readAccounts() {
       lastSignIn:  r[6] ? String(r[6]) : '',
       signIns:     Number(r[7]) || 0,
       mustChange:  String(r[8] || '').toUpperCase() === 'YES',
-      note:        String(r[9] || '')
+      note:        String(r[9] || ''),
+      // Blank for every account that existed before these columns did, which
+      // is what the screens treat as "not asked yet" rather than as an error.
+      fullName:    String(r[10] || '').trim(),
+      email:       String(r[11] || '').trim()
     };
   });
 
@@ -1430,7 +1643,8 @@ function saveAccount(name, account) {
   const row = [name, account.role, account.salt, account.hash,
                account.created || '', account.passwordSet || '',
                account.lastSignIn || '', account.signIns || 0,
-               account.mustChange ? 'YES' : '', account.note || ''];
+               account.mustChange ? 'YES' : '', account.note || '',
+               account.fullName || '', account.email || ''];
   const at = accountRow(sheet, name);
   const target = at || sheet.getLastRow() + 1;
   sheet.getRange(target, 1, 1, ACCOUNT_COLUMNS.length).setValues([row]);

@@ -420,9 +420,18 @@ const FILE = 'file://' + PAGE;
     await p.$eval('#msgrNote', (el) => !/not signed in/.test(el.textContent)),
     'the panel must load after the token, not beside it');
 
-  check('the name box arrives already filled in',
+  // ASKED ONCE, ON THE ACCOUNT - not every time, in the panel.
+  // The box used to sit here permanently, so a name was a property of a
+  // message rather than of a person: the same person could be stored three
+  // ways, and the panel asked again every morning. It is given on the card
+  // where somebody sets their password now, and this box only appears while
+  // the account has no name on it.
+  check('somebody whose account has a name is not asked for one',
+    await p.$eval('#msgrNameWrap', (el) => el.hidden),
+    'a question already answered is not a question');
+  check('and the panel still knows what to call them',
     (await p.$eval('#msgrName', (el) => el.value)) === 'Rudra Das',
-    'asked once, not every time');
+    'hidden, not empty - it is what goes out beside their employee ID');
   // Two requests that pull against each other, so both are written down:
   // big enough to write a sentence in, and small enough that the conversation
   // is still the thing you are looking at. It was one line, then three; the
@@ -638,6 +647,42 @@ const FILE = 'file://' + PAGE;
   check('and opening one shows the conversation',
     (await p.$$eval('#msgrThread .bubble', (n) => n.length)) > 0,
     (await p.$$eval('#msgrThread .bubble', (n) => n.length)) + ' messages');
+
+  // ---------------------------------------------------------------------------
+  // the one person the panel still has to ask
+  // ---------------------------------------------------------------------------
+  // Every account that existed before the Name column did has no name on it,
+  // and their owners will never see the card that asks for one. They are
+  // asked here instead - once. What they type is written onto the ACCOUNT, so
+  // tomorrow they are not asked again, and the name they give reaches every
+  // screen rather than only the message they were sending.
+  p = await open('?view=help&noname=1');
+  await p.click('#msgrBar');
+  await p.waitForTimeout(500);
+
+  check('an account with no name on it is asked for one, in the panel',
+    await p.$eval('#msgrNameWrap', (el) => !el.hidden),
+    'the card that asks on the way in did not exist when they signed up');
+  // Prefilled from the last name they gave in a message, rather than blank.
+  // The server keeps that fallback on purpose: it is a name the dashboard
+  // already shows them under, so the box is a confirmation rather than a
+  // question, and somebody who has been "Rudra Das" on three queries is not
+  // made to prove it a fourth time.
+  check('and the box offers back the name their messages already carry',
+    (await p.$eval('#msgrName', (el) => el.value)) === 'Rudra Das',
+    'a confirmation, not a question');
+
+  await p.fill('#msgrName', 'Rudra Das');
+  await p.fill('#msgrText', 'A question from somebody with no name yet.');
+  await p.click('#msgrSend');
+  await p.waitForTimeout(700);
+
+  check('answering it puts the name away for good',
+    await p.$eval('#msgrNameWrap', (el) => el.hidden),
+    'stored on the account by the send, so the box has done its job');
+  await p.close();
+
+  p = await open('?view=help');
 
   check('no JS errors across the whole run', errors.length === 0,
     errors.slice(0, 2).join(' / '));

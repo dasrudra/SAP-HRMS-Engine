@@ -315,9 +315,16 @@
         'employee ID and password now - you will use those from the next ' +
         'time on.');
     setText('setupGo', reset ? 'Save my password' : 'Create my login');
+    // On a reset the account may already have a name, and the box cannot show
+    // it - the page has no session yet to ask with. So the hint says what an
+    // empty box means, rather than leaving it looking like a question that
+    // has to be answered again.
+    setText('setupNameHint', reset ? 'leave blank to keep the one you have'
+                                   : 'optional');
 
     setValue('setupPass', '');
     setValue('setupConfirm', '');
+    setValue('setupName', '');
     const box = document.getElementById('setupError');
     if (box) box.hidden = true;
 
@@ -392,7 +399,8 @@
           }
         })
         .registerAccount(pendingSetupToken, getValue('setupId').trim(),
-                         getValue('setupPass'), getValue('setupConfirm'));
+                         getValue('setupPass'), getValue('setupConfirm'),
+                         getValue('setupName').trim());
     });
   }
 
@@ -5856,13 +5864,14 @@
     setText('masterCount', all.length + ' account' + (all.length === 1 ? '' : 's'));
     setCount('cMaster', rows.length, all.length, 'accounts');
 
-    if (!ordered.length) return emptyTable('#masterTable tbody', 6, 'No accounts match.');
+    if (!ordered.length) return emptyTable('#masterTable tbody', 7, 'No accounts match.');
 
     fillRows('#masterTable tbody', ordered, function (a) {
       // The shared starting login is a row like any other, but it is not a
       // person and none of the actions make sense on it.
       if (a.bootstrap) {
         return '<td class="name">' + escapeHtml(a.username) + '</td>' +
+               '<td class="muted">\u2014</td>' +
                '<td>' + rolePill('USER') + '</td>' +
                '<td colspan="3" class="muted">' +
                'The shared starting login. Everyone uses it once, to reach the ' +
@@ -5885,10 +5894,34 @@
           ? '<span class="pill pill-wait">Must set a password</span>'
           : '<span class="pill pill-ok">Active</span>';
 
+      // Typed straight into the cell, because both of these are things you
+      // come to this screen to correct rather than to read. They save when
+      // the box is left, not on every keystroke - a half-typed address is
+      // not an address, and the server would refuse it.
+      const cell = function (field, value, placeholder, type) {
+        return '<input class="cell-edit" type="' + (type || 'text') +
+               '" data-detail="' + field + '" data-id="' + id +
+               '" maxlength="' + (field === 'name' ? '60' : '120') +
+               '" placeholder="' + placeholder + '" value="' +
+               escapeHtml(value || '') + '">';
+      };
+
+      // An address only does anything on an account that answers queries.
+      // Saying so in the cell is kinder than letting somebody fill it in for
+      // a viewer and wait for emails that were never going to come.
+      const alerted = a.role === 'ADMIN' || a.role === 'MASTER';
+      const mailNote = !alerted && a.email
+        ? '<span class="cell-note">stored - viewers are not emailed</span>'
+        : '';
+
       return '<td class="name">' + id + '</td>' +
+             '<td>' + cell('name', a.fullName, 'not given') + '</td>' +
              '<td>' + rolePill(a.role) + '</td>' +
              '<td>' + status + '</td>' +
-             '<td>' + escapeHtml(whenText(a.created)) + '</td>' +
+             '<td>' + cell('email', a.email,
+                           alerted ? 'add one to be emailed'
+                                   : 'not used for a viewer', 'email') +
+                      mailNote + '</td>' +
              '<td>' + escapeHtml(whenText(a.lastSignIn)) + '</td>' +
              '<td class="master-actions">' +
                (a.role !== 'ADMIN' && a.role !== 'MASTER' ? make('admin', 'Make admin') : '') +
@@ -5899,6 +5932,59 @@
     });
 
     wireMasterActions();
+    wireMasterDetails();
+  }
+
+
+  /**
+   * The Name and Email boxes on the Accounts table.
+   *
+   * Saved on `change`, which fires when the box is left after being edited -
+   * not on every keystroke, which would send a half-typed address the server
+   * would rightly refuse, and not on a button, which is one more click on the
+   * one screen where you are already typing.
+   *
+   * ONE FIELD AT A TIME. The other is sent as null, which the server reads as
+   * "leave it alone" - otherwise correcting a name would blank the address
+   * beside it with whatever happened to be on screen.
+   */
+  function wireMasterDetails() {
+    document.querySelectorAll('[data-detail]').forEach(function (box) {
+      box.addEventListener('change', function () {
+        const id = box.dataset.id;
+        const field = box.dataset.detail;
+        const said = box.value.trim();
+
+        box.classList.remove('is-bad');
+        box.disabled = true;
+
+        const args = field === 'name' ? [id, said, null] : [id, null, said];
+        callServer('masterSetDetails', args[0], args[1], args[2])
+          .then(function (result) {
+            box.disabled = false;
+            // From the server, not from the box: it tidies a name on the way
+            // in, and a screen still showing "Rudra   Das" after storing
+            // "Rudra Das" is a screen telling a small lie. loadMaster() below
+            // redraws the row from the server too; this is what the box shows
+            // in the moment before it does.
+            box.value = (field === 'name' ? result.fullName : result.email) || '';
+            toast(field === 'name'
+              ? (box.value ? id + ' is ' + box.value + ' now.'
+                           : 'Name cleared for ' + id + '.')
+              : (box.value ? 'Alerts for ' + id + ' go to ' + box.value + '.'
+                           : 'Alert address cleared for ' + id + '.'));
+            // The row's own note depends on what was just saved, and the
+            // alert list the Help screen counts on has changed under it.
+            loadMaster();
+          })
+          .catch(function (err) {
+            box.disabled = false;
+            box.classList.add('is-bad');
+            box.focus();
+            toast((err && err.message) || 'That could not be saved.');
+          });
+      });
+    });
   }
 
 
@@ -6957,6 +7043,10 @@
   let msgrTimer = null;
   let msgrSignedIn = false;
   let msgrCanDelete = false;
+  // Whether this person's NAME is on their account. While it is not,
+  // the panel asks for one; once it is, the box goes and what they are
+  // called comes from the account on every screen at once.
+  let msgrNameOnAccount = false;
   let msgrSeen = 0;
   let msgrThreads = [];
   let openQueryId = '';
@@ -7030,6 +7120,16 @@
 
         msgrThreads = (data && data.threads) || [];
         setValue('msgrName', (data && data.name) || '');
+
+        // ASKED ONCE, NOT EVERY TIME. A name on the account is a question
+        // already answered, so the box goes - leaving it there is how the
+        // same person ends up stored three different ways. It stays for
+        // anybody whose account has no name yet, and on the sign-in page,
+        // where there is no account to read one from.
+        msgrNameOnAccount = Boolean(data && data.nameOnAccount);
+        const nameWrap = document.getElementById('msgrNameWrap');
+        if (nameWrap) nameWrap.hidden = msgrSignedIn && msgrNameOnAccount;
+
         showQueryList();
         msgrUnread(Number(data && data.unread) || 0);
         msgrNote('');
@@ -7233,6 +7333,16 @@
 
       setValue('msgrSubject', '');
       msgrThreads = result.threads || [];
+
+      // The first message from somebody who typed a name is what puts that
+      // name on their account, so the box has done its job and goes now
+      // rather than at the next page load.
+      if (result.nameOnAccount) {
+        msgrNameOnAccount = true;
+        const nameWrap = document.getElementById('msgrNameWrap');
+        if (nameWrap) nameWrap.hidden = true;
+        if (result.name) setValue('msgrName', result.name);
+      }
       // Stay on the query it went into - a new one opens on itself, so the
       // person sees what they just sent rather than a list they have to
       // hunt through for it.
