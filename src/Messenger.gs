@@ -330,9 +330,14 @@ function replyToThread(token, threadId, text) {
   const thread = threadById(threadId);
   if (!thread) return { ok: false, message: 'That conversation is no longer there.' };
 
+  // INTO THIS THREAD - the last argument, and the whole point of the call.
+  // Left off, appendToThread had nothing to append to and started a fresh
+  // conversation owned by the asker, so every reply the team sent arrived as
+  // a new untitled query sitting beside the question instead of under it.
   appendToThread(thread.person, thread.verified, SIDE_TEAM,
                  String(session.u || ''), body.text,
-                 null, null, null, null, nameOf(String(session.u || '')));
+                 null, null, null, null, nameOf(String(session.u || '')),
+                 thread);
 
   return { ok: true, message: 'Replied.',
            messages: threadMessageList(thread.id) };
@@ -393,8 +398,11 @@ function migrateQuestionsToThreads() {
     return 0;
   }
 
+  // The thread each already-migrated message landed in, not just that it is
+  // there: a second run has to put the ANSWER into the same conversation as
+  // the question, and on that run the question is not written again.
   const already = {};
-  readMessages().forEach(function (m) { already[m.id] = true; });
+  readMessages().forEach(function (m) { already[m.id] = m.threadId; });
 
   // Oldest first, so the conversation reads in the order it happened.
   const inOrder = questions.slice().reverse();
@@ -402,16 +410,21 @@ function migrateQuestionsToThreads() {
 
   inOrder.forEach(function (q) {
     const askId = 'M-' + q.id + '-Q';
-    if (!already[askId]) {
-      appendToThread(q.from, VERIFIED_YES, SIDE_USER, q.from,
-                     q.question, q.askedAt, askId, q.topic);
+    let threadId = already[askId] || '';
+    if (!threadId) {
+      threadId = appendToThread(q.from, VERIFIED_YES, SIDE_USER, q.from,
+                                q.question, q.askedAt, askId, q.topic).threadId;
       added++;
     }
     if (q.answer) {
       const ansId = 'M-' + q.id + '-A';
       if (!already[ansId]) {
+        // Into the question's own thread. An answer migrated on its own used
+        // to become a second conversation, so a question and the reply it was
+        // given arrived in the inbox as two unrelated queries.
         appendToThread(q.from, VERIFIED_YES, SIDE_TEAM,
-                       q.answeredBy || 'team', q.answer, q.answeredAt, ansId);
+                       q.answeredBy || 'team', q.answer, q.answeredAt, ansId,
+                       null, null, null, threadById(threadId));
         added++;
       }
     }
@@ -420,6 +433,169 @@ function migrateQuestionsToThreads() {
   Logger.log('Migrated %s question(s) into %s message(s). The QUESTIONS tab ' +
              'was not changed.', questions.length, added);
   return added;
+}
+
+
+/**
+ * Puts replies that were forked into conversations of their own back where
+ * they belong. Run from the editor.
+ *
+ * WHAT WENT WRONG
+ * replyToThread() looked its thread up correctly and then called
+ * appendToThread() one argument short, so every reply the team sent started a
+ * fresh conversation owned by the person who had asked. The question stayed
+ * where it was, the answer appeared beside it as a new untitled query, and
+ * neither screen had any way of knowing they belonged together. The code is
+ * fixed; the rows those replies already wrote are still in the sheet, and
+ * this moves them.
+ *
+ * A STRAY IS A CONVERSATION WITH NOTHING BUT TEAM LINES IN IT. Nobody can
+ * start one of those by hand - the team only ever replies - so every thread
+ * matching that description was made by the bug.
+ *
+ * WHERE EACH ONE GOES, AND WHY YOU SHOULD READ THE REPORT
+ * The link back to the question was never written down, so it has to be
+ * inferred: the reply goes into whichever of that person's real conversations
+ * was the most recently active at the moment the reply was typed, which is
+ * the one the admin had open. That is right whenever the team answered the
+ * query that had just come in, and wrong if somebody went back to an older
+ * one while a newer was waiting. So this CHANGES NOTHING until you ask it to,
+ * and prints what it intends to do first.
+ *
+ *   repairStrayReplies()        - report only, nothing is written
+ *   repairStrayReplies(true)    - do it
+ *
+ * If a line of the report names the wrong conversation, say so explicitly and
+ * only that one is overridden:
+ *
+ *   repairStrayReplies(true, { 'T2026...-ab12': 'T2026...-cd34' })
+ *                              stray id          where it should go
+ *
+ * @param {boolean=} apply      false or missing to report and write nothing
+ * @param {Object=} overrides   stray thread ID -> the thread it belongs in
+ * @return {number} how many conversations were merged, or would be
+ */
+function repairStrayReplies(apply, overrides) {
+  requireOwner();
+
+  const threads = readThreads();
+  const byThread = {};
+  readMessages().forEach(function (m) {
+    (byThread[m.threadId] || (byThread[m.threadId] = [])).push(m);
+  });
+
+  const isStray = function (t) {
+    const lines = byThread[t.id] || [];
+    return lines.length > 0 && lines.every(function (m) {
+      return m.side === SIDE_TEAM;
+    });
+  };
+  const strays = threads.filter(isStray);
+
+  if (!strays.length) {
+    Logger.log('No stray replies. Every conversation has a question in it.');
+    return 0;
+  }
+
+  const forced = overrides || {};
+  const plan = strays.map(function (s) {
+    const lines = byThread[s.id];
+    const bornAt = lines[0].at || s.startedAt;
+
+    let target = null;
+    const said = String(forced[s.id] || '').trim();
+    if (said) {
+      target = threads.filter(function (t) { return t.id === said; })[0] || null;
+    } else {
+      target = threads.filter(function (t) {
+        return t.id !== s.id && t.person === s.person &&
+               t.verified === s.verified && !isStray(t) &&
+               String(t.lastAt) < String(bornAt);
+      }).sort(function (a, b) {
+        return String(b.lastAt).localeCompare(String(a.lastAt));
+      })[0] || null;
+    }
+    return { stray: s, target: target, lines: lines };
+  });
+
+  plan.forEach(function (p, i) {
+    const first = p.lines[0];
+    Logger.log('%s. %s line(s) from the team, in %s\'s conversation %s\n' +
+               '     "%s"\n' +
+               '     -> %s',
+               i + 1, p.lines.length, p.stray.person, p.stray.id,
+               String(first.text).slice(0, 70),
+               p.target ? (p.target.id + '  "' + (p.target.topic || 'no subject') +
+                           '", last active ' + p.target.lastAt)
+                        : 'NOTHING TO MERGE INTO - left alone');
+  });
+
+  const doable = plan.filter(function (p) { return p.target; });
+
+  if (!apply) {
+    Logger.log('\nReport only - the sheet has not been touched. %s of %s can ' +
+               'be merged. Read the list above, then run ' +
+               'repairStrayReplies(true).', doable.length, plan.length);
+    return doable.length;
+  }
+
+  // ---- move the lines ----
+  const messages = messageTab();
+  const threadIdColumn = CONFIG.MESSAGE_COLUMNS.indexOf('Thread ID') + 1;
+  doable.forEach(function (p) {
+    p.lines.forEach(function (m) {
+      messages.getRange(m.row, threadIdColumn).setValue(p.target.id);
+    });
+  });
+
+  // ---- re-add up the counters on what they were merged into ----
+  // Replayed from the messages rather than added to what was there, because
+  // the numbers on a thread are a running tally: a user line counts up and a
+  // team line clears it. Unread is replayed too, which can mark a reply the
+  // person has technically already seen - seen sitting in a query of its own,
+  // where it made no sense. Showing it once more in the right place is the
+  // kinder error.
+  const fresh = {};
+  readMessages().forEach(function (m) {
+    (fresh[m.threadId] || (fresh[m.threadId] = [])).push(m);
+  });
+
+  const touched = {};
+  doable.forEach(function (p) { touched[p.target.id] = p.target; });
+
+  Object.keys(touched).forEach(function (id) {
+    const t = touched[id];
+    const lines = (fresh[id] || []).slice().sort(function (a, b) {
+      return String(a.at).localeCompare(String(b.at));
+    });
+    if (!lines.length) return;
+
+    let waiting = 0, unread = 0;
+    lines.forEach(function (m) {
+      waiting = m.side === SIDE_USER ? waiting + 1 : 0;
+      unread  = m.side === SIDE_TEAM ? unread + 1 : 0;
+    });
+    const last = lines[lines.length - 1];
+
+    setThreadField(t.row, 'Last Message At', new Date(last.at));
+    setThreadField(t.row, 'Last Message By', last.side);
+    setThreadField(t.row, 'Waiting For Team', waiting);
+    setThreadField(t.row, 'Unread By Person', unread);
+  });
+
+  // ---- and take the empty shells away, bottom-up ----
+  // Bottom-up because deleting a row moves every row under it up one, and a
+  // list of row numbers read before the first delete is wrong from the second
+  // delete onwards. The same reason deleteThread() walks its messages
+  // backwards.
+  doable.map(function (p) { return p.stray.row; })
+    .sort(function (a, b) { return b - a; })
+    .forEach(function (row) { threadTab().deleteRow(row); });
+
+  Logger.log('\nMerged %s stray reply conversation(s) back into the questions ' +
+             'they answered. %s left alone.',
+             doable.length, plan.length - doable.length);
+  return doable.length;
 }
 
 
@@ -503,8 +679,9 @@ function readMessages() {
   if (last < 2) return [];
 
   return sheet.getRange(2, 1, last - 1, CONFIG.MESSAGE_COLUMNS.length).getValues()
-    .map(function (r) {
+    .map(function (r, i) {
       return {
+        row: i + 2,                       // the sheet row, for the repair below
         id: String(r[0] || ''),
         threadId: String(r[1] || ''),
         at: r[2] ? new Date(r[2]).toISOString() : '',
@@ -568,6 +745,20 @@ function appendToThread(person, verified, side, author, text, whenIso, forceId,
   // one the unverified door still falls back to the single thread per claimed
   // ID - it is a lifeline channel, not a list of tickets.
   let thread = intoThread || (level === VERIFIED_NO ? findThread(who, level) : null);
+
+  // THE TEAM DOES NOT START CONVERSATIONS. Somebody asks and somebody answers;
+  // an answer with no question in front of it is not a conversation, it is a
+  // caller that forgot to say which thread it meant. That is exactly what
+  // happened - replyToThread stopped one argument short - and because the line
+  // below happily made a thread for it, nothing failed, nothing was logged,
+  // and the replies simply arrived as new queries of their own. Throwing is
+  // the difference between a bug that announces itself in the execution log
+  // and a bug that quietly rearranges somebody's inbox for three weeks.
+  if (!thread && side === SIDE_TEAM) {
+    throw new Error('A team reply has no conversation to go into - ' +
+                    'appendToThread needs the thread as its last argument.');
+  }
+
   if (!thread) {
     const threadId = 'T' + stamp(when) + '-' + shortId();
     threadTab().appendRow([

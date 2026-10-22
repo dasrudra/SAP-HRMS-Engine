@@ -213,6 +213,8 @@ const mine = function (token) {
 const markRead = vm.runInContext('markMyMessagesRead', sb);
 const threads = vm.runInContext('listThreads', sb);
 const reply = vm.runInContext('replyToThread', sb);
+/** One conversation's lines, oldest first - to ask WHICH thread holds what. */
+const threadLines = vm.runInContext('threadMessageList', sb);
 const waiting = vm.runInContext('unansweredQuestionCount', sb);
 
 const T = CONFIG.SHEETS.THREADS, M = CONFIG.SHEETS.MESSAGES;
@@ -421,12 +423,56 @@ check('and each says whether the person was verified',
   'the flag travels to the screen, not just the email');
 
 cache = {};
-const answer = reply(ADMIN, findThreadId('20536723', 'YES'),
+const answerTo = findThreadId('20536723', 'YES');
+const queriesBeforeReply = tabs[T].rows.length;
+const answer = reply(ADMIN, answerTo,
                      'September was filed under the wrong section. Fixed now.');
 check('an admin can reply', answer.ok === true, answer.message);
 check('and the reply lands in that person\'s own messenger',
   mine(USER).messages.some((m) => /wrong section/.test(m.text) && m.side === 'TEAM'),
   'one conversation, both sides, one place to look');
+
+// THE TEAM DOES NOT START CONVERSATIONS.
+// replyToThread() looked its thread up correctly and then called
+// appendToThread() one argument short, so every reply the team sent forked a
+// new untitled query owned by the person who had asked. The question stayed
+// put, the answer appeared beside it, and neither screen could tell they
+// belonged together.
+//
+// The assertion directly above this one did not catch it, and could not:
+// mine() flattens every one of that person's queries into a single list, so a
+// reply sitting in a query of its own is still somewhere in that list. These
+// ask WHICH conversation it went into.
+check('a team reply joins the query it was sent to and starts no new one',
+  tabs[T].rows.length === queriesBeforeReply,
+  queriesBeforeReply + ' queries before the reply, ' + tabs[T].rows.length +
+  ' after');
+check('and the line is in THAT conversation, under the question',
+  threadLines(answerTo).some((m) => /wrong section/.test(m.text) &&
+                                    m.side === 'TEAM'),
+  threadLines(answerTo).map((m) => m.side).join(' -> '));
+check('which is how the asker sees it too, in the query they opened',
+  (mine(USER).threads.filter((t) => t.id === answerTo)[0] || { messages: [] })
+    .messages.some((m) => /wrong section/.test(m.text) && m.side === 'TEAM'),
+  'not as a second query that answers a question it does not contain');
+check('and no conversation anywhere is nothing but team lines',
+  !threads(ADMIN).some((t) => t.messages.length > 0 &&
+                              t.messages.every((m) => m.side === 'TEAM')),
+  'nobody can start one of those by hand - the team only ever replies');
+
+// The guard that stops the next caller repeating it. A team line with no
+// conversation to go into is a caller that forgot to say which thread it
+// meant, and a thread invented for it is how three weeks of replies went
+// missing in plain sight.
+const appendRaw = vm.runInContext('appendToThread', sb);
+const beforeOrphan = tabs[T].rows.length;
+check('appending a team line with no conversation is refused outright',
+  /no conversation to go into/i.test(
+    threw(() => appendRaw('20536723', 'YES', 'TEAM', '20000099', 'Orphan.'))),
+  'rather than quietly making a query out of it');
+check('and nothing was written while it was refused',
+  tabs[T].rows.length === beforeOrphan,
+  beforeOrphan + ' queries, unchanged');
 const answered = mine(USER).threads.filter((t) =>
   t.messages.some((m) => /wrong section/.test(m.text)))[0];
 const beforeThanks = answered.messages.length;
@@ -711,6 +757,188 @@ function findThreadName(person, verified) {
   const hit = tabs[T].rows.filter((r) => r[1] === person && r[2] === verified)[0];
   return hit ? String(hit[10] || '') : '';
 }
+
+// ---------------------------------------------------------------------------
+// putting back what the bug already wrote
+// ---------------------------------------------------------------------------
+// The code is fixed, which stops it happening again and does nothing at all
+// about the rows that are already in the sheet. Those have to be moved, and
+// the link back to the question was never written down - so the repair infers
+// it, and a repair that infers things is one you want a test around.
+//
+// The fixture is built by hand, in the shape the live sheet is actually in:
+// a real question, and beside it a conversation containing nothing but the
+// reply it was given.
+const repair = vm.runInContext('repairStrayReplies', sb);
+
+// A reply is typed AFTER the question it answers, and that ordering is the
+// only thing the repair has to go on - so the fixture has to honour it.
+const soonAfter = (seconds) => new Date(Date.now() + seconds * 1000);
+
+const asked = send(USER, 'The affiliate filter is showing the wrong total.');
+const askedId = asked.threadId;
+
+// A reply as the broken build wrote it: its own thread, owned by the asker,
+// no topic, one TEAM line in it.
+const strayBorn = soonAfter(60);
+tabs[T].rows.push(['T-STRAY-1', '20536723', 'YES', strayBorn,
+                   '', strayBorn, 'TEAM', 'OPEN', 0, 1, 'Rudra Das']);
+tabs[M].rows.push(['M-STRAY-1', 'T-STRAY-1', strayBorn,
+                   'TEAM', '20000099', 'Yes, of course. I am working on it.',
+                   'Shahriar Kabir']);
+
+const threadsBefore = tabs[T].rows.length;
+const messagesBefore = tabs[M].rows.length;
+
+check('a stray reply is one more query in the asker\'s panel, which is the bug',
+  mine(USER).threads.filter((t) => t.id === 'T-STRAY-1').length === 1,
+  'this is what the screen was showing');
+
+// ---- the report changes nothing ----
+const planned = repair();
+check('the report finds it', planned === 1, planned + ' to merge');
+check('and writes absolutely nothing while reporting',
+  tabs[T].rows.length === threadsBefore &&
+  tabs[M].rows.length === messagesBefore &&
+  tabs[M].rows.some((r) => r[1] === 'T-STRAY-1'),
+  'you read the list before it moves anybody\'s messages');
+
+// ---- and then it does ----
+const merged = repair(true);
+check('applying it merges that one', merged === 1, merged + ' merged');
+check('the line itself is kept, not deleted',
+  tabs[M].rows.length === messagesBefore &&
+  tabs[M].rows.some((r) => /I am working on it/.test(r[5])),
+  'it is a message somebody typed - the thread around it was the mistake');
+check('and it now sits in the query it was answering',
+  threadLines(askedId).some((m) => /I am working on it/.test(m.text) &&
+                                   m.side === 'TEAM'),
+  threadLines(askedId).map((m) => m.side).join(' -> '));
+check('the empty shell is gone from the sheet',
+  tabs[T].rows.length === threadsBefore - 1 &&
+  !tabs[T].rows.some((r) => r[0] === 'T-STRAY-1'),
+  threadsBefore + ' -> ' + tabs[T].rows.length + ' queries');
+check('so the asker is back to one query, with both sides in it',
+  mine(USER).threads.filter((t) => t.id === 'T-STRAY-1').length === 0 &&
+  mine(USER).threads.filter((t) => t.id === askedId)[0].messages.length === 2,
+  'a question and the answer to it, in one place');
+
+// The counters are a running tally - a user line counts up, a team line
+// clears it - so they are replayed rather than added to.
+const mendedRow = tabs[T].rows.filter((r) => r[0] === askedId)[0];
+check('and the query no longer claims to be waiting on us',
+  Number(mendedRow[8]) === 0 && String(mendedRow[6]) === 'TEAM',
+  'waiting ' + mendedRow[8] + ', last by ' + mendedRow[6]);
+check('while the reply counts as one the person has not read',
+  Number(mendedRow[9]) === 1, 'unread ' + mendedRow[9]);
+
+// ---- run it again ----
+check('running it a second time finds nothing left to do',
+  repair(true) === 0,
+  'it is safe to run twice, like the migration beside it');
+
+// ---- what it refuses to guess ----
+// A stray belonging to somebody with no other conversation has nothing to be
+// merged into. Inventing one, or attaching it to a stranger's query, would be
+// worse than leaving it where it is.
+const orphanBorn = soonAfter(120);
+tabs[T].rows.push(['T-STRAY-2', '20999999', 'YES', orphanBorn,
+                   '', orphanBorn, 'TEAM', 'OPEN', 0, 1, '']);
+tabs[M].rows.push(['M-STRAY-2', 'T-STRAY-2', orphanBorn,
+                   'TEAM', '20000099', 'Sorry - wrong window.', 'Shahriar Kabir']);
+const orphanThreads = tabs[T].rows.length;
+check('a stray with no question of its own to go back to is left alone',
+  repair(true) === 0 && tabs[T].rows.length === orphanThreads &&
+  tabs[M].rows.some((r) => r[0] === 'M-STRAY-2'),
+  'reported, not guessed at, and above all not thrown away');
+
+// ---- and what it is told explicitly ----
+// The inference is "whichever of their queries was most recently active when
+// the reply was typed", which is right when the team answers what has just
+// come in and wrong if somebody goes back to an older one. So it can be told.
+const older = send(OTHER, 'An older question of mine.');
+const newer = send(OTHER, 'A newer one, asked afterwards.');
+
+// Both were sent by the line above within the same millisecond, which left
+// "the most recently active" a coin toss and this suite failing about one run
+// in three. Which of the two is older is the whole subject of the next two
+// assertions, so it is stated rather than raced for.
+const setLastAt = function (threadId, when) {
+  tabs[T].rows.filter((r) => r[0] === threadId)[0][5] = when;
+};
+// Ahead of everything else this person has, so the pair really are their two
+// most recent and an older thread from further up this file cannot win.
+setLastAt(older.threadId, soonAfter(10));
+setLastAt(newer.threadId, soonAfter(20));
+
+const strayThree = soonAfter(180), strayFour = soonAfter(240);
+tabs[T].rows.push(['T-STRAY-3', '20000002', 'YES', strayThree,
+                   '', strayThree, 'TEAM', 'OPEN', 0, 1, '']);
+tabs[M].rows.push(['M-STRAY-3', 'T-STRAY-3', strayThree,
+                   'TEAM', '20000099', 'About that older one.', 'Shahriar Kabir']);
+tabs[T].rows.push(['T-STRAY-4', '20000002', 'YES', strayFour,
+                   '', strayFour, 'TEAM', 'OPEN', 0, 1, '']);
+tabs[M].rows.push(['M-STRAY-4', 'T-STRAY-4', strayFour,
+                   'TEAM', '20000099', 'About the new one.', 'Shahriar Kabir']);
+
+// One named explicitly, one left to the inference, so the two are told apart.
+repair(true, { 'T-STRAY-3': older.threadId });
+check('left to itself it picks the query that was most recently active',
+  threadLines(newer.threadId).some((m) => /About the new one/.test(m.text)),
+  'the one the admin had open when they typed the reply');
+check('an override puts a reply in the query you name instead',
+  threadLines(older.threadId).some((m) => /About that older one/.test(m.text)) &&
+  !threadLines(newer.threadId).some((m) => /About that older one/.test(m.text)),
+  'for when the team answered an older query while a newer one was waiting');
+
+// TWO shells cleared in ONE run, which is the only way to tell that they are
+// deleted bottom-up. Deleting the upper one first moves everything below it
+// up a row, so the second delete lands on a row that is no longer the one it
+// was aimed at - and with the strays at the end of the sheet it quietly does
+// nothing at all, leaving a shell behind.
+check('and both shells are gone, not just the first',
+  !tabs[T].rows.some((r) => r[0] === 'T-STRAY-3' || r[0] === 'T-STRAY-4'),
+  tabs[T].rows.filter((r) => /^T-STRAY/.test(String(r[0])))
+    .map((r) => r[0]).join(' ') || 'none left');
+
+// ---------------------------------------------------------------------------
+// the migration had the same hole in it
+// ---------------------------------------------------------------------------
+// It wrote the question with appendToThread and then the answer with another
+// call that named no thread, so every old question and the answer it had
+// already been given arrived as two unrelated queries.
+const migrate = vm.runInContext('migrateQuestionsToThreads', sb);
+vm.runInContext(
+  'function readQuestions() {\n' +
+  '  return [{ id: "Q1", from: "20467174", topic: "ITSM",\n' +
+  '            question: "How do I reopen a closed ticket?",\n' +
+  '            askedAt: "2026-09-01T09:00:00Z",\n' +
+  '            answer: "Ask the desk to reopen it.",\n' +
+  '            answeredBy: "20000099",\n' +
+  '            answeredAt: "2026-09-01T10:00:00Z" }];\n' +
+  '}', sb);
+
+const beforeMigration = tabs[T].rows.length;
+const addedLines = migrate();
+check('a migrated question and its answer are two lines',
+  addedLines === 2, addedLines + ' messages written');
+check('in ONE conversation, not one each',
+  tabs[T].rows.length === beforeMigration + 1,
+  beforeMigration + ' -> ' + tabs[T].rows.length + ' queries');
+
+const migrated = tabs[T].rows[tabs[T].rows.length - 1];
+check('with the question first and the answer under it',
+  threadLines(migrated[0]).length === 2 &&
+  threadLines(migrated[0])[0].side === 'USER' &&
+  threadLines(migrated[0])[1].side === 'TEAM',
+  threadLines(migrated[0]).map((m) => m.side).join(' -> '));
+check('and the subject kept on the conversation it belongs to',
+  String(migrated[4]) === 'ITSM', 'Topic = ' + migrated[4]);
+
+const afterFirstRun = tabs[T].rows.length;
+check('running the migration twice adds nothing the second time',
+  migrate() === 0 && tabs[T].rows.length === afterFirstRun,
+  'the message IDs are derived from the question, so a second run sees them');
 
 const failed = out.filter((r) => !r).length;
 console.log('\n' + (out.length - failed) + '/' + out.length + ' passed');
