@@ -32,6 +32,7 @@ const COL = (function () {
   CONFIG.TICKET_COLUMNS.forEach(function (name, i) { index[name] = i; });
   return {
     TICKET_ID:   index['Ticket ID'],
+    AFFILIATE:   index['Affiliate'],
     SERVICE:     index['Service'],
     PART:        index['Part'],
     REQUEST_DATE:index['Request Date'],

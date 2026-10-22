@@ -110,8 +110,20 @@ check('Reset clears it with the others',
 // k.people and are narrowed by the section already beside each name, so a
 // figure never changes meaning depending on which filter happens to be on.
 check('choosing a section narrows the people, and leaves their figures alone',
-  /chosenSection[\s\S]{0,200}k\.people\.filter[\s\S]{0,140}p\.department === chosenSection/.test(APP),
+  /chosenSection[\s\S]{0,260}base\.filter[\s\S]{0,160}p\.department === chosenSection/.test(APP),
   'the Section column, nothing derived');
+
+// And the other one does the opposite, on purpose. An affiliate is a fact
+// about a TICKET - nobody belongs to KSL - so it cannot narrow a list of
+// people; it can only re-add up their figures from that affiliate's tickets,
+// which is a server call because the monthly cache has no affiliate in it.
+check('choosing an affiliate re-adds the figures up from the tickets instead',
+  /callServer\('getPeopleByAffiliate'/.test(APP) &&
+  /state\.affiliate\)\s*\n?\s*\?\s*state\.affiliate\.people\s*:\s*k\.people/.test(APP),
+  'the two filters mean different things and are built differently');
+check('and the server scores it with the same function as everything else',
+  /function readPeopleByAffiliate[\s\S]{0,2000}scoreRows\(byPerson\[name\], kpi\)/.test(KPI),
+  'a filtered row cannot drift away from the unfiltered one it came out of');
 check('and no module membership is derived for anybody any more',
   !/assignPersonModules/.test(KPI) && !/peopleByModule/.test(KPI),
   'a person who works across two modules has no one true module');
@@ -134,6 +146,30 @@ check('and the stylesheet draws it',
 check('a dropdown that cannot be used yet is still drawn as disabled',
   /\.table-filter \.select:disabled/.test(STYLES),
   'the section filter needs no rebuild, so nothing uses this state now');
+
+// ---------------------------------------------------------------------------
+// nothing is defined twice
+// ---------------------------------------------------------------------------
+// getKpi1 and readKpi1 each existed TWICE in Kpi.gs - 195 duplicated lines,
+// byte for byte identical, from a bad paste. Nothing misbehaved, because the
+// later declaration wins and both said the same thing. That is exactly what
+// makes it worth catching: the day somebody fixes one copy, the fix is in the
+// half that does not run, and the bug they were chasing is still there.
+const DOUBLE = [];
+fs.readdirSync(SRC).filter((f) => /\.gs$/.test(f)).forEach(function (file) {
+  const seen = {};
+  const text = fs.readFileSync(path.join(SRC, file), 'utf8');
+  (text.match(/^function\s+[A-Za-z_$][\w$]*/gm) || []).forEach(function (hit) {
+    const name = hit.replace(/^function\s+/, '');
+    seen[name] = (seen[name] || 0) + 1;
+  });
+  Object.keys(seen).forEach(function (name) {
+    if (seen[name] > 1) DOUBLE.push(file + ': ' + name + ' x' + seen[name]);
+  });
+});
+check('no function is declared twice in the same file',
+  DOUBLE.length === 0, DOUBLE.join('; ') || 'every declaration is the only one');
+
 
 // ---------------------------------------------------------------------------
 // every function the page calls actually exists

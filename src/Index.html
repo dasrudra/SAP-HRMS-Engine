@@ -542,6 +542,16 @@
             <select id="fAllSection" class="select" title="Section">
               <option value="">All sections</option>
             </select>
+            <!--
+              AFFILIATE IS A FACT ABOUT A TICKET, NOT ABOUT A PERSON. Nobody
+              belongs to KSL; tickets do. So unlike the section filter beside
+              it, choosing one RECOMPUTES every figure in the table from that
+              affiliate's tickets alone - there is no other thing it could
+              honestly mean. The note under the table says so while it is on.
+            -->
+            <select id="fAllAffiliate" class="select" title="Affiliate">
+              <option value="">All affiliates</option>
+            </select>
             <input id="fAllName" class="select" type="search" placeholder="Search name&#x2026;">
             <button class="btn btn-ghost" id="fAllReset">&#x2715; Reset</button>
             <span class="filter-count" id="cAll"></span>

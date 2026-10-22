@@ -434,198 +434,133 @@ function quarterLabel(key) {
   if (!parts) return String(key || '');
   return 'Quarter ' + parts[2] + ' (' + parts[1] + ')';
 }
-
-
 /**
- * Everything the KPI 1 screen needs. The ENDPOINT - a browser calls this.
+ * Each person's KPI 1 figures for ONE affiliate, and the affiliates on offer.
  *
- * The figures are in readKpi1() below; this is the guard in front of them.
- * They are two functions because a maintenance function run from the editor
- * has no token to pass and must not pretend to have one: getKpi1(null, month)
- * does not skip the check, it fails it, with "Your session has ended" in the
- * execution log of something nobody was signed in to.
+ * WHY THIS IS COMPUTED LIVE RATHER THAN READ FROM THE CACHE
+ * KPI_MONTHLY holds one row per month per person - the affiliate is not a
+ * dimension of it, and adding one would multiply the cache by the number of
+ * affiliates and need a full rebuild before the filter did anything. The
+ * tickets are already stored with their Affiliate column, so this reads them.
  *
- * @param {string} token  the caller's session - see Auth.gs
- * @param {string} month  'YYYY-MM', or ALL_MONTHS for the whole period
- * @return {Object}
+ * WHY AN AFFILIATE FILTER RECOMPUTES AND THE SECTION FILTER DOES NOT
+ * A section is a fact about a PERSON - one desk, one team - so choosing one
+ * narrows who is listed and leaves every figure beside them alone. An
+ * affiliate is a fact about a TICKET. Nobody belongs to KSL; tickets do. So
+ * choosing KSL cannot mean "show me the people in KSL" - it can only mean
+ * "show me everybody's figures for KSL work", which is a different sum and
+ * has to be done from the tickets.
+ *
+ * Scored by scoreRows(), the same function the whole-period figures use, so a
+ * filtered row cannot drift away from the unfiltered one it came out of.
+ *
+ * @param {string} token      the caller's session
+ * @param {string} month      'YYYY-MM', or ALL_MONTHS
+ * @param {string} affiliate  '' for every affiliate together
  */
-function getKpi1(token, month) {
+/**
+ * Just the affiliate names, for the dropdown.
+ *
+ * Two columns rather than twenty-nine. getPeopleByAffiliate() reads every
+ * column of every ticket because it has to score them; filling a dropdown
+ * does not, and this runs on every KPI 1 load whether anybody opens the
+ * filter or not.
+ */
+function listAffiliates(token, month) {
   requireSignedIn(token);
-  return readKpi1(month);
+  return readAffiliateList(month);
 }
 
 
-/**
- * The same figures, with no session check. NOT AN ENDPOINT in spirit - every
- * global in an Apps Script project is reachable, so the rule is that anything
- * calling this must have checked who is asking first. getKpi1() checks a
- * token; the editor-only functions check requireOwner().
- *
- * WHY AN ALL-MONTHS FIGURE IS NOT AN AVERAGE
- * Percentages cannot be averaged across periods of different size. January
- * with 4 completed tickets and one delay scores 75%; August with 2,640 and 11
- * scores 99.58%. Their mean is 87.29%, which describes nothing that happened.
- * The true all-time rate is (sum successful / sum completed) x 100.
- *
- * So this sums the RAW COUNTS the cache stores beside each rate, then
- * recomputes rate, achievement, band and headroom from those sums. The answer
- * is identical to scoring every ticket in one pass, without re-reading the
- * TICKETS tab.
- *
- * @param {string} month  'YYYY-MM', or ALL_MONTHS for the whole period
- * @return {Object}
- */
-function readKpi1(month) {
-  const kpi = CONFIG.KPI.RESOLUTION;
-  const everyMonth = (month === ALL_MONTHS);
+/** The same, with no session check. See the note on readKpi1(). */
+function readAffiliateList(month) {
+  const tickets = sheetFor(CONFIG.SHEETS.TICKETS);
+  const lastRow = tickets.getLastRow();
+  if (lastRow < 2) return [];
 
-  // null means "take every month"; otherwise a lookup of the ones wanted.
-  // One month, a quarter's three, or all of them go down the same path - the
-  // summing below does not care how many months it was handed.
-  const wanted = monthsInScope(month);
+  const wantMonth = String(month || '').trim();
+  const height = lastRow - 1;
+  const affiliates = tickets.getRange(2, COL.AFFILIATE + 1, height, 1).getValues();
+  const dates = tickets.getRange(2, COL.REQUEST_DATE + 1, height, 1).getValues();
 
-  const result = {
-    month: month,
-    allMonths: everyMonth,
-    monthsCovered: 0,
-    hasData: false,
-    basis: null,
-    total: null,
-    departments: [],
-    parts: [],
-    modules: [],
-    people: [],
-    sources: [],
-    target: kpi.target,
-    yellowFloor: kpi.yellowFloor
-  };
+  const seen = {};
+  for (let i = 0; i < height; i++) {
+    const rowMonth = monthKey(dates[i][0]);
+    if (!rowMonth) continue;
+    if (wantMonth && wantMonth !== ALL_MONTHS && rowMonth !== wantMonth) continue;
 
-  const cache = sheetFor(CONFIG.SHEETS.KPI_MONTH);
-  const lastRow = cache.getLastRow();
-  if (lastRow < 2) return result;
-
-  const rows = cache.getRange(2, 1, lastRow - 1, CONFIG.KPI_COLUMNS.length).getValues();
-
-  const buckets = {};        // key -> summed counts
-  const order = [];          // keys in first-seen order, so output is stable
-  const monthsSeen = {};
-  const basis = { scored: 0, total: 0, allDepartment: true, seen: false };
-
-  rows.forEach(function (r) {
-    // monthKey() rather than String(). Sheets may have stored '2026-08' as a
-    // Date, in which case String() gives 'Sat Aug 01 2026 00:00:00 GMT+0600...'
-    // and nothing ever matches. monthKey normalises Date and text alike.
-    const rowMonth = monthKey(r[0]);
-    if (!rowMonth) return;
-    if (wanted && !wanted[rowMonth]) return;
-
-    monthsSeen[rowMonth] = true;
-
-    const scopeType = String(r[1]);
-    const name = String(r[2]);
-
-    if (scopeType === 'BASIS') {
-      basis.seen = true;
-      basis.scored += Number(r[3]) || 0;
-      basis.total  += Number(r[4]) || 0;
-      // Mixed is treated as OVERALL. That direction is the safe one: it warns
-      // that some month in the range counted people outside EAS.
-      if (name !== 'DEPARTMENT') basis.allDepartment = false;
-      return;
-    }
-
-    // EAS is bucketed on scope alone. Its label changes with the basis
-    // ('EAS (department exports)' vs 'All tickets (overall report)'), so
-    // keying on the name would split one total into two across a mixed range.
-    //
-    // PERSON is bucketed on the person, NOT on 'Section :: Person'. Someone
-    // who was in Functional until July and Manufacturing from August carries
-    // two different labels across the range, and keying on the whole string
-    // would list them twice - half their year in each row. The individual is
-    // the unit of that table, so one person is one row.
-    let key;
-    let label = name;
-    if (scopeType === 'EAS') {
-      key = 'EAS';
-    } else if (scopeType === 'PERSON') {
-      const split = name.split(' :: ');
-      label = split.length > 1 ? split[1] : split[0];
-      key = 'PERSON\u0000' + label;
-    } else {
-      key = scopeType + '\u0000' + name;
-    }
-
-    if (!buckets[key]) {
-      buckets[key] = {
-        scope: scopeType, name: label,
-        section: '',
-        received: 0, completed: 0, delayed: 0, successful: 0
-      };
-      order.push(key);
-    }
-
-    const b = buckets[key];
-
-    if (scopeType === 'PERSON') {
-      // Cache rows are written month-ascending, so the last one wins: a person
-      // is shown under the section they are in NOW, with their whole-period
-      // totals beside it.
-      const split = name.split(' :: ');
-      if (split.length > 1) b.section = split[0];
-    }
-
-
-    b.received   += Number(r[3]) || 0;
-    b.completed  += Number(r[4]) || 0;
-    b.delayed    += Number(r[5]) || 0;
-    b.successful += Number(r[6]) || 0;
-  });
-
-  result.monthsCovered = Object.keys(monthsSeen).length;
-
-  if (basis.seen) {
-    result.basis = {
-      source: basis.allDepartment ? 'DEPARTMENT' : 'OVERALL',
-      scored: basis.scored,
-      total: basis.total
-    };
+    const name = String(affiliates[i][0] || '').trim() || '(none given)';
+    seen[name] = (seen[name] || 0) + 1;
   }
 
-  order.forEach(function (key) {
-    const b = buckets[key];
+  return Object.keys(seen)
+    .sort(function (a, b) { return seen[b] - seen[a]; })
+    .map(function (name) { return { name: name, tickets: seen[name] }; });
+}
 
-    if (b.scope === 'SOURCE') {
-      // Not a KPI - countRow() puts its figure in the received column.
-      result.sources.push({ name: b.name, count: b.received });
-      return;
-    }
 
-    const entry = finaliseEntry(b, kpi);
+function getPeopleByAffiliate(token, month, affiliate) {
+  requireSignedIn(token);
+  return readPeopleByAffiliate(month, affiliate);
+}
 
-    if (b.scope === 'EAS') {
-      result.total = entry;
-      result.hasData = true;
-    } else if (b.scope === 'DEPARTMENT') {
-      result.departments.push(entry);
-    } else if (b.scope === 'PART') {
-      result.parts.push(entry);
-    } else if (b.scope === 'MODULE') {
-      result.modules.push(entry);
-    } else if (b.scope === 'PERSON') {
-      entry.department = b.section;
-      result.people.push(entry);
-    }
+
+/** The same, with no session check. See the note on readKpi1(). */
+function readPeopleByAffiliate(month, affiliate) {
+  const kpi = CONFIG.KPI.RESOLUTION;
+  const want = String(affiliate || '').trim();
+  const wantMonth = String(month || '').trim();
+
+  const out = { affiliate: want, affiliates: [], people: [], hasData: false };
+
+  const tickets = sheetFor(CONFIG.SHEETS.TICKETS);
+  const lastRow = tickets.getLastRow();
+  if (lastRow < 2) return out;
+
+  const rows = tickets.getRange(2, 1, lastRow - 1, COL.WIDTH).getValues();
+
+  const seenAffiliates = {};
+  const byPerson = {};
+  const sections = {};
+
+  rows.forEach(function (row) {
+    if (!String(row[COL.TICKET_ID] || '').trim()) return;
+
+    const rowMonth = monthKey(row[COL.REQUEST_DATE]);
+    if (!rowMonth) return;
+    if (wantMonth && wantMonth !== ALL_MONTHS && rowMonth !== wantMonth) return;
+
+    // Blank is a real answer here - some rows carry no affiliate at all, and
+    // hiding them would make the filtered totals disagree with the unfiltered
+    // ones for no reason anybody could see.
+    const affil = String(row[COL.AFFILIATE] || '').trim() || '(none given)';
+    seenAffiliates[affil] = (seenAffiliates[affil] || 0) + 1;
+
+    if (want && affil !== want) return;
+
+    const who = String(row[COL.IN_CHARGE] || '').trim();
+    if (!who) return;
+
+    (byPerson[who] || (byPerson[who] = [])).push(row);
+    // The last month seen wins, so somebody who moved mid-year is shown under
+    // the section they are in now - the same rule the main table follows.
+    const section = sectionFor(who, rowMonth, row[COL.DEPARTMENT]);
+    if (section) sections[who] = section;
   });
 
-  // Busiest first. For a single month this reproduces the cache's own order;
-  // across months it is the only order that makes sense, since a name's rank
-  // in January says nothing about its rank overall.
-  result.departments.sort(byReceived);
-  result.parts.sort(byReceived);
-  result.people.sort(byReceived);
-  result.modules.sort(byReceived);
+  out.affiliates = Object.keys(seenAffiliates)
+    .sort(function (a, b) { return seenAffiliates[b] - seenAffiliates[a]; })
+    .map(function (name) { return { name: name, tickets: seenAffiliates[name] }; });
 
-  return result;
+  out.people = Object.keys(byPerson).map(function (name) {
+    const entry = scoreRows(byPerson[name], kpi);
+    entry.name = name;
+    entry.department = sections[name] || '';
+    return entry;
+  }).sort(function (a, b) { return b.received - a.received; });
+
+  out.hasData = out.people.length > 0;
+  return out;
 }
 
 

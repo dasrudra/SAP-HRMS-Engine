@@ -152,6 +152,82 @@ const FILE = 'file://' + PAGE;
 
   await p.close();
 
+  // -------------------------------------------------------------------------
+  // the affiliate filter
+  // -------------------------------------------------------------------------
+  // It is the OPPOSITE of the section filter beside it, and the pair is the
+  // easiest thing on this screen to get wrong. A section is a fact about a
+  // person, so it narrows who is listed and the figures do not move. An
+  // affiliate is a fact about a ticket - nobody belongs to KSL - so it cannot
+  // narrow a list of people, only re-add up their figures from that
+  // affiliate's tickets.
+  //
+  // WHAT THIS HALF CAN AND CANNOT SHOW
+  // A browser cannot run a .gs file, so the numbers below come from the
+  // harness fixture, not from Kpi.gs. These assertions prove the dropdown is
+  // filled, the note appears and the two filters stack - the PAGE's half.
+  // They cannot catch a wrong figure: breaking readPeopleByAffiliate() on
+  // purpose left this suite green from end to end. The arithmetic is held by
+  // tests/affiliate-test.js, which runs the real readers.
+  let q = await open('?view=kpi1');
+
+  const options = await q.$$eval('#fAllAffiliate option',
+                                 (ns) => ns.map((n) => n.textContent.trim()));
+  check('the affiliate dropdown is filled from the tickets',
+    options.length === 4 && options[0] === 'All affiliates' &&
+    options.indexOf('KSL') !== -1,
+    options.join(', '));
+  check('including the ones with no affiliate on them',
+    options.indexOf('(none given)') !== -1,
+    'hiding them would make the filtered totals disagree with the whole');
+
+  const whole = await q.$$eval('#kpi1AllPeople tbody tr', (trs) => trs.map((tr) => ({
+    name: tr.cells[0].textContent.trim(), received: tr.cells[2].textContent.trim()
+  })));
+
+  await q.selectOption('#fAllAffiliate', 'KSL');
+  await q.waitForTimeout(900);
+
+  const ksl = await q.$$eval('#kpi1AllPeople tbody tr', (trs) => trs.map((tr) => ({
+    name: tr.cells[0].textContent.trim(), received: tr.cells[2].textContent.trim()
+  })));
+
+  check('choosing one changes the figures, which is the point of it',
+    ksl.length > 0 && ksl[0].received !== whole[0].received,
+    whole[0].name + ': ' + whole[0].received + ' overall, ' +
+    ksl[0].received + ' for KSL');
+  check('and every row is smaller than its whole-caseload self',
+    ksl.every(function (row) {
+      const all = whole.filter((w) => w.name === row.name)[0];
+      return !all || Number(row.received.replace(/,/g, '')) <=
+                     Number(all.received.replace(/,/g, ''));
+    }),
+    'one affiliate cannot be more work than all of them');
+
+  const note = await q.$eval('#kpi1AllPeopleNote', (el) => ({
+    shown: !el.hidden, text: el.textContent
+  }));
+  check('and the table says so in its own words',
+    note.shown && /KSL tickets only/.test(note.text) &&
+    /not the whole caseload/.test(note.text),
+    'a row of 2,664 on one screen and 812 on another needs explaining');
+
+  // The two filters stack, and the note has to account for both.
+  await q.selectOption('#fAllSection', 'Sales Applications');
+  await q.waitForTimeout(600);
+  const both = await q.$eval('#kpi1AllPeopleNote', (el) => el.textContent);
+  check('the two filters stack, and the note names both',
+    /KSL tickets only/.test(both) && /Sales Applications/.test(both),
+    both.slice(0, 80));
+
+  await q.selectOption('#fAllAffiliate', '');
+  await q.waitForTimeout(700);
+  const back = await q.$eval('#kpi1AllPeopleNote', (el) => el.textContent);
+  check('and dropping the affiliate goes back to the whole caseload',
+    /whole caseload/.test(back) && /reads the same here/.test(back),
+    back.slice(0, 70));
+  await q.close();
+
   check('no JS errors across the whole run', errors.length === 0, errors.slice(0, 3).join(' | '));
 
   await b.close();

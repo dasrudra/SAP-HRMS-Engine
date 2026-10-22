@@ -399,6 +399,32 @@ const stub = `
       return waitingCount();
     },
 
+    // Affiliates. FIXTURE's people carry a ticket count; here they are split
+    // across two affiliates so a filtered figure is visibly a DIFFERENT number
+    // from the unfiltered one - which is the whole point of this filter and
+    // the thing most worth being able to see go wrong.
+    listAffiliates: function () {
+      return [{ name: 'KSL', tickets: 9 }, { name: 'TVL', tickets: 6 },
+              { name: '(none given)', tickets: 2 }];
+    },
+    getPeopleByAffiliate: function (token, month, affiliate) {
+      var share = affiliate === 'KSL' ? 0.6 : affiliate === 'TVL' ? 0.3 : 0.1;
+      var people = FIXTURE.people.map(function (p) {
+        var received = Math.max(1, Math.round(p.received * share));
+        var delayed = Math.min(received, Math.round((p.delayed || 0) * share));
+        var completed = received;
+        var successful = completed - delayed;
+        var rate = completed ? (successful / completed) * 100 : 0;
+        return { name: p.name, department: p.department,
+                 received: received, completed: completed, open: 0,
+                 delayed: delayed, successful: successful, rate: rate,
+                 achievement: 0, band: rate >= 90 ? 'GREEN' : 'RED', headroom: 0 };
+      });
+      return { affiliate: affiliate, hasData: people.length > 0, people: people,
+               affiliates: [{ name: 'KSL', tickets: 9 }, { name: 'TVL', tickets: 6 },
+                            { name: '(none given)', tickets: 2 }] };
+    },
+
     getKpi2: function () { return { hasData: false }; },
     getUploads: function () { return []; },
     getOrgChart: function () { return { sections: [] }; },
