@@ -929,6 +929,11 @@
     // months the comparison may offer depends on which KPI is selected.
     fillSettings(boot);
     renderKpiHeads(boot);
+    // Before restoreState: the toggle has to exist and be wired before a
+    // saved choice is put back into it, or a reload would land on the
+    // company standard with the URL still saying EAS.
+    fillStandardToggle(boot);
+    wireStandardToggle();
     fillComparePeriods(comparePeriodList());
 
     restoreState(function () {
@@ -1230,7 +1235,7 @@
    */
   const TRACKED_CONTROLS = [
     'fSection', 'fModuleK1', 'fModuleK1Name', 'fAllScope', 'fAllPerson',
-    'fAllSection', 'fAllAffiliate', 'fAllName',
+    'fAllSection', 'fAllAffiliate', 'fAllName', 'fKpi1Standard',
     'kpi2Month', 'fModule', 'fZone',
     'cmpKpi', 'cmpM1', 'cmpM2', 'cmpM3', 'cmpM4'
   ];
@@ -2110,6 +2115,7 @@
     fillComparePeriods(comparePeriodList());
     fillSettings(boot);
     renderKpiHeads(boot);
+    fillStandardToggle(boot);
     loadUploads();
 
     if (state.view === 'kpi1') loadKpi1();
@@ -3053,15 +3059,133 @@
     el.className = 'track-pill is-' + mark.cls;
     el.textContent = mark.text;
     // The pill is a judgement, so it says on hover what it judged.
-    el.title = fmt(total.rate) + '% against a ' +
-      (kpi ? kpi.target : '') + '% target' +
-      (kpi ? ' \u00b7 achievement ' + fmt(total.achievement) + '%' : '');
+    // The target FROM THE READING, not from the bootstrap. KPI 1 is scored
+    // against whichever standard the toggle is on, and a pill that explained
+    // itself with the other one's target would be the one thing on the page
+    // disagreeing with the figure beside it.
+    const against = (result && result.target !== undefined && result.target !== null)
+      ? result.target : (kpi ? kpi.target : '');
+    el.title = fmt(total.rate) + '% against a ' + against + '% target' +
+      (result && result.standardLabel ? ' (' + result.standardLabel + ')' : '') +
+      ' \u00b7 achievement ' + fmt(total.achievement) + '%';
+  }
+
+
+  // =========================================================================
+  // KPI 1'S TWO STANDARDS
+  // =========================================================================
+  //
+  // The same tickets, the same two formulas, two targets. The policy's 90% is
+  // what TVL headquarters and the directors are shown; the EAS team holds
+  // itself to 99.50% internally. Nothing about the data differs - no second
+  // upload, no second table, no second cache. The target moves, and with it
+  // the achievement, the band and the headroom.
+  //
+  // THE SCORING STAYS ON THE SERVER. The browser has every raw count and
+  // could re-band the rows itself, which would save a round trip and put a
+  // second copy of the scoring rules in a second language. One of the two
+  // would then be corrected one day and the other not. Switching costs one
+  // call, the same as changing the month.
+
+  /** Which standard the page is reading, from the control the URL tracks. */
+  function currentStandard() {
+    return getValue('fKpi1Standard') || 'COMPANY';
+  }
+
+
+  /**
+   * Puts the two options on the toggle, worded from CONFIG.
+   *
+   * Labels AND targets come from the server's own definitions, so the figure
+   * printed on a button cannot disagree with the figure the server scored
+   * against - which is the only way anybody would ever catch it disagreeing.
+   */
+  function fillStandardToggle(boot) {
+    const wrap = document.getElementById('kpi1StandardWrap');
+    const list = (boot && boot.kpi1Standards) || [];
+    if (!wrap || list.length < 2) return;
+
+    wrap.hidden = false;
+    wrap.querySelectorAll('.standard-opt').forEach(function (button) {
+      const want = button.getAttribute('data-standard');
+      const kpi = list.filter(function (k) { return k.standard === want; })[0];
+      if (!kpi) return;
+      button.innerHTML =
+        '<span class="standard-name">' + escapeHtml(kpi.standardLabel) + '</span>' +
+        '<span class="standard-target">' + escapeHtml(String(kpi.target)) +
+        '%</span>';
+      button.title = kpi.standardNote || '';
+    });
+
+    paintStandardToggle();
+  }
+
+
+  /** Which of the two looks chosen, and what the line under it says. */
+  function paintStandardToggle() {
+    const now = currentStandard();
+
+    document.querySelectorAll('.standard-opt').forEach(function (button) {
+      const on = button.getAttribute('data-standard') === now;
+      button.classList.toggle('is-on', on);
+      button.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+
+    // The sentence under the toggle names the document the figures are being
+    // scored against. Taken from the READING rather than from the control,
+    // so while a switch is still in flight it describes the numbers actually
+    // on screen rather than the ones that are coming.
+    const note = document.getElementById('kpi1StandardNote');
+    if (note) {
+      const said = state.kpi && state.kpi.standardNote;
+      note.hidden = !said;
+      note.textContent = said || '';
+    }
+
+    // The hover on the layer pill, and the data-basis attribute the
+    // downloaded report reads off it. Both were written once at bootstrap,
+    // which was fine while an indicator had one definition - this one now has
+    // two, and the sentence has to follow the toggle or a report of
+    // EAS-scored figures goes out saying it was defined by the policy.
+    const pill = document.getElementById('kpi1Layer');
+    const list = (state.boot && state.boot.kpiList) || [];
+    const kpi1 = list.filter(function (k) { return k.id === 'KPI1'; })[0];
+    if (pill && kpi1) {
+      const basis = policyBasis(kpi1);
+      pill.title = basis;
+      pill.setAttribute('data-basis', basis);
+    }
+  }
+
+
+  function wireStandardToggle() {
+    document.querySelectorAll('.standard-opt').forEach(function (button) {
+      button.addEventListener('click', function () {
+        const want = button.getAttribute('data-standard');
+        if (!want || want === currentStandard()) return;
+
+        setValue('fKpi1Standard', want);
+        paintStandardToggle();
+        saveState();
+
+        // Everything on this page is scored against the target, so everything
+        // is re-read. The affiliate slice too: left alone it would keep the
+        // bands it was given under the other standard, sitting in the same
+        // table as rows that had just been re-scored.
+        loadKpi1();
+        if (getValue('fAllAffiliate')) loadAffiliate();
+        // And the Comparison screen reads the same stored counts, so it
+        // follows rather than contradicting the page that set this.
+        if (state.view === 'compare' && state.compareRan) loadTrend();
+      });
+    });
   }
 
 
   function loadKpi1() {
     if (!state.boot || !state.boot.configured || !state.month) return;
-    callServer('getKpi1', state.month).then(renderKpi1).catch(onError);
+    callServer('getKpi1', state.month, currentStandard())
+      .then(renderKpi1).catch(onError);
   }
 
 
@@ -3099,6 +3223,9 @@
 
   function renderKpi1(k) {
     state.kpi = k;
+    // The toggle's own line quotes the standard the FIGURES were scored
+    // against, which is only known once they arrive.
+    paintStandardToggle();
     // The pill beside the heading says whether this indicator is passing, and
     // the Settings table quotes the same rate. Both before the early return,
     // so an empty period clears them instead of leaving the last one's state.
@@ -4248,7 +4375,7 @@
       ? getValue('fAllScope') : state.month;
 
     setText('cAll', 'Working\u2026');
-    callServer('getPeopleByAffiliate', month, want)
+    callServer('getPeopleByAffiliate', month, want, currentStandard())
       .then(function (data) {
         state.affiliate = data || null;
         fillAffiliateFilter(data);
@@ -4785,7 +4912,7 @@
     if (state.trend && state.trend.kpi === id) { drawTrendChart(state.trend); return; }
 
     // Oldest first: a trend reads left to right.
-    callServer(comparisonEndpoint(id), periods.slice().sort())
+    callServer(comparisonEndpoint(id), periods.slice().sort(), currentStandard())
       .then(function (c) { state.trend = c; drawTrendChart(c); })
       .catch(onError);
   }
@@ -5412,6 +5539,18 @@
     if (!kpi) return '';
     if (kpi.policy === false) return internalNote();
 
+    // An indicator scored against a standard of its own says so instead.
+    // This sentence is written onto the page as data-basis and travels into
+    // the downloaded report, and a spreadsheet of EAS-scored figures headed
+    // "Defined by TVL-KPI-001" would be read as the reported numbers by
+    // whoever opens it three weeks later. That is the whole reason this
+    // function exists.
+    const mine = activeDefinition(kpi);
+    if (mine && mine.standard === 'EAS' && mine.standardNote) {
+      return 'Scored against the ' + mine.standardLabel + ': ' +
+             mine.standardNote + ' Not the figure reported to TVL.';
+    }
+
     const p = (state.boot && state.boot.kpiPolicy) || {};
     const doc = [p.id, p.version ? 'v' + p.version : ''].filter(Boolean).join(' ');
     return 'Defined by ' + (doc || 'the approved KPI policy') +
@@ -5420,7 +5559,27 @@
   }
 
 
+  /**
+   * The definition in force for this indicator right now.
+   *
+   * Only KPI 1 has more than one. Its target, its band edges and the document
+   * behind its Definition button all move with the toggle on its own page,
+   * and the reading beside them on this table has ALREADY moved - it comes
+   * from state.kpi, which the server scored against whichever standard is on.
+   * Taking the target from the policy while the figure came from the team's
+   * own standard would leave this one row quietly disagreeing with itself:
+   * 97.50% shown in red against a target of 90%.
+   */
+  function activeDefinition(kpi) {
+    if (!kpi || kpi.id !== 'KPI1') return kpi;
+    const want = currentStandard();
+    const list = (state.boot && state.boot.kpi1Standards) || [];
+    return list.filter(function (k) { return k.standard === want; })[0] || kpi;
+  }
+
+
   function kpiRowBody(kpi) {
+    kpi = activeDefinition(kpi);
     const actual = currentValueFor(kpi);
     const band = actual === null ? '' : bandOf(actual, kpi);
 
@@ -5582,8 +5741,12 @@
     const ok = (u) => /^https?:\/\//i.test(String(u || '').trim());
     const name = p.id ? p.id + ' v' + (p.version || '') : 'the approved KPI policy';
 
-    if (ok(links[kpi.id])) {
-      return { url: String(links[kpi.id]).trim(), label: 'PDF',
+    // linkKey, not id: KPI 1's two standards are transcribed from two
+    // different documents, so they cannot share one row of KPI_CONFIG.
+    // Everything else has no linkKey and falls back to its id, unchanged.
+    const key = kpi.linkKey || kpi.id;
+    if (ok(links[key])) {
+      return { url: String(links[key]).trim(), label: 'PDF',
                what: 'Open the definition document for ' + kpi.name };
     }
     if (ok(kpi.policyUrl)) {
@@ -6457,7 +6620,7 @@
     // Route by the KPI actually chosen. This used to call KPI 1's endpoint
     // unconditionally, so selecting Training Satisfaction re-rendered ticket
     // figures under a training heading.
-    callServer(comparisonEndpoint(kpi && kpi.id), picked)
+    callServer(comparisonEndpoint(kpi && kpi.id), picked, currentStandard())
       .then(renderComparison).catch(onError);
   }
 
@@ -7697,7 +7860,7 @@
       return;
     }
 
-    callServer('getKpi1', scope).then(function (k) {
+    callServer('getKpi1', scope, currentStandard()).then(function (k) {
       state.scopeKey = scope;
       state.scopePeople = (k && k.hasData) ? k : null;
       applyAllFilter();

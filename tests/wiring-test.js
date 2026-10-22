@@ -122,7 +122,7 @@ check('choosing an affiliate re-adds the figures up from the tickets instead',
   /state\.affiliate\)\s*\n?\s*\?\s*state\.affiliate\.people\s*:\s*k\.people/.test(APP),
   'the two filters mean different things and are built differently');
 check('and the server scores it with the same function as everything else',
-  /function readPeopleByAffiliate[\s\S]{0,2000}scoreRows\(byPerson\[name\], kpi\)/.test(KPI),
+  /function readPeopleByAffiliate[\s\S]{0,3000}scoreRows\(byPerson\[name\], kpi\)/.test(KPI),
   'a filtered row cannot drift away from the unfiltered one it came out of');
 check('and no module membership is derived for anybody any more',
   !/assignPersonModules/.test(KPI) && !/peopleByModule/.test(KPI),
@@ -319,6 +319,42 @@ check('with the name AFTER the two passwords, where the server expects it',
 check('the panel hides its name box only for somebody signed in with one',
   /nameWrap\.hidden = msgrSignedIn && msgrNameOnAccount/.test(APP),
   'on the sign-in page there is no account to take a name from');
+
+
+// ---------------------------------------------------------------------------
+// KPI 1's two standards reach every call that scores against a target
+// ---------------------------------------------------------------------------
+// Three server calls judge KPI 1's counts against a target, and all three
+// read the SAME stored numbers. One of them left on the policy's target while
+// the other two moved would put the same section, in the same month, in two
+// different bands on two screens - which has happened here before and is
+// written up at length in Kpi.gs.
+// EVERY call site, not just one of them. There are two that reach the
+// comparison screen, and an assertion satisfied by either would pass with the
+// other one left scoring against the policy - which is the whole defect.
+[["callServer('getKpi1'", 'the page itself'],
+ ["callServer('getPeopleByAffiliate'", 'the affiliate slice'],
+ ['callServer(comparisonEndpoint(', 'the comparison screen']].forEach(function (pair) {
+  const sites = APP.split(pair[0]).slice(1);
+  const carried = sites.filter(function (after) {
+    return /^[^;]*currentStandard\(\)/.test(after);
+  });
+  check(pair[1] + ' is read against the chosen standard, at every call',
+    sites.length > 0 && carried.length === sites.length,
+    carried.length + ' of ' + sites.length + ' call site(s)');
+});
+
+check('and the choice survives a reload like every other filter',
+  /TRACKED_CONTROLS[\s\S]{0,400}'fKpi1Standard'/.test(APP),
+  'a standard that reset on refresh would be read as the other one');
+
+// Both targets are printed on the toggle, and both come from the server's own
+// definitions - a figure typed into the markup could disagree with the figure
+// the server actually scored against, and nothing would ever catch it.
+check('the toggle takes its wording and its targets from CONFIG',
+  /kpi\.standardLabel/.test(APP) && /String\(kpi\.target\)/.test(APP) &&
+  !/>\s*99\.5\s*%\s*</.test(INDEX),
+  'nothing about the two standards is typed into the page');
 
 
 // ---------------------------------------------------------------------------

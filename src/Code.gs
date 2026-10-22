@@ -162,6 +162,14 @@ function getBootstrap(token) {
       resolution: CONFIG.KPI.RESOLUTION,
       feedback: CONFIG.KPI.FEEDBACK
     },
+
+    // KPI 1'S TWO STANDARDS, in the order the toggle shows them. The same
+    // tickets and the same two formulas scored against two targets: the
+    // policy's 90%, which is what goes to TVL headquarters, and the EAS
+    // team's own 99.50%. The screen reads its labels, targets and band edges
+    // from here rather than repeating them, so a figure printed on the toggle
+    // cannot disagree with the figure the server scored against.
+    kpi1Standards: [CONFIG.KPI.RESOLUTION, CONFIG.KPI.RESOLUTION_EAS],
     // All four in display order. The screens iterate this rather than naming
     // KPIs individually, so adding a fifth is a Config.gs edit only.
     kpiList: CONFIG.KPI_ORDER.map(function (key) { return CONFIG.KPI[key]; }),

@@ -29,6 +29,11 @@ vm.createContext(cfgBox);
 vm.runInContext(read('Config.gs'), cfgBox);
 const CONFIG = vm.runInContext('CONFIG', cfgBox);
 const K1 = CONFIG.KPI.RESOLUTION;
+// Both of KPI 1's standards, read from Config.gs rather than written out
+// here: the point of the toggle is that two targets score the same counts
+// differently, and a fixture carrying its own copy of those targets would
+// still pass if Config.gs changed underneath it.
+const K1_STANDARDS = [CONFIG.KPI.RESOLUTION, CONFIG.KPI.RESOLUTION_EAS];
 
 // ---------------------------------------------------------------------------
 // the fixture
@@ -131,10 +136,44 @@ const stub = `
     hasData: false, people: [], peopleByModule: [], modules: []
   });
 
-  function kpi1() {
+  // KPI 1'S TWO STANDARDS, scored in the browser rather than baked in at
+  // build time. The server re-bands the same stored counts against whichever
+  // target is asked for, so a stub that answered with one set of bands
+  // whatever it was handed would let the toggle be wired to nothing at all
+  // and this suite would never know.
+  var STANDARDS = ${JSON.stringify(K1_STANDARDS)};
+
+  function standardOf(code) {
+    return String(code || '').trim().toUpperCase() === 'EAS'
+      ? STANDARDS[1] : STANDARDS[0];
+  }
+
+  function rescore(row, kpi) {
+    var completed = row.completed === undefined ? row.received : row.completed;
+    var successful = completed - (row.delayed || 0);
+    var rate = completed ? (successful / completed) * 100 : 0;
+    return Object.assign({}, row, {
+      rate: rate,
+      achievement: completed ? (rate / kpi.target) * 100 : 0,
+      band: !completed ? 'NO DATA'
+        : rate >= kpi.target ? 'GREEN'
+        : (rate >= kpi.yellowFloor ? 'YELLOW' : 'RED'),
+      headroom: completed
+        ? successful - Math.ceil((kpi.target / 100) * completed) : 0
+    });
+  }
+
+  function kpi1(standard) {
+    var kpi = standardOf(standard);
     var k = Object.assign({ hasData: true, allMonths: false, monthsCovered: 1,
-                            target: ${K1.target}, yellowFloor: ${K1.yellowFloor},
+                            target: kpi.target, yellowFloor: kpi.yellowFloor,
+                            standard: kpi.standard,
+                            standardLabel: kpi.standardLabel,
+                            standardNote: kpi.standardNote,
                             basis: null }, FIXTURE);
+    k.total = rescore(FIXTURE.total, kpi);
+    k.people = FIXTURE.people.map(function (p) { return rescore(p, kpi); });
+    k.modules = FIXTURE.modules.map(function (m) { return rescore(m, kpi); });
     return k;
   }
 
@@ -277,6 +316,7 @@ const stub = `
         departments: ${JSON.stringify(CONFIG.DEPARTMENTS)},
         kpiList: ${JSON.stringify(CONFIG.KPI_ORDER.map((k) => CONFIG.KPI[k]))},
         kpiPolicy: ${JSON.stringify(CONFIG.POLICY)},
+        kpi1Standards: STANDARDS,
         kpiLinks: {},
         questionsWaiting: waitingCount(),
         availableMonths: ['2026-08'],
@@ -285,7 +325,11 @@ const stub = `
         ticketFrom: '2026-08-01', ticketTo: '2026-08-31'
       };
     },
-    getKpi1: kpi1,
+    // The token comes first, exactly as it does on the server - callServer
+    // injects it into every call. Bound as a bare reference before the
+    // standard existed, which would have made the token the standard and
+    // every reading score as the company's.
+    getKpi1: function (token, month, standard) { return kpi1(standard); },
 
     // The messenger. The threads live in the stub rather than on the page, so
     // sending one and then listing them exercises the round trip rather than a
@@ -473,18 +517,21 @@ const stub = `
       return [{ name: 'KSL', tickets: 9 }, { name: 'TVL', tickets: 6 },
               { name: '(none given)', tickets: 2 }];
     },
-    getPeopleByAffiliate: function (token, month, affiliate) {
+    getPeopleByAffiliate: function (token, month, affiliate, standard) {
+      var kpi = standardOf(standard);
       var share = affiliate === 'KSL' ? 0.6 : affiliate === 'TVL' ? 0.3 : 0.1;
       var people = FIXTURE.people.map(function (p) {
         var received = Math.max(1, Math.round(p.received * share));
         var delayed = Math.min(received, Math.round((p.delayed || 0) * share));
-        var completed = received;
-        var successful = completed - delayed;
-        var rate = completed ? (successful / completed) * 100 : 0;
-        return { name: p.name, department: p.department,
-                 received: received, completed: completed, open: 0,
-                 delayed: delayed, successful: successful, rate: rate,
-                 achievement: 0, band: rate >= 90 ? 'GREEN' : 'RED', headroom: 0 };
+        // Banded through the same rescore() the rest of the page uses, and
+        // against the standard that was asked for. It used to hardcode a
+        // bare rate-over-90 test, which is the company target spelled out by
+        // hand - the one thing that must not be written down twice now that
+        // there are two of them.
+        return rescore({ name: p.name, department: p.department,
+                         received: received, completed: received, open: 0,
+                         delayed: delayed,
+                         successful: received - delayed }, kpi);
       });
       return { affiliate: affiliate, hasData: people.length > 0, people: people,
                affiliates: [{ name: 'KSL', tickets: 9 }, { name: 'TVL', tickets: 6 },
@@ -520,6 +567,14 @@ const stub = `
         api[name] = function () {
           var args = arguments;
           setTimeout(function () {
+            // HOW MANY TIMES EACH ENDPOINT WAS ASKED. Some of what the page
+            // has to do is re-FETCH rather than re-draw - changing KPI 1's
+            // standard has to go back for the affiliate slice as well, or it
+            // keeps the bands it was given under the other target - and a
+            // test reading the table cannot tell a stale answer from a fresh
+            // one that happens to look the same.
+            window.__calls = window.__calls || {};
+            window.__calls[name] = (window.__calls[name] || 0) + 1;
             try { if (onOk) onOk(HANDLERS[name].apply(null, args)); }
             catch (e) { if (onFail) onFail(e); }
           }, 4);

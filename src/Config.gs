@@ -354,7 +354,20 @@ const CONFIG = {
       yellowFloor: 85.00,   // below this is red
       unit: '%',
       period: 'monthly',
-      active: true          // has a working ingest pipeline
+      active: true,         // has a working ingest pipeline
+
+      // WHICH OF THE TWO STANDARDS THIS IS. See RESOLUTION_EAS below the
+      // CONFIG literal: the same tickets, the same two formulas, scored
+      // against a different target. This one is the policy's, and it is the
+      // figure that goes to TVL headquarters and the directors.
+      standard: 'COMPANY',
+      standardLabel: 'Company KPI',
+      standardNote: 'TVL-KPI-001 v1.0, section 5.3. The figure reported to ' +
+                    'TVL headquarters and the directors.',
+      // Which KPI_CONFIG row holds this standard's Document Link. The two
+      // standards are transcribed from two different documents, so they
+      // cannot share one.
+      linkKey: 'KPI1'
     },
 
     FEEDBACK: {
@@ -1021,6 +1034,79 @@ const CONFIG = {
   /** How many rows the browser sends per server call during an upload. */
   UPLOAD_BATCH_SIZE: 500
 };
+
+
+/*
+  KPI 1, SCORED TWICE.
+
+  The same tickets, the same two formulas, two different targets:
+
+    Company KPI   >= 90.00%   TVL-KPI-001 v1.0, section 5.3
+                              green >= 90, yellow 85.00-89.99, red < 85
+                              What goes to TVL headquarters and the directors.
+
+    EAS KPI       >= 99.50%   Layer 3 TVL-EAS KPI, Error/Issue Resolution Time
+                              green >= 99.50, yellow 89.55-99.49, red < 89.55
+                              What the EAS team holds itself to internally.
+
+  The yellow floor in the EAS sheet is not a round number by accident:
+  89.55 is 90% of 99.50, so its three bands sit at KPI Achievement >= 100%,
+  90-99.99% and < 90% exactly as that document's threshold table prints them.
+  The policy's bands are written straight onto the success rate instead, which
+  is why 85.00 does not map to a round achievement figure. Both are
+  transcribed as printed rather than derived, because a document says what it
+  says.
+
+  BUILT FROM THE OTHER ONE, NOT WRITTEN OUT TWICE. "Everything the same except
+  the equation" is the whole requirement, and two hand-maintained copies drift:
+  a correction to the formula string, the SLA layer or the measure name would
+  land on one and not the other, and the two screens would quietly start
+  describing themselves differently. Object.assign keeps that impossible - the
+  list below IS the difference, and nothing else can be.
+*/
+CONFIG.KPI.RESOLUTION_EAS = Object.assign({}, CONFIG.KPI.RESOLUTION, {
+  standard: 'EAS',
+  standardLabel: 'EAS KPI',
+  standardNote: 'Layer 3 TVL-EAS KPI, Error/Issue Resolution Time. The ' +
+                'standard the EAS team holds itself to internally.',
+  target: 99.50,
+  yellowFloor: 89.55,
+  linkKey: 'KPI1_EAS',
+  policyUrl: 'https://drive.google.com/file/d/' +
+             '103CduvXK2_JuN6XflsxqnHhjy_OGy0WK/view?usp=drive_link'
+});
+
+/*
+  And the company standard points at the approved policy, which is where its
+  90% actually comes from. It used to point at the EAS definition sheet - the
+  link above - which has said 99.50% throughout and would now flatly
+  contradict the target printed beside it.
+
+  Set here rather than in the literal because CONFIG.POLICY cannot be read
+  while CONFIG is still being built.
+
+  The Document Link column of KPI_CONFIG still wins over both, by design: a
+  wrong address is fixed in a spreadsheet cell rather than in a deployment.
+*/
+CONFIG.KPI.RESOLUTION.policyUrl = CONFIG.POLICY.url;
+
+
+/**
+ * Which of KPI 1's two standards to score against.
+ *
+ * Anything unrecognised is the company's, deliberately. A screen that asked
+ * for a standard nobody has heard of gets the figure that is reported upward,
+ * which is the one it is safe to be shown by mistake - and the toggle says
+ * plainly which is on, so a wrong answer cannot be mistaken for the other.
+ *
+ * @param {string} code  'EAS', or anything else for the policy's
+ * @return {Object} one of CONFIG.KPI.RESOLUTION*
+ */
+function resolutionStandard(code) {
+  return String(code || '').trim().toUpperCase() === 'EAS'
+    ? CONFIG.KPI.RESOLUTION_EAS
+    : CONFIG.KPI.RESOLUTION;
+}
 
 
 /** Script Property key the spreadsheet ID is stored under. */

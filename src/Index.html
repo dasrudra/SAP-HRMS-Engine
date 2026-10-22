@@ -392,6 +392,33 @@
             <p class="coverage-note" id="kpi1Coverage" hidden></p>
             <!-- Only appears for the All-months view. Set by renderPeriod(). -->
             <p class="period-note" id="kpi1Period" hidden></p>
+
+            <!--
+              WHICH STANDARD THIS PAGE IS SCORED AGAINST.
+
+              The same tickets and the same two formulas, against two
+              different targets: the policy's 90%, which is what goes to TVL
+              headquarters and the directors, and the EAS team's own 99.50%.
+              Nothing about the data changes - no second upload, no second
+              table, no second cache. What moves is the target the rate is
+              judged against, and with it the achievement, the band colour and
+              the headroom.
+
+              The buttons are filled from CONFIG by fillStandardToggle(), so a
+              target printed here cannot disagree with the target the server
+              actually scored against. The hidden input behind them is what
+              the URL-state mechanism tracks, so the choice survives a reload
+              like every other filter on the page.
+            -->
+            <div class="standard-toggle" id="kpi1StandardWrap" role="group"
+                 aria-label="Which KPI standard to score against" hidden>
+              <button type="button" class="standard-opt" data-standard="COMPANY"
+                      aria-pressed="true"></button>
+              <button type="button" class="standard-opt" data-standard="EAS"
+                      aria-pressed="false"></button>
+            </div>
+            <input type="hidden" id="fKpi1Standard" value="COMPANY">
+            <p class="standard-note" id="kpi1StandardNote" hidden></p>
           </div>
           <div class="page-actions">
             <!--

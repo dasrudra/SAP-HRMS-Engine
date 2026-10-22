@@ -45,6 +45,22 @@ function recomputeKpiCache() {
   if (lastRow < 2) return [];
 
   const rows = tickets.getRange(2, 1, lastRow - 1, COL.WIDTH).getValues();
+
+  // THE COMPANY STANDARD, AND IT DOES NOT MATTER WHICH.
+  //
+  // What this function writes to KPI_MONTHLY that anybody reads back is four
+  // COUNTS - received, completed, delayed, successful - and those are facts
+  // about the month that no target can change. It also writes Success Rate,
+  // KPI Achievement, Band and Headroom, and NOTHING READS THOSE: every screen
+  // works them out from the counts at the moment it is drawn, against
+  // whichever standard is on. See the long note in getKpiComparison() for the
+  // live defect that rule came from.
+  //
+  // So the stored judgement columns are a record of what was judged at the
+  // time, kept in the policy's terms because that is the figure that gets
+  // reported. Taking a standard here would mean a rebuild could leave the tab
+  // saying one thing on Tuesday and another on Wednesday, for no reader at
+  // all.
   const kpi = CONFIG.KPI.RESOLUTION;
   const computedAt = new Date();
   const out = [];
@@ -499,15 +515,18 @@ function readAffiliateList(month) {
 }
 
 
-function getPeopleByAffiliate(token, month, affiliate) {
+function getPeopleByAffiliate(token, month, affiliate, standard) {
   requireSignedIn(token);
-  return readPeopleByAffiliate(month, affiliate);
+  return readPeopleByAffiliate(month, affiliate, standard);
 }
 
 
 /** The same, with no session check. See the note on readKpi1(). */
-function readPeopleByAffiliate(month, affiliate) {
-  const kpi = CONFIG.KPI.RESOLUTION;
+function readPeopleByAffiliate(month, affiliate, standard) {
+  // The same standard the rest of the table is being read under, or the
+  // filtered rows would be banded against one target while the rows above
+  // them were banded against the other.
+  const kpi = resolutionStandard(standard);
   const want = String(affiliate || '').trim();
   const wantMonth = String(month || '').trim();
 
@@ -577,9 +596,9 @@ function readPeopleByAffiliate(month, affiliate) {
  * @param {string} month  'YYYY-MM', or ALL_MONTHS for the whole period
  * @return {Object}
  */
-function getKpi1(token, month) {
+function getKpi1(token, month, standard) {
   requireSignedIn(token);
-  return readKpi1(month);
+  return readKpi1(month, standard);
 }
 
 
@@ -603,8 +622,13 @@ function getKpi1(token, month) {
  * @param {string} month  'YYYY-MM', or ALL_MONTHS for the whole period
  * @return {Object}
  */
-function readKpi1(month) {
-  const kpi = CONFIG.KPI.RESOLUTION;
+function readKpi1(month, standard) {
+  // WHICH TARGET THIS READING IS SCORED AGAINST. The counts on KPI_MONTHLY
+  // are facts and do not move; the rate, achievement, band and headroom are
+  // judgements against a target, and are worked out here every time a screen
+  // is drawn. That is what lets one upload be read as either standard without
+  // a second cache, a second column or a re-upload.
+  const kpi = resolutionStandard(standard);
   const everyMonth = (month === ALL_MONTHS);
 
   // null means "take every month"; otherwise a lookup of the ones wanted.
@@ -625,7 +649,12 @@ function readKpi1(month) {
     people: [],
     sources: [],
     target: kpi.target,
-    yellowFloor: kpi.yellowFloor
+    yellowFloor: kpi.yellowFloor,
+    // So the screen can say which of the two it is showing, in its own words
+    // and with its own document behind the Definition button.
+    standard: kpi.standard,
+    standardLabel: kpi.standardLabel,
+    standardNote: kpi.standardNote
   };
 
   const cache = sheetFor(CONFIG.SHEETS.KPI_MONTH);
@@ -793,9 +822,15 @@ function byReceived(a, b) {
  * @param {string[]} months  e.g. ['2026-06','2026-07','2026-08']
  * @return {Object} { periods: [...], sections: [...], totals: {period: {...}} }
  */
-function getKpiComparison(token, months) {
+function getKpiComparison(token, months, standard) {
   // Needs a session - see Auth.gs.
   requireSignedIn(token);
+  // FOLLOWS THE TOGGLE ON KPI 1, for the reason written out at length further
+  // down this function: this screen and that one read the same stored counts,
+  // so if they judge them against different targets the same section in the
+  // same month is GREEN on one and YELLOW on the other. That has happened
+  // here before, when the target moved and only one of the two recomputed.
+  const standardKpi = resolutionStandard(standard);
   const wanted = {};
   (months || []).forEach(function (m) { wanted[m] = true; });
 
@@ -804,13 +839,15 @@ function getKpiComparison(token, months) {
     sections: [],
     totals: {},        // period -> total entry
     bySection: {},     // section -> { period -> entry }
-    target: CONFIG.KPI.RESOLUTION.target,
+    target: standardKpi.target,
+    standard: standardKpi.standard,
+    standardLabel: standardKpi.standardLabel,
 
     // The Comparison screen renders whatever a KPI declares here rather than
     // hardcoding KPI 1's columns - see getKpi2Comparison for the other side of
     // the contract.
     kpi: 'KPI1',
-    name: CONFIG.KPI.RESOLUTION.name || 'Error/Issue Resolution Time',
+    name: standardKpi.name || 'Error/Issue Resolution Time',
     unit: '%',
 
     // A KPI names its own reporting period. Tickets arrive daily, so KPI 1 is
@@ -879,7 +916,7 @@ function getKpiComparison(token, months) {
     */
     const completed  = Number(r[4]) || 0;
     const successful = Number(r[6]) || 0;
-    const kpi = CONFIG.KPI.RESOLUTION;
+    const kpi = standardKpi;
     const rate = completed ? (successful / completed) * 100 : 0;
 
     const entry = {

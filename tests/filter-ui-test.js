@@ -228,6 +228,147 @@ const FILE = 'file://' + PAGE;
     back.slice(0, 70));
   await q.close();
 
+  // ---------------------------------------------------------------------------
+  // the two standards
+  // ---------------------------------------------------------------------------
+  // The same tickets, the same two formulas, two targets: the policy's 90%,
+  // which is what TVL headquarters is shown, and the EAS team's own 99.50%.
+  // Nothing about the DATA changes - the counts are facts - so what has to
+  // move when the toggle moves is the target, the achievement, the band and
+  // the headroom, on every table on the page at once.
+  let z = await open('?view=kpi1');
+
+  const opts = await z.$$eval('.standard-opt', (ns) => ns.map((n) => ({
+    standard: n.getAttribute('data-standard'),
+    text: n.textContent.replace(/\s+/g, ' ').trim(),
+    on: n.classList.contains('is-on'),
+    pressed: n.getAttribute('aria-pressed')
+  })));
+
+  check('both standards are on screen, not hidden behind a dropdown',
+    opts.length === 2 && opts[0].standard === 'COMPANY' &&
+    opts[1].standard === 'EAS',
+    opts.map((o) => o.text).join('  |  '));
+  check('each carries its own target, so the choice explains itself',
+    /90%/.test(opts[0].text) && /99\.5%/.test(opts[1].text),
+    'the figures come from CONFIG, not from the markup');
+  check('the page starts on the one that gets reported upward',
+    opts[0].on === true && opts[0].pressed === 'true' && opts[1].on === false,
+    'a wrong default is safest when it is the figure TVL already sees');
+
+  const totals = () => z.$$eval('#kpi1Tiles .tile', (ns) =>
+    ns.map((n) => n.textContent.replace(/\s+/g, ' ').trim()).join(' ~ '));
+  const rowsNow = () => z.$$eval('#kpi1AllPeople tbody tr', (trs) => trs.map((tr) => ({
+    name: tr.cells[0].textContent.trim(),
+    received: tr.cells[2].textContent.trim(),
+    rate: tr.cells[7].textContent.trim(),
+    band: tr.cells[8].textContent.trim()
+  })));
+
+  const companyRows = await rowsNow();
+  const companyTiles = await totals();
+
+  await z.click('.standard-opt[data-standard="EAS"]');
+  await z.waitForTimeout(900);
+
+  const easRows = await rowsNow();
+  const easTiles = await totals();
+
+  check('choosing the other one re-reads the page',
+    easTiles !== companyTiles, 'the tiles are scored against a new target');
+
+  // THE COUNTS ARE FACTS. A target cannot change what happened.
+  check('the ticket counts do not move, because a target cannot move them',
+    companyRows.length === easRows.length &&
+    companyRows.every((r, i) => r.received === easRows[i].received &&
+                                r.rate === easRows[i].rate),
+    companyRows.map((r) => r.received).join(',') + ' either way');
+
+  // ...and the judgement does. Somebody at 97.50% is passing the policy and
+  // failing the team's own standard, which is the entire point of having both.
+  const moved = companyRows.filter((r, i) => r.band !== easRows[i].band);
+  check('but the bands do, for anybody between the two targets',
+    moved.length > 0,
+    moved.map((r, i) => r.name + ' ' + r.rate).join(', ') || 'nothing moved');
+
+  check('and the toggle shows which one is on now',
+    (await z.$eval('.standard-opt[data-standard="EAS"]',
+                   (n) => n.classList.contains('is-on'))) === true &&
+    (await z.$eval('.standard-opt[data-standard="COMPANY"]',
+                   (n) => n.getAttribute('aria-pressed'))) === 'false');
+
+  check('with a line naming the document the figures were scored against',
+    /Layer 3/.test(await z.$eval('#kpi1StandardNote', (n) => n.textContent)) &&
+    !(await z.$eval('#kpi1StandardNote', (n) => n.hidden)),
+    await z.$eval('#kpi1StandardNote', (n) => n.textContent.slice(0, 54)));
+
+  // The affiliate slice is a SEPARATE server call, so switching standard has
+  // to go back for it too. Left alone it would sit in the same table as rows
+  // that had just been re-scored, still wearing the other standard's bands.
+  //
+  // Counted rather than read off the screen: this fixture's people have two
+  // to eight tickets each, so the only rates it can produce are 0%, 80% and
+  // 100%, and none of those falls between the two targets. The bands would be
+  // identical whether the slice was re-read or left stale, and an assertion
+  // on them would pass either way. The server side of this - a slice that
+  // really does change band - is held in tests/standard-test.js, where the
+  // fixture is built with enough tickets to land at 98%.
+  await z.selectOption('#fAllAffiliate', 'KSL');
+  await z.waitForTimeout(900);
+
+  const before = await z.evaluate(() =>
+    (window.__calls && window.__calls.getPeopleByAffiliate) || 0);
+  await z.click('.standard-opt[data-standard="COMPANY"]');
+  await z.waitForTimeout(1000);
+  const after = await z.evaluate(() =>
+    (window.__calls && window.__calls.getPeopleByAffiliate) || 0);
+
+  check('switching standard goes back for the affiliate slice as well',
+    after === before + 1,
+    before + ' -> ' + after + ' calls');
+  check('and the rows are still there afterwards',
+    (await rowsNow()).length > 0, 'not blanked by the re-read');
+
+  // ---------------------------------------------------------------------------
+  // and the screens that are NOT the toggle's own page
+  // ---------------------------------------------------------------------------
+  // The Summary table shows KPI 1's target and band edges beside a reading
+  // taken from the same state the toggle scores. If the target came from the
+  // policy while the figure came from the team's own standard, that one row
+  // would disagree with itself - a rate shown in red against a target it
+  // clears. The same class of defect as the Comparison screen reading stored
+  // verdicts, which is written up at length in Kpi.gs.
+  const summaryTarget = async () => {
+    await z.evaluate(() => {
+      const nav = document.querySelector('[data-view="settings"]');
+      if (nav) nav.click();
+    });
+    await z.waitForTimeout(700);
+    return z.$eval('#settingsTable tbody tr[data-key="KPI1"] .thr-target',
+                   (n) => n.textContent.trim());
+  };
+
+  const onCompany = await summaryTarget();
+  await z.evaluate(() => {
+    const nav = document.querySelector('[data-view="kpi1"]');
+    if (nav) nav.click();
+  });
+  await z.waitForTimeout(500);
+  await z.click('.standard-opt[data-standard="EAS"]');
+  await z.waitForTimeout(900);
+  const onEas = await summaryTarget();
+
+  check('the Summary row follows the toggle rather than contradicting it',
+    /90/.test(onCompany) && /99\.5/.test(onEas),
+    onCompany + ' -> ' + onEas);
+  check('and says in its basis that this is not the reported figure',
+    /not the figure reported/i.test(
+      await z.$eval('#kpi1Layer', (n) => n.getAttribute('data-basis') || '')),
+    await z.$eval('#kpi1Layer', (n) =>
+      (n.getAttribute('data-basis') || '').slice(-46)));
+
+  await z.close();
+
   check('no JS errors across the whole run', errors.length === 0, errors.slice(0, 3).join(' | '));
 
   await b.close();
