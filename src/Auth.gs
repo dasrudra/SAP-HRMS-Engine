@@ -98,10 +98,14 @@ function isRealRole(role) {
 /**
  * The shared credential everybody starts with.
  *
- * It is not an account. Signing in with it proves only that you were given
- * the link and the starting password - it gets you to the "create your
- * account" card and nowhere else. The dashboard itself is never reachable
- * with it, which is the whole reason it can stay a shared secret.
+ * RETIRED. It used to be the shared login the whole team used once to reach
+ * the card that creates an account. People create their own login directly
+ * now - employee ID, name, password, in one step - so this opens nothing and
+ * is refused by login() whatever password is offered.
+ *
+ * The name is kept for two jobs only: refusing it, and recognising the row on
+ * the ACCOUNTS tab of an installation that still has one so the master can
+ * delete it from the Accounts screen.
  */
 const BOOTSTRAP_USER = 'user';
 
@@ -116,25 +120,47 @@ const EMP_ID_MAX = 12;
 const MIN_PASSWORD = 6;
 
 /**
- * THE STARTING PASSWORD. The one password in this project written in the open.
- *
- * It is here on purpose and it is not a secret - it is handed to the whole
- * team, and the repository being public costs nothing, because on its own it
- * opens NOTHING. Every account that carries it is marked must-change, and the
- * shared account that carries it was never a way into the dashboard. Both end
- * at the same card: choose a password of your own.
- *
- * Written once and used twice - seedCredentials() sets the shared login to it,
- * and a reset puts an account back to it - so the two can never drift apart
- * and leave the master telling somebody a password that does not work.
- *
- * A fixed, sayable word rather than something random because the master has to
- * read it down a phone or put it in a message.
+ * How many new logins may be created across the whole dashboard in an
+ * hour. Thirty-seven people signing up over a week come nowhere near it;
+ * a script pointed at the open door hits it in seconds.
  */
-const STARTING_PASSWORD = 'easuser';
+const SIGNUPS_PER_HOUR = 25;
 
-/** What a reset password becomes. The same one, for the same reasons. */
-const RESET_PASSWORD = STARTING_PASSWORD;
+/**
+ * WHAT A RESET PASSWORD BECOMES. The one password in this project written in
+ * the open, and now the only thing it does.
+ *
+ * It used to do two jobs: this one, and standing as the password of a shared
+ * 'user' login that everybody signed in with once to reach the card that
+ * creates an account. That second job is gone - see BOOTSTRAP_USER above.
+ * People create their own login directly now, so there is no shared password
+ * to hand round and nothing for a stranger who reads this file to try.
+ *
+ * As a reset password it is safe in the open, because on its own it opens
+ * NOTHING. It only ever lands on an account the master has just reset, that
+ * account is marked must-change, and it gets its owner exactly as far as the
+ * card where they choose a password of their own.
+ *
+ * A fixed, sayable word rather than something random because the master has
+ * to read it down a phone or put it in a message.
+ */
+const RESET_PASSWORD = 'easuser';
+
+/**
+ * Script Property holding whether anybody may still create an account.
+ *
+ * THE DOOR THE WHOLE TEAM COMES IN BY, AND IT SHOULD NOT STAY OPEN. Thirty-
+ * seven people sign up once; after that, a stranger who reaches the URL and
+ * guesses a colleague's employee ID could claim an account that colleague has
+ * not got round to making yet. Closing it is one click on the Accounts
+ * screen, and after that the ONLY way a new account appears is the master
+ * writing an employee ID down first.
+ *
+ * Open until somebody says otherwise, because the alternative is a rollout
+ * that stops dead the moment this ships and a master who does not know why.
+ * The Accounts screen says which it is, in words, at the top of the list.
+ */
+const SIGNUPS_KEY = 'EAS_SIGNUPS_OPEN';
 
 /** Script Property holding every account, as JSON. */
 const ACCOUNTS_KEY = 'EAS_ACCOUNTS';
@@ -362,10 +388,11 @@ function setupFromToken(token) {
 /**
  * The short-lived token that only opens the create-your-account card.
  *
- * With no argument it is the shared one: whoever holds it may create an
- * account under any unused employee ID. Given a username it is bound to THAT
- * person, which is what a password reset hands out - they may set a new
- * password and they may not quietly become somebody else while doing it.
+ * ALWAYS BOUND TO ONE PERSON NOW. It used to have an unbound form, handed
+ * out by the shared login, which let whoever held it create an account under
+ * any unused employee ID. That door is gone: signing up is createAccount(),
+ * and this is only ever what a password reset hands out - the holder may set
+ * THAT person's password and may not quietly become somebody else on the way.
  */
 function issueSetupToken(username) {
   const payload = { u: username || BOOTSTRAP_USER, s: 1,
@@ -474,32 +501,40 @@ function devTokenIfAllowed(params) {
  * reset a forgotten password.
  */
 function seedCredentials() {
-  // Only the shared starting credential. There is deliberately no shared
-  // 'admin' account any more: admin is something granted to one employee ID
-  // by the master, and a password thirty-seven people know is the opposite of
-  // that. If an old one is still on the ACCOUNTS tab from before this change,
-  // remove it from the Accounts screen - it will be sitting there in the list.
-  setAccount(BOOTSTRAP_USER, STARTING_PASSWORD, ROLE_USER);
-
+  // NOTHING TO SEED ANY MORE. There was a shared 'user' login here, with a
+  // password the whole team was given, whose only job was to open the card
+  // that creates an account. People create their own login directly now, so
+  // the shared password is gone and there is no account to make.
+  //
+  // What is still worth doing on a fresh install is making the signing key
+  // and recording who may run maintenance, so neither happens by accident
+  // halfway through somebody's first sign-in.
   const owner = Session.getEffectiveUser().getEmail();
   if (owner) {
     PropertiesService.getScriptProperties().setProperty(OWNER_KEY, owner);
   }
   tokenSecret();   // make the signing key now rather than on the first login
 
+  const stale = readAccounts()[BOOTSTRAP_USER];
+
   Logger.log('');
   Logger.log('=========================================================');
-  Logger.log(' STARTING CREDENTIAL CREATED');
-  Logger.log('   %s / %s', BOOTSTRAP_USER, STARTING_PASSWORD);
+  Logger.log(' READY. There is no shared starting password.');
   Logger.log('');
-  Logger.log(' This does NOT open the dashboard. It opens the card that');
-  Logger.log(' creates an account, where each person sets their own employee');
-  Logger.log(' ID and password. Give it to the team; it is meant to be shared.');
+  Logger.log(' Everybody creates their own login from the sign-in page:');
+  Logger.log('   name, employee ID and a password of their own.');
   Logger.log('');
   Logger.log('   maintenance owner:  %s', owner || '(could not read - set it by hand)');
+  Logger.log('   sign-ups:           %s', signupsOpen() ? 'OPEN' : 'CLOSED');
+  if (stale) {
+    Logger.log('');
+    Logger.log(' The old shared login is still on the ACCOUNTS tab. It opens');
+    Logger.log(' nothing - login() refuses it - but remove it from the');
+    Logger.log(' Accounts screen so nobody wonders what it is.');
+  }
   Logger.log('=========================================================');
   Logger.log('');
-  Logger.log('NEXT: sign in with it yourself, create your own account, then run');
+  Logger.log('NEXT: create your own login on the sign-in page, then run');
   Logger.log('grantMaster() with your employee ID to get the Accounts screen.');
 }
 
@@ -632,6 +667,139 @@ function listAccounts() {
  * @return {{ok: boolean, role: string, username: string, token: string,
  *           message: string}}
  */
+/**
+ * Whether anybody may still create an account for themselves.
+ *
+ * Open unless it has been closed, deliberately. A control that defaults to
+ * closed would stop a rollout dead on the day it ships, with thirty-one
+ * people unable to sign up and nothing on screen saying why.
+ */
+function signupsOpen() {
+  try {
+    return PropertiesService.getScriptProperties()
+             .getProperty(SIGNUPS_KEY) !== 'CLOSED';
+  } catch (e) {
+    // No properties to read is not a reason to lock the team out.
+    return true;
+  }
+}
+
+
+/** The same, for a page that has nobody signed in yet. */
+function signupsAreOpen() {
+  return signupsOpen();
+}
+
+
+/**
+ * Opens or closes the door. Master only.
+ *
+ * Closing does NOT touch resets, and does not touch an employee ID the master
+ * has already written down - both of those are accounts that exist, and this
+ * only governs whether a new one may be made from nothing.
+ */
+function masterSetSignups(token, open) {
+  const session = requireMaster(token);
+  const want = open ? 'OPEN' : 'CLOSED';
+
+  PropertiesService.getScriptProperties().setProperty(SIGNUPS_KEY, want);
+  logAuth('-', 'SIGNUPS', ROLE_MASTER, want.toLowerCase() + ' by ' + session.u);
+
+  return { ok: true, open: Boolean(open) };
+}
+
+
+/**
+ * Somebody creating their own login, in one step.
+ *
+ * NO TOKEN, BY DESIGN - the person doing this has no session and no password
+ * yet, which is the whole point. Everything that protects it is in here:
+ *
+ *   - the door has to be open, which is the master's switch;
+ *   - the employee ID must not already have an account, so this can never
+ *     take one over. Somebody the master wrote down ahead of time already
+ *     HAS an account and comes in by signing in with the reset password
+ *     instead;
+ *   - a global hourly cap, so the endpoint cannot be used to write thousands
+ *     of rows onto the ACCOUNTS tab;
+ *   - and every new account is a VIEWER. Admin is something the master
+ *     grants afterwards, never something claimed on the way in.
+ *
+ * @param {string} employeeId  theirs, digits only - this becomes the username
+ * @param {string} fullName    required: what they are called on a query
+ * @param {string} email       optional: where their alerts go if made admin
+ * @param {string} password    at least MIN_PASSWORD characters
+ */
+function createAccount(employeeId, fullName, email, password) {
+  const fail = function (message) {
+    return { ok: false, role: '', username: '', token: '', message: message };
+  };
+
+  if (!signupsOpen()) {
+    return fail('Sign-ups are closed. Ask the EAS team to add your employee ' +
+                'ID, and you will be able to set a password.');
+  }
+
+  const id = String(employeeId == null ? '' : employeeId).trim();
+  if (!/^[0-9]+$/.test(id)) {
+    return fail('An employee ID is digits only - the number on your ID card, ' +
+                'with nothing else in it.');
+  }
+  if (id.length < EMP_ID_MIN || id.length > EMP_ID_MAX) {
+    return fail('That employee ID does not look right. It should be between ' +
+                EMP_ID_MIN + ' and ' + EMP_ID_MAX + ' digits.');
+  }
+
+  const said = cleanName(fullName);
+  if (!said) return fail('Put your name in - it is what your messages are signed with.');
+
+  const address = String(email == null ? '' : email).trim();
+  if (address && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(address)) {
+    return fail('That does not look like an email address. Leave it empty if ' +
+                'you would rather not give one.');
+  }
+
+  const pass = String(password == null ? '' : password);
+  if (pass.length < MIN_PASSWORD) {
+    return fail('Choose a password of at least ' + MIN_PASSWORD +
+                ' characters. It can be anything you will remember.');
+  }
+
+  const name = id.toLowerCase();
+  if (name === BOOTSTRAP_USER) return fail('That is not an employee ID.');
+
+  // SAID PLAINLY ON PURPOSE. Somebody signing up with their OWN ID and being
+  // told nothing useful would simply try again, and an ID already being taken
+  // is not a secret worth keeping from the person it belongs to. It also
+  // cannot be used to go through employee IDs looking for accounts, because
+  // the door it is behind is shut for all but a few days of this app's life.
+  if (readAccounts()[name]) {
+    return fail('There is already a login for employee ID ' + id + '. Sign in ' +
+                'with it, or ask the EAS team to reset the password if it is ' +
+                'yours and you have forgotten it.');
+  }
+
+  if (!takeFromHourlyBucket('EAS_SIGNUPS', SIGNUPS_PER_HOUR)) {
+    return fail('Too many new logins have been created in the last hour. ' +
+                'Please try again shortly.');
+  }
+
+  const now = new Date();
+  const salt = Utilities.getUuid();
+  saveAccount(name, {
+    role: ROLE_USER, salt: salt, hash: hashOf(pass, salt),
+    created: now.toISOString(), passwordSet: now.toISOString(),
+    lastSignIn: now.toISOString(), signIns: 1,
+    mustChange: false, note: '',
+    fullName: said, email: address
+  });
+  logAuth(name, 'SIGNUP', ROLE_USER, address ? 'with an email' : '');
+
+  return { ok: true, setup: false, role: ROLE_USER, username: name,
+           token: issueToken(name, ROLE_USER), message: '' };
+}
+
+
 function login(username, password) {
   const name = String(username || '').trim().toLowerCase();
 
@@ -649,6 +817,12 @@ function login(username, password) {
   const wrong = { ok: false, role: '', username: '', token: '',
                   message: 'That username and password do not match.' };
 
+  // THE SHARED LOGIN IS NOT A DOOR ANY MORE. Refused here whatever password
+  // is offered and whether or not a row for it is still sitting on the
+  // ACCOUNTS tab, so an installation that has not had it deleted yet is no
+  // worse off than one that has.
+  if (name === BOOTSTRAP_USER) { recordFailure(name); return wrong; }
+
   if (!account) { recordFailure(name); return wrong; }
   if (hashOf(String(password || ''), account.salt) !== account.hash) {
     recordFailure(name);
@@ -657,19 +831,19 @@ function login(username, password) {
 
   clearFailures(name);
 
-  // The shared starting credential is not a way in. It is a way to the card
-  // that creates an account, and nothing else - see BOOTSTRAP_USER.
-  if (name === BOOTSTRAP_USER) {
-    return { ok: true, setup: true, role: '', username: '', token: '',
-             setupToken: issueSetupToken(), message: '' };
-  }
-
-  // A password that was reset, or an employee ID the master granted a role to
-  // before its owner had signed up. Either way the password in use is one
-  // somebody else chose, so it gets them exactly as far as choosing their own.
+  // A password that was reset, or an employee ID the master wrote down before
+  // its owner had signed up. Either way the password in use is one somebody
+  // else chose, so it gets them exactly as far as choosing their own.
+  //
+  // needsName says whether this is somebody the master wrote down, who has
+  // never filled anything in, or somebody who signed up properly and has only
+  // forgotten a password. The card asks for what is missing and no more.
   if (account.mustChange) {
     return { ok: true, setup: true, role: '', username: name, token: '',
-             setupToken: issueSetupToken(name), message: '' };
+             setupToken: issueSetupToken(name),
+             needsName: !account.fullName,
+             needsEmail: !account.email,
+             message: '' };
   }
 
   recordSignIn(name);
@@ -698,7 +872,7 @@ function login(username, password) {
  * @param {string} password    at least MIN_PASSWORD characters
  * @param {string} confirm     typed again
  */
-function registerAccount(setupToken, employeeId, password, confirm, fullName) {
+function registerAccount(setupToken, employeeId, password, fullName, email) {
   const fail = function (message) {
     return { ok: false, role: '', username: '', token: '', message: message };
   };
@@ -724,9 +898,6 @@ function registerAccount(setupToken, employeeId, password, confirm, fullName) {
     return fail('Choose a password of at least ' + MIN_PASSWORD +
                 ' characters. It can be anything you will remember.');
   }
-  if (pass !== String(confirm == null ? '' : confirm)) {
-    return fail('The two passwords are not the same. Type the second one again.');
-  }
 
   const name = id.toLowerCase();
   const accounts = readAccounts();
@@ -741,26 +912,14 @@ function registerAccount(setupToken, employeeId, password, confirm, fullName) {
                   '. Sign in again if you meant a different one.');
     }
     if (!existing) return fail('That account no longer exists.');
-  } else if (existing && existing.hash) {
-    // Said plainly on purpose. Somebody registering their OWN id and being
-    // told nothing useful would simply try again; and an id already being
-    // taken is not a secret worth keeping from the person it belongs to.
-    //
-    // AND IT HAS TO SAY WHAT TO DO NEXT. The first version ended "or ask for
-    // the password to be reset if it is yours and you have forgotten it",
-    // which is a dead end for the exact person most likely to read it:
-    // somebody whose password HAS just been reset, who signed in with the
-    // shared starting login because that is what they were given last time,
-    // and who is now being told to go and ask for the thing they already have.
-    // The way through is to put their own employee ID in the username box -
-    // the same starting password then brings them back to this card, bound to
-    // them, ready to set a password. It does not say whether a reset is
-    // pending, which would make this box a way to ask.
-    return fail('An account already exists for employee ID ' + id + '. Put ' +
-                id + ' in the username box on the sign-in card instead of "' +
-                BOOTSTRAP_USER + '". If the password has just been reset for ' +
-                'you, use the starting password there and this card comes ' +
-                'back, ready for you to choose your own.');
+  } else {
+    // THIS CARD NO LONGER CREATES ANYTHING FROM NOTHING. It is reached only by
+    // signing in with a password somebody else set - a reset, or an employee
+    // ID the master wrote down - so the account always exists by the time we
+    // are here. Creating a login from scratch is createAccount(), which is
+    // its own door with its own switch in front of it.
+    return fail('That account no longer exists. Ask the EAS team to add your ' +
+                'employee ID again.');
   }
 
   const now = new Date();
@@ -771,22 +930,22 @@ function registerAccount(setupToken, employeeId, password, confirm, fullName) {
   // granting access ahead of time would silently undo itself.
   const role = (existing && existing.role) || ROLE_USER;
 
-  // THE NAME IS ASKED FOR HERE because this is the one card everybody fills
-  // in exactly once, and it already knows who they are. Asking on the sign-in
-  // card instead would ask every morning and get a slightly different answer
-  // each time; asking in the message panel - where it used to be asked - made
-  // the name a property of a message rather than of a person.
-  //
-  // A blank one is allowed. Somebody who leaves it empty is shown by their
-  // employee ID, which is what happened before this column existed, and they
-  // can give a name later. Refusing to create an account over a missing
-  // courtesy would be the wrong trade entirely.
-  //
-  // An empty box never erases a name already on the account: that is what
-  // somebody who left it blank on a password reset would expect, and the
-  // opposite would quietly blank the name of everybody whose password is ever
-  // reset.
+  // ASKED FOR ONLY WHEN IT IS MISSING. Somebody who signed up properly gave a
+  // name on the way in and is here because they forgot a password - asking
+  // again would be asking a question already answered. Somebody the master
+  // wrote down has never filled anything in, so this is their one chance, and
+  // the card makes it required for them. login() says which of the two this
+  // is, in needsName.
   const said = cleanName(fullName);
+  if (!said && !(existing && existing.fullName)) {
+    return fail('Put your name in - it is what your messages are signed with.');
+  }
+
+  const address = String(email == null ? '' : email).trim();
+  if (address && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(address)) {
+    return fail('That does not look like an email address. Leave it empty if ' +
+                'you would rather not give one.');
+  }
 
   const account = {
     role: role, salt: salt, hash: hashOf(pass, salt),
@@ -797,7 +956,11 @@ function registerAccount(setupToken, employeeId, password, confirm, fullName) {
     mustChange: false,
     note: '',
     fullName: said || (existing && existing.fullName) || '',
-    email: (existing && existing.email) || ''
+    // An empty box never erases an address already on the account - that is
+    // what somebody who left it blank on a password reset would expect, and
+    // the opposite would quietly blank the alert address of every admin whose
+    // password is ever reset.
+    email: address || (existing && existing.email) || ''
   };
   saveAccount(name, account);
   logAuth(name, existing && existing.hash ? 'PASSWORD' : 'SIGNUP', role,
@@ -1257,8 +1420,8 @@ function masterSetRole(token, employeeId, role) {
   const account = accounts[name];
   if (!account) throw new Error('No account for employee ID ' + employeeId + '.');
   if (name === BOOTSTRAP_USER) {
-    throw new Error('The shared starting login cannot be given a role. It ' +
-                    'exists only to reach the create-your-account card.');
+    throw new Error('That is the retired shared login, not somebody\'s ' +
+                    'account. Remove it rather than giving it a role.');
   }
 
   // Standing on the branch you are sawing. Demoting yourself is allowed only
@@ -1288,10 +1451,10 @@ function masterRemoveAccount(token, employeeId) {
   const accounts = readAccounts();
   const account = accounts[name];
   if (!account) throw new Error('No account for employee ID ' + employeeId + '.');
-  if (name === BOOTSTRAP_USER) {
-    throw new Error('The shared starting login cannot be removed - nobody new ' +
-                    'could create an account without it.');
-  }
+  // The shared login USED to be undeletable, because without it nobody could
+  // create an account. That is no longer true - people sign up directly - so
+  // deleting it is now exactly the right thing to do with it.
+
   if (name === session.u) {
     throw new Error('That is the account you are signed in with.');
   }
@@ -1320,8 +1483,8 @@ function masterResetPassword(token, employeeId) {
   const account = accounts[name];
   if (!account) throw new Error('No account for employee ID ' + employeeId + '.');
   if (name === BOOTSTRAP_USER) {
-    throw new Error('The shared starting login is not somebody\'s account. ' +
-                    'Run seedCredentials() from the editor to put its password back.');
+    throw new Error('That is the retired shared login, not somebody\'s ' +
+                    'account. It opens nothing - remove it.');
   }
 
   const salt = Utilities.getUuid();

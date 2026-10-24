@@ -27,6 +27,7 @@ const INDEX = read('Index.html');
 const STYLES = read('Styles.html');
 const REPORT = read('Report.html');
 const KPI = read('Kpi.gs');
+const AUTH = read('Auth.gs');
 
 // ---------------------------------------------------------------------------
 // it parses
@@ -303,15 +304,41 @@ check('no button captures its label after overwriting it',
 // the old one when the box is left empty. What is left is the wire between
 // them, and dropping the argument is a silent change: registerAccount simply
 // receives undefined and every new account goes in nameless.
-check('the setup card has a name box',
-  /id="setupName"/.test(INDEX), 'it is the one card everybody fills in once');
-check('and the card sends it to the server',
-  /registerAccount\([\s\S]{0,220}getValue\('setupName'\)/.test(APP),
-  'left off, every account created from here would be nameless and nothing ' +
-  'would say so');
-check('with the name AFTER the two passwords, where the server expects it',
-  /registerAccount\(pendingSetupToken,[\s\S]{0,200}setupConfirm'\),\s*\n\s*getValue\('setupName'\)/.test(APP),
-  'an argument in the wrong slot would store a password as somebody\'s name');
+check('the setup card asks for a name, an email, an ID and a password',
+  /id="setupName"/.test(INDEX) && /id="setupEmail"/.test(INDEX) &&
+  /id="setupId"/.test(INDEX) && /id="setupPass"/.test(INDEX),
+  'the four things a login is made of');
+check('and no longer asks for the password twice',
+  !/id="setupConfirm"/.test(INDEX) && !/setupConfirm/.test(APP),
+  'the eye button catches the same typo and costs one field, not two');
+
+// TWO DOORS, TWO ARGUMENT LISTS, AND THEY ARE NOT THE SAME SHAPE.
+// createAccount takes no token - there is nobody to have one yet - and
+// registerAccount takes one FIRST, because the token is what says whose
+// password is being set. An argument in the wrong slot here would store a
+// password as somebody's name, which nothing downstream would question.
+check('signing up sends id, name, email, password - and no token',
+  /\?\s*\[pendingSetupToken,\s*getValue\('setupId'\)[\s\S]{0,260}:\s*\[getValue\('setupId'\)\.trim\(\),\s*getValue\('setupName'\)\.trim\(\),\s*\n?\s*getValue\('setupEmail'\)\.trim\(\),\s*getValue\('setupPass'\)\]/.test(APP),
+  'createAccount(employeeId, fullName, email, password)');
+check('and a reset sends the token first, then id, password, name, email',
+  /\[pendingSetupToken,\s*getValue\('setupId'\)\.trim\(\),\s*\n?\s*getValue\('setupPass'\),\s*getValue\('setupName'\)\.trim\(\),\s*\n?\s*getValue\('setupEmail'\)\.trim\(\)\]/.test(APP),
+  'registerAccount(setupToken, employeeId, password, fullName, email)');
+check('and which of the two is chosen by whether a token is held',
+  /\[pendingSetupToken \? 'registerAccount' : 'createAccount'\]/.test(APP),
+  'a token means the account exists already');
+
+// The retired shared login. It opened the card that created an account, its
+// password was in this repository, and it is now refused whatever is typed.
+check('the shared starting login is gone from the sign-in card',
+  !/starting login your team gave you/.test(INDEX),
+  'people create their own login directly now');
+check('and login() refuses it even if a row for it is still on the sheet',
+  /if \(name === BOOTSTRAP_USER\) \{ recordFailure\(name\); return wrong; \}/.test(AUTH),
+  'an installation that has not deleted the row is no worse off');
+check('while the door everybody comes in by has a switch on it',
+  /function masterSetSignups/.test(AUTH) && /function signupsOpen/.test(AUTH) &&
+  /id="signupToggle"/.test(INDEX),
+  'master only, and manual - a rule would shut it on a mistyped ID');
 
 // The panel asks for a name only while the account has none. Hiding it on the
 // signed-OUT page would be wrong in the other direction: there is no account

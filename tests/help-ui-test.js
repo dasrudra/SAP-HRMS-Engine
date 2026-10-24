@@ -684,6 +684,69 @@ const FILE = 'file://' + PAGE;
 
   p = await open('?view=help');
 
+  // ---------------------------------------------------------------------------
+  // creating a login, with nobody signed in
+  // ---------------------------------------------------------------------------
+  // The shared 'user' login is gone. It was one username and one password the
+  // whole team was given, its password was published in this repository, and
+  // its only job was to open the card below. People fill that card in
+  // directly now.
+  p = await open('?signin=1');
+
+  check('the sign-in card offers a way to create a login',
+    await p.$eval('#loginSignupLine', (n) => !n.hidden) &&
+    await p.$eval('#loginClosedLine', (n) => n.hidden),
+    await p.$eval('#loginSignupLine', (n) => n.textContent.trim()));
+  check('and no longer mentions a starting login to be given',
+    !/starting login/i.test(await p.$eval('#loginScreen', (n) => n.textContent)),
+    'there is no shared password to hand round any more');
+
+  await p.click('#loginSignup');
+  await p.waitForTimeout(300);
+
+  const fields = await p.$$eval('#setupForm label:not([hidden])', (ls) =>
+    ls.map((l) => l.querySelector('span').textContent.replace(/\s+/g, ' ').trim()));
+  check('the card asks for name, email, employee ID and password, in that order',
+    fields.length === 4 && /^Name/.test(fields[0]) && /^Email/.test(fields[1]) &&
+    /^Username/.test(fields[2]) && /^Password/.test(fields[3]),
+    fields.join('  |  '));
+  check('with the employee ID named as the username it becomes',
+    /employee ID/i.test(fields[2]), fields[2]);
+  check('and no second password box to type it into again',
+    (await p.$$('#setupConfirm')).length === 0,
+    'the eye button catches the same typo for one field instead of two');
+
+  // WHAT IS REQUIRED, FROM THE SERVER - not from the markup, which can say
+  // required and be bypassed, and does not decide anything.
+  await p.fill('#setupId', '20990001');
+  await p.fill('#setupPass', 'goodpass1');
+  await p.evaluate(() => document.getElementById('setupName').removeAttribute('required'));
+  await p.click('#setupGo');
+  await p.waitForTimeout(600);
+  check('a login cannot be created without a name',
+    await p.$eval('#setupError', (n) => !n.hidden) &&
+    /name/i.test(await p.$eval('#setupError', (n) => n.textContent)),
+    await p.$eval('#setupError', (n) => n.textContent.trim()));
+
+  await p.fill('#setupName', 'Rumana Akter');
+  await p.click('#setupGo');
+  await p.waitForTimeout(900);
+  check('but it can with one, and no email',
+    await p.$eval('#appRoot', (n) => !n.hidden),
+    'signed straight in - there is no second card to visit');
+
+  // ---- and with the door shut ----
+  p = await open('?signin=1&signups=closed');
+  check('with sign-ups closed the card is not offered',
+    await p.$eval('#loginSignupLine', (n) => n.hidden) &&
+    await p.$eval('#loginClosedLine', (n) => !n.hidden),
+    await p.$eval('#loginClosedLine', (n) => n.textContent.trim().slice(0, 56)));
+  check('and the line says who to ask instead',
+    /ask the EAS team/i.test(await p.$eval('#loginClosedLine', (n) => n.textContent)),
+    'a shut door that explains nothing is a support call');
+
+  p = await open('?view=help');
+
   check('no JS errors across the whole run', errors.length === 0,
     errors.slice(0, 2).join(' / '));
 

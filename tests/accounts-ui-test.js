@@ -318,6 +318,47 @@ const check = (n, ok, d) => {
     sharedCells.length > 1 && sharedCells[1] === '—',
     'it is a door, not a person');
 
+  // ---------------------------------------------------------------------------
+  // the door everybody comes in by
+  // ---------------------------------------------------------------------------
+  // There used to be a shared login - one username and one password the whole
+  // team was given - whose only job was to open the card that creates an
+  // account. Its password sat in a public repository. People create their own
+  // login directly now, and the master shuts the door once everybody is in.
+  check('the Accounts screen carries a switch for new logins',
+    await p.$eval('#signupState', (n) => n.textContent.trim()) === 'Open',
+    await p.$eval('#signupNote', (n) => n.textContent.trim()));
+  check('and says how many of the team are in so far',
+    /of 37/.test(await p.$eval('#signupNote', (n) => n.textContent)),
+    await p.$eval('#signupNote', (n) => n.textContent.trim()));
+
+  // CLOSING NEEDS NO CEREMONY. It is the safe direction.
+  await p.click('#signupToggle');
+  await p.waitForTimeout(600);
+  check('closing it takes one click',
+    await p.$eval('#signupState', (n) => n.textContent.trim()) === 'Closed',
+    await p.$eval('#signupNote', (n) => n.textContent.trim()));
+  check('and the note then says what the only way in is',
+    /employee ID you add/i.test(await p.$eval('#signupNote', (n) => n.textContent)),
+    'the master writing an ID down is the invitation');
+
+  // OPENING DOES. It puts the dashboard back to anybody-with-the-URL being
+  // able to claim an employee ID that has not been used yet.
+  await p.click('#signupToggle');
+  await p.waitForTimeout(400);
+  const asked = await p.$eval('#modalBackdrop', (n) => !n.hidden);
+  check('opening it again asks first', asked, 'closing did not, and should not');
+  check('and says plainly what being open costs',
+    /create a login for any employee ID/i.test(
+      await p.$eval('#modalBody', (n) => n.textContent)),
+    await p.$eval('#modalBody', (n) => n.textContent.trim().slice(0, 62)));
+
+  await p.click('#modalCancel');
+  await p.waitForTimeout(500);
+  check('and cancelling leaves it shut',
+    await p.$eval('#signupState', (n) => n.textContent.trim()) === 'Closed',
+    'the question was real, not a formality');
+
   check('no JS errors across the whole run', errors.length === 0,
     errors.slice(0, 2).join(' / '));
 

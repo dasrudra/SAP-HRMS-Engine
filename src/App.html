@@ -96,6 +96,7 @@
     wireOrg();
     wireLogin();
     wireSetup();
+    wireSignupSwitch();
     wireMessenger();
     watchActivity();
 
@@ -272,6 +273,32 @@
     if (field) field.focus();
 
     showSignInCard();
+    askWhetherSignupsAreOpen();
+  }
+
+
+  /**
+   * Whether the sign-in card offers a way to create a login.
+   *
+   * ASKED BEFORE ANYBODY HAS SIGNED IN, so it is one of the very few calls
+   * this page makes with no token at all. It returns a single boolean and
+   * nothing else - it says whether a door is open, which anybody who tried
+   * the door would learn anyway, and it names no person and no account.
+   *
+   * Both lines stay hidden until the answer arrives rather than guessing at
+   * one: offering "create your login" and then refusing it is worse than
+   * taking a moment to say nothing.
+   */
+  function askWhetherSignupsAreOpen() {
+    google.script.run
+      .withSuccessHandler(function (open) {
+        const offer = document.getElementById('loginSignupLine');
+        const shut = document.getElementById('loginClosedLine');
+        if (offer) offer.hidden = !open;
+        if (shut) shut.hidden = Boolean(open);
+      })
+      .withFailureHandler(function () { /* neither line, rather than a wrong one */ })
+      .signupsAreOpen();
   }
 
 
@@ -284,7 +311,17 @@
    */
   let pendingSetupToken = '';
 
-  function showSetup(setupToken, forUsername) {
+  /**
+   * Shows the one setup card, in whichever of its two jobs applies.
+   *
+   * @param {string} setupToken   from a reset; '' when signing up
+   * @param {string} forUsername  whose password this is; '' when signing up
+   * @param {Object=} missing     {name, email} - what the account has not got
+   *                              yet, so the card asks for exactly that and
+   *                              no more. Ignored when signing up, where
+   *                              nothing is known and everything is asked.
+   */
+  function showSetup(setupToken, forUsername, missing) {
     pendingSetupToken = setupToken || '';
 
     const card = document.querySelector('#loginScreen .login-card:not(#setupCard)');
@@ -307,28 +344,53 @@
       idField.classList.toggle('is-fixed', reset);
     }
 
-    setText('setupTitle', reset ? 'Choose a new password' : 'Set up your login');
+    setText('setupTitle', reset ? 'Choose a new password' : 'Create your login');
     setText('setupSub', reset
       ? 'Your password was reset, so the one you just used is a temporary ' +
         'one. Choose your own now - you will use it from the next time on.'
-      : 'You are signed in with the shared starting login. Set your own ' +
-        'employee ID and password now - you will use those from the next ' +
-        'time on.');
+      : 'Fill these in once. From the next time on you sign in with your ' +
+        'employee ID and the password you choose here.');
     setText('setupGo', reset ? 'Save my password' : 'Create my login');
-    // On a reset the account may already have a name, and the box cannot show
-    // it - the page has no session yet to ask with. So the hint says what an
-    // empty box means, rather than leaving it looking like a question that
-    // has to be answered again.
-    setText('setupNameHint', reset ? 'leave blank to keep the one you have'
-                                   : 'optional');
+
+    // ASK ONLY FOR WHAT IS MISSING. Somebody who signed up gave a name on the
+    // way in; coming back after a reset and being asked for it again is being
+    // asked a question already answered - and an empty box beside it reads as
+    // one that has to be answered, which is how a name gets retyped slightly
+    // differently. Somebody the master wrote down has given nothing yet, and
+    // login() says so.
+    const want = missing || {};
+    const askName = !reset || want.name === true;
+    const askEmail = !reset || want.email === true;
+    const nameWrap = document.getElementById('setupNameWrap');
+    const emailWrap = document.getElementById('setupEmailWrap');
+    if (nameWrap) nameWrap.hidden = !askName;
+    if (emailWrap) emailWrap.hidden = !askEmail;
+
+    // Back to sign in is only a way out of signing up. On a reset there is
+    // nothing to go back to - the temporary password has been spent.
+    const back = document.getElementById('setupBack');
+    if (back) back.hidden = reset;
 
     setValue('setupPass', '');
-    setValue('setupConfirm', '');
     setValue('setupName', '');
+    setValue('setupEmail', '');
     const box = document.getElementById('setupError');
     if (box) box.hidden = true;
 
-    const field = document.getElementById(reset ? 'setupPass' : 'setupId');
+    const field = document.getElementById(reset ? 'setupPass'
+                                                : (askName ? 'setupName' : 'setupId'));
+    if (field) field.focus();
+  }
+
+
+  /** Back from the sign-up card to the sign-in card, having changed nothing. */
+  function showSignIn() {
+    pendingSetupToken = '';
+    const setup = document.getElementById('setupCard');
+    if (setup) setup.hidden = true;
+    const card = document.querySelector('#loginScreen .login-card:not(#setupCard)');
+    if (card) card.hidden = false;
+    const field = document.getElementById('loginUser');
     if (field) field.focus();
   }
 
@@ -336,6 +398,12 @@
   function wireSetup() {
     const form = document.getElementById('setupForm');
     if (!form) return;
+
+    // Creating a login from nothing: no token, no password typed yet, and
+    // nothing known about this person. The server decides whether the door is
+    // open; this only opens the card.
+    bind('loginSignup', 'click', function () { showSetup('', '', null); });
+    bind('setupBack', 'click', showSignIn);
 
     bind('setupPeek', 'click', function () {
       const box = document.getElementById('setupPass');
@@ -380,7 +448,6 @@
             state.mode = 'EXEC';
             keepToken(result.token);
             setValue('setupPass', '');
-            setValue('setupConfirm', '');
             startApp();
             return;
           }
@@ -398,9 +465,25 @@
               'Could not reach the server. Check your connection and try again.';
           }
         })
-        .registerAccount(pendingSetupToken, getValue('setupId').trim(),
-                         getValue('setupPass'), getValue('setupConfirm'),
-                         getValue('setupName').trim());
+        [pendingSetupToken ? 'registerAccount' : 'createAccount']
+        // TWO DOORS, AND THEY TAKE DIFFERENT THINGS.
+        //
+        // With a setup token this is somebody whose account already exists -
+        // a reset, or an employee ID the master wrote down - and the token is
+        // what says which account, so the server will not take their word for
+        // the employee ID.
+        //
+        // Without one they are creating a login from nothing, which has no
+        // token to hold because they have never been here before. What
+        // guards that door instead is the master's switch, a cap on how many
+        // can be made in an hour, and a refusal to touch an employee ID that
+        // already has an account. See createAccount() in Auth.gs.
+        .apply(null, pendingSetupToken
+          ? [pendingSetupToken, getValue('setupId').trim(),
+             getValue('setupPass'), getValue('setupName').trim(),
+             getValue('setupEmail').trim()]
+          : [getValue('setupId').trim(), getValue('setupName').trim(),
+             getValue('setupEmail').trim(), getValue('setupPass')]);
     });
   }
 
@@ -665,7 +748,9 @@
             // for the second, which fixes the ID on the form.
             setValue('loginPass', '');
             setPasswordVisible(false);
-            showSetup(result.setupToken, result.username || '');
+            showSetup(result.setupToken, result.username || '',
+                      { name: result.needsName === true,
+                        email: result.needsEmail === true });
             return;
           }
           if (result && result.ok) {
@@ -5905,6 +5990,84 @@
         renderMasterLog();
       })
       .catch(onError);
+
+    callServer('signupsAreOpen')
+      .then(renderSignupSwitch)
+      .catch(function () { /* the rest of the screen still works */ });
+  }
+
+
+  /**
+   * The New logins switch, and what it says about itself.
+   *
+   * The count beside it is informational only - it closes when the master
+   * says so, never on reaching a number. A rule would shut the door on
+   * somebody whose employee ID was mistyped, at the exact moment they needed
+   * it, and the master would have no idea why.
+   */
+  function renderSignupSwitch(open) {
+    const state2 = document.getElementById('signupState');
+    const note = document.getElementById('signupNote');
+    const button = document.getElementById('signupToggle');
+
+    const people = (state.master && state.master.accounts) || [];
+    const real = people.filter(function (a) { return !a.bootstrap; }).length;
+    const target = (state.boot && state.boot.teamSize) || 0;
+
+    if (state2) {
+      state2.textContent = open ? 'Open' : 'Closed';
+      state2.className = 'signup-state ' + (open ? 'is-open' : 'is-shut');
+    }
+    if (note) {
+      note.textContent = open
+        ? (target ? real + ' of ' + target + ' signed up. Close this once ' +
+                    'everybody is in.'
+                  : real + ' signed up so far. Close this once everybody is in.')
+        : 'Only an employee ID you add above can become an account.';
+    }
+    if (button) {
+      button.disabled = false;
+      button.textContent = open ? 'Close sign-ups' : 'Open sign-ups';
+      button.className = 'btn ' + (open ? 'btn-danger-ghost' : 'btn-primary');
+      button.dataset.open = open ? '1' : '';
+    }
+  }
+
+
+  function wireSignupSwitch() {
+    bind('signupToggle', 'click', function () {
+      const button = document.getElementById('signupToggle');
+      if (!button) return;
+      const open = button.dataset.open === '1';
+
+      // Closing is the safe direction and needs no ceremony. OPENING puts the
+      // dashboard back to anybody-who-has-the-URL being able to claim an
+      // unused employee ID, so that one is asked about.
+      const go = function () {
+        button.disabled = true;
+        callServer('masterSetSignups', !open)
+          .then(function (r) {
+            renderSignupSwitch(r.open);
+            toast(r.open ? 'New logins are open.' : 'New logins are closed.');
+          })
+          .catch(function (err) {
+            button.disabled = false;
+            toast((err && err.message) || 'That could not be changed.');
+          });
+      };
+
+      if (open) return go();
+
+      confirmDialog({
+        title: 'Open sign-ups again?',
+        body: '<p>While this is open, anybody who can reach the dashboard ' +
+              'can create a login for any employee ID that does not have one ' +
+              'yet - including a colleague who has not signed up.</p>' +
+              '<p>Close it again once the person you are expecting is in.</p>',
+        confirmLabel: 'Open sign-ups',
+        tone: 'info'
+      }).then(function (yes) { if (yes) go(); });
+    });
   }
 
 

@@ -1031,6 +1031,14 @@ const CONFIG = {
     'KPI Achievement', 'Band', 'Headroom', 'Computed At'
   ],
 
+  /**
+   * How many people are expected to have a login, for the count beside the
+   * New logins switch. Informational only - nothing closes on reaching it,
+   * because a rule would shut the door on somebody whose employee ID had
+   * been mistyped, at the exact moment they needed it.
+   */
+  TEAM_SIZE: 37,
+
   /** How many rows the browser sends per server call during an upload. */
   UPLOAD_BATCH_SIZE: 500
 };
@@ -1772,4 +1780,37 @@ function headroomFor(completed, successful, kpi) {
  */
 function cleanName(name) {
   return String(name == null ? '' : name).replace(/\s+/g, ' ').trim().slice(0, 60);
+}
+
+
+/**
+ * Takes one from an hourly bucket. Returns false when it is empty.
+ *
+ * HERE RATHER THAN BESIDE A CALLER because two different doors are rate
+ * limited with it and neither owns it: the message box on the sign-in page,
+ * which takes no token at all, and creating a login, which takes no token
+ * either. Both are reachable by anybody who has the URL, and both would
+ * otherwise write rows on the say-so of a script.
+ *
+ * FAILS CLOSED, DELIBERATELY. Caches can be evicted, and this one forgiving a
+ * missing cache would hand those doors to anybody with a loop. Unlike the
+ * per-person question limit, which forgives it because losing somebody's
+ * question is worse than losing a cap, a cache that cannot be read here
+ * counts as empty.
+ *
+ * @param {string} key  the bucket, e.g. 'EAS_SIGNUPS'
+ * @param {number} cap  how many may be taken in an hour
+ * @return {boolean} true if there was one left to take
+ */
+function takeFromHourlyBucket(key, cap) {
+  try {
+    const cache = CacheService.getScriptCache();
+    const used = parseInt(cache.get(key), 10) || 0;
+    if (used >= cap) return false;
+    cache.put(key, String(used + 1), 3600);
+    return true;
+  } catch (e) {
+    Logger.log('Hourly bucket %s unreadable, refusing: %s', key, e.message);
+    return false;
+  }
 }

@@ -2507,6 +2507,35 @@
   */
   .master-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 
+  /* The New logins switch. A card of its own above the list of people,
+     because it governs who may be ON that list - a control that decides
+     whether strangers can create accounts does not belong in a filter row. */
+  .signup-card { padding: 0; }
+  .signup-row {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 18px; flex-wrap: wrap; padding: 14px 18px;
+  }
+  .signup-what { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .signup-label {
+    font-size: 12px; font-weight: 700; letter-spacing: .05em;
+    text-transform: uppercase; color: var(--text-dim);
+  }
+  .signup-state { font-size: 14px; font-weight: 700; }
+  .signup-state.is-open { color: var(--amber-ink); }
+  .signup-state.is-shut { color: var(--green-ink); }
+  .signup-note { font-size: 12px; color: var(--text-mut); }
+
+  /* A button that reads as a link - "Create your login" under the sign-in
+     card, and "Back to sign in" under the sign-up one. A real button, so it
+     is reachable by keyboard and cannot submit the form it sits in. */
+  .link-btn {
+    padding: 0; border: 0; background: none;
+    color: var(--blue-500); font: inherit; font-weight: 600;
+    text-decoration: underline; text-underline-offset: 2px; cursor: pointer;
+  }
+  .link-btn:hover { color: var(--blue-600); }
+  .login-back { display: block; margin: 12px auto 0; }
+
   /* The Name and Email boxes on the Accounts table.
 
      Deliberately almost invisible until you touch one. The table is read far

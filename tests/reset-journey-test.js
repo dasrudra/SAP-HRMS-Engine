@@ -172,114 +172,204 @@ vm.runInContext('function sheetFor(name) {' +
   'function tabsHas() { return false; }', sb);
 vm.runInContext(fs.readFileSync(path.join(SRC, 'Auth.gs'), 'utf8'), sb);
 
-const STARTING = vm.runInContext('STARTING_PASSWORD', sb);
+// What a call threw, as text - so a guard test can tell "refused because
+// you are not a master" from "crashed on the way", which both look like
+// a thrown exception and are not the same result at all.
+const threwFrom = (fn) => { try { fn(); return ''; } catch (e) { return String(e.message || e); } };
+
+const RESET_PW = vm.runInContext('RESET_PASSWORD', sb);
 const BOOTSTRAP = vm.runInContext('BOOTSTRAP_USER', sb);
 const login = vm.runInContext('login', sb);
 const register = vm.runInContext('registerAccount', sb);
+const signUp = vm.runInContext('createAccount', sb);
 const setAccount = vm.runInContext('setAccount', sb);
 const readAccounts = vm.runInContext('readAccounts', sb);
 const reset = vm.runInContext('masterResetPassword', sb);
 const issueToken = vm.runInContext('issueToken', sb);
+const setSignups = vm.runInContext('masterSetSignups', sb);
+const signupsOpen = vm.runInContext('signupsOpen', sb);
+const invite = vm.runInContext('masterGrantToEmployeeId', sb);
 
-// The cast: the shared starting login, a master, and the boss.
 vm.runInContext('seedCredentials();', sb);
 setAccount('20536723', 'rudrapass', 'MASTER');
-setAccount('20217473', 'bosspass', 'ADMIN');
 const MASTER = issueToken('20536723', 'MASTER');
 
-check('the boss can sign in with the password he chose',
-  login('20217473', 'bosspass').ok === true);
+// ---------------------------------------------------------------------------
+// the door everybody comes in by
+// ---------------------------------------------------------------------------
+check('a fresh install leaves the door open rather than shut',
+  signupsOpen() === true,
+  'a control defaulting to closed stops a rollout dead on the day it ships');
+
+check('there is no shared starting login any more',
+  login(BOOTSTRAP, RESET_PW).ok === false &&
+  !readAccounts()[BOOTSTRAP],
+  'seedCredentials used to create one; it creates nothing now');
+
+// AND AN INSTALLATION THAT STILL HAS THE OLD ROW IS NO WORSE OFF.
+// Every dashboard already running has a 'user' row on its ACCOUNTS tab with
+// the published password on it. Deploying this must shut that door on the
+// spot, without waiting for anybody to remember to delete the row - which is
+// exactly the kind of step that does not get done.
+setAccount(BOOTSTRAP, RESET_PW, 'USER');
+check('and a leftover one is refused with its own password',
+  Boolean(readAccounts()[BOOTSTRAP]) &&
+  login(BOOTSTRAP, RESET_PW).ok === false,
+  'the row is still there and it opens nothing');
+check('refused with the same words as any other wrong password',
+  login(BOOTSTRAP, RESET_PW).message === login('20999999', 'whatever').message,
+  'or the difference between the two answers tells you the row exists');
+check('and the master can delete it, which was once refused',
+  (function () {
+    vm.runInContext('masterRemoveAccount', sb)(MASTER, BOOTSTRAP);
+    return !readAccounts()[BOOTSTRAP];
+  })(),
+  'it used to be undeletable, because without it nobody could sign up');
+
+const made = signUp('20217473', '  Shahriar   Kabir ', 'shahriar@youngone.com',
+                    'bosspass1');
+check('somebody creates their own login in one step', made.ok === true, made.message);
+check('and is signed in there and then, with no second card',
+  Boolean(made.token) && made.setup === false && made.username === '20217473',
+  'username = ' + made.username);
+check('their username IS their employee ID, and cannot be anything else',
+  Boolean(readAccounts()['20217473']) &&
+  signUp('shahriar', 'Shahriar', '', 'bosspass1').ok === false,
+  'digits only - the number on the ID card');
+
+check('the name is kept against that ID, tidied',
+  readAccounts()['20217473'].fullName === 'Shahriar Kabir',
+  '"' + readAccounts()['20217473'].fullName + '"');
+check('and so is the email, which was optional',
+  readAccounts()['20217473'].email === 'shahriar@youngone.com');
+check('a new login is a VIEWER, never an admin',
+  readAccounts()['20217473'].role === 'USER',
+  'admin is granted afterwards, never claimed on the way in');
+
+// What is required, and what is not.
+check('a name is required',
+  signUp('20900101', '   ', '', 'goodpass1').ok === false,
+  signUp('20900101', '', '', 'goodpass1').message);
+check('an email is not',
+  (function () {
+    const r = signUp('20900101', 'No Address', '', 'goodpass1');
+    return r.ok === true && readAccounts()['20900101'].email === '';
+  })(),
+  'optional means optional');
+check('but a bad one is refused rather than stored',
+  signUp('20900102', 'Typo Person', 'not-an-address', 'goodpass1').ok === false,
+  signUp('20900103', 'Typo Person', 'not-an-address', 'goodpass1').message);
+check('and a short password is refused',
+  signUp('20900104', 'Short Pass', '', 'abc').ok === false);
+
+// THE TAKEOVER THAT MUST NOT WORK.
+const takeover = signUp('20217473', 'Not Shahriar', '', 'stealing123');
+check('signing up with an employee ID that already has a login is refused',
+  takeover.ok === false && /already a login/.test(takeover.message),
+  takeover.message);
+check('and the account it was aimed at is untouched',
+  login('20217473', 'bosspass1').ok === true &&
+  login('20217473', 'stealing123').ok === false,
+  'the password typed at the wrong door did not take');
 
 // ---------------------------------------------------------------------------
-// the reset
+// closing the door
+// ---------------------------------------------------------------------------
+const viewerTried = threwFrom(function () {
+  setSignups(issueToken('20217473', 'USER'), false);
+});
+check('closing it is master-only',
+  /master/i.test(viewerTried),
+  viewerTried || '(it did not refuse at all)');
+
+setSignups(MASTER, false);
+check('once closed, nobody can create a login from nothing',
+  signupsOpen() === false &&
+  signUp('20900200', 'Too Late', '', 'goodpass1').ok === false,
+  signUp('20900201', 'Too Late', '', 'goodpass1').message);
+check('and the refusal says what to do instead',
+  /ask the EAS team/i.test(signUp('20900202', 'Too Late', '', 'goodpass1').message),
+  'a closed door that explains nothing is a support call');
+
+// ---------------------------------------------------------------------------
+// the reset, which closing the door must not break
 // ---------------------------------------------------------------------------
 const done = reset(MASTER, '20217473');
-check('a master can reset it', done.ok === true);
+check('a master can still reset a password with sign-ups closed',
+  done.ok === true, done.message);
 check('and is told the password it went back to',
-  done.password === STARTING, done.password);
+  done.password === RESET_PW, done.password);
 check('the old password stops working',
-  login('20217473', 'bosspass').ok === false,
+  login('20217473', 'bosspass1').ok === false,
   'otherwise a reset would not be one');
-check('and the account is flagged as needing one chosen',
-  readAccounts()['20217473'].mustChange === true,
-  'which is the "Must set a password" the master screen shows');
-check('his role survived the reset',
-  readAccounts()['20217473'].role === 'ADMIN',
-  'resetting a password is not demoting somebody');
+check('his role survived it',
+  readAccounts()['20217473'].role === 'USER' &&
+  readAccounts()['20217473'].mustChange === true);
 
-// ---------------------------------------------------------------------------
-// the wrong way round - the one a real person took
-// ---------------------------------------------------------------------------
-// He had been given the shared starting login once, months ago. It is the only
-// thing he has, so it is what he tries.
-const shared = login(BOOTSTRAP, STARTING);
-check('the shared starting login still opens the sign-up card',
-  shared.ok === true && shared.setup === true && Boolean(shared.setupToken));
-check('and that card is bound to nobody, because it is for a new account',
-  !shared.username, 'username = ' + JSON.stringify(shared.username));
-
-const refused = register(shared.setupToken, '20217473', 's4hana1929#', 's4hana1929#');
-check('putting an existing employee ID into it is refused',
-  refused.ok === false, refused.message);
-
-// THE POINT OF THIS SUITE.
-check('and the refusal says to use the employee ID as the username',
-  /username box/.test(refused.message) && /20217473/.test(refused.message),
-  refused.message);
-check('naming the shared login as the thing NOT to use',
-  new RegExp('instead of "' + BOOTSTRAP + '"').test(refused.message),
-  'he had just typed it, so "sign in with it" read as "do what you did"');
-check('and it does not send him off to ask for another reset',
-  !/ask for the password to be reset/.test(refused.message),
-  'he had one - that sentence was a loop');
-// The honest version of "it does not say whether a reset is pending": the
-// answer for an account awaiting one and an account not awaiting one has to be
-// the same text. Anything less and this box becomes a way to ask.
-setAccount('20217450', 'theirownpass', 'USER');
-const quiet = register(shared.setupToken, '20217450', 'another1234', 'another1234');
-check('and an account with no reset pending is refused identically',
-  quiet.ok === false &&
-  quiet.message.replace(/20217450/g, 'ID') === refused.message.replace(/20217473/g, 'ID'),
-  'otherwise the difference between the two answers IS the answer');
-
-check('nothing was written while being refused',
-  readAccounts()['20217473'].mustChange === true &&
-  login('20217473', 's4hana1929#').ok === false,
-  'the password he typed into the wrong card did not take');
-
-// ---------------------------------------------------------------------------
-// the way through
-// ---------------------------------------------------------------------------
-const his = login('20217473', STARTING);
-check('his own employee ID opens with the starting password',
+const his = login('20217473', RESET_PW);
+check('his employee ID opens with the reset password',
   his.ok === true, 'because that is what the reset put back');
 check('and it does NOT sign him straight in',
   his.setup === true && !his.token,
   'a password somebody else chose gets you as far as choosing your own');
-check('this time the card knows who he is',
-  his.username === '20217473' && Boolean(his.setupToken),
-  'username = ' + his.username);
+check('the card knows who he is',
+  his.username === '20217473' && Boolean(his.setupToken));
+check('and does not ask for a name it already has',
+  his.needsName === false,
+  'he gave one when he signed up; asking again is asking twice');
 
-const wrongId = register(his.setupToken, '20536723', 'nicetry123', 'nicetry123');
+const wrongId = register(his.setupToken, '20536723', 'nicetry123');
 check('a card bound to him cannot set anybody else\'s password',
   wrongId.ok === false && /password reset for employee ID 20217473/.test(wrongId.message),
   wrongId.message);
 
-const set = register(his.setupToken, '20217473', 's4hana1929#', 's4hana1929#');
+const set = register(his.setupToken, '20217473', 's4hana1929#');
 check('but it does set his', set.ok === true, set.message);
-check('and signs him in there and then, with no second trip',
-  Boolean(set.token) && set.role === 'ADMIN', set.role);
-check('his role is still ADMIN at the end of all that',
-  readAccounts()['20217473'].role === 'ADMIN');
+check('and signs him in there and then', Boolean(set.token));
+check('his name and email came through the reset untouched',
+  readAccounts()['20217473'].fullName === 'Shahriar Kabir' &&
+  readAccounts()['20217473'].email === 'shahriar@youngone.com',
+  'the reset rewrites the row around them');
 check('the flag is cleared, so next time is an ordinary sign-in',
   readAccounts()['20217473'].mustChange === false);
-
-const after = login('20217473', 's4hana1929#');
-check('the new password works on the next sign-in',
-  after.ok === true && after.setup === false && Boolean(after.token));
-check('and the starting password no longer opens his account',
-  login('20217473', STARTING).ok === false,
+check('the new password works',
+  login('20217473', 's4hana1929#').ok === true);
+check('and the reset password no longer opens his account',
+  login('20217473', RESET_PW).ok === false,
   'or every reset would leave a second way in forever');
+
+// ---------------------------------------------------------------------------
+// the one door left open when sign-ups are closed
+// ---------------------------------------------------------------------------
+// A new joiner. The master writes the employee ID down first; that IS the
+// invitation, and it is the only way an account appears once the door is shut.
+const joined = invite(MASTER, '20900300', 'USER');
+check('the master can still admit one named person',
+  joined.ok === true && joined.invited === true, joined.password);
+
+const theirs = login('20900300', RESET_PW);
+check('who signs in with the reset password and is sent to the card',
+  theirs.ok === true && theirs.setup === true && !theirs.token);
+check('and IS asked for a name, having never given one',
+  theirs.needsName === true,
+  'written down by somebody else, so nothing about them is filled in yet');
+
+const nameless = register(theirs.setupToken, '20900300', 'theirpass1');
+check('so the card refuses to finish without one',
+  nameless.ok === false && /name/i.test(nameless.message), nameless.message);
+
+const finished = register(theirs.setupToken, '20900300', 'theirpass1',
+                          'Nadia Islam', 'nadia@youngone.com');
+check('and finishes once it is given',
+  finished.ok === true && Boolean(finished.token), finished.message);
+check('with the name and email stored against that ID',
+  readAccounts()['20900300'].fullName === 'Nadia Islam' &&
+  readAccounts()['20900300'].email === 'nadia@youngone.com');
+
+setSignups(MASTER, true);
+check('and the door can be opened again',
+  signupsOpen() === true && signUp('20900400', 'Later Joiner', '', 'goodpass1').ok === true);
+
 
 // ---------------------------------------------------------------------------
 // the sign-in log does not grow forever
@@ -356,7 +446,6 @@ check('and an empty log is not something to trip over', prune() === 0);
 // the first thing to establish is that the tab survives being widened at all:
 // readAccounts() asks for the full width, and a range wider than the sheet
 // throws, which would be every account on the dashboard unreadable at once.
-const threwFrom = (fn) => { try { fn(); return ''; } catch (e) { return String(e.message || e); } };
 const setMyName = vm.runInContext('setMyName', sb);
 const setDetails = vm.runInContext('masterSetDetails', sb);
 const alertList = vm.runInContext('alertEmailList', sb);
@@ -385,22 +474,23 @@ check('and its header row is brought up to date',
   accountsTab.header.indexOf('Email') === 11,
   'now ' + accountsTab.header.length + ' wide: ' +
   accountsTab.header.slice(9).join(', '));
+setAccount('20217999', 'legacypass', 'ADMIN');     // no name, no email
 check('while the rows written before it read back blank, not broken',
-  accountNameOf('20217473') === '',
+  accountNameOf('20217999') === '',
   'which is what "this was written before we asked" should look like');
 
 // ---- somebody setting their own ----
-const BOSS = issueToken('20217473', 'ADMIN');
+const BOSS = issueToken('20217999', 'ADMIN');
 check('somebody signed out cannot set a name',
   setMyName(null, 'Nobody').ok === false, setMyName(null, 'X').message);
 check('and an empty one is refused rather than stored',
   setMyName(BOSS, '   ').ok === false, setMyName(BOSS, '  ').message);
 
 check('a signed-in person can set their own',
-  setMyName(BOSS, '  Shahriar   Kabir ').ok === true);
+  setMyName(BOSS, '  Imran   Hossain ').ok === true);
 check('tidied on the way in, so one person is stored one way',
-  accountNameOf('20217473') === 'Shahriar Kabir',
-  '"' + accountNameOf('20217473') + '"');
+  accountNameOf('20217999') === 'Imran Hossain',
+  '"' + accountNameOf('20217999') + '"');
 
 // The ID comes from the token. Without that, the name box on the panel would
 // be a way to rename a colleague.
@@ -413,25 +503,25 @@ check('a name is not something an ordinary admin can change for somebody else',
   /master/i.test(threwFrom(() => setDetails(BOSS, '20536723', 'Imposter', ''))),
   threwFrom(() => setDetails(BOSS, '20536723', 'Imposter', '')));
 
-setDetails(MASTER, '20217473', 'Shahriar K. Kabir', 'shahriar@youngone.com');
+setDetails(MASTER, '20217999', 'Imran K. Hossain', 'imran@youngone.com');
 check('the master can correct a name',
-  accountNameOf('20217473') === 'Shahriar K. Kabir',
-  accountNameOf('20217473'));
+  accountNameOf('20217999') === 'Imran K. Hossain',
+  accountNameOf('20217999'));
 check('and set the address that account is told at',
-  readAccounts()['20217473'].email === 'shahriar@youngone.com',
-  readAccounts()['20217473'].email);
+  readAccounts()['20217999'].email === 'imran@youngone.com',
+  readAccounts()['20217999'].email);
 check('an address that is not one is refused, not stored',
-  /email address/i.test(threwFrom(() => setDetails(MASTER, '20217473', undefined, 'shahriar.at.work'))) &&
-  readAccounts()['20217473'].email === 'shahriar@youngone.com',
+  /email address/i.test(threwFrom(() => setDetails(MASTER, '20217999', undefined, 'imran.at.work'))) &&
+  readAccounts()['20217999'].email === 'imran@youngone.com',
   'the one already there is left alone');
 
 // undefined means "leave it", '' means "clear it". Without that difference,
 // setting an email would blank a name and there would be no way to remove a
 // wrong address.
-setDetails(MASTER, '20217473', undefined, undefined);
+setDetails(MASTER, '20217999', undefined, undefined);
 check('leaving both out changes neither',
-  accountNameOf('20217473') === 'Shahriar K. Kabir' &&
-  readAccounts()['20217473'].email === 'shahriar@youngone.com',
+  accountNameOf('20217999') === 'Imran K. Hossain' &&
+  readAccounts()['20217999'].email === 'imran@youngone.com',
   'undefined is "leave it alone"');
 
 // ---- who gets the email ----
@@ -439,7 +529,7 @@ setDetails(MASTER, '20536723', 'Rudra Das', 'rudra@youngone.com');
 let who = alertList();
 check('every admin and master with an address is emailed',
   who.indexOf('rudra@youngone.com') !== -1 &&
-  who.indexOf('shahriar@youngone.com') !== -1,
+  who.indexOf('imran@youngone.com') !== -1,
   who.join(', '));
 check('and the list maintains itself - that is the point of the column',
   who.length === 2, 'nothing was typed into the editor to get here');
@@ -453,12 +543,12 @@ check('a viewer with an address is NOT emailed',
   'only admins and above answer queries, so only they are told of one');
 
 // Losing the role loses the alerts, with nothing else to remember.
-vm.runInContext('masterSetRole', sb)(MASTER, '20217473', 'USER');
+vm.runInContext('masterSetRole', sb)(MASTER, '20217999', 'USER');
 check('and taking admin away stops the emails on its own',
-  alertList().indexOf('shahriar@youngone.com') === -1,
+  alertList().indexOf('imran@youngone.com') === -1,
   'the list that needed editing by hand was the list of whoever was an ' +
   'admin on the day it was last edited');
-vm.runInContext('masterSetRole', sb)(MASTER, '20217473', 'ADMIN');
+vm.runInContext('masterSetRole', sb)(MASTER, '20217999', 'ADMIN');
 
 // The extras are for addresses that have no account: a shared inbox, a
 // manager who is not an admin.
@@ -478,31 +568,27 @@ check('and one that is both is emailed once, not twice',
 // saveAccount writes the WHOLE row, so anything a caller rebuilds from
 // scratch and forgets is erased. A password is reset far more often than a
 // name changes.
-reset(MASTER, '20217473');
+reset(MASTER, '20217999');
 check('resetting a password does not erase the name or the address',
-  accountNameOf('20217473') === 'Shahriar K. Kabir' &&
-  readAccounts()['20217473'].email === 'shahriar@youngone.com',
+  accountNameOf('20217999') === 'Imran K. Hossain' &&
+  readAccounts()['20217999'].email === 'imran@youngone.com',
   'the reset rewrites the row around them');
 
-const afterReset = login('20217473', vm.runInContext('RESET_PASSWORD', sb));
-register(afterReset.setupToken, '20217473', 'brandnew1', 'brandnew1', '');
+const afterReset = login('20217999', vm.runInContext('RESET_PASSWORD', sb));
+register(afterReset.setupToken, '20217999', 'brandnew1');
 check('and nor does choosing a new password with the name box left empty',
-  accountNameOf('20217473') === 'Shahriar K. Kabir',
+  accountNameOf('20217999') === 'Imran K. Hossain',
   'an empty box is "nothing to add", not "forget me"');
 
 // ---- and a new person gives one on the way in ----
-const fresh = login(BOOTSTRAP, STARTING);
-register(fresh.setupToken, '20991234', 'firstpass1', 'firstpass1', ' Nadia  Islam ');
-check('somebody signing up for the first time is asked once, on that card',
-  accountNameOf('20991234') === 'Nadia Islam',
+setSignups(MASTER, true);
+signUp('20991234', ' Rumana  Akter ', '', 'firstpass1');
+check('somebody signing up gives a name on the way in, and it is kept',
+  accountNameOf('20991234') === 'Rumana Akter',
   accountNameOf('20991234'));
-check('and a blank one still creates the account',
-  (function () {
-    const other = login(BOOTSTRAP, STARTING);
-    const made = register(other.setupToken, '20991235', 'firstpass1', 'firstpass1', '');
-    return made.ok === true && accountNameOf('20991235') === '';
-  })(),
-  'a missing courtesy is no reason to refuse somebody an account');
+check('and the sign-up card will not finish without one',
+  signUp('20991235', '  ', '', 'firstpass1').ok === false,
+  'it is what every message they send is signed with');
 
 const failed = out.filter((r) => !r).length;
 console.log('\n' + (out.length - failed) + '/' + out.length + ' passed');

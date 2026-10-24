@@ -94,9 +94,26 @@
       <button type="submit" class="btn btn-primary login-go" id="loginGo">Sign in</button>
     </form>
 
-    <p class="login-note">
-      Sign in with your employee ID. If this is your first time, use the
-      starting login your team gave you and you will be asked to set your own.
+    <!--
+      THE WAY IN FOR SOMEBODY WHO HAS NEVER BEEN HERE.
+
+      There used to be a shared login - one username and one password the
+      whole team was given - whose only job was to open the card that creates
+      an account. It was a password that had to be passed around, written in
+      a public repository, and typed by somebody who had just been told it was
+      not really theirs. This replaces it: people create their own login
+      directly, and the master closes the door when everybody is in.
+
+      Hidden while sign-ups are closed, by signupsAreOpen() on page load. A
+      button that only ever says no is worse than no button.
+    -->
+    <p class="login-note" id="loginSignupLine" hidden>
+      First time here?
+      <button type="button" class="link-btn" id="loginSignup">Create your login</button>
+    </p>
+    <p class="login-note" id="loginClosedLine" hidden>
+      Sign in with your employee ID. New logins are closed - ask the EAS team
+      to add your employee ID and you will be able to set a password.
     </p>
   </div>
 
@@ -120,39 +137,63 @@
     </div>
 
     <p class="login-sub" id="setupSub">
-      You are signed in with the shared starting login. Set your own employee
-      ID and password now - you will use those from the next time on.
+      Fill these in once. From the next time on you sign in with your employee
+      ID and the password you choose here.
     </p>
 
+    <!--
+      ONE CARD, TWO JOBS, AND IT ASKS ONLY FOR WHAT IS MISSING.
+
+        Signing up   - name, email, employee ID and a password. Nothing is
+                       known about this person yet, so everything is asked.
+        After a reset - the account already exists and already knows who they
+                       are, so the name and email boxes are hidden and the
+                       employee ID is filled in and locked. All that is left
+                       is choosing a password.
+
+      Somebody the master wrote down ahead of time is the middle case: they
+      arrive by the reset door with nothing filled in, so login() says
+      needsName and the name box comes back for them.
+
+      THE ORDER IS NAME, EMAIL, ID, PASSWORD - who you are, then how to reach
+      you, then how you sign in. The two secrets sit together at the bottom.
+    -->
     <form id="setupForm" autocomplete="on">
+      <label class="login-field" id="setupNameWrap">
+        <span>Name</span>
+        <input type="text" id="setupName" name="name"
+               autocomplete="name" maxlength="60"
+               placeholder="What your colleagues call you">
+      </label>
+
+      <!--
+        Optional, and it does nothing for most people: only admins are emailed
+        when a query comes in. It is collected from everybody anyway because
+        the day somebody is made an admin is not the day you want to be
+        chasing them for an address.
+      -->
+      <label class="login-field" id="setupEmailWrap">
+        <span>Email <em class="field-hint">optional</em></span>
+        <input type="email" id="setupEmail" name="email" maxlength="120"
+               autocapitalize="off" spellcheck="false"
+               placeholder="Where alerts would go">
+      </label>
+
       <label class="login-field">
-        <span>Employee ID</span>
+        <span>Username <em class="field-hint">your employee ID</em></span>
         <input type="text" id="setupId" name="username" inputmode="numeric"
                autocomplete="username" placeholder="Emp_ID"
                autocapitalize="off" spellcheck="false" required>
       </label>
 
       <!--
-        ASKED HERE AND NOWHERE ELSE. This is the one card everybody fills in
-        exactly once, and it already knows who they are. On the sign-in card
-        it would be asked every morning and answered slightly differently
-        each time; in the message panel - where it used to be asked - it made
-        the name a property of a message instead of of a person.
-
-        Not required. Somebody who skips it is shown by their employee ID,
-        exactly as before this box existed, and can give a name later from
-        the message panel. Refusing to create an account over a missing
-        courtesy would be the wrong trade.
+        No "type it again" box. It was there to catch a typo in something you
+        cannot see - but the eye button lets you read back what you typed,
+        which catches the same typo and costs one field instead of two on a
+        card people fill in on a phone.
       -->
-      <label class="login-field">
-        <span>Your name <em class="field-hint" id="setupNameHint">optional</em></span>
-        <input type="text" id="setupName" name="name"
-               autocomplete="name" maxlength="60"
-               placeholder="What your colleagues call you">
-      </label>
-
       <label class="login-field login-secret">
-        <span>Choose a password</span>
+        <span>Password</span>
         <input type="password" id="setupPass" name="new-password"
                autocomplete="new-password" minlength="6" required>
         <button type="button" class="peek" id="setupPeek"
@@ -165,15 +206,10 @@
         </button>
       </label>
 
-      <label class="login-field">
-        <span>Type it again</span>
-        <input type="password" id="setupConfirm" name="new-password"
-               autocomplete="new-password" minlength="6" required>
-      </label>
-
       <div class="login-error" id="setupError" hidden></div>
 
       <button type="submit" class="btn btn-primary login-go" id="setupGo">Create my login</button>
+      <button type="button" class="link-btn login-back" id="setupBack">Back to sign in</button>
     </form>
 
     <p class="login-note">
@@ -1211,6 +1247,31 @@
             </label>
             <button class="btn btn-primary" id="grantGo">Give access</button>
             <span class="filter-count" id="grantNote"></span>
+          </div>
+        </div>
+
+        <!--
+          THE DOOR THE WHOLE TEAM COMES IN BY.
+
+          Everybody creates their own login once - name, employee ID,
+          password - and then this should be shut. Open, anybody who reaches
+          the URL and guesses a colleague's employee ID can claim an account
+          that colleague has not got round to making yet. Shut, the only way a
+          new account appears is the master writing an employee ID down in the
+          card above this one.
+
+          Deliberately a switch and not a rule. It closes when the master says
+          so, not when a count is reached - a mistyped employee ID would
+          otherwise shut the door on the person it was meant for.
+        -->
+        <div class="card signup-card">
+          <div class="signup-row">
+            <div class="signup-what">
+              <span class="signup-label">New logins</span>
+              <span class="signup-state" id="signupState">&#x2014;</span>
+              <span class="signup-note" id="signupNote"></span>
+            </div>
+            <button class="btn" id="signupToggle" disabled>&#x2014;</button>
           </div>
         </div>
 

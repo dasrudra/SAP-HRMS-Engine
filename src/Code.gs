@@ -170,6 +170,9 @@ function getBootstrap(token) {
     // from here rather than repeating them, so a figure printed on the toggle
     // cannot disagree with the figure the server scored against.
     kpi1Standards: [CONFIG.KPI.RESOLUTION, CONFIG.KPI.RESOLUTION_EAS],
+
+    // For the count beside the New logins switch on the Accounts screen.
+    teamSize: CONFIG.TEAM_SIZE,
     // All four in display order. The screens iterate this rather than naming
     // KPIs individually, so adding a fifth is a Config.gs edit only.
     kpiList: CONFIG.KPI_ORDER.map(function (key) { return CONFIG.KPI[key]; }),

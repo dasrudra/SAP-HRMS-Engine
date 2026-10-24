@@ -211,6 +211,9 @@ const stub = `
   // What the signed-in person's ACCOUNT says they are called, and the switch
   // for the one case that still has to be asked.
   var NO_NAME = new URLSearchParams(location.search).get('noname') === '1';
+  // ?signups=closed drives the sign-in page with the door shut.
+  var SIGNUPS_OPEN =
+    new URLSearchParams(location.search).get('signups') !== 'closed';
   var MY_NAME = NO_NAME ? '' : 'Rudra Das';
   var ACCOUNTS = [
     { username: '20217450', role: 'USER', created: '2026-10-05T06:46:00.000Z',
@@ -317,6 +320,7 @@ const stub = `
         kpiList: ${JSON.stringify(CONFIG.KPI_ORDER.map((k) => CONFIG.KPI[k]))},
         kpiPolicy: ${JSON.stringify(CONFIG.POLICY)},
         kpi1Standards: STANDARDS,
+        teamSize: ${CONFIG.TEAM_SIZE},
         kpiLinks: {},
         questionsWaiting: waitingCount(),
         availableMonths: ['2026-08'],
@@ -536,6 +540,45 @@ const stub = `
       return { affiliate: affiliate, hasData: people.length > 0, people: people,
                affiliates: [{ name: 'KSL', tickets: 9 }, { name: 'TVL', tickets: 6 },
                             { name: '(none given)', tickets: 2 }] };
+    },
+
+    // THE TWO DOORS, and the switch in front of one of them.
+    //
+    // SIGNUPS_OPEN is a knob rather than a constant because the thing worth
+    // testing about the sign-in page is what it offers when the door is SHUT:
+    // no "create your login", and a line saying who to ask instead.
+    signupsAreOpen: function () { return SIGNUPS_OPEN; },
+    masterSetSignups: function (token, open) {
+      SIGNUPS_OPEN = Boolean(open);
+      return { ok: true, open: SIGNUPS_OPEN };
+    },
+    createAccount: function (employeeId, fullName, email, password) {
+      if (!SIGNUPS_OPEN) {
+        return { ok: false, message: 'Sign-ups are closed. Ask the EAS team ' +
+                                     'to add your employee ID.' };
+      }
+      if (!/^[0-9]{4,12}$/.test(String(employeeId || ''))) {
+        return { ok: false, message: 'An employee ID is digits only.' };
+      }
+      if (!String(fullName || '').trim()) {
+        return { ok: false, message: 'Put your name in - it is what your ' +
+                                     'messages are signed with.' };
+      }
+      if (String(password || '').length < 6) {
+        return { ok: false, message: 'Choose a password of at least 6 characters.' };
+      }
+      if (ACCOUNTS.filter(function (a) { return a.username === String(employeeId); }).length) {
+        return { ok: false, message: 'There is already a login for employee ID ' +
+                                     employeeId + '.' };
+      }
+      ACCOUNTS.push({ username: String(employeeId), role: 'USER',
+                      created: new Date().toISOString(),
+                      lastSignIn: new Date().toISOString(), signIns: 1,
+                      mustChange: false,
+                      fullName: String(fullName).replace(/\\s+/g, ' ').trim(),
+                      email: String(email || '').trim() });
+      return { ok: true, setup: false, role: 'USER',
+               username: String(employeeId), token: 'tok-' + employeeId };
     },
 
     getKpi2: function () { return { hasData: false }; },

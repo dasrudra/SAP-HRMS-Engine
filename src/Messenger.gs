@@ -940,26 +940,9 @@ function shortId() {
 }
 
 
-/**
- * Takes one from an hourly bucket. Returns false when it is empty.
- *
- * Caches can be evicted, and this one failing open would hand the sign-in page
- * to anybody with a script. So unlike the per-person limit, which forgives a
- * missing cache because losing a question is worse than losing a cap, a
- * cache that cannot be read here counts as empty.
- */
-function takeFromHourlyBucket(key, cap) {
-  try {
-    const cache = CacheService.getScriptCache();
-    const used = parseInt(cache.get(key), 10) || 0;
-    if (used >= cap) return false;
-    cache.put(key, String(used + 1), 3600);
-    return true;
-  } catch (e) {
-    Logger.log('Hourly bucket %s unreadable, refusing: %s', key, e.message);
-    return false;
-  }
-}
+// takeFromHourlyBucket() lives in Config.gs - Auth.gs caps new sign-ups with
+// the same bucket now, and a rate limiter kept beside one of its two callers
+// is a rate limiter the other one has to reach across a file for.
 
 
 /**
