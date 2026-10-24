@@ -345,11 +345,17 @@
     }
 
     setText('setupTitle', reset ? 'Choose a new password' : 'Create your login');
-    setText('setupSub', reset
-      ? 'Your password was reset, so the one you just used is a temporary ' +
-        'one. Choose your own now - you will use it from the next time on.'
-      : 'Fill these in once. From the next time on you sign in with your ' +
-        'employee ID and the password you choose here.');
+    // Only the reset card has anything to say here. The sign-up card's four
+    // labelled boxes say what they are for on their own, and the note under
+    // the button already explains what the employee ID becomes.
+    const sub = document.getElementById('setupSub');
+    if (sub) {
+      sub.hidden = !reset;
+      sub.textContent = reset
+        ? 'Your password was reset, so the one you just used is a temporary ' +
+          'one. Choose your own now - you will use it from the next time on.'
+        : '';
+    }
     setText('setupGo', reset ? 'Save my password' : 'Create my login');
 
     // ASK ONLY FOR WHAT IS MISSING. Somebody who signed up gave a name on the
@@ -383,8 +389,16 @@
   }
 
 
-  /** Back from the sign-up card to the sign-in card, having changed nothing. */
-  function showSignIn() {
+  /**
+   * Back from the sign-up card to the sign-in card, having changed nothing.
+   *
+   * NOT called showSignIn(). There is already a function of that name further
+   * down this file - it shows the sign-in SCREEN with a note on it - and a
+   * second declaration silently replaces the first. The Back button ended up
+   * bound to the wrong one, which took the click event as its note and
+   * printed "[object PointerEvent]" above the username box.
+   */
+  function backToSignInCard() {
     pendingSetupToken = '';
     const setup = document.getElementById('setupCard');
     if (setup) setup.hidden = true;
@@ -403,7 +417,7 @@
     // nothing known about this person. The server decides whether the door is
     // open; this only opens the card.
     bind('loginSignup', 'click', function () { showSetup('', '', null); });
-    bind('setupBack', 'click', showSignIn);
+    bind('setupBack', 'click', backToSignInCard);
 
     bind('setupPeek', 'click', function () {
       const box = document.getElementById('setupPass');
@@ -6019,11 +6033,13 @@
       state2.className = 'signup-state ' + (open ? 'is-open' : 'is-shut');
     }
     if (note) {
+      // SHORT ENOUGH TO SIT BESIDE THE BUTTON. This row already carries two
+      // fields and a button; a sentence of advice here pushed the whole
+      // control onto a line of its own and left a gap where it had been.
+      // What is useful every time is the count - the advice is read once.
       note.textContent = open
-        ? (target ? real + ' of ' + target + ' signed up. Close this once ' +
-                    'everybody is in.'
-                  : real + ' signed up so far. Close this once everybody is in.')
-        : 'Only an employee ID you add above can become an account.';
+        ? (target ? real + ' of ' + target + ' signed up' : real + ' signed up')
+        : 'Only an employee ID you add above';
     }
     if (button) {
       button.disabled = false;

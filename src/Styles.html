@@ -2507,15 +2507,18 @@
   */
   .master-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 
-  /* The New logins switch. A card of its own above the list of people,
-     because it governs who may be ON that list - a control that decides
-     whether strangers can create accounts does not belong in a filter row. */
-  .signup-card { padding: 0; }
-  .signup-row {
-    display: flex; align-items: center; justify-content: space-between;
-    gap: 18px; flex-wrap: wrap; padding: 14px 18px;
+  /* The New logins switch, sitting in the Give someone access row at the far
+     end of it. The same question as the box beside it - who is allowed to
+     exist on this dashboard - so it belongs in the same card, pushed right
+     with margin-left:auto rather than given a card of its own. */
+  .signup-box {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    margin-left: auto; padding: 8px 12px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
   }
-  .signup-what { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .signup-what { display: flex; align-items: baseline; gap: 8px; }
   .signup-label {
     font-size: 12px; font-weight: 700; letter-spacing: .05em;
     text-transform: uppercase; color: var(--text-dim);
@@ -2523,7 +2526,7 @@
   .signup-state { font-size: 14px; font-weight: 700; }
   .signup-state.is-open { color: var(--amber-ink); }
   .signup-state.is-shut { color: var(--green-ink); }
-  .signup-note { font-size: 12px; color: var(--text-mut); }
+  .signup-note { font-size: 12px; color: var(--text-mut); white-space: nowrap; }
 
   /* A button that reads as a link - "Create your login" under the sign-in
      card, and "Back to sign in" under the sign-up one. A real button, so it

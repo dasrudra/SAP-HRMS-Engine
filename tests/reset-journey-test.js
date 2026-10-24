@@ -216,7 +216,7 @@ check('and a leftover one is refused with its own password',
   Boolean(readAccounts()[BOOTSTRAP]) &&
   login(BOOTSTRAP, RESET_PW).ok === false,
   'the row is still there and it opens nothing');
-check('refused with the same words as any other wrong password',
+check('refused with the same words as any employee ID nobody has used',
   login(BOOTSTRAP, RESET_PW).message === login('20999999', 'whatever').message,
   'or the difference between the two answers tells you the row exists');
 check('and the master can delete it, which was once refused',
@@ -273,6 +273,32 @@ check('and the account it was aimed at is untouched',
   'the password typed at the wrong door did not take');
 
 // ---------------------------------------------------------------------------
+// what the sign-in card says when there is no account
+// ---------------------------------------------------------------------------
+// Somebody who has never signed up types their employee ID and a password
+// they have just invented. Telling them the two "do not match" sends them off
+// to try it again; there was nothing on the screen to suggest they had no
+// account at all.
+const never = login('20900900', 'anything123');
+check('an employee ID with no login is told exactly that',
+  never.ok === false && /no login for that employee ID/i.test(never.message),
+  never.message);
+check('and pointed at the card that makes one',
+  /create your login/i.test(never.message),
+  'while the door is open, that is the whole answer');
+
+// A WRONG PASSWORD ON AN ACCOUNT THAT EXISTS STILL SAYS ONLY THAT. The two
+// are different answers to different questions, and the one thing that must
+// not happen is "no such account" leaking for an account that does exist.
+const badPass = login('20217473', 'notmypassword');
+check('but a wrong password on a real account says only that',
+  badPass.ok === false &&
+  /do not match/i.test(badPass.message) &&
+  !/no login/i.test(badPass.message),
+  badPass.message);
+
+
+// ---------------------------------------------------------------------------
 // closing the door
 // ---------------------------------------------------------------------------
 const viewerTried = threwFrom(function () {
@@ -290,6 +316,14 @@ check('once closed, nobody can create a login from nothing',
 check('and the refusal says what to do instead',
   /ask the EAS team/i.test(signUp('20900202', 'Too Late', '', 'goodpass1').message),
   'a closed door that explains nothing is a support call');
+
+// And the sign-in card stops offering a card nobody can use.
+const afterClose = login('20900901', 'anything123');
+check('the sign-in card stops pointing at a closed door',
+  /no login for that employee ID/i.test(afterClose.message) &&
+  !/create your login/i.test(afterClose.message) &&
+  /ask the EAS team/i.test(afterClose.message),
+  afterClose.message);
 
 // ---------------------------------------------------------------------------
 // the reset, which closing the door must not break

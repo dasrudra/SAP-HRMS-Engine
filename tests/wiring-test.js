@@ -156,17 +156,36 @@ check('a dropdown that cannot be used yet is still drawn as disabled',
 // later declaration wins and both said the same thing. That is exactly what
 // makes it worth catching: the day somebody fixes one copy, the fix is in the
 // half that does not run, and the bug they were chasing is still there.
+// AND IT HAPPENED AGAIN, IN App.html, WHERE THIS DID NOT LOOK.
+// A new showSignIn() was added beside one that already existed. The later
+// declaration won, the Back button was bound to the wrong one, and it took
+// the click event as its argument and printed "[object PointerEvent]" above
+// the username box on the sign-in card. This check was already written and
+// scanned only .gs files - the 300KB of JavaScript in App.html, which is
+// where a name is most likely to be taken already, was never looked at.
+//
+// In the .gs files every function is at the left margin. In App.html they
+// live inside one IIFE and sit at two spaces; anything deeper is a helper
+// nested in another function, where two of the same name are in different
+// scopes and cannot collide.
 const DOUBLE = [];
-fs.readdirSync(SRC).filter((f) => /\.gs$/.test(f)).forEach(function (file) {
+const scan = function (file, text, pattern) {
   const seen = {};
-  const text = fs.readFileSync(path.join(SRC, file), 'utf8');
-  (text.match(/^function\s+[A-Za-z_$][\w$]*/gm) || []).forEach(function (hit) {
-    const name = hit.replace(/^function\s+/, '');
+  (text.match(pattern) || []).forEach(function (hit) {
+    const name = hit.replace(/^\s*function\s+/, '');
     seen[name] = (seen[name] || 0) + 1;
   });
   Object.keys(seen).forEach(function (name) {
     if (seen[name] > 1) DOUBLE.push(file + ': ' + name + ' x' + seen[name]);
   });
+};
+
+fs.readdirSync(SRC).filter((f) => /\.gs$/.test(f)).forEach(function (file) {
+  scan(file, fs.readFileSync(path.join(SRC, file), 'utf8'),
+       /^function\s+[A-Za-z_$][\w$]*/gm);
+});
+[['App.html', APP], ['Report.html', REPORT]].forEach(function (pair) {
+  scan(pair[0], pair[1], /^  function\s+[A-Za-z_$][\w$]*/gm);
 });
 check('no function is declared twice in the same file',
   DOUBLE.length === 0, DOUBLE.join('; ') || 'every declaration is the only one');
@@ -333,8 +352,9 @@ check('the shared starting login is gone from the sign-in card',
   !/starting login your team gave you/.test(INDEX),
   'people create their own login directly now');
 check('and login() refuses it even if a row for it is still on the sheet',
-  /if \(name === BOOTSTRAP_USER\) \{ recordFailure\(name\); return wrong; \}/.test(AUTH),
-  'an installation that has not deleted the row is no worse off');
+  /if \(name === BOOTSTRAP_USER\) return unknown\(\);/.test(AUTH),
+  'down the same path as any employee ID nobody has used, so it cannot be ' +
+  'told apart from one');
 check('while the door everybody comes in by has a switch on it',
   /function masterSetSignups/.test(AUTH) && /function signupsOpen/.test(AUTH) &&
   /id="signupToggle"/.test(INDEX),

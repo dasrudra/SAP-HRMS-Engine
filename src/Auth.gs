@@ -812,18 +812,50 @@ function login(username, password) {
 
   const account = readAccounts()[name];
 
-  // The same message whether the username is wrong or the password is: a
-  // different one tells anyone probing which usernames exist.
+  // A WRONG PASSWORD ON AN ACCOUNT THAT EXISTS says only that.
   const wrong = { ok: false, role: '', username: '', token: '',
                   message: 'That username and password do not match.' };
 
-  // THE SHARED LOGIN IS NOT A DOOR ANY MORE. Refused here whatever password
-  // is offered and whether or not a row for it is still sitting on the
-  // ACCOUNTS tab, so an installation that has not had it deleted yet is no
-  // worse off than one that has.
-  if (name === BOOTSTRAP_USER) { recordFailure(name); return wrong; }
+  /*
+    AN EMPLOYEE ID WITH NO LOGIN SAYS SO, AND SAYS WHAT TO DO ABOUT IT.
 
-  if (!account) { recordFailure(name); return wrong; }
+    This used to be the same sentence as a wrong password, on the usual
+    reasoning: a different answer for the two tells anybody probing which
+    usernames exist. That reasoning does not survive the sign-up card.
+
+    While sign-ups are OPEN, createAccount() already answers the same
+    question more plainly - try an employee ID and it either makes an account
+    or says there is already a login for it. The stronger oracle is a door we
+    opened on purpose, so refusing to repeat it here protects nothing.
+
+    While sign-ups are CLOSED, the answer is useless: knowing an employee ID
+    has no login does not help when no login can be made.
+
+    What the old message did cost was real. Somebody who had never signed up
+    typed their ID, was told their password was wrong, and tried it again -
+    there was nothing on the screen to suggest they did not have an account
+    at all.
+
+    The retired shared login goes down this path too rather than its own, so
+    it stays indistinguishable from any other employee ID nobody has used.
+  */
+  const unknown = function () {
+    recordFailure(name);
+    return { ok: false, role: '', username: '', token: '',
+             message: signupsOpen()
+               ? 'There is no login for that employee ID yet. Choose ' +
+                 '"Create your login" below to make one.'
+               : 'There is no login for that employee ID. Ask the EAS team ' +
+                 'to add it, and you will be able to set a password.' };
+  };
+
+  // THE SHARED LOGIN IS NOT A DOOR ANY MORE. Refused whatever password is
+  // offered and whether or not a row for it is still sitting on the ACCOUNTS
+  // tab, so an installation that has not had it deleted yet is no worse off
+  // than one that has.
+  if (name === BOOTSTRAP_USER) return unknown();
+
+  if (!account) return unknown();
   if (hashOf(String(password || ''), account.salt) !== account.hash) {
     recordFailure(name);
     return wrong;

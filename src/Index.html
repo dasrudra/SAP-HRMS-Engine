@@ -136,10 +136,7 @@
       </div>
     </div>
 
-    <p class="login-sub" id="setupSub">
-      Fill these in once. From the next time on you sign in with your employee
-      ID and the password you choose here.
-    </p>
+    <p class="login-sub" id="setupSub" hidden></p>
 
     <!--
       ONE CARD, TWO JOBS, AND IT ASKS ONLY FOR WHAT IS MISSING.
@@ -162,8 +159,7 @@
       <label class="login-field" id="setupNameWrap">
         <span>Name</span>
         <input type="text" id="setupName" name="name"
-               autocomplete="name" maxlength="60"
-               placeholder="What your colleagues call you">
+               autocomplete="name" maxlength="60">
       </label>
 
       <!--
@@ -175,8 +171,7 @@
       <label class="login-field" id="setupEmailWrap">
         <span>Email <em class="field-hint">optional</em></span>
         <input type="email" id="setupEmail" name="email" maxlength="120"
-               autocapitalize="off" spellcheck="false"
-               placeholder="Where alerts would go">
+               autocapitalize="off" spellcheck="false">
       </label>
 
       <label class="login-field">
@@ -1247,31 +1242,35 @@
             </label>
             <button class="btn btn-primary" id="grantGo">Give access</button>
             <span class="filter-count" id="grantNote"></span>
-          </div>
-        </div>
 
-        <!--
-          THE DOOR THE WHOLE TEAM COMES IN BY.
+            <!--
+              THE DOOR THE WHOLE TEAM COMES IN BY, beside the one door that
+              stays open when it is shut.
 
-          Everybody creates their own login once - name, employee ID,
-          password - and then this should be shut. Open, anybody who reaches
-          the URL and guesses a colleague's employee ID can claim an account
-          that colleague has not got round to making yet. Shut, the only way a
-          new account appears is the master writing an employee ID down in the
-          card above this one.
+              Everybody creates their own login once - name, employee ID,
+              password - and then this should be closed. Open, anybody who
+              reaches the URL and guesses a colleague's employee ID can claim
+              an account that colleague has not got round to making yet.
+              Closed, the only way a new account appears is somebody being
+              written down in the box to the left of this.
 
-          Deliberately a switch and not a rule. It closes when the master says
-          so, not when a count is reached - a mistyped employee ID would
-          otherwise shut the door on the person it was meant for.
-        -->
-        <div class="card signup-card">
-          <div class="signup-row">
-            <div class="signup-what">
-              <span class="signup-label">New logins</span>
-              <span class="signup-state" id="signupState">&#x2014;</span>
+              The two belong together: this is the same question - who is
+              allowed to exist on this dashboard - asked once in general and
+              once about one person.
+
+              Deliberately a switch and not a rule. It closes when the master
+              says so, not when a count is reached: closing on a number would
+              shut the door on somebody whose employee ID had been mistyped,
+              at the exact moment they needed it.
+            -->
+            <div class="signup-box">
+              <div class="signup-what">
+                <span class="signup-label">New logins</span>
+                <span class="signup-state" id="signupState">&#x2014;</span>
+              </div>
               <span class="signup-note" id="signupNote"></span>
+              <button class="btn btn-sm" id="signupToggle" disabled>&#x2014;</button>
             </div>
-            <button class="btn" id="signupToggle" disabled>&#x2014;</button>
           </div>
         </div>
 

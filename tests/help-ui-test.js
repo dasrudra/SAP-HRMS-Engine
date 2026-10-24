@@ -735,6 +735,22 @@ const FILE = 'file://' + PAGE;
     await p.$eval('#appRoot', (n) => !n.hidden),
     'signed straight in - there is no second card to visit');
 
+  // ---- the message somebody who has never signed up actually sees ----
+  p = await open('?signin=1');
+  await p.fill('#loginUser', '20900900');
+  await p.fill('#loginPass', 'somethinginvented');
+  await p.click('#loginGo');
+  await p.waitForTimeout(800);
+  const noLogin = await p.$eval('#loginError', (n) => n.textContent.trim());
+  check('an employee ID with no login is told exactly that',
+    /no login for that employee ID/i.test(noLogin), noLogin);
+  check('and pointed at the card that makes one',
+    /create your login/i.test(noLogin),
+    'telling them the password was wrong sent them off to try it again');
+  check('and the sign-in card is still there to try again on',
+    await p.$eval('#loginScreen', (n) => !n.hidden) &&
+    await p.$eval('#appRoot', (n) => n.hidden));
+
   // ---- and with the door shut ----
   p = await open('?signin=1&signups=closed');
   check('with sign-ups closed the card is not offered',

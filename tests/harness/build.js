@@ -302,12 +302,31 @@ const stub = `
       return { signedIn: HAS_SIGNED_IN, role: ROLE, username: '20000000',
                mode: 'EXEC' };
     },
+    // IT HAS TO REFUSE AN EMPLOYEE ID NOBODY HAS USED, and say which of the
+    // two things went wrong. Signing anybody in whatever they typed meant the
+    // sign-in card's own error states could not be driven at all - including
+    // the one somebody actually hits: never having signed up, typing their ID
+    // and an invented password, and being told the two "do not match".
     login: function (username, password) {
-      if (!username || !password) {
+      var name = String(username || '').trim().toLowerCase();
+      if (!name || !password) {
         return { ok: false, message: 'That username and password do not match.' };
       }
+      var hit = ACCOUNTS.filter(function (a) { return a.username === name; })[0];
+      if (!hit || name === 'user') {
+        return { ok: false, message: SIGNUPS_OPEN
+          ? 'There is no login for that employee ID yet. Choose "Create your ' +
+            'login" below to make one.'
+          : 'There is no login for that employee ID. Ask the EAS team to add ' +
+            'it, and you will be able to set a password.' };
+      }
+      if (hit.mustChange) {
+        return { ok: true, setup: true, role: '', username: name, token: '',
+                 setupToken: 'setup-' + name,
+                 needsName: !hit.fullName, needsEmail: !hit.email, message: '' };
+      }
       HAS_SIGNED_IN = true;
-      return { ok: true, setup: false, role: ROLE, username: String(username),
+      return { ok: true, setup: false, role: ROLE, username: name,
                token: 'harness', message: '' };
     },
     getBootstrap: function () {
