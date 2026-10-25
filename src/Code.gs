@@ -42,8 +42,10 @@ function doGet(e) {
       '</div>')
       // A literal, not CONFIG.APP_NAME: this page's whole job is to be the
       // thing that still works when a file is missing, so it must not itself
-      // depend on another file being there.
-      .setTitle('Enterprise Application Services')
+      // depend on another file being there. It is the ONE place the system's
+      // name is written out a second time, and wiring-test knows that, so a
+      // rename that forgets this line is caught rather than shipped.
+      .setTitle('TVL-EAS Database')
       .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
   }
 

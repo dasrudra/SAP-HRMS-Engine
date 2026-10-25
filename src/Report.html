@@ -542,7 +542,12 @@
     var now = new Date();
 
     var rows = [];
-    rows.push([text(context.screen || 'Enterprise Application Services', S.TITLE)]);
+    // The system's name from the page itself, not written out again here.
+    // The sidebar carries it, put there from CONFIG.APP_NAME, so a rename
+    // reaches the top of a downloaded report without this file knowing.
+    var brand = document.querySelector('.brand-text strong');
+    var systemName = (brand && brand.textContent.trim()) || 'TVL-EAS Database';
+    rows.push([text(context.screen || systemName, S.TITLE)]);
     rows.push([text(title, S.VALUE)]);
     rows.push([]);
 

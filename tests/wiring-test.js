@@ -28,6 +28,11 @@ const STYLES = read('Styles.html');
 const REPORT = read('Report.html');
 const KPI = read('Kpi.gs');
 const AUTH = read('Auth.gs');
+const CODE_GS = read('Code.gs');
+const CONFIG_SRC = read('Config.gs');
+const SETUP = read('Setup.gs');
+const BACKUP = read('Backup.gs');
+const MESSENGER = read('Messenger.gs');
 
 // ---------------------------------------------------------------------------
 // it parses
@@ -402,6 +407,51 @@ check('the toggle takes its wording and its targets from CONFIG',
   /kpi\.standardLabel/.test(APP) && /String\(kpi\.target\)/.test(APP) &&
   !/>\s*99\.5\s*%\s*</.test(INDEX),
   'nothing about the two standards is typed into the page');
+
+
+// ---------------------------------------------------------------------------
+// the system has one name, written down once
+// ---------------------------------------------------------------------------
+// It has been renamed twice. Each time, the name was in half a dozen files -
+// the sidebar, both sign-in cards, the browser tab, the report heading, the
+// email subject, the spreadsheet a fresh install creates, the backup folder -
+// and a rename that reaches five of them leaves the sixth saying the old one
+// to the only people who ever see it.
+const NAME = /APP_NAME:\s*'([^']+)'/.exec(CONFIG_SRC)[1];
+
+check('the system names itself once, in Config.gs',
+  Boolean(NAME), NAME);
+
+// ONE DELIBERATE SECOND COPY. The emergency page in Code.gs is served when a
+// file is missing from the project, so it cannot read a constant out of
+// another file - that is the exact situation it exists for. It is checked
+// rather than excused: a rename that forgets it fails here.
+check('and the one page that cannot read CONFIG carries the same name',
+  new RegExp("setTitle\\('" + NAME + "'\\)").test(CODE_GS),
+  'the emergency page still works when Config.gs is the missing file');
+
+// Everywhere else reads it.
+[['Setup.gs', SETUP, /SpreadsheetApp\.create\(CONFIG\.APP_NAME\)/],
+ ['Backup.gs', BACKUP, /CONFIG\.APP_NAME \+ ' - Backups'/],
+ ['Messenger.gs', MESSENGER, /subject: CONFIG\.APP_NAME/]].forEach(function (row) {
+  check(row[0] + ' takes the name from CONFIG rather than repeating it',
+    row[2].test(row[1]), 'one rename, one line');
+});
+
+// AND THE THINGS THAT ARE NOT THIS SYSTEM KEEP THEIR OWN NAMES.
+// A find-and-replace over the old name would have taken these with it: the
+// department the dashboard reports ON, the section in the ticket data, and
+// the policy's own wording. None of them is the dashboard.
+check('the department keeps its name when the system is renamed',
+  /name: 'Enterprise Application Services'/.test(CONFIG_SRC) &&
+  /<h2 id="orgTitle">Enterprise Application Services<\/h2>/.test(INDEX),
+  'the org chart is about the team, not about this software');
+check('and the policy is still quoted as it is written',
+  /section: '5\.3 Enterprise Application Services \(EAS\)'/.test(CONFIG_SRC),
+  'a document says what it says');
+check('while the EAS scope in the ticket data is untouched',
+  /scopeType === 'EAS'/.test(KPI),
+  'the EAS row on every KPI table is a section, not a product');
 
 
 // ---------------------------------------------------------------------------

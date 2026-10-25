@@ -963,15 +963,16 @@ function alertTeamOfMessage(from, text, verified, threadId, name) {
   try {
     MailApp.sendEmail({
       to: to.join(','),
-      subject: (unverified ? 'EAS dashboard - UNVERIFIED message from ' :
-                             'EAS dashboard - a message from ') + who(from, name),
+      subject: CONFIG.APP_NAME +
+               (unverified ? ' - UNVERIFIED message from ' : ' - a message from ') +
+               who(from, name),
       body: [
         unverified
           ? 'Somebody used the message box on the SIGN-IN page, where nobody is'
-          : 'Somebody sent a message on the Enterprise Application Services',
+          : 'Somebody sent a message on ' + CONFIG.APP_NAME + '.',
         unverified
           ? 'signed in. The employee ID below is only what they typed.'
-          : 'dashboard.',
+          : '',
         '',
         'From:     ' + who(from, name),
         'Identity: ' + (unverified

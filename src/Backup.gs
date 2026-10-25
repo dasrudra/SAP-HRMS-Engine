@@ -54,19 +54,35 @@
 /** How many daily copies to keep. A month is enough to notice and act. */
 const BACKUP_KEEP = 30;
 
-/** Where the copies go. Made beside the database the first time it runs. */
-const BACKUP_FOLDER = 'Enterprise Application Services - Backups';
+/**
+ * Where the copies go. Made beside the database the first time it runs.
+ *
+ * Built from CONFIG.APP_NAME rather than written out, so renaming the system
+ * renames this with it and there is one fewer place to forget.
+ *
+ * A FUNCTION, NOT A CONST. Apps Script evaluates the files in a project in
+ * the order they are listed, and a top-level const here would read CONFIG
+ * from another file at load time - fine today, and a project that will not
+ * load at all the day somebody drags Backup.gs above Config.gs. Read when
+ * called, the order cannot matter.
+ */
+function backupFolderName() {
+  return CONFIG.APP_NAME + ' - Backups';
+}
 
 /**
- * What the folder was called before the dashboard was renamed.
+ * What the folder was called before the system was last renamed.
  *
  * Renaming the constant alone would quietly start a SECOND folder and leave
  * every copy already taken in the first one - still there, but no longer
  * counted, no longer pruned, and not where restoreGuide() says to look. So if
  * the old folder is found it is used and renamed, and the copies inside it
  * stay where they are.
+ *
+ * One hop back, not a history: this holds the name immediately before the
+ * current one. Renaming again means putting the outgoing name here.
  */
-const BACKUP_FOLDER_WAS = 'EAS KPI Engine - Backups';
+const BACKUP_FOLDER_WAS = 'Enterprise Application Services - Backups';
 
 /** Script Properties: when the last one finished, and what it is called. */
 const BACKUP_LAST_KEY = 'EAS_BACKUP_LAST';
@@ -134,7 +150,7 @@ function backupFolder(file) {
   const parents = file.getParents();
   const home = parents.hasNext() ? parents.next() : DriveApp.getRootFolder();
 
-  const found = home.getFoldersByName(BACKUP_FOLDER);
+  const found = home.getFoldersByName(backupFolderName());
   if (found.hasNext()) return found.next();
 
   // Nothing under the current name. Before making one, look for the name this
@@ -144,13 +160,13 @@ function backupFolder(file) {
   const old = home.getFoldersByName(BACKUP_FOLDER_WAS);
   if (old.hasNext()) {
     const folder = old.next();
-    folder.setName(BACKUP_FOLDER);
+    folder.setName(backupFolderName());
     Logger.log('Renamed the backup folder: "%s" is now "%s" - the copies in it are untouched.',
-               BACKUP_FOLDER_WAS, BACKUP_FOLDER);
+               BACKUP_FOLDER_WAS, backupFolderName());
     return folder;
   }
 
-  return home.createFolder(BACKUP_FOLDER);
+  return home.createFolder(backupFolderName());
 }
 
 
@@ -199,7 +215,7 @@ function installBackupTrigger() {
   Logger.log('=========================================================');
   Logger.log(' DAILY BACKUP IS ON');
   Logger.log('   a copy of the whole workbook, around 2am');
-  Logger.log('   kept in: %s', BACKUP_FOLDER);
+  Logger.log('   kept in: %s', backupFolderName());
   Logger.log('   the newest %s are kept, older ones go to Trash', BACKUP_KEEP);
   Logger.log('=========================================================');
   Logger.log('');
@@ -264,7 +280,7 @@ function backupHealth() {
     name: name,
     count: count,
     stale: age > BACKUP_STALE_HOURS,
-    folder: BACKUP_FOLDER,
+    folder: backupFolderName(),
     keep: BACKUP_KEEP
   };
 }
@@ -296,7 +312,7 @@ function restoreGuide() {
   Logger.log('3. THE WHOLE SPREADSHEET IS GONE');
   Logger.log('   Drive > Trash. It can be restored for 30 days.');
   Logger.log('   If it is past that, open the newest file in the');
-  Logger.log('   "%s" folder, make a copy, and', BACKUP_FOLDER);
+  Logger.log('   "%s" folder, make a copy, and', backupFolderName());
   Logger.log('   point the dashboard at it:');
   Logger.log('     - open the copy and take the ID out of its address');
   Logger.log('     - Project Settings > Script Properties');

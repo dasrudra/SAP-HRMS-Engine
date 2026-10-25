@@ -34,15 +34,25 @@ const CONFIG = {
   SPREADSHEET_ID: null,
 
   /**
-   * Shown in the sidebar, on the sign-in card, in the browser tab and at the
-   * top of every downloaded report. Bump APP_VERSION when you deploy
-   * something meaningful.
+   * WHAT THIS SYSTEM IS CALLED. The one place it is written down.
    *
-   * It was 'EAS KPI Engine' while the dashboard only reported KPIs. It covers
-   * more than that now, so it carries the department's name instead - the same
-   * name the sign-in picture has across it.
+   * Shown in the sidebar, on both sign-in cards, in the browser tab, at the
+   * top of every downloaded report, in the subject of every notification
+   * email, on the database spreadsheet a fresh install creates and on the
+   * folder its backups go in. All of those read it from here, so renaming
+   * this renames the system - with one deliberate exception, the emergency
+   * page in Code.gs, which cannot depend on this file being present because
+   * its whole job is to still work when a file is missing.
+   *
+   * It has been renamed twice: 'EAS KPI Engine' while it only reported KPIs,
+   * then the department's own name, and now this - which says what it is
+   * rather than who runs it, and distinguishes it from the EAS team, the EAS
+   * section in the ticket data and the EAS row on every KPI table. Those are
+   * not this system and are deliberately NOT renamed with it.
+   *
+   * Bump APP_VERSION when you deploy something meaningful.
    */
-  APP_NAME: 'Enterprise Application Services',
+  APP_NAME: 'TVL-EAS Database',
   APP_VERSION: 'v0.1',
 
   /**
