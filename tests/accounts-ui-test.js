@@ -54,6 +54,21 @@ const check = (n, ok, d) => {
     if (/ERR_TUNNEL_CONNECTION_FAILED|ERR_NAME_NOT_RESOLVED|ERR_BLOCKED/.test(m.text())) return;
     errors.push('console: ' + m.text());
   });
+  // A page of its own, for the checks that have to start from a clean one -
+  // signing out cannot be undone on the page it happened to.
+  const open = async (query) => {
+    const page = await b.newPage({ viewport: { width: 1400, height: 900 } });
+    page.on('pageerror', (e) => errors.push(String(e)));
+    page.on('console', (m) => {
+      if (m.type() !== 'error') return;
+      if (/ERR_TUNNEL_CONNECTION_FAILED|ERR_NAME_NOT_RESOLVED|ERR_BLOCKED/.test(m.text())) return;
+      errors.push('console: ' + m.text());
+    });
+    await page.goto('file://' + PAGE + (query || ''));
+    await page.waitForTimeout(2000);
+    return page;
+  };
+
   await p.goto('file://' + PAGE + '?view=master');
   await p.waitForTimeout(2000);
 
@@ -358,6 +373,87 @@ const check = (n, ok, d) => {
   check('and cancelling leaves it shut',
     await p.$eval('#signupState', (n) => n.textContent.trim()) === 'Closed',
     'the question was real, not a formality');
+
+  // ---------------------------------------------------------------------------
+  // signing out, and being signed out
+  // ---------------------------------------------------------------------------
+  // These are two different things and the card used to say the same sentence
+  // about both: "Your session ended after an hour with nothing happening."
+  // Pressing Sign out is not an hour of nothing happening - and the reason it
+  // appeared is that this page keeps two polls on timers, one of which is
+  // usually in flight when the button is pressed. It lands a moment later
+  // holding a token the server has just forgotten, and its refusal was
+  // written over the top of the card.
+  let q = await open('?view=master');
+  await q.click('#signOut');
+  await q.waitForTimeout(900);
+
+  check('signing out puts the sign-in card back',
+    await q.$eval('#loginScreen', (n) => !n.hidden) &&
+    await q.$eval('#appRoot', (n) => n.hidden));
+  check('and says nothing about an hour of inactivity',
+    await q.$eval('#loginAlert', (n) => n.hidden) ||
+    (await q.$eval('#loginAlert', (n) => n.textContent.trim())) === '',
+    await q.$eval('#loginAlert', (n) => n.textContent.trim()) || '(nothing, correctly)');
+
+  await q.close();
+
+  // ---- THE SEQUENCE THAT PRODUCED THE COMPLAINT ----
+  // A call already in flight when Sign out is pressed, landing a moment
+  // afterwards with a token the server has just forgotten. Its refusal used
+  // to be written over the top of the card as a sentence about an hour of
+  // inactivity that had not happened.
+  q = await open('?view=master');
+  await q.evaluate(() => { window.__slowNext = 1500; });
+  await q.click('[data-view="kpi1"]');          // dispatched, answers in 1.5s
+  await q.waitForTimeout(120);
+  await q.click('#signOut');                     // pressed while it is in flight
+  await q.waitForTimeout(2200);                  // long enough for it to land
+
+  check('a call in flight when you sign out does not talk over the card',
+    (await q.evaluate(() => (window.__calls || {}).getKpi1 > 0)) &&
+    ((await q.$eval('#loginAlert', (n) => n.hidden)) ||
+     (await q.$eval('#loginAlert', (n) => n.textContent.trim())) === ''),
+    await q.$eval('#loginAlert', (n) => n.textContent.trim()) || '(nothing, correctly)');
+  await q.close();
+
+  // ---- and the other way round: a token refused with nobody pressing anything ----
+  q = await open('?view=master');
+  await q.evaluate(() => window.__expireSession());
+  // Through the page's own callServer, which is where the decision lives.
+  await q.click('[data-view="kpi1"]');
+  await q.waitForTimeout(1100);
+
+  const note = await q.$eval('#loginAlert', (n) => n.textContent.trim());
+  check('a session refused on its own DOES say so',
+    (await q.$eval('#loginAlert', (n) => !n.hidden)) && /session has ended/i.test(note),
+    note);
+  check('without claiming a reason it cannot know',
+    !/hour/i.test(note) && !/nothing happening/i.test(note),
+    'an account removed or a role changed refuses a token too, and telling ' +
+    'that person they were idle is a confident answer to a question nobody asked');
+  await q.close();
+
+  // ---- and signing back in makes it mean something again ----
+  // The flag says "this person pressed Sign out". If it is never cleared,
+  // the next session they start inherits it, and the day that one really
+  // does run out they are put back at the sign-in card with no idea why.
+  q = await open('?view=master');
+  await q.click('#signOut');
+  await q.waitForTimeout(900);
+  await q.fill('#loginUser', '20536723');
+  await q.fill('#loginPass', 'whatever');
+  await q.click('#loginGo');
+  await q.waitForTimeout(1600);
+  check('signing back in works', await q.$eval('#appRoot', (n) => !n.hidden));
+
+  await q.evaluate(() => window.__expireSession());
+  await q.click('[data-view="kpi1"]');
+  await q.waitForTimeout(1100);
+  const second = await q.$eval('#loginAlert', (n) => n.textContent.trim());
+  check('and the NEXT session ending does say so',
+    /session has ended/i.test(second), second || '(said nothing)');
+  await q.close();
 
   check('no JS errors across the whole run', errors.length === 0,
     errors.slice(0, 2).join(' / '));

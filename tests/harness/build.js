@@ -214,6 +214,9 @@ const stub = `
   // ?signups=closed drives the sign-in page with the door shut.
   var SIGNUPS_OPEN =
     new URLSearchParams(location.search).get('signups') !== 'closed';
+  // Makes every guarded call refuse the token from now on, the way the
+  // server does once a session is over.
+  window.__expireSession = function () { window.__sessionDead = true; };
   var MY_NAME = NO_NAME ? '' : 'Rudra Das';
   var ACCOUNTS = [
     { username: '20217450', role: 'USER', created: '2026-10-05T06:46:00.000Z',
@@ -326,6 +329,9 @@ const stub = `
                  needsName: !hit.fullName, needsEmail: !hit.email, message: '' };
       }
       HAS_SIGNED_IN = true;
+      // A fresh session. Without this, signing back in after a sign-out would
+      // leave every later call refused, which is not what the server does.
+      window.__sessionDead = false;
       return { ok: true, setup: false, role: ROLE, username: name,
                token: 'harness', message: '' };
     },
@@ -604,7 +610,7 @@ const stub = `
     getUploads: function () { return []; },
     getOrgChart: function () { return { sections: [] }; },
     renewToken: function () { return { ok: true, token: 't', role: ROLE }; },
-    logout: function () { return { ok: true }; }
+    logout: function () { window.__sessionDead = true; return { ok: true }; }
   };
 
   // google.script.run, as Apps Script presents it: chainable handlers, then a
@@ -628,6 +634,13 @@ const stub = `
       }).forEach(function (name) {
         api[name] = function () {
           var args = arguments;
+          // A CALL THAT HAS NOT COME BACK YET. window.__slowNext = ms holds
+          // the next dispatch open for that long, which is the only way to
+          // reproduce what actually goes wrong on this page: a poll sent
+          // before Sign out was pressed, landing after it, carrying a token
+          // the server has just forgotten.
+          var hold = window.__slowNext || 0;
+          window.__slowNext = 0;
           setTimeout(function () {
             // HOW MANY TIMES EACH ENDPOINT WAS ASKED. Some of what the page
             // has to do is re-FETCH rather than re-draw - changing KPI 1's
@@ -637,9 +650,23 @@ const stub = `
             // one that happens to look the same.
             window.__calls = window.__calls || {};
             window.__calls[name] = (window.__calls[name] || 0) + 1;
+
+            // A TOKEN THE SERVER NO LONGER ACCEPTS. Set by a test through
+            // window.__expireSession(), because the page's answer to this
+            // depends on WHY it happened - an hour of nothing, an account
+            // removed, or the person having just pressed Sign out - and none
+            // of those could be driven from a stub that always said yes.
+            if (window.__sessionDead && name !== 'logout' &&
+                name !== 'login' && name !== 'createAccount' &&
+                name !== 'signupsAreOpen') {
+              if (onFail) onFail(new Error('Your session has ended. Reload ' +
+                                           'the page and sign in again.'));
+              return;
+            }
+
             try { if (onOk) onOk(HANDLERS[name].apply(null, args)); }
             catch (e) { if (onFail) onFail(e); }
-          }, 4);
+          }, hold || 4);
         };
       });
       // A name the real google.script.run does not have is UNDEFINED, not a

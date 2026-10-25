@@ -678,6 +678,10 @@
 
 
   function startApp() {
+    // Whoever is here now did not press Sign out; that was the last person,
+    // or this one before they signed back in.
+    signedOutOnPurpose = false;
+
     resetIdle();
     hide('loginScreen');
 
@@ -808,6 +812,13 @@
     bind('signOut', 'click', function () {
       const button = document.getElementById('signOut');
       if (button) { button.disabled = true; button.textContent = 'Signing out\u2026'; }
+
+      // BEFORE the call, not after it. A poll in flight can land between
+      // pressing the button and the server answering, and it is that poll
+      // whose refusal used to print an idle message over a deliberate
+      // sign-out.
+      signedOutOnPurpose = true;
+      stopPolling();
 
       const finish = function () {
         if (button) { button.disabled = false; button.textContent = 'Sign out'; }
@@ -1070,14 +1081,54 @@
   }
 
 
+  /**
+   * Whether the person on this page pressed Sign out themselves.
+   *
+   * Set for the moment between pressing it and the card coming back, because
+   * the two polls on this page - the Help badge and the message panel - are
+   * on timers and one of them is usually in flight when it happens. That poll
+   * lands a moment later carrying a token the server has just forgotten, and
+   * what came back used to be a sentence about an hour of inactivity written
+   * over the top of a sign-in card the person had just asked for.
+   */
+  let signedOutOnPurpose = false;
+
+
+  /** Both polls, stopped. Nothing on this page should outlive the session. */
+  function stopPolling() {
+    if (badgeTimer) { clearInterval(badgeTimer); badgeTimer = null; }
+    if (msgrTimer) { clearInterval(msgrTimer); msgrTimer = null; }
+  }
+
+
+  /**
+   * The server has refused the token. Put the sign-in card back, and say only
+   * as much as is actually known about why.
+   *
+   * IT USED TO CLAIM THE HOUR. "Your session ended after an hour with nothing
+   * happening" was printed for ANY refused token, and that is one cause among
+   * several: an account removed, a role changed, the signing key rotated, a
+   * new version deployed. Telling somebody whose account was just deleted
+   * that they had been idle is a confident answer to a question nobody asked.
+   *
+   * The hour still gets named when the hour is really what happened -
+   * checkIdle() notices it on this side and says so in its own words.
+   */
+  function sessionEnded() {
+    dropToken();
+    stopPolling();
+    showSignIn(signedOutOnPurpose
+      ? ''
+      : 'Your session has ended. Sign in again to carry on.');
+  }
+
+
   function onError(err) {
     // A session that ran out is not an error to report, it is a sign-in to
     // ask for. The direct getSession/getBootstrap calls do not go through
     // callServer, so the same rule is applied here too.
     if (err && /session has ended/i.test(String(err.message || err))) {
-      dropToken();
-      showSignIn('Your session ended after an hour with nothing happening. ' +
-                 'Sign in again to carry on.');
+      sessionEnded();
       return;
     }
 
@@ -1105,9 +1156,7 @@
           // useful response is not an error box but the sign-in card. Caught
           // in one place so no individual call has to remember to.
           if (err && /session has ended/i.test(String(err.message || err))) {
-            dropToken();
-            showSignIn('Your session ended after an hour with nothing happening. ' +
-                       'Sign in again to carry on.');
+            sessionEnded();
             return;
           }
           reject(err);
