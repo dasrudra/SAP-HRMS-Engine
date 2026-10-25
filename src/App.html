@@ -1357,6 +1357,15 @@
     // Compare button: it is the backdrop the comparison sits against.
     if (name === 'compare') loadTrend();
 
+    // And the caption under the KPI selector, because KPI 1's standard toggle
+    // lives on a DIFFERENT screen. Written once at boot it kept the target it
+    // was built with: EAS KPI chosen on KPI 1, walk over here, and the caption
+    // still read "Target >= 90%" above a chart drawing the 99.5% line. The
+    // tables below were right - they are scored by the server - so the only
+    // thing wrong was the sentence naming what they were scored against,
+    // which is also the sentence that travels into a downloaded report.
+    if (name === 'compare') renderCompareHint();
+
     // Both halves of Settings quote live readings - the sections' KPI 1
     // figures and each indicator's own rate. Landing straight on Settings,
     // which a refresh does since the view is in the URL, means neither KPI
@@ -3315,9 +3324,25 @@
         // table as rows that had just been re-scored.
         loadKpi1();
         if (getValue('fAllAffiliate')) loadAffiliate();
-        // And the Comparison screen reads the same stored counts, so it
-        // follows rather than contradicting the page that set this.
-        if (state.view === 'compare' && state.compareRan) loadTrend();
+
+        // AND THE COMPARISON SCREEN, WHICH IS USUALLY NOT THE ONE YOU ARE ON.
+        // This toggle lives on KPI 1, so the ordinary way to meet the problem
+        // is to switch standard here and walk over to Comparison afterwards -
+        // where a comparison run under the other target was still sitting,
+        // banded against it, under a caption naming a third figure.
+        //
+        // Thrown away rather than re-fetched from here: showView() already
+        // rebuilds a comparison whose results have been cleared, so clearing
+        // them is enough to make arriving at that screen re-read it. Only
+        // somebody standing on it needs it done now.
+        state.compare = null;
+        state.trend = null;
+        if (state.view === 'compare') {
+          hideComparisonResults();
+          renderCompareHint();
+          loadTrend();
+          if (state.compareRan) runComparison();
+        }
       });
     });
   }
@@ -6528,13 +6553,28 @@
   }
 
 
+  /**
+   * The KPI this screen is comparing, as it is being SCORED right now.
+   *
+   * Through activeDefinition(), because KPI 1 has two standards and the
+   * bootstrap's list only ever carries the policy's. Without it this screen
+   * contradicted itself in plain sight: the caption under the selector read
+   * "Target >= 90%" while the chart below it drew a line labelled 99.5% and
+   * said so in its own subtitle.
+   *
+   * policyBasis() was already right, because it reaches for the active
+   * definition itself - which is what made the screen contradict itself
+   * rather than simply be wrong. The figures, the chart and the line written
+   * into a downloaded report all followed the toggle; the one sentence a
+   * reader would check them against did not.
+   */
   function selectedKpi() {
     const id = getValue('cmpKpi');
     const list = (state.boot && state.boot.kpiList) || [];
     for (let i = 0; i < list.length; i++) {
-      if (list[i].id === id) return list[i];
+      if (list[i].id === id) return activeDefinition(list[i]);
     }
-    return list[0] || null;
+    return list.length ? activeDefinition(list[0]) : null;
   }
 
 

@@ -382,6 +382,114 @@ const FILE = 'file://' + PAGE;
     await z.$eval('#kpi1Layer', (n) =>
       (n.getAttribute('data-basis') || '').slice(-46)));
 
+  // ---------------------------------------------------------------------------
+  // and the Comparison screen, which had it wrong in both directions
+  // ---------------------------------------------------------------------------
+  // Reported off a screen recording: EAS KPI selected on KPI 1, walk to
+  // Comparison, and the caption under WHICH KPI reads "Target >= 90%" while
+  // the chart immediately below it draws a line labelled "Target 99.5%". One
+  // screen, two targets, and no way to tell which one the table had been
+  // scored against.
+  //
+  // Two separate faults sat behind that. selectedKpi() returned the entry out
+  // of the bootstrap's kpiList, and kpiList is built from CONFIG.KPI - which
+  // carries the policy's definition and nothing else - so the caption could
+  // never follow the toggle. And a comparison already RUN stayed on screen,
+  // banded against whichever standard was on when the button was pressed.
+  const goTo = async (view) => {
+    await z.evaluate((v) => {
+      const nav = document.querySelector('[data-view="' + v + '"]');
+      if (nav) nav.click();
+    }, view);
+    await z.waitForTimeout(700);
+  };
+  const caption = () => z.$eval('#cmpKpiHint', (n) => n.textContent.trim());
+
+  // The Summary block above left the toggle on EAS.
+  await goTo('compare');
+  const capEas = await caption();
+
+  await goTo('kpi1');
+  await z.click('.standard-opt[data-standard="COMPANY"]');
+  await z.waitForTimeout(900);
+  await goTo('compare');
+  const capCompany = await caption();
+
+  check('the caption under WHICH KPI names the target the toggle is on',
+    /99\.5%/.test(capEas) && !/90%/.test(capEas) &&
+    /90%/.test(capCompany) && !/99\.5%/.test(capCompany),
+    capEas + '   ->   ' + capCompany);
+
+  // data-basis is not decoration: it is what gets written into the file when
+  // the comparison is downloaded as a report, so a saved PDF that says 90%
+  // over EAS figures outlives the screen that produced it.
+  const basis = () => z.$eval('#cmpKpiHint', (n) => n.getAttribute('data-basis') || '');
+  const basisCompany = await basis();
+  await goTo('kpi1');
+  await z.click('.standard-opt[data-standard="EAS"]');
+  await z.waitForTimeout(900);
+  await goTo('compare');
+  const basisEas = await basis();
+
+  check('and the basis that travels into the downloaded report follows it too',
+    /not the figure reported/i.test(basisEas) &&
+    !/not the figure reported/i.test(basisCompany),
+    basisEas.slice(-44));
+
+  // ---- a comparison that has already been RUN ----
+  // Sales Applications in September is 99 of 100: 99.00%, which clears the
+  // policy's 90% and misses the team's 99.50%. It is the only cell in the
+  // fixture that sits between the two targets, so it is the only one that can
+  // tell a re-read from a stale table.
+  await goTo('kpi1');
+  await z.click('.standard-opt[data-standard="COMPANY"]');
+  await z.waitForTimeout(900);
+  await goTo('compare');
+
+  await z.selectOption('#cmpM1', '2026-09');
+  await z.selectOption('#cmpM2', '2026-08');
+  await z.click('#cmpRun');
+  await z.waitForTimeout(1200);
+
+  // The column is found by its heading rather than counted to. Counting is
+  // how the first draft of this went wrong: the periods come back sorted
+  // oldest-first, so cells[1] is August, and August reads 99.75% - which
+  // clears both targets and would have sat there passing under either one.
+  const salesCell = () => z.evaluate(() => {
+    const head = Array.from(document.querySelectorAll('#cmpSections thead th'))
+                      .map((th) => th.textContent.trim());
+    const at = head.findIndex((h) => /Sep/i.test(h));
+    const row = Array.from(document.querySelectorAll('#cmpSections tbody tr'))
+                     .filter((tr) => /Sales Applications/.test(tr.cells[0].textContent))[0];
+    if (at < 1 || !row) return '(no September column: ' + head.join('|') + ')';
+    return row.cells[at].textContent.replace(/\s+/g, ' ').trim();
+  });
+  const ranCompany = await salesCell();
+
+  check('a comparison runs and is scored against the standard that is on',
+    /^99\.00% GREEN$/i.test(ranCompany), ranCompany);
+
+  // The sequence off the recording: switch standard on KPI 1, walk back.
+  await goTo('kpi1');
+  await z.click('.standard-opt[data-standard="EAS"]');
+  await z.waitForTimeout(900);
+  await goTo('compare');
+  await z.waitForTimeout(1200);
+  const ranEas = await salesCell();
+
+  check('and switching standard re-runs it rather than leaving the old bands up',
+    /^99\.00% YELLOW$/i.test(ranEas), ranCompany + '   ->   ' + ranEas);
+
+  // Not implied by the two above: they would both still hold if the rate had
+  // been rescored along with the band. The counts are facts - 99 completed of
+  // 100 is 99.00% whichever document you hold it against - so the ONLY thing
+  // allowed to have moved between those two readings is the verdict.
+  check('and only the verdict moved, because a target cannot move a count',
+    ranCompany.split(' ')[0] === ranEas.split(' ')[0] &&
+    ranCompany.split(' ')[1] !== ranEas.split(' ')[1],
+    ranCompany.split(' ')[0] + ' either way, ' +
+    ranCompany.split(' ')[1] + ' -> ' + ranEas.split(' ')[1]);
+
   await z.close();
 
   check('no JS errors across the whole run', errors.length === 0, errors.slice(0, 3).join(' | '));

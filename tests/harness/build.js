@@ -348,7 +348,7 @@ const stub = `
         teamSize: ${CONFIG.TEAM_SIZE},
         kpiLinks: {},
         questionsWaiting: waitingCount(),
-        availableMonths: ['2026-08'],
+        availableMonths: ['2026-09', '2026-08'],
         ticketColumns: ${JSON.stringify(CONFIG.TICKET_COLUMNS)},
         feedbackMonths: [], uploads: [], backup: { on: false },
         ticketFrom: '2026-08-01', ticketTo: '2026-08-31'
@@ -604,6 +604,68 @@ const stub = `
                       email: String(email || '').trim() });
       return { ok: true, setup: false, role: 'USER',
                username: String(employeeId), token: 'tok-' + employeeId };
+    },
+
+    /*
+      THE COMPARISON SCREEN, which had no stub at all - so no browser test
+      had ever opened it, and the one thing it got wrong went unseen: the
+      caption under the KPI selector read the policy's target while the chart
+      under it drew the EAS one, on the same screen at the same time.
+
+      Sales Applications in September is the row that matters: 99 of 100, so
+      99.00% - GREEN against the policy's 90% and YELLOW against the team's
+      99.50%. Everything else clears both, so exactly one cell moves and the
+      test cannot pass by accident.
+    */
+    getKpiComparison: function (token, periods, standard) {
+      var kpi = standardOf(standard);
+      var want = (periods || []).slice().sort();
+      var DATA = {
+        '2026-08': { 'Sales Applications': [800, 2],
+                     'Functional Applications': [1200, 1] },
+        '2026-09': { 'Sales Applications': [100, 1],
+                     'Functional Applications': [1000, 2] }
+      };
+
+      var out = {
+        periods: want, sections: [], totals: {}, bySection: {},
+        target: kpi.target, standard: kpi.standard,
+        standardLabel: kpi.standardLabel,
+        kpi: 'KPI1', name: kpi.name, unit: '%',
+        periodKind: 'MONTH', periodLabel: 'Month', periodLabelPlural: 'months',
+        sectionLabel: 'Section', rateLabel: 'Success Rate',
+        volumeKey: 'completed', volumeLabel: 'Tickets completed',
+        measures: [{ key: 'received', label: 'Received' },
+                   { key: 'completed', label: 'Completed' },
+                   { key: 'open', label: 'Open' },
+                   { key: 'delayed', label: 'Delayed' },
+                   { key: 'successful', label: 'Successful' }]
+      };
+
+      want.forEach(function (month) {
+        var rows = DATA[month];
+        if (!rows) return;
+        var whole = { received: 0, completed: 0, delayed: 0, successful: 0 };
+
+        Object.keys(rows).forEach(function (section) {
+          var completed = rows[section][0], delayed = rows[section][1];
+          var entry = rescore({ received: completed, completed: completed,
+                                open: 0, delayed: delayed,
+                                successful: completed - delayed }, kpi);
+          if (out.sections.indexOf(section) === -1) out.sections.push(section);
+          out.bySection[section] = out.bySection[section] || {};
+          out.bySection[section][month] = entry;
+
+          whole.received += completed;
+          whole.completed += completed;
+          whole.delayed += delayed;
+          whole.successful += completed - delayed;
+        });
+
+        out.totals[month] = rescore(Object.assign({ open: 0 }, whole), kpi);
+      });
+
+      return out;
     },
 
     getKpi2: function () { return { hasData: false }; },
