@@ -1,12 +1,28 @@
-# EAS KPI Engine
+# TVL-EAS Database
 
-Dashboards for the two Enterprise Application Services KPIs defined in
-**TVL-KPI-001 v1.0 §6.3**:
+Dashboards for the Enterprise Application Services KPIs defined in
+**TVL-KPI-001 v1.0, section 5.3**. Four indicators are defined; two carry data
+today:
 
-| | KPI | Formula | Target |
+| | KPI | Formula | Target | Live |
+|---|---|---|---|---|
+| KPI 1 | Error/Issue Resolution Time | `(Completed Successfully / Total Completed) * 100` | see below | yes |
+| KPI 2 | User Training Feedback Analysis | `(Avg Score / Max Score) * 100` | >= 90% | yes |
+| KPI 3 | Incident & Emergency Management | - | >= 90% | not yet |
+| KPI 4 | Service Availability | - | >= 99.50% | not yet |
+
+**KPI 1 is scored against two standards, from the same counts.** A toggle on
+its page switches between them, and every figure, band and chart on the screen
+follows it:
+
+| Standard | Target | Yellow floor | Document |
 |---|---|---|---|
-| KPI 1 | Error/Issue Resolution Time | `(Completed Successfully ÷ Total Completed) × 100` | ≥ 99.50% monthly |
-| KPI 2 | User Training Feedback Analysis | `(Avg Score ÷ Max Score) × 100` | ≥ 90% |
+| Company KPI | >= 90.00% | 85.00% | TVL-KPI-001 v1.0, section 5.3 - the figure reported to TVL headquarters |
+| EAS KPI | >= 99.50% | 89.55% | Layer 3 TVL-EAS KPI, Error/Issue Resolution Time - the standard the team holds itself to |
+
+The counts are facts and are stored once. Rate, achievement, band and headroom
+are judgements and are recomputed at draw time, which is why two standards need
+no second copy of the data.
 
 Data arrives as Excel exports from `itsm.youngone.com` — the **Performance
 Report [Service/Part]** and one **Personal Performance Report** per department.
@@ -39,17 +55,26 @@ EAS.
 ### 1. Create the Apps Script project
 
 1. Go to <https://script.google.com> → **New project**
-2. Rename it `EAS KPI Engine`
+2. Rename it `TVL-EAS Database`
 3. Create these files (⊕ next to *Files*), matching the names exactly:
 
    | File | Type |
    |---|---|
    | `Config.gs` | Script |
    | `Setup.gs` | Script |
+   | `Auth.gs` | Script |
    | `Code.gs` | Script |
+   | `Ingest.gs` | Script |
+   | `Kpi.gs` | Script |
+   | `Kpi2.gs` | Script |
+   | `Questions.gs` | Script |
+   | `Messenger.gs` | Script |
+   | `Backup.gs` | Script |
    | `Index.html` | HTML |
    | `Styles.html` | HTML |
+   | `Bg.html` | HTML |
    | `App.html` | HTML |
+   | `Report.html` | HTML |
 
 4. Paste in the contents from `src/` in this repo
 5. Delete the default `Code.gs` stub content first so it isn't duplicated
@@ -83,12 +108,27 @@ Open the `/exec` URL it gives you.
 ```
 src/
 ├── appsscript.json   manifest — timezone, runtime, web app access
-├── Config.gs         every setting: targets, thresholds, sheet + column names
+├── Config.gs         every setting: the KPI definitions and both KPI 1
+│                     standards, thresholds, tab and column names, policy links
 ├── Setup.gs          run-once builders for the spreadsheet and its tabs
+├── Auth.gs           accounts, password hashing, signed tokens, roles, and the
+│                     sign-up and password-reset doors
 ├── Code.gs           doGet(), include(), bootstrap payload
-├── Index.html        page shell and the four views
+├── Ingest.gs         receives parsed ticket rows from the browser and stores
+│                     them; the .xlsx parsing itself happens in the browser
+├── Kpi.gs            KPI 1 — monthly figures, the two standards, sections,
+│                     affiliates, the people tables and the comparison
+├── Kpi2.gs           KPI 2 — training feedback
+├── Questions.gs      the published FAQ, read from a tab on every page load
+├── Messenger.gs      question threads between viewers and admins, and the
+│                     notification emails
+├── Backup.gs         scheduled Drive copies of the whole workbook, and
+│                     pruning of the sign-in log
+├── Index.html        page shell and the views
 ├── Styles.html       all CSS, inlined at render time
-└── App.html          all browser JavaScript, inlined at render time
+├── Bg.html           the sign-in picture
+├── App.html          all browser JavaScript, inlined at render time
+└── Report.html       "Download as Report" — builds a real .xlsx per table
 ```
 
 ### The two worlds
@@ -142,8 +182,14 @@ Handled by the parser, listed here so they don't surprise anyone:
   ticket bodies. `.gitignore` blocks `*.xlsx` and `*.csv`.
 - **Never commit `.clasp.json`** — it holds the script ID.
 - **Never commit the deployment URL or any operator password.**
-- This repository must be **private** before real data or the spreadsheet ID
-  goes anywhere near it.
+- **This repository is public, and the code in it is meant to be read.** The
+  data is not: no export, no spreadsheet ID, no password and no deployment URL
+  belongs in a commit. `.gitignore` blocks `*.xlsx`, `*.csv` and `*.pdf`, which
+  is a backstop and not a substitute for checking what you are staging.
+- Every role check runs on the server. In Apps Script **every global function
+  is an endpoint**, reachable by anyone who can open the page, so a check that
+  lives only in the browser is not a check at all. Each endpoint takes a signed
+  token as its first argument and verifies it before doing anything.
 
 ---
 
@@ -151,8 +197,15 @@ Handled by the parser, listed here so they don't surprise anyone:
 
 - [x] Project scaffold, config, storage bootstrap
 - [x] App shell with URL-backed state (survives refresh)
-- [ ] Excel parser and upsert pipeline
-- [ ] KPI 1 calculation engine
-- [ ] KPI 1 dashboard
-- [ ] KPI 2 dashboard
-- [ ] Merge into the Database Center
+- [x] Excel parser and upsert pipeline
+- [x] KPI 1 calculation engine, scored against both standards
+- [x] KPI 1 dashboard — sections, affiliates, per-person tables, comparison
+- [x] KPI 2 dashboard
+- [x] Accounts: sign-up, sign-in, password reset, roles, signed tokens
+- [x] Questions and FAQ, with email notification
+- [x] Download as Report (.xlsx) on every table
+- [ ] Backups have never been run — `installBackupTrigger()` is written but
+      has not been executed, so no backup exists yet
+- [ ] KPI 3 and KPI 4 — defined in `Config.gs`, no ingest yet
+- [ ] Move off Google Sheets onto a real database (undecided)
+- [ ] Merge into the SAP & HRMS Database Center

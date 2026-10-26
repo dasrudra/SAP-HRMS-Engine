@@ -112,7 +112,7 @@ function backupNow() {
   const folder = backupFolder(file);
 
   const stamp = Utilities.formatDate(new Date(), CONFIG_TZ(), 'yyyy-MM-dd HHmm');
-  const name = 'EAS KPI backup ' + stamp;
+  const name = CONFIG.APP_NAME + ' backup ' + stamp;
 
   // copy() rather than reading the tabs and writing them out again. A copy is
   // the whole workbook - formats, every tab, anything added since this was

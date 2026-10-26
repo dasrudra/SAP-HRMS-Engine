@@ -431,12 +431,43 @@ check('and the one page that cannot read CONFIG carries the same name',
   'the emergency page still works when Config.gs is the missing file');
 
 // Everywhere else reads it.
+//
+// The backup FILE is listed separately from the backup FOLDER, because for
+// two renames it was not. The folder was built from CONFIG and asserted here;
+// the file beside it was written out by hand as 'EAS KPI backup <date>' and
+// nothing looked, so this block passed while the name it was guarding was
+// still in the project. A whitelist only guards the lines on it.
 [['Setup.gs', SETUP, /SpreadsheetApp\.create\(CONFIG\.APP_NAME\)/],
  ['Backup.gs', BACKUP, /CONFIG\.APP_NAME \+ ' - Backups'/],
+ ['Backup.gs', BACKUP, /CONFIG\.APP_NAME \+ ' backup '/],
  ['Messenger.gs', MESSENGER, /subject: CONFIG\.APP_NAME/]].forEach(function (row) {
   check(row[0] + ' takes the name from CONFIG rather than repeating it',
     row[2].test(row[1]), 'one rename, one line');
 });
+
+// AND THE SWEEP, which does not need to be told where to look. Every name
+// this system has been released under, hunted across the whole of src/. The
+// one allowed hit is the sentence in Config.gs that records the renames -
+// recognised by being inside that comment, not by trusting the file.
+//
+// 'EAS KPI Engine' is matched in full. 'EAS KPI' on its own is a legitimate
+// phrase here - it is the EAS team's own KPI standard, the label on the KPI 1
+// toggle and the title of the policy PDFs - and sweeping for it would fail on
+// correct code.
+const OLD_NAMES = ['EAS KPI Engine', 'Enterprise Application Services Dashboard'];
+const stale = [];
+fs.readdirSync(SRC).filter((f) => /\.(gs|html)$/.test(f)).forEach(function (f) {
+  const text = fs.readFileSync(path.join(SRC, f), 'utf8');
+  OLD_NAMES.forEach(function (old) {
+    text.split('\n').forEach(function (line, i) {
+      if (line.indexOf(old) === -1) return;
+      if (f === 'Config.gs' && /It has been renamed twice/.test(line)) return;
+      stale.push(f + ':' + (i + 1));
+    });
+  });
+});
+check('and no file still carries a name the system used to have',
+  stale.length === 0, stale.join(', ') || 'swept src/ for every former name');
 
 // AND THE THINGS THAT ARE NOT THIS SYSTEM KEEP THEIR OWN NAMES.
 // A find-and-replace over the old name would have taken these with it: the
