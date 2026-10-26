@@ -1,0 +1,355 @@
+<!--
+  PortalStyles.html - the portal's own CSS, and only the portal's.
+  ================================================================
+
+  Blue and white, as asked. The COLOURS are not new: every one of them is a
+  variable already declared at the top of Styles.html and already used by the
+  dashboard. That is deliberate. Two stylesheets each holding their own idea
+  of "our blue" drift apart the first time one of them is adjusted, and then
+  the portal and the dashboard are visibly two different products bolted
+  together - which is exactly what this is meant not to look like.
+
+  What is new here is the SHAPE. The dashboard is a dark sidebar against a
+  dense working surface, because it is a tool you keep open. The portal is
+  white and wide with air around it, because it is a page you read.
+
+  Loaded after Styles.html, so anything shared resolves the same way and
+  anything here wins a tie.
+-->
+<style>
+
+  /* =========================================================
+     THE SHELL
+     ========================================================= */
+  /*
+    A fixed app shell, not a scrolling document: the bar stays at the top and
+    the footer at the bottom while only the middle moves. Inside the Blogger
+    page this app is an iframe pinned to the whole window, so "the viewport"
+    here really is the whole window.
+
+    WHERE IT SITS IN THE STACK, which is the part worth writing down:
+       portal shell       1   <- this
+       sign-in screen   200   covers the portal, which is what a sign-out
+                              has to do
+       messenger bar    300   reachable from the portal, as it is everywhere
+       confirm dialog  1000   stays the only thing on screen while it is up
+  */
+  .portal {
+    position: fixed; inset: 0; z-index: 1;
+    display: flex; flex-direction: column;
+    background: #fff;
+    overflow: hidden;
+  }
+
+  /* ---------- top bar ---------- */
+  .portal-top {
+    flex: 0 0 auto;
+    display: flex; align-items: center; gap: 18px;
+    padding: 0 22px;
+    height: 64px;
+    background: #fff;
+    border-bottom: 1px solid #e3eaf4;
+    /*
+      The bar is the only thing anchoring a long page, so it carries a shadow
+      rather than only a line - a hairline alone disappears against a white
+      card scrolling underneath it.
+    */
+    box-shadow: 0 1px 3px rgba(21, 44, 84, .05);
+    z-index: 5;
+  }
+
+  .portal-brand {
+    flex: 0 0 auto;
+    display: flex; align-items: center; gap: 11px;
+    padding: 0; border: 0; background: none;
+    cursor: pointer; text-align: left;
+    font: inherit; color: inherit;
+    border-radius: 8px;
+  }
+  .portal-brand:focus-visible { outline: 2px solid var(--blue-500); outline-offset: 3px; }
+
+  .portal-brand-text { display: flex; flex-direction: column; line-height: 1.25; }
+  .portal-brand-text strong {
+    font-size: 13.5px; font-weight: 700; color: var(--navy-900);
+    letter-spacing: -.01em; white-space: nowrap;
+  }
+  .portal-brand-text span {
+    font-size: 10.5px; color: var(--text-mut); white-space: nowrap;
+  }
+
+  /* =========================================================
+     THE TABS
+     =========================================================
+     Ten of them. They scroll sideways when the window cannot hold them all,
+     rather than collapsing into a menu - see the note in Portal.html for why
+     a hidden tab is worse than a scrolled one.
+
+     scrollbar-width:none hides the bar itself; the tabs still scroll by
+     wheel, trackpad, touch and keyboard. A visible scrollbar inside a 64px
+     header reads as a mistake.
+  */
+  .portal-nav {
+    flex: 1 1 auto;
+    display: flex; align-items: center; gap: 2px;
+    overflow-x: auto; overflow-y: hidden;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    /* So the first and last tab are not jammed against their neighbours. */
+    padding: 0 4px;
+  }
+  .portal-nav::-webkit-scrollbar { height: 0; width: 0; }
+
+  /*
+    A SHADOW AT WHICHEVER END STILL HAS TABS BEHIND IT.
+
+    Hiding the scrollbar bought a clean header and cost the only clue that the
+    list continues. On an 820px window the tabs ended at KPI Engine with a
+    clean edge - indistinguishable from a nav that simply has four tabs. That
+    is the same defect as a More menu, arrived at from the other direction,
+    and rejecting the menu for it means fixing it here.
+
+    Four layers, the standard scroll-shadow trick: two white gradients pinned
+    to the CONTENT (background-attachment: local) sit on top of two grey ones
+    pinned to the BOX (scroll). At the left end the content gradient covers
+    the left shadow; scroll right and it travels away, uncovering it. So each
+    shadow appears only while there is something in that direction, with no
+    script and no scroll listener.
+  */
+  .portal-nav {
+    background:
+      linear-gradient(to right, #fff 40%, rgba(255, 255, 255, 0)) left / 28px 100% no-repeat local,
+      linear-gradient(to left,  #fff 40%, rgba(255, 255, 255, 0)) right / 28px 100% no-repeat local,
+      radial-gradient(farthest-side at 0 50%, rgba(21, 44, 84, .17), rgba(21, 44, 84, 0)) left / 11px 100% no-repeat scroll,
+      radial-gradient(farthest-side at 100% 50%, rgba(21, 44, 84, .17), rgba(21, 44, 84, 0)) right / 11px 100% no-repeat scroll;
+  }
+
+  .portal-tab {
+    flex: 0 0 auto;
+    position: relative;
+    padding: 9px 13px;
+    border: 0; background: none;
+    font: 600 13px/1 inherit;
+    color: var(--text-dim);
+    white-space: nowrap;
+    border-radius: 7px;
+    cursor: pointer;
+    transition: color .13s ease, background .13s ease;
+  }
+  .portal-tab:hover { color: var(--navy-700); background: var(--blue-050); }
+  .portal-tab:focus-visible { outline: 2px solid var(--blue-500); outline-offset: 2px; }
+
+  /*
+    The active tab is marked by WEIGHT AND COLOUR plus an underline, not by
+    colour alone - the same rule the band pills follow elsewhere in this
+    project. Roughly one man in twelve cannot separate these two blues.
+  */
+  .portal-tab.is-on { color: var(--blue-600); background: var(--blue-050); }
+  .portal-tab.is-on::after {
+    content: ''; position: absolute;
+    left: 13px; right: 13px; bottom: -1px; height: 2px;
+    background: var(--blue-500); border-radius: 2px 2px 0 0;
+  }
+
+  /* The one tab that leaves the portal. */
+  .portal-tab.is-engine {
+    margin: 0 6px;
+    padding: 8px 15px;
+    background: var(--blue-500); color: #fff;
+    box-shadow: 0 1px 2px rgba(37, 99, 235, .3);
+  }
+  .portal-tab.is-engine:hover { background: var(--blue-600); color: #fff; }
+  .portal-tab.is-engine.is-on::after { display: none; }
+
+  /* ---------- who is signed in ---------- */
+  .portal-who {
+    flex: 0 0 auto;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .portal-who-name {
+    font-size: 12.5px; font-weight: 600; color: var(--navy-700);
+    max-width: 16ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .portal-signout {
+    padding: 6px 12px;
+    border: 1px solid #d7e2f1; border-radius: 7px;
+    background: #fff; color: var(--text-dim);
+    font: 600 12px/1 inherit; cursor: pointer;
+    transition: border-color .13s ease, color .13s ease;
+  }
+  .portal-signout:hover { border-color: var(--blue-500); color: var(--blue-600); }
+  .portal-signout:focus-visible { outline: 2px solid var(--blue-500); outline-offset: 2px; }
+
+
+  /* =========================================================
+     THE PAGES
+     ========================================================= */
+  /*
+    The bottom padding is for the messenger bubble. It sits bottom-right on
+    every screen, portal included - it is outside both shells in Index.html
+    precisely so that it does - and it is taller than the 46px footer, so
+    without this the last line of a long page ends up underneath it.
+  */
+  .portal-body {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    scroll-padding-bottom: 90px;
+    /*
+      A very slight blue, not pure white. Against it the white cards have an
+      edge without needing a heavier border, and the page stops looking like
+      an unstyled document.
+    */
+    background: linear-gradient(180deg, #f7faff 0%, #eef4fc 100%);
+  }
+
+  .portal-page {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 46px 28px 96px;
+  }
+
+  .portal-page-title {
+    margin: 0 0 22px;
+    font-size: 30px; font-weight: 700; letter-spacing: -.02em;
+    color: var(--navy-900);
+  }
+
+  /* ---------- the hero ---------- */
+  .portal-hero { padding: 42px 0 18px; text-align: center; }
+
+  .portal-hero-title {
+    margin: 0 auto 18px;
+    font-size: 54px; line-height: 1.08; font-weight: 800;
+    letter-spacing: -.035em;
+    color: var(--navy-900);
+    max-width: 16ch;
+  }
+
+  .portal-hero-sub {
+    margin: 0 auto 30px;
+    max-width: 60ch;
+    font-size: 16px; line-height: 1.62;
+    color: var(--text-dim);
+  }
+
+  .portal-hero-actions {
+    display: flex; justify-content: center; gap: 12px; flex-wrap: wrap;
+  }
+
+  .portal-cta {
+    padding: 12px 24px;
+    border: 1px solid var(--blue-500); border-radius: 9px;
+    background: var(--blue-500); color: #fff;
+    font: 600 14px/1 inherit; cursor: pointer;
+    box-shadow: 0 2px 6px rgba(37, 99, 235, .22);
+    transition: background .13s ease, box-shadow .13s ease;
+  }
+  .portal-cta:hover { background: var(--blue-600); box-shadow: 0 3px 10px rgba(37, 99, 235, .3); }
+  .portal-cta:focus-visible { outline: 2px solid var(--navy-700); outline-offset: 3px; }
+
+  .portal-cta.is-ghost {
+    background: #fff; color: var(--blue-600);
+    border-color: #cfe0f8; box-shadow: none;
+  }
+  .portal-cta.is-ghost:hover { background: var(--blue-050); box-shadow: none; }
+
+  /* ---------- the figure cards ---------- */
+  .portal-tiles {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+    margin-top: 46px;
+  }
+
+  .portal-tile {
+    display: flex; flex-direction: column; gap: 6px;
+    padding: 20px 20px 18px;
+    background: #fff;
+    border: 1px solid #e3eaf4; border-radius: 12px;
+    box-shadow: 0 1px 3px rgba(21, 44, 84, .05);
+  }
+  .portal-tile-label {
+    font-size: 11px; font-weight: 700; letter-spacing: .07em;
+    text-transform: uppercase; color: var(--text-mut);
+  }
+  .portal-tile-value {
+    font-size: 32px; font-weight: 700; letter-spacing: -.02em;
+    color: var(--navy-900); line-height: 1.1;
+  }
+  .portal-tile-note { font-size: 11.5px; color: var(--text-dim); }
+
+  /* ---------- the waiting pages ---------- */
+  .portal-empty {
+    padding: 38px 32px;
+    background: #fff;
+    border: 1px dashed #cfdcee; border-radius: 12px;
+    max-width: 68ch;
+  }
+  .portal-empty h2 {
+    margin: 0 0 9px;
+    font-size: 17px; font-weight: 700; color: var(--navy-700);
+  }
+  .portal-empty p {
+    margin: 0; font-size: 13.5px; line-height: 1.65; color: var(--text-dim);
+  }
+
+  .portal-phase-note {
+    margin: 30px 0 0;
+    font-size: 12px; line-height: 1.6; color: var(--text-mut);
+    text-align: center;
+  }
+
+  /* ---------- footer ---------- */
+  /*
+    The right-hand padding is the messenger bubble's footprint - about 290px
+    wide, 20px off the edge. Without it the second half of the footer sits
+    underneath the bubble and reads as a rendering fault.
+  */
+  .portal-foot {
+    flex: 0 0 auto;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 330px 0 24px; height: 46px;
+    background: #fff;
+    border-top: 1px solid #e3eaf4;
+    font-size: 11.5px; color: var(--text-dim);
+  }
+  .portal-foot-dim { color: var(--text-mut); }
+
+
+  /* =========================================================
+     NARROWER WINDOWS
+     =========================================================
+     The tabs already scroll, so nothing here has to hide anything. These
+     only stop the hero from shouting on a small screen and drop the cards
+     from four across to two and then one.
+  */
+  @media (max-width: 1080px) {
+    .portal-tiles { grid-template-columns: repeat(2, 1fr); }
+    .portal-hero-title { font-size: 44px; }
+  }
+
+  /*
+    Ten tabs beside the mark and the identity strip need about 1500px. Below
+    that they get the full width of their own row, which fits far more of them
+    before the scroll is needed at all - and the scroll shadows handle the
+    rest.
+  */
+  @media (max-width: 1500px) {
+    .portal-top { height: auto; flex-wrap: wrap; padding: 9px 18px; gap: 8px 14px; }
+    .portal-nav { order: 3; width: 100%; padding: 0; }
+    .portal-who { margin-left: auto; }
+  }
+
+  @media (max-width: 760px) {
+    .portal-top { padding: 10px 14px; }
+    .portal-brand-text span { display: none; }
+    .portal-page { padding: 28px 16px 96px; }
+    .portal-hero { padding: 20px 0 10px; }
+    .portal-hero-title { font-size: 33px; max-width: none; }
+    .portal-hero-sub { font-size: 14.5px; }
+    .portal-tiles { grid-template-columns: 1fr; }
+    .portal-page-title { font-size: 24px; }
+    .portal-foot { height: auto; padding: 12px 16px; }
+    .portal-foot-dim { display: none; }
+  }
+
+</style>

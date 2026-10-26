@@ -487,16 +487,18 @@ const FILE = 'file://' + PAGE;
   p = await open('?view=kpi1&role=USER');
 
   check('a viewer has no Help & FAQ nav item at all',
-    await p.$eval('[data-view="help"]', (el) => el.hidden),
+    // Only the sidebar has a help button; the portal's tabs do not include
+    // one, so this selector still names exactly one element.
+    await p.$eval('.nav-item[data-view="help"]', (el) => el.hidden),
     'that screen is the team\'s inbox now');
   check('but they do have the message bar',
     await p.$eval('#msgr', (el) => !el.hidden));
 
   await p.close();
   p = await open('?view=help&role=USER');
-  check('and a bookmarked ?view=help sends them to the dashboard instead',
+  check('and a bookmarked ?view=help sends them to the portal instead',
     await p.$eval('#view-help', (el) => el.hidden) &&
-    await p.$eval('#view-kpi1', (el) => !el.hidden),
+    await p.$eval('#view-home', (el) => !el.hidden),
     'not a screen with one empty card and no explanation');
 
   // -------------------------------------------------------------------------
@@ -627,8 +629,12 @@ const FILE = 'file://' + PAGE;
   await p.click('#loginGo');
   await p.waitForTimeout(2500);
 
-  check('signing in opens the dashboard',
-    await p.$eval('#appRoot', (el) => !el.hidden));
+  // The portal, not the dashboard. This used to assert #appRoot, back when
+  // signing in and being on the dashboard were the same event; they are two
+  // things now, and the one being tested here is the first.
+  check('signing in opens the portal',
+    await p.$eval('#portalRoot', (el) => !el.hidden) &&
+    await p.$eval('#loginScreen', (el) => el.hidden));
   check('AND the panel stops asking who they are',
     await p.$eval('#msgrIdWrap', (el) => el.hidden),
     'they just typed an employee ID to get in');
@@ -732,7 +738,8 @@ const FILE = 'file://' + PAGE;
   await p.click('#setupGo');
   await p.waitForTimeout(900);
   check('but it can with one, and no email',
-    await p.$eval('#appRoot', (n) => !n.hidden),
+    await p.$eval('#portalRoot', (n) => !n.hidden) &&
+    await p.$eval('#loginScreen', (n) => n.hidden),
     'signed straight in - there is no second card to visit');
 
   // ---- the message somebody who has never signed up actually sees ----

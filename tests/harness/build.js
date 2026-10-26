@@ -108,10 +108,26 @@ const FIXTURE = {
 // ---------------------------------------------------------------------------
 let html = read('Index.html');
 html = html.replace("<?!= include('Styles'); ?>", () => read('Styles.html'));
+html = html.replace("<?!= include('PortalStyles'); ?>", () => read('PortalStyles.html'));
+html = html.replace("<?!= include('Portal'); ?>", () => read('Portal.html'));
 // 2,900 lines of encoded photograph, and nothing any suite looks at.
 html = html.replace("<?!= include('Bg'); ?>", () => '');
 html = html.replace("<?!= include('App'); ?>", () => read('App.html'));
 html = html.replace("<?!= include('Report'); ?>", () => read('Report.html'));
+// EVERY include HAS TO HAVE BEEN REPLACED BY NOW.
+//
+// These are matched as exact strings, so adding a file to Index.html without
+// adding it here leaves the scriptlet sitting in the page as text: the file
+// is simply absent, nothing throws, and every browser suite goes on passing
+// against a page missing a part of the product. That is the quietest way this
+// harness can lie, so it is checked rather than remembered.
+const missed = html.match(/<\?!=\s*include\([^)]*\)\s*;?\s*\?>/g);
+if (missed) {
+  throw new Error('build: Index.html includes a file this harness does not ' +
+                  'assemble: ' + missed.join(', ') +
+                  '\n       Add a line for it beside the others above.');
+}
+
 html = html.replace(/<\?=\s*appName\s*\?>/g, () => CONFIG.APP_NAME);
 html = html.replace(/<\?=\s*appVersion\s*\?>/g, () => CONFIG.APP_VERSION);
 html = html.replace(/<\?=\s*CONFIG\.([A-Z0-9_]+)\s*\?>/g, (whole, key) => {

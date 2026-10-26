@@ -26,7 +26,10 @@
 
   /** Everything the page currently knows. The single source of truth. */
   const state = {
-    view: 'kpi1',
+    // Home, not KPI 1. showView() falls back to KPI 1 by itself when there
+    // is no portal in the page, so this is safe in a deployment that has
+    // App.html but not yet Portal.html.
+    view: 'home',
     month: null,
     boot: null,
     kpi: null,        // the month on screen, kept so filters redraw without a
@@ -699,8 +702,12 @@
     // startApp() is the one place every way into the signed-in dashboard
     // passes through, which is why it belongs here.
     loadMessenger();
-    const root = document.getElementById('appRoot');
-    if (root) root.hidden = false;
+
+    // The shell the saved view asks for, rather than the dashboard every
+    // time. Signing in normally lands on the portal's Home; a bookmark of
+    // ?view=kpi1 still opens straight onto the figures, which is what the
+    // people who use this daily have in their bookmarks.
+    applyShell(state.view);
     show('loader');
 
     // Badge and name now, not when the figures arrive. The session already
@@ -809,6 +816,15 @@
      * navigate: the server forgets the session, and the page puts the sign-in
      * card back over itself.
      */
+    // The portal's Sign out presses this one rather than repeating it. Two
+    // buttons doing the same job by two different routes is how one of them
+    // ends up subtly wrong - forgetting to stop the polling, say, which is
+    // the bug that printed an idle message over a deliberate sign-out.
+    bind('portalSignOut', 'click', function () {
+      const real = document.getElementById('signOut');
+      if (real) real.click();
+    });
+
     bind('signOut', 'click', function () {
       const button = document.getElementById('signOut');
       if (button) { button.disabled = true; button.textContent = 'Signing out\u2026'; }
@@ -909,8 +925,16 @@
       body.innerHTML = '';
     });
 
-    const root = document.getElementById('appRoot');
-    if (root) root.hidden = true;
+    // BOTH shells, not just the dashboard. The sign-in screen is opaque and
+    // covers the viewport, so leaving the portal "visible" underneath it looks
+    // identical - which is the whole danger. Signed out is a state, not a
+    // picture: the next thing to change a z-index or put the card in a box
+    // would have revealed a signed-out person their own front door, and
+    // nothing here would have failed first.
+    ['appRoot', 'portalRoot'].forEach(function (id) {
+      const el = document.getElementById(id);
+      if (el) el.hidden = true;
+    });
     hide('loader');
     show('loginScreen');
 
@@ -1009,10 +1033,18 @@
     const out = document.getElementById('signOut');
     if (out) out.hidden = false;
 
-    setText('operatorName',
+    const who =
       (state.boot && state.boot.username) ? state.boot.username :
       state.username ? state.username :
-      (isAdmin ? 'admin' : 'viewer'));
+      (isAdmin ? 'admin' : 'viewer');
+
+    // Both bars, from one value. They are never on screen at the same time,
+    // which is exactly why they would be allowed to disagree unnoticed.
+    setText('operatorName', who);
+    setText('portalWho', who);
+
+    const portalOut = document.getElementById('portalSignOut');
+    if (portalOut) portalOut.hidden = false;
   }
 
 
@@ -1282,11 +1314,17 @@
   // =========================================================================
 
   function wireNavigation() {
-    document.querySelectorAll('.nav-item').forEach(function (button) {
-      button.addEventListener('click', function () {
-        showView(button.dataset.view);
+    // The sidebar, the portal's top tabs and the portal's own brand mark and
+    // hero buttons all do the same thing: name a view and ask for it. One
+    // selector rather than three handlers, so a control added to any of them
+    // works without being wired up separately - and so none of them can end
+    // up navigating in a subtly different way from the others.
+    document.querySelectorAll('.nav-item, .portal-tab, .portal-brand, .portal-cta')
+      .forEach(function (button) {
+        button.addEventListener('click', function () {
+          showView(button.dataset.view);
+        });
       });
-    });
 
     wireMonthPicker();
 
@@ -1306,23 +1344,71 @@
   }
 
 
+  /**
+   * Where an unknown or refused view lands.
+   *
+   * The portal's Home when there is a portal, and KPI 1 when there is not.
+   * Asked of the DOM rather than assumed, because these files are pasted into
+   * the Apps Script editor one at a time: between pasting App.html and
+   * pasting Portal.html there is a deployment with a router that knows about
+   * a home page and a page that has none. Hard-coding 'home' would make that
+   * window a blank screen instead of the dashboard it used to be.
+   */
+  function homeView() {
+    return document.getElementById('view-home') ? 'home' : 'kpi1';
+  }
+
+
+  /**
+   * Shows the shell the named view lives in, and hides the other one.
+   *
+   * There are two: the portal, and the dashboard. Which one a view belongs to
+   * is not written down anywhere - it is read off the page, by asking whether
+   * the section sits inside #portalRoot. That is what keeps "add a page" at
+   * two lines in Portal.html with nothing to update here, and it is why the
+   * KPI Engine tab needs no special case: it names kpi1, kpi1's section lives
+   * in the dashboard shell, so the dashboard is what comes up.
+   */
+  function applyShell(name) {
+    const section = document.getElementById('view-' + name);
+    const portal = document.getElementById('portalRoot');
+    const dash = document.getElementById('appRoot');
+
+    const onPortal = Boolean(portal && section && portal.contains(section));
+
+    if (portal) portal.hidden = !onPortal;
+    if (dash) dash.hidden = onPortal;
+    return onPortal;
+  }
+
+
   function showView(name, options) {
     options = options || {};
-    if (!document.getElementById('view-' + name)) name = 'kpi1';
+    if (!document.getElementById('view-' + name)) name = homeView();
 
     // Help is the team's inbox now, and a viewer has no nav item for it. A
     // saved bookmark or a pasted ?view=help still arrives here though, and
     // landing on a screen with one empty card and no explanation is worse than
     // landing on the dashboard. The server refuses them either way - this is
     // about what they see, not what they can reach.
-    if (name === 'help' && !canAdmin()) name = 'kpi1';
+    if (name === 'help' && !canAdmin()) name = homeView();
 
     document.querySelectorAll('.view').forEach(function (el) { el.hidden = true; });
     const target = document.getElementById('view-' + name);
     if (target) target.hidden = false;
 
+    applyShell(name);
+
     document.querySelectorAll('.nav-item').forEach(function (button) {
       button.classList.toggle('is-active', button.dataset.view === name);
+    });
+
+    // The portal's tabs mark themselves the same way. KPI Engine is included
+    // deliberately: while the dashboard is up, the tab that opened it stays
+    // lit, so walking back to the portal does not look like it arrived from
+    // nowhere.
+    document.querySelectorAll('.portal-tab').forEach(function (button) {
+      button.classList.toggle('is-on', button.dataset.view === name);
     });
 
     const labels = {

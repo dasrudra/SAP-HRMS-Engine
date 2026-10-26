@@ -12,6 +12,13 @@
 <?!= include('Styles'); ?>
 
 <!--
+  The portal's own CSS. AFTER Styles.html, because it reuses the colour
+  variables declared there and expects to win a tie on the few shapes both
+  files have an opinion about.
+-->
+<?!= include('PortalStyles'); ?>
+
+<!--
   THE SIGN-IN SCREEN.
 
   Covers everything until getSession() says somebody is signed in. Two roles:
@@ -215,6 +222,14 @@
   </div>
 </div>
 
+<!--
+  The portal: the front door, and every page that is not the dashboard.
+  Before the dashboard shell in the source because it is what people see
+  first; which of the two is on screen is decided by applyShell() in
+  App.html, not by their order here.
+-->
+<?!= include('Portal'); ?>
+
 <div class="app" id="appRoot" hidden>
 
   <!-- ===================== SIDEBAR ===================== -->
@@ -238,6 +253,17 @@
         One handler in App.html reads it, so adding a screen is two lines:
         a button here and a section there.
       -->
+      <!--
+        Back to the portal. First in the list and above the group labels,
+        because it is not an indicator - it leaves this shell entirely.
+        No handler of its own: data-view is all any nav button needs, and
+        showView() works out that home lives in the other shell.
+      -->
+      <button class="nav-item" data-view="home" title="Home">
+        <svg viewBox="0 0 16 16"><path d="M2 7l6-5 6 5M4 6.5V13h8V6.5"/></svg>
+        <span class="nav-text">Home</span>
+      </button>
+
       <div class="nav-group-label">Indicators</div>
       <button class="nav-item is-active" data-view="kpi1" title="KPI 1 &#xB7; ITSM">
         <svg viewBox="0 0 16 16"><path d="M2 14h12M4.5 11V6M8 11V3M11.5 11V8"/></svg>

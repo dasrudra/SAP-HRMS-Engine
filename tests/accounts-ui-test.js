@@ -330,7 +330,7 @@ const check = (n, ok, d) => {
     return hit ? Array.from(hit.cells).map((c) => c.textContent.trim()) : [];
   });
   check('the shared starting login is given no name box to fill in',
-    sharedCells.length > 1 && sharedCells[1] === '—',
+    sharedCells.length > 1 && sharedCells[1] === '\u2014',
     'it is a door, not a person');
 
   // ---------------------------------------------------------------------------
@@ -405,7 +405,7 @@ const check = (n, ok, d) => {
   // inactivity that had not happened.
   q = await open('?view=master');
   await q.evaluate(() => { window.__slowNext = 1500; });
-  await q.click('[data-view="kpi1"]');          // dispatched, answers in 1.5s
+  await q.click('.nav-item[data-view="kpi1"]');          // dispatched, answers in 1.5s
   await q.waitForTimeout(120);
   await q.click('#signOut');                     // pressed while it is in flight
   await q.waitForTimeout(2200);                  // long enough for it to land
@@ -421,7 +421,7 @@ const check = (n, ok, d) => {
   q = await open('?view=master');
   await q.evaluate(() => window.__expireSession());
   // Through the page's own callServer, which is where the decision lives.
-  await q.click('[data-view="kpi1"]');
+  await q.click('.nav-item[data-view="kpi1"]');
   await q.waitForTimeout(1100);
 
   const note = await q.$eval('#loginAlert', (n) => n.textContent.trim());
@@ -448,7 +448,7 @@ const check = (n, ok, d) => {
   check('signing back in works', await q.$eval('#appRoot', (n) => !n.hidden));
 
   await q.evaluate(() => window.__expireSession());
-  await q.click('[data-view="kpi1"]');
+  await q.click('.nav-item[data-view="kpi1"]');
   await q.waitForTimeout(1100);
   const second = await q.$eval('#loginAlert', (n) => n.textContent.trim());
   check('and the NEXT session ending does say so',

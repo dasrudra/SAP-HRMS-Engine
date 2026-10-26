@@ -71,7 +71,10 @@ const FILE = 'file://' + PAGE;
     return { name: c[0], section: c[1], received: c[2], rate: c[7], band: c[8] };
   }));
 
-  let p = await open();
+  // ?view=kpi1 explicitly, now that signing in lands on the portal's Home.
+  // Opening with no view at all would land this suite on a page with no
+  // people table on it at all.
+  let p = await open('?view=kpi1');
 
   // ---- everyone ----
   let rows = await table(p);
@@ -355,7 +358,7 @@ const FILE = 'file://' + PAGE;
   // verdicts, which is written up at length in Kpi.gs.
   const summaryTarget = async () => {
     await z.evaluate(() => {
-      const nav = document.querySelector('[data-view="settings"]');
+      const nav = document.querySelector('.nav-item[data-view="settings"]');
       if (nav) nav.click();
     });
     await z.waitForTimeout(700);
@@ -365,7 +368,7 @@ const FILE = 'file://' + PAGE;
 
   const onCompany = await summaryTarget();
   await z.evaluate(() => {
-    const nav = document.querySelector('[data-view="kpi1"]');
+    const nav = document.querySelector('.nav-item[data-view="kpi1"]');
     if (nav) nav.click();
   });
   await z.waitForTimeout(500);
@@ -398,7 +401,7 @@ const FILE = 'file://' + PAGE;
   // banded against whichever standard was on when the button was pressed.
   const goTo = async (view) => {
     await z.evaluate((v) => {
-      const nav = document.querySelector('[data-view="' + v + '"]');
+      const nav = document.querySelector('.nav-item[data-view="' + v + '"]');
       if (nav) nav.click();
     }, view);
     await z.waitForTimeout(700);

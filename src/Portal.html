@@ -1,0 +1,248 @@
+<!--
+  Portal.html - the front door, and everything that is not the dashboard.
+  =======================================================================
+
+  WHAT THIS IS
+  After sign-in people land here rather than on KPI 1. This is the EAS team's
+  own page: who we are, what we are for, what we are working on - and one tab,
+  KPI Engine, that hands over to the dashboard.
+
+  WHY IT IS A SECOND SHELL AND NOT A SECOND APP
+  A separate web app would have meant a second account table, a second
+  password, a second reset flow, and signing in twice to get from here to the
+  figures. Everything behind the sign-in card is already built; this file
+  borrows all of it. One login, one session, one messenger.
+
+  HOW IT JOINS THE ROUTER - THE WHOLE TRICK
+  Each page below is an ordinary <section class="view" id="view-NAME">, the
+  same shape the dashboard's own screens use. showView() in App.html already
+  hides every .view and shows the one it was asked for, so it needed no list
+  of portal pages and no second router. It only had to learn which SHELL each
+  view wants, and it works that out by asking where the section lives:
+
+      inside #portalRoot  ->  show the portal, hide the dashboard
+      anywhere else       ->  show the dashboard, hide the portal
+
+  So adding a page here is still two lines - a button in the nav and a section
+  in the body - exactly as the sidebar's own comment promises. Nothing in
+  App.html, Config.gs or Code.gs has to be told about it.
+
+  AND THE ONE TAB THAT IS NOT A PAGE
+  KPI Engine carries data-view="kpi1". There is no #view-kpi1 inside this
+  file, so the router finds it in the dashboard shell and hands over. That is
+  the entire "redirect" - no second page load, no second sign-in, and the
+  session never left.
+-->
+<div class="portal" id="portalRoot" hidden>
+
+  <!-- ===================== TOP BAR ===================== -->
+  <header class="portal-top">
+
+    <!--
+      The mark is a button, not a logo: clicking a company mark to get home is
+      a thing people try without being told, and a dead logo in the corner
+      spends that expectation for nothing.
+    -->
+    <button class="portal-brand" data-view="home" title="Home">
+      <span class="brand-mark">EAS</span>
+      <span class="portal-brand-text">
+        <strong>Enterprise Application Services</strong>
+        <span>Tekvision (BD) Ltd &#xB7; Youngone Corporation</span>
+      </span>
+    </button>
+
+    <!--
+      Ten tabs where the reference design had five.
+
+      They are allowed to SCROLL sideways rather than fold into a "More"
+      menu. On a 1366-wide laptop - which most of the team has - ten tabs plus
+      the mark plus the identity strip do not fit, and the two honest answers
+      are to scroll or to hide some. A menu hides them: a tab nobody can see
+      is a tab nobody visits, and which ones vanish depends on the window
+      width, so no two people are looking at the same navigation. Scrolling
+      keeps every tab reachable and keeps the order fixed.
+    -->
+    <nav class="portal-nav" id="portalNav" aria-label="Portal">
+      <button class="portal-tab" data-view="home">Home</button>
+      <button class="portal-tab" data-view="about">About us</button>
+      <button class="portal-tab" data-view="team">EAS Team</button>
+
+      <!--
+        Styled unlike its neighbours on purpose. Every other tab swaps the
+        page under this bar; this one leaves the portal for the dashboard,
+        with its own sidebar and its own way of working. A control that does
+        something different should look different before it is pressed.
+      -->
+      <button class="portal-tab is-engine" data-view="kpi1"
+              title="Open the TVL-EAS Database dashboard">KPI Engine</button>
+
+      <button class="portal-tab" data-view="partners">Partners</button>
+      <button class="portal-tab" data-view="contact">Contact us</button>
+      <button class="portal-tab" data-view="learnings">Learnings</button>
+      <button class="portal-tab" data-view="projects">Projects</button>
+      <button class="portal-tab" data-view="objective">Objective</button>
+      <button class="portal-tab" data-view="links">Links</button>
+    </nav>
+
+    <!--
+      Who is signed in, and the way out.
+
+      The button does not sign anybody out itself - it presses the dashboard's
+      Sign out button, which already drops the token, stops the polling and
+      puts the sign-in card back. Two buttons doing the same job in two
+      different ways is how one of them ends up subtly wrong, so there is
+      still exactly one sign-out in this project and this is a handle on it.
+    -->
+    <div class="portal-who">
+      <span class="portal-who-name" id="portalWho">&mdash;</span>
+      <button class="portal-signout" id="portalSignOut" hidden>Sign out</button>
+    </div>
+  </header>
+
+
+  <!-- ===================== PAGES ===================== -->
+  <div class="portal-body">
+
+    <!-- ---------- HOME ---------- -->
+    <section class="view portal-page" id="view-home">
+      <div class="portal-hero">
+        <h1 class="portal-hero-title">
+          The applications<br>Youngone runs on.
+        </h1>
+        <p class="portal-hero-sub">
+          Enterprise Application Services keeps SAP, the ITSM service desk and
+          every business application behind them running - and measures itself
+          on how well it does it.
+        </p>
+        <div class="portal-hero-actions">
+          <button class="portal-cta" data-view="kpi1">Open the KPI Engine</button>
+          <button class="portal-cta is-ghost" data-view="about">About the team</button>
+        </div>
+      </div>
+
+      <!--
+        The figure cards. Empty frames in this phase ON PURPOSE: the shell is
+        what is being approved here, and a card holding a made-up number is
+        the one thing on a dashboard project that must never be mistaken for
+        a real one. Phase 2 fills these from getPortalHome().
+      -->
+      <div class="portal-tiles" id="portalTiles">
+        <div class="portal-tile">
+          <span class="portal-tile-label">Success rate</span>
+          <span class="portal-tile-value">&mdash;</span>
+          <span class="portal-tile-note">Company KPI, current month</span>
+        </div>
+        <div class="portal-tile">
+          <span class="portal-tile-label">Tickets completed</span>
+          <span class="portal-tile-value">&mdash;</span>
+          <span class="portal-tile-note">Current month</span>
+        </div>
+        <div class="portal-tile">
+          <span class="portal-tile-label">Still open</span>
+          <span class="portal-tile-value">&mdash;</span>
+          <span class="portal-tile-note">Across all four departments</span>
+        </div>
+        <div class="portal-tile">
+          <span class="portal-tile-label">Engineers</span>
+          <span class="portal-tile-value">&mdash;</span>
+          <span class="portal-tile-note">Enterprise Application Services</span>
+        </div>
+      </div>
+
+      <p class="portal-phase-note">
+        Shell only &#x2014; the headline, the figures and the charts arrive in
+        Phase 2. Nothing on this page is reading live data yet, and the
+        dashes above are dashes rather than numbers so that it cannot be
+        mistaken for a reading.
+      </p>
+    </section>
+
+    <!--
+      ---------- THE CONTENT PAGES ----------
+
+      Nine sections, eight of them waiting. They are real routable pages from
+      this phase on, so every tab leads somewhere that explains itself rather
+      than to a dead button or a page that silently stays where it was.
+
+      Phase 5 fills them from a PORTAL tab in the spreadsheet, the way
+      Questions.gs already serves the FAQ, so that correcting a sentence is an
+      edit to a cell and not a deployment.
+    -->
+    <section class="view portal-page" id="view-about" hidden>
+      <h1 class="portal-page-title">About us</h1>
+      <div class="portal-empty">
+        <h2>This page is waiting for its words</h2>
+        <p>Phase 5 reads this page out of a <b>PORTAL</b> tab in the database
+           spreadsheet, so you and Nasir can write and correct it without
+           pasting a file or deploying anything.</p>
+      </div>
+    </section>
+
+    <section class="view portal-page" id="view-team" hidden>
+      <h1 class="portal-page-title">EAS Team</h1>
+      <div class="portal-empty">
+        <h2>The org chart already exists</h2>
+        <p>Phase 4 wires this page to the team chart the dashboard draws on its
+           Summary screen, so the two can never disagree about who is in which
+           department.</p>
+      </div>
+    </section>
+
+    <section class="view portal-page" id="view-partners" hidden>
+      <h1 class="portal-page-title">Partners</h1>
+      <div class="portal-empty">
+        <h2>This page is waiting for its words</h2>
+        <p>Phase 5, from the <b>PORTAL</b> tab.</p>
+      </div>
+    </section>
+
+    <section class="view portal-page" id="view-contact" hidden>
+      <h1 class="portal-page-title">Contact us</h1>
+      <div class="portal-empty">
+        <h2>This page is waiting for its words</h2>
+        <p>Phase 5, from the <b>PORTAL</b> tab. In the meantime the Messages
+           button in the bottom corner reaches the EAS team from any page,
+           signed in or not.</p>
+      </div>
+    </section>
+
+    <section class="view portal-page" id="view-learnings" hidden>
+      <h1 class="portal-page-title">Learnings</h1>
+      <div class="portal-empty">
+        <h2>This page is waiting for its words</h2>
+        <p>Phase 5, from the <b>PORTAL</b> tab.</p>
+      </div>
+    </section>
+
+    <section class="view portal-page" id="view-projects" hidden>
+      <h1 class="portal-page-title">Projects</h1>
+      <div class="portal-empty">
+        <h2>This page is waiting for its words</h2>
+        <p>Phase 5, from the <b>PORTAL</b> tab.</p>
+      </div>
+    </section>
+
+    <section class="view portal-page" id="view-objective" hidden>
+      <h1 class="portal-page-title">Objective</h1>
+      <div class="portal-empty">
+        <h2>This page is waiting for its words</h2>
+        <p>Phase 5, from the <b>PORTAL</b> tab.</p>
+      </div>
+    </section>
+
+    <section class="view portal-page" id="view-links" hidden>
+      <h1 class="portal-page-title">Links</h1>
+      <div class="portal-empty">
+        <h2>This page is waiting for its links</h2>
+        <p>Phase 5, from the <b>PORTAL</b> tab - one row per link, so adding
+           one is adding a row.</p>
+      </div>
+    </section>
+
+  </div>
+
+  <footer class="portal-foot">
+    <span>Enterprise Application Services &#xB7; Tekvision (BD) Ltd</span>
+    <span class="portal-foot-dim">Youngone Corporation</span>
+  </footer>
+</div>

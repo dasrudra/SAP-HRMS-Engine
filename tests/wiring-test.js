@@ -24,6 +24,7 @@ const check = (n, ok, d) => {
 const read = (f) => fs.readFileSync(path.join(SRC, f), 'utf8');
 const APP = read('App.html');
 const INDEX = read('Index.html');
+const PORTAL = read('Portal.html');
 const STYLES = read('Styles.html');
 const REPORT = read('Report.html');
 const KPI = read('Kpi.gs');
@@ -61,9 +62,16 @@ function scriptOf(html, label) {
 // ---------------------------------------------------------------------------
 // Ids built at runtime are skipped - a concatenation cannot be checked here,
 // and the ones that matter are the literals.
+//
+// Read off every markup file Index.html pulls in, not just Index.html itself.
+// The portal's ids live in Portal.html, so scanning one file would report
+// every one of them as missing - and, worse, would stop reporting a genuinely
+// missing id the day somebody moved it into a second file.
 const markupIds = {};
-(INDEX.match(/\bid="([A-Za-z0-9_-]+)"/g) || []).forEach(function (hit) {
-  markupIds[hit.slice(4, -1)] = true;
+[INDEX, PORTAL].forEach(function (text) {
+  (text.match(/\bid="([A-Za-z0-9_-]+)"/g) || []).forEach(function (hit) {
+    markupIds[hit.slice(4, -1)] = true;
+  });
 });
 
 // Created by script rather than written in the markup; listed so the check can
@@ -489,18 +497,27 @@ check('while the EAS scope in the ticket data is untouched',
 // the whole project is still plain ASCII
 // ---------------------------------------------------------------------------
 // A single stray byte in a paste has taken this project down before. Checked
-// off the directory rather than a list, so a new file cannot slip past.
-const bad = fs.readdirSync(SRC)
-  .filter((f) => /\.(gs|html)$/.test(f))
-  .map(function (f) {
-    const hits = fs.readFileSync(path.join(SRC, f), 'utf8').match(/[^\x00-\x7F]/g);
-    if (!hits) return null;
+// off the directories rather than a list, so a new file cannot slip past.
+//
+// THE SUITES ARE SCANNED TOO, which they were not until an em dash written
+// straight into a comparison turned up in two of them. A test file is read,
+// edited and pasted exactly like a source file, and the character that breaks
+// a paste does not care which folder it is in. Both strays were comparing
+// against a dash the page renders from &mdash; - '\u2014' says the same thing
+// and survives a trip through anything.
+const asciiScan = [[SRC, /\.(gs|html)$/], [__dirname, /-test\.js$/]];
+const bad = [];
+asciiScan.forEach(function (where) {
+  fs.readdirSync(where[0]).filter((f) => where[1].test(f)).forEach(function (f) {
+    const hits = fs.readFileSync(path.join(where[0], f), 'utf8').match(/[^\x00-\x7F]/g);
+    if (!hits) return;
     const kinds = hits.filter((c, i, a) => a.indexOf(c) === i)
       .map((c) => 'U+' + c.charCodeAt(0).toString(16).toUpperCase());
-    return f + ' (' + hits.length + ': ' + kinds.join(' ') + ')';
-  })
-  .filter(Boolean);
-check('every source file is plain ASCII', bad.length === 0, bad.join('; ') || 'all clean');
+    bad.push(f + ' (' + hits.length + ': ' + kinds.join(' ') + ')');
+  });
+});
+check('every source file and every suite is plain ASCII',
+  bad.length === 0, bad.join('; ') || 'all clean');
 
 const failed = out.filter((r) => !r).length;
 console.log('\n' + (out.length - failed) + '/' + out.length + ' passed');
