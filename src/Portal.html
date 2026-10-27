@@ -35,6 +35,23 @@
 -->
 <div class="portal" id="portalRoot" hidden>
 
+  <!--
+    THE SKY - the blue wash everything at the top of the portal sits on.
+
+    A separate element rather than a background on .portal-body, because the
+    body is the scrolling box: a background painted on it would stay nailed to
+    the viewport while the page moved underneath, and the hero would slide out
+    from under its own colour.
+
+    It is not decoration either. The glass navigation above only reads as
+    glass because there is something behind it to blur, and the headline is
+    white, which needs this to be legible at all. How tall it is depends on
+    the page - a hero's worth on Home, a header band elsewhere - and that is
+    set from data-page by applyShell() in App.html, because CSS cannot ask
+    which view is open.
+  -->
+  <div class="portal-sky" aria-hidden="true"></div>
+
   <!-- ===================== TOP BAR ===================== -->
   <header class="portal-top">
 
@@ -62,6 +79,7 @@
       width, so no two people are looking at the same navigation. Scrolling
       keeps every tab reachable and keeps the order fixed.
     -->
+    <div class="portal-navwrap">
     <nav class="portal-nav" id="portalNav" aria-label="Portal">
       <button class="portal-tab" data-view="home">Home</button>
       <button class="portal-tab" data-view="about">About us</button>
@@ -83,6 +101,7 @@
       <button class="portal-tab" data-view="objective">Objective</button>
       <button class="portal-tab" data-view="links">Links</button>
     </nav>
+    </div>
 
     <!--
       Who is signed in, and the way out.
@@ -106,8 +125,15 @@
     <!-- ---------- HOME ---------- -->
     <section class="view portal-page" id="view-home">
       <div class="portal-hero">
+        <!--
+          Taken from the sign-in page, which has read DATA | INSIGHT |
+          PERFORMANCE under the EAS mark since long before this portal
+          existed. It is the team's own line; borrowing it means the front
+          door and the sign-in card say the same thing rather than each
+          making up a slogan.
+        -->
         <h1 class="portal-hero-title">
-          The applications<br>Youngone runs on.
+          Data. Insight.<br>Performance.
         </h1>
         <p class="portal-hero-sub">
           Enterprise Application Services keeps SAP, the ITSM service desk and
@@ -121,39 +147,120 @@
       </div>
 
       <!--
-        The figure cards. Empty frames in this phase ON PURPOSE: the shell is
-        what is being approved here, and a card holding a made-up number is
-        the one thing on a dashboard project that must never be mistaken for
-        a real one. Phase 2 fills these from getPortalHome().
+        THE CARDS, as charts rather than four big numbers.
+
+        DEMO DATA, AND SAID SO IN WRITING UNDER THEM. Every shape below is
+        invented. That is a strange thing to ship on a KPI project, so it is
+        worth being exact about why it is allowed here: these are standing in
+        for the real ones until Phase 2 wires them to getPortalHome(), and the
+        risk being managed is somebody reading an invented 96% as this month's
+        figure. The note beneath says they are a preview, the months are
+        labelled with no year, and nothing here is a single large number of
+        the kind people screenshot.
+
+        INLINE SVG, not Chart.js. The dashboard loads Chart.js from a CDN,
+        which is fine there - the figures are in the tables beside it, so a
+        blocked CDN costs a chart and not the screen. Here the chart IS the
+        card, and a front page whose four cards are empty rectangles because
+        a network somewhere said no is not a front page. Drawn by hand, these
+        cannot fail to load.
       -->
       <div class="portal-tiles" id="portalTiles">
+
+        <!-- ---- success rate over time ---- -->
         <div class="portal-tile">
-          <span class="portal-tile-label">Success rate</span>
-          <span class="portal-tile-value">&mdash;</span>
-          <span class="portal-tile-note">Company KPI, current month</span>
+          <div class="portal-tile-head">
+            <span class="portal-tile-label">Success rate</span>
+            <span class="portal-tile-trend">+1.4</span>
+          </div>
+          <span class="portal-tile-value">96.1<span class="portal-tile-unit">%</span></span>
+          <svg class="portal-chart" viewBox="0 0 240 74" role="img"
+               aria-label="Success rate rising over the last eight months">
+            <defs>
+              <linearGradient id="skyFill" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0" stop-color="#2563eb" stop-opacity=".28"/>
+                <stop offset="1" stop-color="#2563eb" stop-opacity="0"/>
+              </linearGradient>
+            </defs>
+            <path d="M0,56 L34,49 L69,53 L103,37 L137,42 L171,24 L206,29 L240,15 L240,74 L0,74 Z"
+                  fill="url(#skyFill)"/>
+            <polyline points="0,56 34,49 69,53 103,37 137,42 171,24 206,29 240,15"
+                      fill="none" stroke="#2563eb" stroke-width="2.4"
+                      stroke-linecap="round" stroke-linejoin="round"/>
+            <circle cx="240" cy="15" r="3.6" fill="#fff" stroke="#2563eb" stroke-width="2.4"/>
+          </svg>
+          <span class="portal-tile-note">Last eight months</span>
         </div>
+
+        <!-- ---- volume by department ---- -->
         <div class="portal-tile">
-          <span class="portal-tile-label">Tickets completed</span>
-          <span class="portal-tile-value">&mdash;</span>
-          <span class="portal-tile-note">Current month</span>
+          <div class="portal-tile-head">
+            <span class="portal-tile-label">By department</span>
+          </div>
+          <span class="portal-tile-value">2,545</span>
+          <svg class="portal-chart" viewBox="0 0 240 74" role="img"
+               aria-label="Ticket volume across the four EAS departments">
+            <g fill="#dbe7fb">
+              <rect x="6"   y="14" width="44" height="52" rx="6"/>
+              <rect x="66"  y="14" width="44" height="52" rx="6"/>
+              <rect x="126" y="14" width="44" height="52" rx="6"/>
+              <rect x="186" y="14" width="44" height="52" rx="6"/>
+            </g>
+            <g fill="#2563eb">
+              <rect x="6"   y="14" width="44" height="52" rx="6"/>
+              <rect x="66"  y="25" width="44" height="41" rx="6"/>
+              <rect x="126" y="31" width="44" height="35" rx="6"/>
+              <rect x="186" y="38" width="44" height="28" rx="6"/>
+            </g>
+          </svg>
+          <span class="portal-tile-note">Mfg &#xB7; Sales &#xB7; SCM &#xB7; Fin</span>
         </div>
+
+        <!-- ---- how the month closed ---- -->
         <div class="portal-tile">
-          <span class="portal-tile-label">Still open</span>
-          <span class="portal-tile-value">&mdash;</span>
-          <span class="portal-tile-note">Across all four departments</span>
+          <div class="portal-tile-head">
+            <span class="portal-tile-label">How it closed</span>
+          </div>
+          <div class="portal-donut">
+            <svg viewBox="0 0 84 84" role="img"
+                 aria-label="Most tickets closed on time, a few delayed, a few still open">
+              <circle cx="42" cy="42" r="33" fill="none" stroke="#eef3fb" stroke-width="13"/>
+              <!--
+                One circle per slice, each rotated to start where the last
+                ended. 2 * pi * 33 is 207.3, so a slice of N per cent is
+                2.073 * N long - 78, 12 and 10 here.
+              -->
+              <circle cx="42" cy="42" r="33" fill="none" stroke="#2563eb" stroke-width="13"
+                      stroke-dasharray="161.7 207.3" stroke-dashoffset="0"
+                      transform="rotate(-90 42 42)" stroke-linecap="round"/>
+              <circle cx="42" cy="42" r="33" fill="none" stroke="#fab219" stroke-width="13"
+                      stroke-dasharray="24.9 207.3" stroke-dashoffset="-163"
+                      transform="rotate(-90 42 42)" stroke-linecap="round"/>
+            </svg>
+            <span class="portal-donut-mid">78<small>%</small></span>
+          </div>
+          <span class="portal-tile-note">On time &#xB7; delayed &#xB7; open</span>
         </div>
+
+        <!-- ---- what the team has been doing ---- -->
         <div class="portal-tile">
-          <span class="portal-tile-label">Engineers</span>
-          <span class="portal-tile-value">&mdash;</span>
-          <span class="portal-tile-note">Enterprise Application Services</span>
+          <div class="portal-tile-head">
+            <span class="portal-tile-label">Lately</span>
+          </div>
+          <ul class="portal-feed">
+            <li><span class="portal-dot is-ok"></span>Monthly ITSM export loaded</li>
+            <li><span class="portal-dot is-ok"></span>KPI 1 recomputed, both standards</li>
+            <li><span class="portal-dot is-warn"></span>Training feedback awaiting upload</li>
+            <li><span class="portal-dot"></span>Comparison shared with TVL</li>
+          </ul>
         </div>
       </div>
 
       <p class="portal-phase-note">
-        Shell only &#x2014; the headline, the figures and the charts arrive in
-        Phase 2. Nothing on this page is reading live data yet, and the
-        dashes above are dashes rather than numbers so that it cannot be
-        mistaken for a reading.
+        <b>Preview figures.</b> The four cards above are drawn from invented
+        numbers so the page can be looked at and judged. They are connected to
+        the database in Phase 2 &#x2014; until then nothing on this page is a
+        reading, and none of it should be quoted or screenshotted.
       </p>
     </section>
 

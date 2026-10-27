@@ -1376,7 +1376,16 @@
 
     const onPortal = Boolean(portal && section && portal.contains(section));
 
-    if (portal) portal.hidden = !onPortal;
+    if (portal) {
+      portal.hidden = !onPortal;
+
+      // Which page, written onto the element so the stylesheet can read it.
+      // CSS has no way to ask what is open, and the blue sky behind the top
+      // of the portal is a hero's worth of it on Home and a header band
+      // everywhere else. Left here while the dashboard is up, so walking
+      // back to the portal does not play the transition twice.
+      if (onPortal) portal.dataset.page = name;
+    }
     if (dash) dash.hidden = onPortal;
     return onPortal;
   }

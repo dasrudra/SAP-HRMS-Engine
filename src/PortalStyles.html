@@ -2,16 +2,16 @@
   PortalStyles.html - the portal's own CSS, and only the portal's.
   ================================================================
 
-  Blue and white, as asked. The COLOURS are not new: every one of them is a
-  variable already declared at the top of Styles.html and already used by the
-  dashboard. That is deliberate. Two stylesheets each holding their own idea
-  of "our blue" drift apart the first time one of them is adjusted, and then
-  the portal and the dashboard are visibly two different products bolted
-  together - which is exactly what this is meant not to look like.
+  Blue and white. The colours are not new: the blues below are the variables
+  already declared at the top of Styles.html and already used by the
+  dashboard. Two stylesheets each holding their own idea of "our blue" drift
+  apart the first time one of them is adjusted, and then the portal and the
+  dashboard are visibly two products bolted together - which is exactly what
+  this is meant not to look like.
 
-  What is new here is the SHAPE. The dashboard is a dark sidebar against a
-  dense working surface, because it is a tool you keep open. The portal is
-  white and wide with air around it, because it is a page you read.
+  What is new is the SHAPE. The dashboard is a dark sidebar against a dense
+  working surface, because it is a tool you keep open. The portal opens on a
+  wash of blue with white type over it, because it is a front door.
 
   Loaded after Styles.html, so anything shared resolves the same way and
   anything here wins a tie.
@@ -37,25 +37,56 @@
   .portal {
     position: fixed; inset: 0; z-index: 1;
     display: flex; flex-direction: column;
-    background: #fff;
+    background: #eef4fc;
     overflow: hidden;
   }
 
-  /* ---------- top bar ---------- */
+  /* =========================================================
+     THE SKY
+     =========================================================
+     Four soft radial blobs over a deep blue, which is how the gradient in
+     the reference is built: no single linear ramp makes that shape. They are
+     placed off the edges on purpose - a blob whose centre is visible reads as
+     a spotlight, and one whose centre is outside the box reads as light.
+
+     Height comes from data-page, set by applyShell(). A hero's worth on Home,
+     a header band on every other page, and the transition makes walking
+     between them a movement rather than a jump.
+  */
+  .portal-sky {
+    position: absolute; top: 0; left: 0; right: 0;
+    height: 232px;
+    z-index: 0;
+    pointer-events: none;
+    background:
+      radial-gradient(90% 120% at 12% 8%,   #4f8cff 0%, rgba(79, 140, 255, 0) 60%),
+      radial-gradient(70% 110% at 88% 0%,   #27d3f5 0%, rgba(39, 211, 245, 0) 55%),
+      radial-gradient(80% 130% at 72% 100%, #5b3df0 0%, rgba(91, 61, 240, 0) 62%),
+      radial-gradient(120% 140% at 30% 110%, #1b45c8 0%, rgba(27, 69, 200, 0) 70%),
+      linear-gradient(135deg, #123a9e 0%, #1b4fd1 48%, #2f6fe8 100%);
+    /* Only the bottom corners, so it meets the window squarely at the top. */
+    border-radius: 0 0 26px 26px;
+    transition: height .32s cubic-bezier(.4, 0, .2, 1);
+  }
+  .portal[data-page="home"] .portal-sky { height: 620px; }
+
+  /*
+    The two layers above it. Transparent backgrounds, so the sky shows
+    through, and a stacking context above it so they are not painted under.
+  */
+  .portal-top, .portal-body { position: relative; z-index: 1; }
+
+
+  /* =========================================================
+     THE TOP BAR
+     ========================================================= */
   .portal-top {
     flex: 0 0 auto;
-    display: flex; align-items: center; gap: 18px;
+    display: flex; align-items: center;
     padding: 0 22px;
-    height: 64px;
-    background: #fff;
-    border-bottom: 1px solid #e3eaf4;
-    /*
-      The bar is the only thing anchoring a long page, so it carries a shadow
-      rather than only a line - a hairline alone disappears against a white
-      card scrolling underneath it.
-    */
-    box-shadow: 0 1px 3px rgba(21, 44, 84, .05);
-    z-index: 5;
+    height: 72px;
+    background: none;
+    border: 0;
   }
 
   .portal-brand {
@@ -66,118 +97,158 @@
     font: inherit; color: inherit;
     border-radius: 8px;
   }
-  .portal-brand:focus-visible { outline: 2px solid var(--blue-500); outline-offset: 3px; }
+  .portal-brand:focus-visible { outline: 2px solid #fff; outline-offset: 3px; }
 
   .portal-brand-text { display: flex; flex-direction: column; line-height: 1.25; }
   .portal-brand-text strong {
-    font-size: 13.5px; font-weight: 700; color: var(--navy-900);
+    font-size: 13.5px; font-weight: 700; color: #fff;
     letter-spacing: -.01em; white-space: nowrap;
   }
   .portal-brand-text span {
-    font-size: 10.5px; color: var(--text-mut); white-space: nowrap;
+    font-size: 10.5px; color: rgba(255, 255, 255, .72); white-space: nowrap;
   }
-
-  /* =========================================================
-     THE TABS
-     =========================================================
-     Ten of them. They scroll sideways when the window cannot hold them all,
-     rather than collapsing into a menu - see the note in Portal.html for why
-     a hidden tab is worse than a scrolled one.
-
-     scrollbar-width:none hides the bar itself; the tabs still scroll by
-     wheel, trackpad, touch and keyboard. A visible scrollbar inside a 64px
-     header reads as a mistake.
-  */
-  .portal-nav {
-    flex: 1 1 auto;
-    display: flex; align-items: center; gap: 2px;
-    overflow-x: auto; overflow-y: hidden;
-    scrollbar-width: none;
-    -ms-overflow-style: none;
-    /* So the first and last tab are not jammed against their neighbours. */
-    padding: 0 4px;
-  }
-  .portal-nav::-webkit-scrollbar { height: 0; width: 0; }
 
   /*
-    A SHADOW AT WHICHEVER END STILL HAS TABS BEHIND IT.
-
-    Hiding the scrollbar bought a clean header and cost the only clue that the
-    list continues. On an 820px window the tabs ended at KPI Engine with a
-    clean edge - indistinguishable from a nav that simply has four tabs. That
-    is the same defect as a More menu, arrived at from the other direction,
-    and rejecting the menu for it means fixing it here.
-
-    Four layers, the standard scroll-shadow trick: two white gradients pinned
-    to the CONTENT (background-attachment: local) sit on top of two grey ones
-    pinned to the BOX (scroll). At the left end the content gradient covers
-    the left shadow; scroll right and it travels away, uncovering it. So each
-    shadow appears only while there is something in that direction, with no
-    script and no scroll listener.
+    The mark is drawn by Styles.html for the dark sidebar, where a solid blue
+    tile on near-black reads well. On the sky it is blue on blue, so it goes
+    white with the blue inside it.
   */
-  .portal-nav {
-    background:
-      linear-gradient(to right, #fff 40%, rgba(255, 255, 255, 0)) left / 28px 100% no-repeat local,
-      linear-gradient(to left,  #fff 40%, rgba(255, 255, 255, 0)) right / 28px 100% no-repeat local,
-      radial-gradient(farthest-side at 0 50%, rgba(21, 44, 84, .17), rgba(21, 44, 84, 0)) left / 11px 100% no-repeat scroll,
-      radial-gradient(farthest-side at 100% 50%, rgba(21, 44, 84, .17), rgba(21, 44, 84, 0)) right / 11px 100% no-repeat scroll;
+  .portal-top .brand-mark {
+    background: #fff; color: var(--blue-600);
+    box-shadow: 0 2px 10px rgba(4, 18, 50, .22);
   }
+
+
+  /* =========================================================
+     THE TABS - centred, and made of glass
+     =========================================================
+     Centred by taking them out of the flex row entirely. Left in it, the row
+     would centre them between the mark and the identity strip, which are not
+     the same width - so they would sit visibly off-centre and move sideways
+     whenever somebody with a longer name signed in.
+
+     The glass is a real backdrop blur of the sky behind it. That is why the
+     sky has to be a painted element and not a background on the scroll box:
+     there must be something underneath for the filter to work on.
+  */
+  /*
+    THE ROW THE PILL SITS ON, which exists only so the pill can be centred
+    twice over.
+
+    On a wide window it is taken out of the flex row and pinned to the middle
+    of the bar: centred between the window's edges, not between the mark and
+    the identity strip, which are different widths and would push it visibly
+    off-centre - and would shift it sideways whenever somebody with a longer
+    name signed in.
+
+    On a narrower one it becomes a full-width row of its own. The width is
+    what forces the wrap: a flex item allowed to shrink will shrink instead
+    of wrapping, which is how the first attempt ended up with the pill
+    squeezed onto the same line as everything else and hanging off the right
+    edge. The pill inside stays its own size and is centred by this.
+  */
+  .portal-navwrap {
+    position: absolute; left: 50%; transform: translateX(-50%);
+    display: flex; justify-content: center;
+    max-width: calc(100% - 620px);
+  }
+
+  .portal-nav {
+    display: flex; align-items: center; gap: 2px;
+    max-width: 100%;
+    overflow-x: auto; overflow-y: hidden;
+    scrollbar-width: none; -ms-overflow-style: none;
+    /* Wider at the ends than the top: at border-radius 999px the pill's
+       corners curve in across the full height, so a first or last tab with
+       only the vertical padding sits against the curve rather than inside
+       it. */
+    padding: 5px 11px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, .13);
+    border: 1px solid rgba(255, 255, 255, .24);
+    -webkit-backdrop-filter: blur(16px) saturate(150%);
+    backdrop-filter: blur(16px) saturate(150%);
+    box-shadow:
+      0 8px 28px rgba(5, 20, 56, .22),
+      inset 0 1px 0 rgba(255, 255, 255, .34);
+  }
+  .portal-nav::-webkit-scrollbar { height: 0; width: 0; }
 
   .portal-tab {
     flex: 0 0 auto;
     position: relative;
-    padding: 9px 13px;
+    padding: 8px 13px;
     border: 0; background: none;
     font: 600 13px/1 inherit;
-    color: var(--text-dim);
+    color: rgba(255, 255, 255, .80);
     white-space: nowrap;
-    border-radius: 7px;
+    border-radius: 999px;
     cursor: pointer;
-    transition: color .13s ease, background .13s ease;
+    transition: color .16s ease, background .16s ease, box-shadow .16s ease;
   }
-  .portal-tab:hover { color: var(--navy-700); background: var(--blue-050); }
-  .portal-tab:focus-visible { outline: 2px solid var(--blue-500); outline-offset: 2px; }
 
   /*
-    The active tab is marked by WEIGHT AND COLOUR plus an underline, not by
-    colour alone - the same rule the band pills follow elsewhere in this
-    project. Roughly one man in twelve cannot separate these two blues.
+    THE GLOW, which is the hover state asked for. Kept to a halo plus a lift
+    in brightness - no movement. Ten tabs this close together, each nudging
+    itself on hover, is a row that twitches as the pointer crosses it.
   */
-  .portal-tab.is-on { color: var(--blue-600); background: var(--blue-050); }
-  .portal-tab.is-on::after {
-    content: ''; position: absolute;
-    left: 13px; right: 13px; bottom: -1px; height: 2px;
-    background: var(--blue-500); border-radius: 2px 2px 0 0;
+  .portal-tab:hover {
+    color: #fff;
+    background: rgba(255, 255, 255, .18);
+    box-shadow:
+      0 0 0 1px rgba(255, 255, 255, .30),
+      0 0 18px rgba(150, 200, 255, .55),
+      inset 0 1px 0 rgba(255, 255, 255, .35);
+  }
+  .portal-tab:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+
+  /*
+    The open tab is marked by FILL AND WEIGHT, not by colour alone - the same
+    rule the band pills follow elsewhere in this project, and the reason none
+    of this depends on telling two blues apart.
+  */
+  .portal-tab.is-on {
+    color: var(--navy-900);
+    background: #fff;
+    box-shadow: 0 2px 10px rgba(5, 20, 56, .20);
   }
 
-  /* The one tab that leaves the portal. */
+  /* The one tab that leaves the portal: white on the glass, so it reads as a
+     button among labels rather than another label. */
   .portal-tab.is-engine {
-    margin: 0 6px;
+    margin: 0 4px;
     padding: 8px 15px;
-    background: var(--blue-500); color: #fff;
-    box-shadow: 0 1px 2px rgba(37, 99, 235, .3);
+    background: #fff; color: var(--blue-600);
+    box-shadow: 0 2px 12px rgba(5, 20, 56, .26);
   }
-  .portal-tab.is-engine:hover { background: var(--blue-600); color: #fff; }
-  .portal-tab.is-engine.is-on::after { display: none; }
+  .portal-tab.is-engine:hover {
+    background: #fff; color: var(--blue-600);
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, .5), 0 0 22px rgba(150, 200, 255, .8);
+  }
 
   /* ---------- who is signed in ---------- */
   .portal-who {
-    flex: 0 0 auto;
+    flex: 0 0 auto; margin-left: auto;
     display: flex; align-items: center; gap: 10px;
   }
   .portal-who-name {
-    font-size: 12.5px; font-weight: 600; color: var(--navy-700);
+    font-size: 12.5px; font-weight: 600; color: rgba(255, 255, 255, .92);
     max-width: 16ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
   .portal-signout {
-    padding: 6px 12px;
-    border: 1px solid #d7e2f1; border-radius: 7px;
-    background: #fff; color: var(--text-dim);
+    padding: 6px 13px;
+    border: 1px solid rgba(255, 255, 255, .34); border-radius: 999px;
+    background: rgba(255, 255, 255, .12);
+    -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+    color: #fff;
     font: 600 12px/1 inherit; cursor: pointer;
-    transition: border-color .13s ease, color .13s ease;
+    transition: background .16s ease, box-shadow .16s ease;
   }
-  .portal-signout:hover { border-color: var(--blue-500); color: var(--blue-600); }
-  .portal-signout:focus-visible { outline: 2px solid var(--blue-500); outline-offset: 2px; }
+  .portal-signout:hover {
+    background: rgba(255, 255, 255, .22);
+    box-shadow: 0 0 16px rgba(150, 200, 255, .5);
+  }
+  .portal-signout:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 
 
   /* =========================================================
@@ -193,95 +264,157 @@
     flex: 1 1 auto;
     overflow-y: auto;
     scroll-padding-bottom: 90px;
-    /*
-      A very slight blue, not pure white. Against it the white cards have an
-      edge without needing a heavier border, and the page stops looking like
-      an unstyled document.
-    */
-    background: linear-gradient(180deg, #f7faff 0%, #eef4fc 100%);
+    background: none;
   }
 
-  .portal-page {
-    max-width: 1180px;
-    margin: 0 auto;
-    padding: 46px 28px 96px;
-  }
+  .portal-page { max-width: 1180px; margin: 0 auto; padding: 18px 28px 96px; }
 
+  /* On a content page the title sits on the sky, so it is white there. */
   .portal-page-title {
-    margin: 0 0 22px;
-    font-size: 30px; font-weight: 700; letter-spacing: -.02em;
-    color: var(--navy-900);
+    margin: 10px 0 26px;
+    font-size: 32px; font-weight: 700; letter-spacing: -.025em;
+    color: #fff;
+    text-shadow: 0 1px 14px rgba(6, 22, 60, .3);
   }
 
   /* ---------- the hero ---------- */
-  .portal-hero { padding: 42px 0 18px; text-align: center; }
+  .portal-hero { padding: 44px 0 10px; text-align: center; }
 
   .portal-hero-title {
-    margin: 0 auto 18px;
-    font-size: 54px; line-height: 1.08; font-weight: 800;
-    letter-spacing: -.035em;
-    color: var(--navy-900);
-    max-width: 16ch;
+    margin: 0 auto 20px;
+    font-size: 58px; line-height: 1.04; font-weight: 800;
+    letter-spacing: -.04em;
+    color: #fff;
+    text-shadow: 0 2px 30px rgba(6, 22, 60, .32);
+    max-width: 14ch;
   }
 
   .portal-hero-sub {
-    margin: 0 auto 30px;
-    max-width: 60ch;
+    margin: 0 auto 32px;
+    max-width: 58ch;
     font-size: 16px; line-height: 1.62;
-    color: var(--text-dim);
+    color: rgba(255, 255, 255, .86);
   }
 
-  .portal-hero-actions {
-    display: flex; justify-content: center; gap: 12px; flex-wrap: wrap;
-  }
+  .portal-hero-actions { display: flex; justify-content: center; gap: 12px; flex-wrap: wrap; }
 
   .portal-cta {
-    padding: 12px 24px;
-    border: 1px solid var(--blue-500); border-radius: 9px;
-    background: var(--blue-500); color: #fff;
+    padding: 13px 26px;
+    border: 1px solid transparent; border-radius: 999px;
+    background: #fff; color: var(--blue-600);
     font: 600 14px/1 inherit; cursor: pointer;
-    box-shadow: 0 2px 6px rgba(37, 99, 235, .22);
-    transition: background .13s ease, box-shadow .13s ease;
+    box-shadow: 0 6px 22px rgba(5, 20, 56, .26);
+    transition: box-shadow .16s ease, transform .16s ease;
   }
-  .portal-cta:hover { background: var(--blue-600); box-shadow: 0 3px 10px rgba(37, 99, 235, .3); }
-  .portal-cta:focus-visible { outline: 2px solid var(--navy-700); outline-offset: 3px; }
+  .portal-cta:hover { box-shadow: 0 8px 30px rgba(5, 20, 56, .34), 0 0 24px rgba(150, 200, 255, .6); }
+  .portal-cta:focus-visible { outline: 2px solid #fff; outline-offset: 3px; }
 
   .portal-cta.is-ghost {
-    background: #fff; color: var(--blue-600);
-    border-color: #cfe0f8; box-shadow: none;
+    background: rgba(255, 255, 255, .13); color: #fff;
+    border-color: rgba(255, 255, 255, .34);
+    -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+    box-shadow: none;
   }
-  .portal-cta.is-ghost:hover { background: var(--blue-050); box-shadow: none; }
+  .portal-cta.is-ghost:hover {
+    background: rgba(255, 255, 255, .22);
+    box-shadow: 0 0 20px rgba(150, 200, 255, .45);
+  }
 
-  /* ---------- the figure cards ---------- */
+
+  /* =========================================================
+     THE CARDS
+     =========================================================
+     White, and deliberately overlapping the bottom of the sky the way the
+     cards in the reference overlap their panel. That overlap is what stops
+     the hero reading as a coloured box with a list under it.
+  */
   .portal-tiles {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
-    gap: 16px;
-    margin-top: 46px;
+    gap: 18px;
+    margin-top: 52px;
   }
 
   .portal-tile {
-    display: flex; flex-direction: column; gap: 6px;
-    padding: 20px 20px 18px;
+    display: flex; flex-direction: column;
+    min-height: 186px;
+    padding: 16px 18px 15px;
     background: #fff;
-    border: 1px solid #e3eaf4; border-radius: 12px;
-    box-shadow: 0 1px 3px rgba(21, 44, 84, .05);
+    border: 1px solid rgba(255, 255, 255, .7);
+    border-radius: 16px;
+    box-shadow: 0 10px 30px rgba(8, 26, 66, .14), 0 2px 6px rgba(8, 26, 66, .07);
+  }
+
+  .portal-tile-head {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    margin-bottom: 8px;
   }
   .portal-tile-label {
     font-size: 11px; font-weight: 700; letter-spacing: .07em;
     text-transform: uppercase; color: var(--text-mut);
   }
+  .portal-tile-trend {
+    font-size: 11px; font-weight: 700;
+    padding: 3px 7px; border-radius: 999px;
+    background: var(--green-bg); color: var(--green-ink);
+  }
+
   .portal-tile-value {
-    font-size: 32px; font-weight: 700; letter-spacing: -.02em;
+    font-size: 27px; font-weight: 700; letter-spacing: -.025em;
     color: var(--navy-900); line-height: 1.1;
   }
-  .portal-tile-note { font-size: 11.5px; color: var(--text-dim); }
+  .portal-tile-unit { font-size: 16px; font-weight: 600; color: var(--text-dim); }
+
+  /*
+    overflow:visible because the line chart's last point sits ON the right
+    edge of its viewBox, so the dot marking it was being sliced in half by
+    the SVG viewport. Moving the data inwards instead would have left the
+    area fill short of the edge, which looks like missing data.
+  */
+  .portal-chart {
+    display: block; width: 100%; height: 74px; margin: auto 0 6px;
+    overflow: visible;
+  }
+
+  .portal-tile-note { font-size: 11px; color: var(--text-mut); }
+
+  /* ---------- the donut ---------- */
+  .portal-donut {
+    position: relative;
+    margin: auto; width: 108px; height: 108px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .portal-donut svg { width: 100%; height: 100%; }
+  .portal-donut-mid {
+    position: absolute;
+    font-size: 23px; font-weight: 700; letter-spacing: -.02em;
+    color: var(--navy-900);
+  }
+  .portal-donut-mid small { font-size: 12px; font-weight: 600; color: var(--text-dim); }
+
+  /* ---------- the activity list ---------- */
+  .portal-feed {
+    margin: 4px 0 0; padding: 0; list-style: none;
+    display: flex; flex-direction: column; gap: 9px;
+  }
+  .portal-feed li {
+    display: flex; align-items: flex-start; gap: 8px;
+    font-size: 12px; line-height: 1.4; color: var(--text-dim);
+  }
+  .portal-dot {
+    flex: 0 0 auto; width: 7px; height: 7px; margin-top: 4px;
+    border-radius: 50%; background: var(--text-mut);
+  }
+  .portal-dot.is-ok { background: var(--green); }
+  .portal-dot.is-warn { background: var(--amber); }
+
 
   /* ---------- the waiting pages ---------- */
   .portal-empty {
-    padding: 38px 32px;
+    padding: 34px 30px;
     background: #fff;
-    border: 1px dashed #cfdcee; border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, .7); border-radius: 16px;
+    box-shadow: 0 10px 30px rgba(8, 26, 66, .14);
     max-width: 68ch;
   }
   .portal-empty h2 {
@@ -293,10 +426,11 @@
   }
 
   .portal-phase-note {
-    margin: 30px 0 0;
-    font-size: 12px; line-height: 1.6; color: var(--text-mut);
+    margin: 26px 0 0;
+    font-size: 12px; line-height: 1.6; color: var(--text-dim);
     text-align: center;
   }
+  .portal-phase-note b { color: var(--navy-700); }
 
   /* ---------- footer ---------- */
   /*
@@ -311,45 +445,76 @@
     background: #fff;
     border-top: 1px solid #e3eaf4;
     font-size: 11.5px; color: var(--text-dim);
+    position: relative; z-index: 1;
   }
   .portal-foot-dim { color: var(--text-mut); }
 
 
   /* =========================================================
      NARROWER WINDOWS
-     =========================================================
-     The tabs already scroll, so nothing here has to hide anything. These
-     only stop the hero from shouting on a small screen and drop the cards
-     from four across to two and then one.
-  */
-  @media (max-width: 1080px) {
-    .portal-tiles { grid-template-columns: repeat(2, 1fr); }
-    .portal-hero-title { font-size: 44px; }
-  }
-
+     ========================================================= */
   /*
-    Ten tabs beside the mark and the identity strip need about 1500px. Below
-    that they get the full width of their own row, which fits far more of them
-    before the scroll is needed at all - and the scroll shadows handle the
-    rest.
+    Ten tabs centred between the mark and the identity strip need about
+    1500px. Below that the glass pill drops to its own row and goes back to
+    scrolling, with a shadow marking whichever end still has tabs behind it -
+    a tab nobody can see is a tab nobody visits, which is the same reason
+    there is no More menu.
   */
   @media (max-width: 1500px) {
-    .portal-top { height: auto; flex-wrap: wrap; padding: 9px 18px; gap: 8px 14px; }
-    .portal-nav { order: 3; width: 100%; padding: 0; }
-    .portal-who { margin-left: auto; }
+    .portal-top { height: auto; flex-wrap: wrap; padding: 12px 18px 14px; gap: 10px 14px; }
+    /*
+      The row goes full width, which is what makes it wrap below the mark and
+      the identity strip; the pill inside keeps its own width and is centred
+      on it. Once the tabs genuinely outgrow the window the pill fills the
+      row and scrolls, with the shadows below marking what is off-screen.
+    */
+    .portal-navwrap {
+      position: static; transform: none;
+      order: 3; width: 100%; max-width: none;
+    }
+    .portal-nav {
+      background:
+        linear-gradient(to right, rgba(255, 255, 255, .22) 30%, rgba(255, 255, 255, 0)) left / 26px 100% no-repeat local,
+        linear-gradient(to left,  rgba(255, 255, 255, .22) 30%, rgba(255, 255, 255, 0)) right / 26px 100% no-repeat local,
+        radial-gradient(farthest-side at 0 50%, rgba(3, 14, 40, .3), rgba(3, 14, 40, 0)) left / 12px 100% no-repeat scroll,
+        radial-gradient(farthest-side at 100% 50%, rgba(3, 14, 40, .3), rgba(3, 14, 40, 0)) right / 12px 100% no-repeat scroll,
+        rgba(255, 255, 255, .13);
+    }
+  }
+
+  @media (max-width: 1080px) {
+    .portal-tiles { grid-template-columns: repeat(2, 1fr); }
+    .portal-hero-title { font-size: 46px; }
+    /*
+      Tuned so the FIRST row of cards straddles the bottom edge of the sky,
+      which is the whole effect: cards half on the colour and half off it.
+      At 700px the first row sat entirely inside the blue and the second row
+      entirely outside, which reads as two unrelated groups rather than one
+      set of cards coming off a hero.
+    */
+    .portal[data-page="home"] .portal-sky { height: 560px; }
   }
 
   @media (max-width: 760px) {
-    .portal-top { padding: 10px 14px; }
+    .portal-top { padding: 10px 14px 12px; }
     .portal-brand-text span { display: none; }
-    .portal-page { padding: 28px 16px 96px; }
-    .portal-hero { padding: 20px 0 10px; }
-    .portal-hero-title { font-size: 33px; max-width: none; }
+    .portal-page { padding: 12px 16px 96px; }
+    .portal-hero { padding: 22px 0 6px; }
+    .portal-hero-title { font-size: 34px; max-width: none; }
     .portal-hero-sub { font-size: 14.5px; }
     .portal-tiles { grid-template-columns: 1fr; }
-    .portal-page-title { font-size: 24px; }
+    .portal-page-title { font-size: 25px; }
+    .portal[data-page="home"] .portal-sky { height: 470px; }
     .portal-foot { height: auto; padding: 12px 16px; }
     .portal-foot-dim { display: none; }
+  }
+
+  /*
+    Somebody who has asked their system not to animate things gets the height
+    change without the slide.
+  */
+  @media (prefers-reduced-motion: reduce) {
+    .portal-sky { transition: none; }
   }
 
 </style>

@@ -140,6 +140,18 @@ const FILE = 'file://' + PAGE;
     (await p.$eval('#view-home', (n) => n.hidden)),
     'About us is up, Home is not, and the dashboard never appeared');
 
+  // THE HOOK THE SKY'S HEIGHT HANGS OFF.
+  //
+  // CSS cannot ask which view is open, so applyShell() writes the page name
+  // onto the shell and the stylesheet reads it: a hero's worth of blue on
+  // Home, a header band everywhere else. If this quietly stopped being set
+  // the hero would collapse to a 232px strip with white text falling off the
+  // bottom of it - a disfiguring break that no other assertion here would
+  // notice, because every view would still route correctly.
+  check('the shell records which portal page is open, for the stylesheet',
+    (await p.$eval('#portalRoot', (n) => n.dataset.page)) === 'about',
+    await p.$eval('#portalRoot', (n) => String(n.dataset.page)));
+
   check('and the tab that is open says so',
     (await p.$eval('.portal-tab[data-view="about"]',
                    (n) => n.classList.contains('is-on'))) === true &&
@@ -154,6 +166,13 @@ const FILE = 'file://' + PAGE;
   check('KPI Engine hands over to the dashboard',
     at.dash === true && at.portal === false,
     'portal ' + at.portal + ', dashboard ' + at.dash);
+
+  // Left alone while the dashboard is up, deliberately: the sky's height is
+  // a transition, and clearing it here would play that transition against a
+  // hidden element and then again on the way back.
+  check('and it keeps the page it had while the dashboard is up',
+    (await p.$eval('#portalRoot', (n) => n.dataset.page)) === 'about',
+    'the portal is not on screen to need changing');
 
   check('and it is the real dashboard, with its figures on it',
     (await p.$$eval('#kpi1AllPeople tbody tr', (n) => n.length)) > 0,
