@@ -64,7 +64,7 @@
       <span class="brand-mark">EAS</span>
       <span class="portal-brand-text">
         <strong>Enterprise Application Services</strong>
-        <span>Tekvision (BD) Ltd &#xB7; Youngone Corporation</span>
+        <span>Tekvision (BD) Ltd &#xB7; Youngone Holdings</span>
       </span>
     </button>
 
@@ -242,25 +242,55 @@
           <span class="portal-tile-note">On time &#xB7; delayed &#xB7; open</span>
         </div>
 
-        <!-- ---- what the team has been doing ---- -->
+        <!--
+          ---- what this system does that another one would not ----
+
+          Four claims, and unlike the three cards beside it these are NOT
+          demo content - they are statements about the product, on the front
+          page, where being wrong is worse than being vague. Each was checked
+          against the code before it was written here:
+
+            two standards     CONFIG.KPI.RESOLUTION and RESOLUTION_EAS, the
+                              toggle on KPI 1, and recomputeKpiCache storing
+                              counts rather than verdicts so both can be
+                              derived from one set of numbers
+            xlsx reports      Report.html, on twelve cards in Index.html
+            threaded replies  Messenger.gs - replyToThread, appendToThread
+            upload log        UPLOAD_LOG, plus the per-ticket Source Files
+                              column that says which file each row came from
+
+          A fifth was drafted and dropped: the ingest reconciles the overall
+          export against the four department ones and knows which tickets
+          appear in only one. True, and genuinely unusual - but it is written
+          to a log, not to a screen, so "reports the gap" would have been a
+          claim this system does not yet keep.
+        -->
         <div class="portal-tile">
           <div class="portal-tile-head">
-            <span class="portal-tile-label">Lately</span>
+            <span class="portal-tile-label">Built in</span>
           </div>
           <ul class="portal-feed">
-            <li><span class="portal-dot is-ok"></span>Monthly ITSM export loaded</li>
-            <li><span class="portal-dot is-ok"></span>KPI 1 recomputed, both standards</li>
-            <li><span class="portal-dot is-warn"></span>Training feedback awaiting upload</li>
-            <li><span class="portal-dot"></span>Comparison shared with TVL</li>
+            <li><span class="portal-dot"></span>Two KPI standards from one set of counts</li>
+            <li><span class="portal-dot"></span>Any table downloads as a real .xlsx</li>
+            <li><span class="portal-dot"></span>Questions answered in the page, threaded</li>
+            <li><span class="portal-dot"></span>Every upload logged, ticket by ticket</li>
           </ul>
         </div>
       </div>
 
+      <!--
+        THREE, not four. The fourth card stopped being a figure card when it
+        became a list of what the system does, and a note claiming all four
+        are invented would have been casting doubt on the one thing here that
+        is actually true. A disclaimer that is wrong about its own scope is
+        not a careful disclaimer.
+      -->
       <p class="portal-phase-note">
-        <b>Preview figures.</b> The four cards above are drawn from invented
-        numbers so the page can be looked at and judged. They are connected to
-        the database in Phase 2 &#x2014; until then nothing on this page is a
-        reading, and none of it should be quoted or screenshotted.
+        <b>Preview figures.</b> The first three cards are drawn from invented
+        numbers so the page can be looked at and judged; they are connected to
+        the database in Phase 2. Until then nothing on this page is a reading,
+        and none of it should be quoted or screenshotted. <b>Built in</b> is
+        not a preview &#x2014; those four are what the system already does.
       </p>
     </section>
 
@@ -350,6 +380,6 @@
 
   <footer class="portal-foot">
     <span>Enterprise Application Services &#xB7; Tekvision (BD) Ltd</span>
-    <span class="portal-foot-dim">Youngone Corporation</span>
+    <span class="portal-foot-dim">Youngone Holdings</span>
   </footer>
 </div>
