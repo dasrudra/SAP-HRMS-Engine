@@ -501,7 +501,12 @@ const CONFIG = {
     QUESTIONS: 'QUESTIONS',
     FAQ:       'FAQ',
     THREADS:   'THREADS',
-    MESSAGES:  'MESSAGES'
+    MESSAGES:  'MESSAGES',
+
+    // The team directory the EAS Team page is drawn from. Its columns live
+    // in Team.gs rather than here, because they are a copy of the team's own
+    // spreadsheet headers and are matched loosely - see teamColumnIndex().
+    TEAM:      'TEAM'
   },
 
   /** Where this dashboard lives, for the link in a notification email. */

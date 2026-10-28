@@ -481,10 +481,15 @@ check('and no file still carries a name the system used to have',
 // A find-and-replace over the old name would have taken these with it: the
 // department the dashboard reports ON, the section in the ticket data, and
 // the policy's own wording. None of them is the dashboard.
+// The org chart moved off Summary and onto the portal, so the second half of
+// this looks at Portal.html now. The assertion itself has not changed: the
+// DEPARTMENT is called Enterprise Application Services whatever the software
+// in front of it is called this month, and a find-and-replace over the old
+// product name must not take it along.
 check('the department keeps its name when the system is renamed',
   /name: 'Enterprise Application Services'/.test(CONFIG_SRC) &&
-  /<h2 id="orgTitle">Enterprise Application Services<\/h2>/.test(INDEX),
-  'the org chart is about the team, not about this software');
+  /<strong>Enterprise Application Services<\/strong>/.test(PORTAL),
+  'the team is not this software');
 check('and the policy is still quoted as it is written',
   /section: '5\.3 Enterprise Application Services \(EAS\)'/.test(CONFIG_SRC),
   'a document says what it says');

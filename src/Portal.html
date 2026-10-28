@@ -60,13 +60,30 @@
       a thing people try without being told, and a dead logo in the corner
       spends that expectation for nothing.
     -->
-    <button class="portal-brand" data-view="home" title="Home">
-      <span class="brand-mark">EAS</span>
-      <span class="portal-brand-text">
-        <strong>Enterprise Application Services</strong>
-        <span>Tekvision (BD) Ltd &#xB7; Youngone Holdings</span>
-      </span>
-    </button>
+    <!--
+      The mark and the mailbox are SIBLINGS, not one control. An <a> inside a
+      <button> is invalid HTML and browsers recover from it differently - one
+      of them will decide the whole thing navigates Home and swallow the
+      mailto. Two elements, each doing one thing.
+    -->
+    <div class="portal-ident">
+      <button class="portal-brand" data-view="home" title="Home">
+        <span class="brand-mark">EAS</span>
+        <span class="portal-brand-text">
+          <strong>Enterprise Application Services</strong>
+          <span>Tekvision (BD) Ltd &#xB7; Youngone Holdings</span>
+        </span>
+      </button>
+
+      <a class="portal-mail" href="mailto:eas@tekvision.com.bd">
+        <svg viewBox="0 0 16 16" width="11" height="11" fill="none"
+             stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+          <rect x="1.5" y="3.5" width="13" height="9" rx="1.5"/>
+          <path d="M2 4.5l6 4 6-4"/>
+        </svg>
+        eas@tekvision.com.bd
+      </a>
+    </div>
 
     <!--
       Ten tabs where the reference design had five.
@@ -189,7 +206,6 @@
                       stroke-linecap="round" stroke-linejoin="round"/>
             <circle cx="240" cy="15" r="3.6" fill="#fff" stroke="#2563eb" stroke-width="2.4"/>
           </svg>
-          <span class="portal-tile-note">Last eight months</span>
         </div>
 
         <!-- ---- volume by department ---- -->
@@ -213,7 +229,6 @@
               <rect x="186" y="38" width="44" height="28" rx="6"/>
             </g>
           </svg>
-          <span class="portal-tile-note">Mfg &#xB7; Sales &#xB7; SCM &#xB7; Fin</span>
         </div>
 
         <!-- ---- how the month closed ---- -->
@@ -315,14 +330,26 @@
       </div>
     </section>
 
+    <!--
+      ---- EAS TEAM ----
+
+      Empty markup. Everything inside #teamBody is drawn by renderTeam() in
+      App.html from what getTeam() returns, and getTeam reads the TEAM tab of
+      the database.
+
+      That is not an implementation detail, it is the point: this page shows
+      thirty-seven people's work email, extension and personal mobile number,
+      and this repository is public. Written into this file they would be on
+      the open internet, kept in the git history after any deletion, for
+      people who were never asked. Read from the database they are behind the
+      sign-in, and correcting somebody's extension is an edit to a cell.
+    -->
     <section class="view portal-page" id="view-team" hidden>
-      <h1 class="portal-page-title">EAS Team</h1>
-      <div class="portal-empty">
-        <h2>The org chart already exists</h2>
-        <p>Phase 4 wires this page to the team chart the dashboard draws on its
-           Summary screen, so the two can never disagree about who is in which
-           department.</p>
+      <div class="portal-page-head">
+        <h1 class="portal-page-title">EAS Team</h1>
+        <p class="portal-page-sub" id="teamSub">Loading the team&#x2026;</p>
       </div>
+      <div id="teamBody"></div>
     </section>
 
     <section class="view portal-page" id="view-partners" hidden>

@@ -259,6 +259,92 @@ const FILE = 'file://' + PAGE;
     note.trim() || 'nothing said');
   await q.close();
 
+  // ---------------------------------------------------------------------------
+  // the EAS Team page
+  // ---------------------------------------------------------------------------
+  // Thirty-seven colleagues' work email, extension and personal mobile. It is
+  // drawn from a TEAM tab in the database and never from the source, because
+  // this repository is public and a git history keeps what you delete from it.
+  const t = await open('?view=team');
+  await t.waitForTimeout(900);
+
+  check('the team page draws a card for every person the server sent',
+    (await t.$$eval('.team-card', (n) => n.length)) === 4,
+    (await t.$$eval('.team-card', (n) => n.length)) + ' cards');
+
+  check('grouped by section, with each section counted',
+    (await t.$$eval('.team-group-head h2', (ns) => ns.map((n) => n.textContent.trim())))
+      .join(' | ') === 'Sales Applications | Supply Chain Applications',
+    await t.$eval('.team-group-count', (n) => n.textContent.trim()));
+
+  // THE CONTACT DETAILS, which are the reason this page exists.
+  const ayesha = await t.evaluate(() => {
+    const card = Array.from(document.querySelectorAll('.team-card'))
+      .filter((c) => /Ayesha Rahman/.test(c.textContent))[0];
+    if (!card) return null;
+    return {
+      role: card.querySelector('.team-role').textContent.trim(),
+      head: card.classList.contains('is-head'),
+      flag: Boolean(card.querySelector('.team-flag')),
+      hrefs: Array.from(card.querySelectorAll('a.team-line')).map((a) => a.getAttribute('href')),
+      lines: card.querySelectorAll('.team-line').length
+    };
+  });
+
+  check('a card carries the designation and marks a section head',
+    ayesha && ayesha.role === 'Manager' && ayesha.head === true && ayesha.flag === true,
+    ayesha ? ayesha.role : '(no card)');
+
+  check('and turns the address and the mobile into things you can press',
+    ayesha && ayesha.hrefs.indexOf('mailto:ayesha@example.test') !== -1 &&
+    ayesha.hrefs.indexOf('tel:01700000001') !== -1,
+    (ayesha ? ayesha.hrefs.join(' ') : ''));
+
+  // An empty cell must leave the line out rather than print a blank one.
+  // Ayesha has no extension in the fixture; Carim has one.
+  const carimLines = await t.evaluate(() => {
+    const card = Array.from(document.querySelectorAll('.team-card'))
+      .filter((c) => /Carim Uddin/.test(c.textContent))[0];
+    return card ? card.querySelectorAll('.team-line').length : -1;
+  });
+  check('a missing extension leaves the line out instead of printing an empty one',
+    ayesha && ayesha.lines === 2 && carimLines === 3,
+    'Ayesha ' + (ayesha ? ayesha.lines : '?') + ' lines, Carim ' + carimLines);
+
+  check('and somebody with no photograph gets their initials',
+    (await t.$eval('.team-card .team-face', (n) => n.classList.contains('is-initials'))) === true &&
+    (await t.$eval('.team-card .team-face', (n) => n.textContent.trim())) === 'AR',
+    await t.$eval('.team-card .team-face', (n) => n.textContent.trim()));
+
+  // The roster disagreement. Shown to an admin, because a viewer can do
+  // nothing about it and would read it as the page being broken.
+  check('an admin is told when the directory and the KPI roster disagree',
+    (await t.$$eval('.team-drift', (n) => n.length)) === 1 &&
+    /Nobody In Roster/.test(await t.$eval('.team-drift', (n) => n.textContent)),
+    'the roster decides whose tickets count, so this matters');
+  await t.close();
+
+  const viewer = await open('?view=team&role=USER');
+  await viewer.waitForTimeout(900);
+  check('and a viewer is not, because it is not theirs to close',
+    (await viewer.$$eval('.team-drift', (n) => n.length)) === 0 &&
+    (await viewer.$$eval('.team-card', (n) => n.length)) === 4,
+    'they still see the whole directory');
+  await viewer.close();
+
+  // ---------------------------------------------------------------------------
+  // and it has left the Summary screen
+  // ---------------------------------------------------------------------------
+  const sum = await open('?view=settings');
+  await sum.waitForTimeout(900);
+  check('the org carousel is gone from Summary, markup and all',
+    (await sum.$$eval('#orgStage, .org-card, #orgRows', (n) => n.length)) === 0,
+    'Summary is about the indicators now');
+  check('and Summary still works without it',
+    (await sum.$$eval('#settingsTable tbody tr', (n) => n.length)) > 0,
+    'the thresholds table is still drawn');
+  await sum.close();
+
   check('no JS errors across the whole run', errors.length === 0, errors.slice(0, 3).join(' | '));
 
   await b.close();

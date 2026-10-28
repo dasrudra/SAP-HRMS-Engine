@@ -684,6 +684,51 @@ const stub = `
       return out;
     },
 
+    /*
+      THE TEAM DIRECTORY. Invented people with invented numbers - the real
+      directory is thirty-seven colleagues' mobile numbers and has no business
+      in a test fixture any more than it has in the source.
+
+      Deliberately NOT a clean fixture: Ayesha has no photo and no extension,
+      so the card has to cope with missing cells, and 'Nobody In Roster' is in
+      the sheet but not in CONFIG.ROSTER so the drift notice has something to
+      report. A fixture where everything is filled in tests the one case that
+      never happens.
+    */
+    getTeam: function () {
+      return {
+        filled: true,
+        count: 4,
+        sections: [
+          { name: 'Sales Applications', count: 2,
+            head: { name: 'Ayesha Rahman' },
+            members: [
+              { name: 'Ayesha Rahman', id: '20000001', title: 'Manager',
+                section: 'Sales Applications', office: 'TVL HQ', ext: '',
+                phone: '01700000001', email: 'ayesha@example.test',
+                photo: '', note: '', head: true },
+              { name: 'Carim Uddin', id: '20000002', title: 'Senior Officer',
+                section: 'Sales Applications', office: 'TVL HQ', ext: '1234',
+                phone: '01700000002', email: 'carim@example.test',
+                photo: '', note: '', head: false }
+            ] },
+          { name: 'Supply Chain Applications', count: 2,
+            head: { name: 'Bilal Hossain' },
+            members: [
+              { name: 'Bilal Hossain', id: '20000003', title: 'Deputy Manager',
+                section: 'Supply Chain Applications', office: 'YCL', ext: '2222',
+                phone: '01700000003', email: 'bilal@example.test',
+                photo: '', note: '', head: true },
+              { name: 'Nobody In Roster', id: '20000004', title: 'Officer',
+                section: 'Supply Chain Applications', office: 'YCL', ext: '3333',
+                phone: '01700000004', email: 'nobody@example.test',
+                photo: '', note: '', head: false }
+            ] }
+        ],
+        drift: { missing: ['Dilruba Khatun'], unknown: ['Nobody In Roster'] }
+      };
+    },
+
     getKpi2: function () { return { hasData: false }; },
     getUploads: function () { return []; },
     getOrgChart: function () { return { sections: [] }; },

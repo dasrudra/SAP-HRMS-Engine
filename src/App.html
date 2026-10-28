@@ -29,6 +29,10 @@
     // Home, not KPI 1. showView() falls back to KPI 1 by itself when there
     // is no portal in the page, so this is safe in a deployment that has
     // App.html but not yet Portal.html.
+    // The directory behind the EAS Team page, fetched once and kept for
+    // the session. showSignIn() drops it with the rest of state.
+    team: null,
+
     view: 'home',
     month: null,
     boot: null,
@@ -54,7 +58,6 @@
     // Which section the organisation carousel has in front, by index.
     // Deliberately NOT saved to the URL: it is a look at the team, not a
     // filter on anything, so a refresh should land back at the first section.
-    orgFocus: 0,
 
     // KPI 2's own result, kept so its filters redraw without a server call.
     kpi2: null,
@@ -96,7 +99,6 @@
     wireFilters();
     wireCompare();
     wireUploads();
-    wireOrg();
     wireLogin();
     wireSetup();
     wireSignupSwitch();
@@ -1275,30 +1277,6 @@
   }
 
 
-  /**
-   * Moving the organisation carousel - the arrows, the dots and the keyboard.
-   *
-   * Wired once at startup rather than per render, because renderOrg replaces
-   * the cards and a listener bound to them would go with them. The arrows and
-   * the stage itself survive every render, so these hold.
-   */
-  function wireOrg() {
-    bind('orgPrev', 'click', function () { focusSection(state.orgFocus - 1); });
-    bind('orgNext', 'click', function () { focusSection(state.orgFocus + 1); });
-
-    // Left and right anywhere inside the stage, which is where a keyboard user
-    // already is once they have tabbed onto a card or an arrow.
-    const stage = document.getElementById('orgStage');
-    if (stage) {
-      stage.addEventListener('keydown', function (e) {
-        if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
-        e.preventDefault();
-        focusSection(state.orgFocus + (e.key === 'ArrowLeft' ? -1 : 1));
-      });
-    }
-  }
-
-
   /** Nudges every live chart to remeasure its container. */
   function resizeCharts() {
     if (!window.Chart || !window.Chart.instances) return;
@@ -1451,6 +1429,10 @@
     // The trend is not part of the comparison and does not wait for the
     // Compare button: it is the backdrop the comparison sits against.
     if (name === 'compare') loadTrend();
+
+    // The directory, when somebody opens the page that shows it. Guarded on
+    // state.team inside loadTeam, so tabbing back and forth costs nothing.
+    if (name === 'team') loadTeam();
 
     // And the caption under the KPI selector, because KPI 1's standard toggle
     // lives on a DIFFERENT screen. Written once at boot it kept the target it
@@ -3510,7 +3492,6 @@
       fillSectionFilters([]);
       // The org cards quote these figures, so they have to hear about an
       // empty period too - otherwise they keep showing the last one's.
-      updateOrgFigures();
       return;
     }
 
@@ -3537,7 +3518,6 @@
 
     // The organisation stage quotes KPI 1's section figures, so it follows
     // the month picker rather than sitting on whatever was loaded first.
-    updateOrgFigures();
   }
 
 
@@ -5452,182 +5432,146 @@
    * the arrows move between them. Nothing is hidden and nothing needs
    * discovering - the only question left is which section you are looking at.
    */
-  function renderOrg(boot) {
-    const stage = document.getElementById('orgStage');
-    const track = document.getElementById('orgRows');
-    if (!stage || !track) return;
+  // =========================================================================
+  // THE EAS TEAM PAGE
+  // =========================================================================
+  /**
+   * Fetches the directory once per session and draws it.
+   *
+   * Once, because it is thirty-seven rows that change when somebody joins -
+   * re-reading a spreadsheet every time the tab is opened would cost a server
+   * round trip to tell the page what it already knows. A sign-out clears
+   * state, so a correction shows up on the next sign-in without a refresh.
+   */
+  function loadTeam() {
+    if (state.team) { renderTeam(state.team); return; }
 
-    const org = (boot && boot.org) || null;
-    if (!org || !org.sections || !org.sections.length) {
-      stage.hidden = true;
+    callServer('getTeam')
+      .then(function (team) { state.team = team; renderTeam(team); })
+      .catch(function (err) {
+        setText('teamSub', 'The team list could not be loaded.');
+        onError(err);
+      });
+  }
+
+
+  /** One small labelled link, or nothing when the cell was empty. */
+  function teamLink(kind, value, label) {
+    if (!value) return '';
+
+    const icons = {
+      mail: '<rect x="1.5" y="3.5" width="13" height="9" rx="1.5"/><path d="M2 4.5l6 4 6-4"/>',
+      // A handset, not a telephone: the number in these cells is a mobile.
+      phone: '<path d="M3 2.5h3l1.2 3-1.6 1.2a9 9 0 0 0 3.7 3.7L10.5 9l3 1.2v3a1 1 0 0 1-1.1 1A12 12 0 0 1 2 3.6 1 1 0 0 1 3 2.5z"/>',
+      // A hash, not a clock. The first drawing of this was a circle with two
+      // hands in it, which is a clock to everybody who has ever seen one -
+      // and "Ext 2438" under a clock face reads as a time.
+      ext: '<path d="M6 2.5L4.5 13.5M11.5 2.5L10 13.5M2.5 6h11M2 10h11"/>'
+    };
+
+    const icon = '<svg viewBox="0 0 16 16" width="12" height="12" fill="none" ' +
+                 'stroke="currentColor" stroke-width="1.5" stroke-linecap="round" ' +
+                 'stroke-linejoin="round" aria-hidden="true">' + icons[kind] + '</svg>';
+
+    // tel: and mailto: are given to the browser to act on; an extension is
+    // not dialable from outside the building, so it is text.
+    const href = kind === 'mail' ? 'mailto:' + value
+               : kind === 'phone' ? 'tel:' + value.replace(/[^0-9+]/g, '')
+               : '';
+
+    const inner = icon + '<span>' + escapeHtml(value) + '</span>';
+
+    return href
+      ? '<a class="team-line" href="' + escapeHtml(href) + '" title="' +
+        escapeHtml(label) + '">' + inner + '</a>'
+      : '<span class="team-line" title="' + escapeHtml(label) + '">' + inner + '</span>';
+  }
+
+
+  function teamCard(person) {
+    // A photograph when the Photo column has one, initials when it does not.
+    // Initials rather than a silhouette: a page of identical grey outlines
+    // tells you nothing, and initials() already knows that Md., Mohammad,
+    // Muhammad and Syed are honorifics and not somebody's first name.
+    const face = person.photo
+      ? '<img class="team-face" src="' + escapeHtml(person.photo) + '" alt="" loading="lazy">'
+      : '<span class="team-face is-initials">' + escapeHtml(initials(person.name)) + '</span>';
+
+    return '<article class="team-card' + (person.head ? ' is-head' : '') + '">' +
+      '<div class="team-card-top">' +
+        face +
+        '<div class="team-who">' +
+          '<strong>' + escapeHtml(person.name) + '</strong>' +
+          '<span class="team-role">' + escapeHtml(person.title || '\u2014') + '</span>' +
+        '</div>' +
+      '</div>' +
+      (person.head ? '<span class="team-flag">Section head</span>' : '') +
+      '<div class="team-lines">' +
+        teamLink('mail', person.email, 'Email') +
+        teamLink('phone', person.phone, 'Mobile') +
+        teamLink('ext', person.ext ? 'Ext ' + person.ext : '', 'Extension') +
+      '</div>' +
+    '</article>';
+  }
+
+
+  function renderTeam(team) {
+    const body = document.getElementById('teamBody');
+    if (!body) return;
+
+    // ---- nobody has filled the tab in yet ----
+    if (!team || !team.filled || !team.count) {
+      setText('teamSub', 'The team directory has not been filled in yet.');
+      body.innerHTML =
+        '<div class="portal-empty">' +
+          '<h2>The TEAM tab is empty</h2>' +
+          '<p>This page is drawn from a <b>TEAM</b> tab in the database rather ' +
+          'than from the code, so that nobody\'s mobile number ends up in a ' +
+          'public repository. Run <b>setupTeamTab</b> once in the Apps Script ' +
+          'editor, paste the team spreadsheet under the headers it creates, ' +
+          'and mark each section lead with <b>Yes</b> in the Head column.</p>' +
+        '</div>';
       return;
     }
-    stage.hidden = false;
 
-    setText('orgTitle', org.name);
-    const lead = document.getElementById('orgLead');
-    if (lead && org.head) {
-      lead.hidden = false;
-      lead.innerHTML =
-        '<span class="org-avatar">' + escapeHtml(initials(org.head)) + '</span>' +
-        '<b>' + escapeHtml(org.head) + '</b>' +
-        '<span>Head of ' + escapeHtml(org.short || 'EAS') + '</span>';
-    }
+    setText('teamSub', team.count + ' people across ' + team.sections.length +
+                       ' section' + (team.sections.length === 1 ? '' : 's') + '.');
 
-    track.innerHTML = '';
-    org.sections.forEach(function (section, i) {
-      const card = document.createElement('button');
-      card.type = 'button';
-      card.className = 'org-card';
-      card.dataset.key = section.name;
-      card.innerHTML = orgCardBody(section);
-      // Clicking a card that is already in front does nothing, rather than
-      // toggling it away: there is no "closed" state to toggle to.
-      card.addEventListener('click', function () { focusSection(i); });
-      track.appendChild(card);
-    });
+    let html = team.sections.map(function (section) {
+      return '<section class="team-group">' +
+        '<div class="team-group-head">' +
+          '<h2>' + escapeHtml(section.name) + '</h2>' +
+          '<span class="team-group-count">' + section.count + ' ' +
+            (section.count === 1 ? 'person' : 'people') + '</span>' +
+        '</div>' +
+        '<div class="team-grid">' +
+          section.members.map(teamCard).join('') +
+        '</div>' +
+      '</section>';
+    }).join('');
 
-    // One dot per section, so the number of them and which one you are on are
-    // both readable without counting cards that are half off the stage.
-    const dots = document.getElementById('orgDots');
-    if (dots) {
-      dots.innerHTML = '';
-      org.sections.forEach(function (section, i) {
-        const dot = document.createElement('button');
-        dot.type = 'button';
-        dot.className = 'org-dot';
-        dot.title = section.label;
-        dot.setAttribute('aria-label', section.label);
-        dot.addEventListener('click', function () { focusSection(i); });
-        dots.appendChild(dot);
-      });
-    }
-
-    focusSection(state.orgFocus);
-    updateOrgFigures();
-  }
-
-
-  /**
-   * Brings a section to the front.
-   *
-   * Wrapped, not clamped: past the last section you land on the first. With
-   * four of them a clamp left the first and last sections looking broken -
-   * every card fanned out to one side and a dead arrow on the other - where a
-   * wrap keeps a card on each side of the front one whichever is chosen.
-   */
-  function focusSection(index) {
-    const org = (state.boot && state.boot.org) || null;
-    if (!org || !org.sections || !org.sections.length) return;
-
-    const total = org.sections.length;
-    state.orgFocus = ((Number(index) || 0) % total + total) % total;
-
-    layoutOrg();
-    renderOrgDetail(org.sections[state.orgFocus].name);
-  }
-
-
-  /**
-   * Ranks the cards by how far each one is from the front.
-   *
-   * That is all this does. Every card gets its signed distance as --off and
-   * its unsigned distance as data-dist, and the stylesheet turns those two
-   * into the position, the scale, the fade and the turn. Nothing here reads a
-   * width or writes a pixel, so the whole look stays in one file and the
-   * carousel lays itself out correctly even while Settings is still hidden.
-   */
-  function layoutOrg() {
-    const track = document.getElementById('orgRows');
-    if (!track) return;
-
-    const cards = Array.prototype.slice.call(track.querySelectorAll('.org-card'));
-    if (!cards.length) return;
-
-    const total = cards.length;
-    const focus = ((state.orgFocus || 0) % total + total) % total;
-
-    cards.forEach(function (card, i) {
-      // Distance the short way round, so the card before the first one is on
-      // its left rather than three places to its right. With four sections
-      // that leaves one either side and one parked off-stage.
-      const raw = ((i - focus) % total + total) % total;
-      const off = raw > total / 2 ? raw - total : raw;
-      const dist = Math.abs(off);
-
-      card.style.setProperty('--off', String(off));
-      card.dataset.dist = String(dist);
-      // The parked card is out of the tab order too - tabbing to something you
-      // cannot see is worse than not being able to reach it.
-      card.tabIndex = dist > 1 ? -1 : 0;
-      card.setAttribute('aria-current', off === 0 ? 'true' : 'false');
-    });
-
-    const dots = document.getElementById('orgDots');
-    if (dots) {
-      Array.prototype.forEach.call(dots.children, function (dot, i) {
-        dot.classList.toggle('is-on', i === focus);
-      });
-    }
-  }
-
-
-  function orgCardBody(section) {
-    const figure = orgFigureFor(section.name);
-
-    return '<div class="org-card-top">' +
-        '<span class="org-avatar">' + escapeHtml(initials(section.label)) + '</span>' +
-        '<h3>' + escapeHtml(section.label) + '</h3>' +
-      '</div>' +
-      (section.modules
-        ? '<span class="org-modules">' + escapeHtml(section.modules) + '</span>' : '') +
-      '<div class="org-head-name"><b>' + escapeHtml(section.head || '\u2014') + '</b></div>' +
-      '<div class="org-card-foot">' +
-        '<span>' + section.size + ' ' + (section.size === 1 ? 'person' : 'people') + '</span>' +
-        (figure
-          ? '<span class="org-rate" style="color:' + bandColour(figure.band) + '">' +
-            fmt(figure.rate) + '%</span>'
-          : '<span class="org-rate is-none">no figure</span>') +
+    // ---- where the sheet and the roster disagree ----
+    // Admins only. It is a maintenance note, not news: a viewer can do
+    // nothing about it and would reasonably read it as the page being
+    // broken. Shown rather than logged, because the consequence is real -
+    // somebody in the sheet but not the roster has tickets that are not
+    // counted towards any section's figures.
+    const drift = team.drift || { missing: [], unknown: [] };
+    if (canAdmin() && (drift.missing.length || drift.unknown.length)) {
+      html += '<div class="team-drift">' +
+        '<b>The directory and the KPI roster do not name the same people.</b> ' +
+        'Section figures are worked out from the roster in Config.gs, so this ' +
+        'is worth closing.' +
+        (drift.missing.length
+          ? '<div>In the roster, missing from the TEAM tab: ' +
+            escapeHtml(drift.missing.join(', ')) + '</div>' : '') +
+        (drift.unknown.length
+          ? '<div>In the TEAM tab, missing from the roster: ' +
+            escapeHtml(drift.unknown.join(', ')) + '</div>' : '') +
       '</div>';
-  }
+    }
 
-
-  /**
-   * A section's KPI 1 figures for whatever period KPI 1 is showing.
-   *
-   * Read from state.kpi rather than fetched: the figure is the one on the KPI 1
-   * screen, and two screens quoting different numbers for the same section is
-   * worse than one screen quoting none. Null until KPI 1 has loaded, which is
-   * why the cards are rebuilt by updateOrgFigures when it does.
-   */
-  function orgFigureFor(name) {
-    const k = state.kpi;
-    if (!k || !k.hasData || !k.departments) return null;
-
-    const rows = k.departments.filter(function (d) { return d.name === name; });
-    return rows.length ? rows[0] : null;
-  }
-
-
-  /**
-   * Repaints the figures on the cards once KPI 1 has data.
-   *
-   * The stage is built from the bootstrap, before any month has loaded, so
-   * every card would read "no figure" forever without this. Rewrites the card
-   * bodies only - which section is in front, and how the rest are ranked
-   * around it, are left exactly as they were.
-   */
-  function updateOrgFigures() {
-    const org = (state.boot && state.boot.org) || null;
-    if (!org) return;
-
-    org.sections.forEach(function (section) {
-      const card = document.querySelector('#orgRows .org-card[data-key="' +
-        cssEscape(section.name) + '"]');
-      if (card) card.innerHTML = orgCardBody(section);
-    });
-
-    updateKpiTable();
+    body.innerHTML = html;
   }
 
 
@@ -6050,58 +5994,6 @@
   function bandOf(value, kpi) {
     if (value >= kpi.target) return 'GREEN';
     return value >= kpi.yellowFloor ? 'YELLOW' : 'RED';
-  }
-
-
-  function renderOrgDetail(name) {
-    const box = document.getElementById('orgDetail');
-    const org = (state.boot && state.boot.org) || null;
-    if (!box || !org) return;
-
-    const section = org.sections.filter(function (s) { return s.name === name; })[0];
-    if (!section) { box.hidden = true; return; }
-
-    // The subtitle carries the whole department AND the section in front, so
-    // the numbers that used to need a close button to get back to are always
-    // on screen: how big EAS is, and how big the part of it you are looking at.
-    setText('orgSub', org.sections.length + ' sections \u00b7 ' + org.headcount +
-      ' people \u00b7 in front: ' + section.label + ' \u00b7 ' + section.size +
-      (section.size === 1 ? ' person' : ' people') +
-      (section.modules ? ' \u00b7 ' + section.modules : ''));
-
-    // No figures panel here. It restated what the KPI 1 screen already shows,
-    // which is the same duplication that got the threshold rings removed. The
-    // card face still carries the section's rate, which is what you want at a
-    // glance; the detail is about the people.
-
-    // The head leads the list, marked - he is the answer to "who do I ask",
-    // and hunting for him in an alphabetical run of nine names is a task.
-    const people = [];
-    if (section.head) {
-      people.push({ name: section.head, head: true });
-    }
-    section.members.forEach(function (person) {
-      people.push({ name: person, head: false });
-    });
-
-    box.hidden = false;
-    box.innerHTML =
-      '<div class="org-detail-head">' +
-        '<h3>' + escapeHtml(section.label) + '</h3>' +
-        (section.modules
-          ? '<span class="org-modules">' + escapeHtml(section.modules) + '</span>' : '') +
-      '</div>' +
-      '<p class="org-people-label">The team \u2014 ' + people.length + '</p>' +
-      '<div class="org-people">' +
-        people.map(function (person, i) {
-          return '<span class="org-person' + (person.head ? ' is-head' : '') +
-                 '" style="--i:' + Math.min(i, 9) + '">' +
-                 '<span class="org-avatar">' + escapeHtml(initials(person.name)) + '</span>' +
-                 escapeHtml(person.name) +
-                 (person.head ? ' \u00b7 head' : '') +
-                 '</span>';
-        }).join('') +
-      '</div>';
   }
 
 
@@ -7085,7 +6977,6 @@
 
   function fillSettings(boot) {
     renderKpiTable(boot);
-    renderOrg(boot);
     fillKpiSelector(boot);
     renderRebuildState(boot);
 
