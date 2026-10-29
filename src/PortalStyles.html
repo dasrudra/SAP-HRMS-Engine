@@ -78,6 +78,14 @@
   .portal[data-page="home"] .portal-sky { height: 620px; }
 
   /*
+    The team page needs the blue to reach past the four section cards,
+    because those cards ARE glass - a glass card over a white page is a grey
+    card. Everything below them, once a section is opened, is on the light
+    surface and is solid white.
+  */
+  .portal[data-page="team"] .portal-sky { height: 700px; }
+
+  /*
     The two layers above it. Transparent backgrounds, so the sky shows
     through, and a stacking context above it so they are not painted under.
   */
@@ -106,16 +114,20 @@
     /* Indented past the mark - 34px of tile plus the 11px gap - so it lines
        up under the company line rather than under the EAS square. */
     margin-left: 45px;
-    display: inline-flex; align-items: center; gap: 5px;
-    font-size: 10.5px; font-weight: 500;
-    color: rgba(255, 255, 255, .76);
+    display: inline-flex; align-items: center; gap: 6px;
+    /* Larger than the company line above it, on request: it is the address
+       people are meant to write to, not a footnote about the company. */
+    font-size: 12.5px; font-weight: 600;
+    color: rgba(255, 255, 255, .92);
     text-decoration: none;
-    padding: 2px 7px 2px 6px;
+    padding: 3px 10px 3px 8px;
     border-radius: 999px;
     background: rgba(255, 255, 255, .10);
     border: 1px solid rgba(255, 255, 255, .16);
     transition: color .15s ease, background .15s ease, box-shadow .15s ease;
   }
+    .portal-mail svg { width: 13px; height: 13px; }
+
   .portal-mail:hover {
     color: #fff;
     background: rgba(255, 255, 255, .20);
@@ -463,23 +475,164 @@
     color: rgba(255, 255, 255, .80);
   }
 
-  .team-group { margin-bottom: 34px; }
+  /* =========================================================
+     THE DEPARTMENT HEAD
+     =========================================================
+     Above the sections and in the middle, which is where the organogram has
+     him. Glass, because he sits on the blue.
+  */
+  .team-lead-wrap {
+    display: flex; flex-direction: column; align-items: center;
+    margin-bottom: 0;
+  }
 
-  .team-group-head {
-    display: flex; align-items: baseline; gap: 10px;
-    margin: 0 0 14px; padding-bottom: 9px;
-    border-bottom: 1px solid rgba(21, 44, 84, .10);
+  .team-lead {
+    position: relative;
+    width: min(360px, 100%);
+    display: flex; flex-direction: column; gap: 11px;
+    padding: 18px 20px 16px;
+    border-radius: 18px;
+    background: rgba(255, 255, 255, .14);
+    border: 1px solid rgba(255, 255, 255, .26);
+    -webkit-backdrop-filter: blur(18px) saturate(150%);
+    backdrop-filter: blur(18px) saturate(150%);
+    box-shadow:
+      0 14px 40px rgba(4, 16, 46, .28),
+      inset 0 1px 0 rgba(255, 255, 255, .34);
+    transition: box-shadow .2s ease, transform .2s ease, background .2s ease;
   }
-  .team-group-head h2 {
-    margin: 0; font-size: 17px; font-weight: 700;
-    letter-spacing: -.015em; color: var(--navy-900);
+  .team-lead:hover {
+    transform: translateY(-2px);
+    background: rgba(255, 255, 255, .19);
+    box-shadow:
+      0 20px 52px rgba(4, 16, 46, .34),
+      0 0 34px rgba(150, 200, 255, .42),
+      inset 0 1px 0 rgba(255, 255, 255, .42);
   }
-  .team-group-count { font-size: 12px; color: var(--text-mut); }
+
+  .team-lead-flag {
+    align-self: flex-start;
+    font-size: 10px; font-weight: 700; letter-spacing: .09em;
+    text-transform: uppercase;
+    padding: 4px 10px; border-radius: 999px;
+    background: rgba(255, 255, 255, .92); color: var(--blue-600);
+  }
+  .team-lead .team-who strong { color: #fff; font-size: 15px; }
+  .team-lead .team-role { color: rgba(255, 255, 255, .80); }
+  .team-lead .team-face.is-initials {
+    background: rgba(255, 255, 255, .92); color: var(--blue-600);
+    border-color: transparent;
+  }
+  .team-lead .team-lines { border-top-color: rgba(255, 255, 255, .22); }
+  .team-lead .team-line { color: rgba(255, 255, 255, .84); }
+  .team-lead .team-line svg { color: rgba(255, 255, 255, .62); }
+  .team-lead a.team-line:hover { color: #fff; }
+  .team-lead a.team-line:hover svg { color: #fff; }
+
+  /* The line down to the sections. Drawn, because four cards under a fifth
+     is a row of five without it. */
+  .team-stem {
+    width: 2px; height: 30px;
+    background: linear-gradient(rgba(255, 255, 255, .55), rgba(255, 255, 255, .16));
+    border-radius: 2px;
+  }
+
+
+  /* =========================================================
+     THE FOUR SECTIONS
+     ========================================================= */
+  .team-sections {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+    align-items: start;
+  }
 
   /*
-    auto-fill with a minimum rather than a fixed column count: a section of
-    eleven and a section of eight both fill the row, and the last row of a
-    section does not stretch two cards across the full width.
+    An opened section spans the whole row rather than widening its own
+    column. Eleven cards inside a quarter-width column is a single file of
+    cards a mile long; across the row they lay out four at a time like every
+    other grid on this site.
+  */
+  .team-sec { display: contents; }
+  .team-sec-card { grid-row: 1; }
+  .team-sec-body { grid-column: 1 / -1; grid-row: 2; }
+  .team-sec:nth-child(1) .team-sec-card { grid-column: 1; }
+  .team-sec:nth-child(2) .team-sec-card { grid-column: 2; }
+  .team-sec:nth-child(3) .team-sec-card { grid-column: 3; }
+  .team-sec:nth-child(4) .team-sec-card { grid-column: 4; }
+
+  .team-sec-card {
+    display: flex; flex-direction: column; gap: 12px;
+    width: 100%; text-align: left;
+    padding: 16px 16px 13px;
+    border-radius: 16px;
+    border: 1px solid rgba(255, 255, 255, .24);
+    background: rgba(255, 255, 255, .12);
+    -webkit-backdrop-filter: blur(16px) saturate(150%);
+    backdrop-filter: blur(16px) saturate(150%);
+    box-shadow:
+      0 10px 30px rgba(4, 16, 46, .22),
+      inset 0 1px 0 rgba(255, 255, 255, .30);
+    font: inherit; cursor: pointer;
+    transition: transform .18s ease, background .18s ease, box-shadow .18s ease;
+  }
+  .team-sec-card:hover {
+    transform: translateY(-3px);
+    background: rgba(255, 255, 255, .20);
+    box-shadow:
+      0 18px 46px rgba(4, 16, 46, .30),
+      0 0 30px rgba(150, 200, 255, .48),
+      inset 0 1px 0 rgba(255, 255, 255, .40);
+  }
+  .team-sec-card:focus-visible { outline: 2px solid #fff; outline-offset: 3px; }
+  .team-sec.is-open .team-sec-card {
+    background: rgba(255, 255, 255, .95);
+    border-color: transparent;
+    box-shadow: 0 14px 38px rgba(4, 16, 46, .26);
+  }
+
+  .team-sec-name {
+    font-size: 11px; font-weight: 700; letter-spacing: .07em;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, .82);
+  }
+  .team-sec.is-open .team-sec-name { color: var(--blue-600); }
+
+  .team-sec-person { display: flex; align-items: center; gap: 10px; }
+  .team-sec-who { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .team-sec-who strong {
+    font-size: 13.5px; font-weight: 700; color: #fff; line-height: 1.25;
+  }
+  .team-sec-role { font-size: 11px; color: rgba(255, 255, 255, .74); }
+  .team-sec.is-open .team-sec-who strong { color: var(--navy-900); }
+  .team-sec.is-open .team-sec-role { color: var(--text-dim); }
+
+  .team-sec-card .team-face.is-initials {
+    background: rgba(255, 255, 255, .92); color: var(--blue-600);
+    border-color: transparent;
+  }
+
+  .team-sec-open {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    padding-top: 10px;
+    border-top: 1px solid rgba(255, 255, 255, .22);
+    font-size: 11px; color: rgba(255, 255, 255, .78);
+  }
+  .team-sec.is-open .team-sec-open {
+    border-top-color: #e6edf8; color: var(--text-dim);
+  }
+  .team-sec-open svg { transition: transform .2s ease; }
+  .team-sec.is-open .team-sec-open svg { transform: rotate(180deg); }
+
+  .team-sec-body { padding: 16px 0 4px; }
+
+
+  /* =========================================================
+     THE PEOPLE INSIDE A SECTION
+     =========================================================
+     Solid white: they sit below the blue, and a glass card over the light
+     surface is a grey card.
   */
   .team-grid {
     display: grid;
@@ -493,18 +646,12 @@
     background: #fff;
     border: 1px solid #e3eaf4; border-radius: 14px;
     box-shadow: 0 2px 10px rgba(8, 26, 66, .07);
-    transition: box-shadow .16s ease, border-color .16s ease;
+    transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease;
   }
   .team-card:hover {
+    transform: translateY(-2px);
     border-color: #cfdcee;
-    box-shadow: 0 8px 24px rgba(8, 26, 66, .13);
-  }
-
-  /* The section lead, marked by a left edge rather than a different card -
-     a card in another colour reads as a different KIND of thing. */
-  .team-card.is-head {
-    border-left: 3px solid var(--blue-500);
-    padding-left: 14px;
+    box-shadow: 0 12px 30px rgba(8, 26, 66, .16);
   }
 
   .team-card-top { display: flex; align-items: center; gap: 11px; }
@@ -529,14 +676,6 @@
     line-height: 1.25;
   }
   .team-role { font-size: 11.5px; color: var(--text-dim); }
-
-  .team-flag {
-    align-self: flex-start;
-    font-size: 10px; font-weight: 700; letter-spacing: .06em;
-    text-transform: uppercase;
-    padding: 3px 8px; border-radius: 999px;
-    background: var(--blue-050); color: var(--blue-600);
-  }
 
   .team-lines {
     display: flex; flex-direction: column; gap: 5px;

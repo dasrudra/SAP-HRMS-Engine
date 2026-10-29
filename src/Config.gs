@@ -509,6 +509,35 @@ const CONFIG = {
     TEAM:      'TEAM'
   },
 
+  /**
+   * The order the EAS Team page puts the four sections in, and nothing else.
+   *
+   * NOT alphabetical, not by size, and not the order of CONFIG.DEPARTMENTS -
+   * it is the order on the team's own organogram, which puts the section the
+   * department head is covering first. There is no rule that produces that,
+   * so it is written down.
+   *
+   * Matched on a lower-cased CONTAINS rather than equality, because the TEAM
+   * tab and CONFIG.DEPARTMENTS do not spell the sections identically: the tab
+   * says 'Sales and Customer Applications' where DEPARTMENTS says 'Sales
+   * Applications'. Both match 'sales'. A section the list does not name is
+   * not dropped - it goes after the ones it does, so a new section appears on
+   * the page the day it appears in the sheet rather than the day somebody
+   * remembers to add it here.
+   */
+  PORTAL_SECTION_ORDER: ['supply chain', 'manufacturing', 'sales', 'financial'],
+
+  /**
+   * The Sub-Department value that means "the whole department".
+   *
+   * Utpal Biswas is the head of EAS and his row says ALL, because he does not
+   * sit in one section. The page lifts him out of the section list and puts
+   * him above it, which is where the organogram has him - and leaves the page
+   * saying four sections rather than five, the fifth being a heading called
+   * ALL with one person under it.
+   */
+  DEPARTMENT_SECTION: 'ALL',
+
   /** Where this dashboard lives, for the link in a notification email. */
   DASHBOARD_URL: 'https://tvl-eas.blogspot.com/',
 

@@ -5488,7 +5488,7 @@
   }
 
 
-  function teamCard(person) {
+  function teamCard(person, roleOverride) {
     // A photograph when the Photo column has one, initials when it does not.
     // Initials rather than a silhouette: a page of identical grey outlines
     // tells you nothing, and initials() already knows that Md., Mohammad,
@@ -5497,21 +5497,81 @@
       ? '<img class="team-face" src="' + escapeHtml(person.photo) + '" alt="" loading="lazy">'
       : '<span class="team-face is-initials">' + escapeHtml(initials(person.name)) + '</span>';
 
-    return '<article class="team-card' + (person.head ? ' is-head' : '') + '">' +
+    return '<article class="team-card">' +
       '<div class="team-card-top">' +
         face +
         '<div class="team-who">' +
           '<strong>' + escapeHtml(person.name) + '</strong>' +
-          '<span class="team-role">' + escapeHtml(person.title || '\u2014') + '</span>' +
+          '<span class="team-role">' +
+            escapeHtml(roleOverride || person.title || '\u2014') + '</span>' +
         '</div>' +
       '</div>' +
-      (person.head ? '<span class="team-flag">Section head</span>' : '') +
       '<div class="team-lines">' +
         teamLink('mail', person.email, 'Email') +
         teamLink('phone', person.phone, 'Mobile') +
         teamLink('ext', person.ext ? 'Ext ' + person.ext : '', 'Extension') +
       '</div>' +
     '</article>';
+  }
+
+
+  /**
+   * One section, as the organogram draws it: the head on a card you can
+   * press, and the people under them behind it.
+   *
+   * Closed by default, all four of them. Thirty-seven cards opened at once is
+   * a page you scroll rather than read, and the question this screen is
+   * usually asked - who runs Manufacturing - is answered without opening
+   * anything.
+   */
+  function teamSectionCard(section, index) {
+    const head = section.head;
+    const face = head && head.photo
+      ? '<img class="team-face" src="' + escapeHtml(head.photo) + '" alt="" loading="lazy">'
+      : '<span class="team-face is-initials">' +
+        escapeHtml(head ? initials(head.name) : '?') + '</span>';
+
+    const role = !head ? 'No head marked'
+               : section.interim ? 'Section Head, Interim'
+               : 'Section Head';
+
+    return '<div class="team-sec" data-section="' + index + '">' +
+      '<button class="team-sec-card" type="button" aria-expanded="false" ' +
+              'aria-controls="teamSecBody' + index + '">' +
+        '<span class="team-sec-name">' + escapeHtml(section.name) + '</span>' +
+        '<span class="team-sec-person">' +
+          face +
+          '<span class="team-sec-who">' +
+            // No head marked: the role line carries the whole message, so a
+            // name line here would be an em dash sitting where a person
+            // should be, which reads as a name that failed to load.
+            (head ? '<strong>' + escapeHtml(head.name) + '</strong>' : '') +
+            '<span class="team-sec-role">' + escapeHtml(role) + '</span>' +
+          '</span>' +
+        '</span>' +
+        '<span class="team-sec-open">' +
+          '<span class="team-sec-count">' + section.count + ' member' +
+            (section.count === 1 ? '' : 's') + '</span>' +
+          '<svg viewBox="0 0 16 16" width="13" height="13" fill="none" ' +
+               'stroke="currentColor" stroke-width="2" stroke-linecap="round" ' +
+               'stroke-linejoin="round" aria-hidden="true"><path d="M4 6l4 4 4-4"/></svg>' +
+        '</span>' +
+      '</button>' +
+
+      '<div class="team-sec-body" id="teamSecBody' + index + '" hidden>' +
+        (head ? '<div class="team-grid">' +
+                  // The head again, at the top of their own section - the
+                  // card above is a control, and losing their extension the
+                  // moment you open the section would be a strange reward
+                  // for pressing it.
+                  teamCard(head, role) +
+                  section.members.map(function (p) { return teamCard(p); }).join('') +
+                '</div>'
+              : '<div class="team-grid">' +
+                  section.members.map(function (p) { return teamCard(p); }).join('') +
+                '</div>') +
+      '</div>' +
+    '</div>';
   }
 
 
@@ -5534,21 +5594,46 @@
       return;
     }
 
-    setText('teamSub', team.count + ' people across ' + team.sections.length +
+    setText('teamSub', team.count + ' people in ' + team.sections.length +
                        ' section' + (team.sections.length === 1 ? '' : 's') + '.');
 
-    let html = team.sections.map(function (section) {
-      return '<section class="team-group">' +
-        '<div class="team-group-head">' +
-          '<h2>' + escapeHtml(section.name) + '</h2>' +
-          '<span class="team-group-count">' + section.count + ' ' +
-            (section.count === 1 ? 'person' : 'people') + '</span>' +
-        '</div>' +
-        '<div class="team-grid">' +
-          section.members.map(teamCard).join('') +
-        '</div>' +
-      '</section>';
-    }).join('');
+    // ---- the department head, above everything, in the middle ----
+    let html = '';
+    if (team.lead) {
+      const face = team.lead.photo
+        ? '<img class="team-face" src="' + escapeHtml(team.lead.photo) + '" alt="" loading="lazy">'
+        : '<span class="team-face is-initials">' +
+          escapeHtml(initials(team.lead.name)) + '</span>';
+
+      html +=
+        '<div class="team-lead-wrap">' +
+          '<article class="team-lead">' +
+            '<span class="team-lead-flag">Department Head</span>' +
+            '<div class="team-card-top">' +
+              face +
+              '<div class="team-who">' +
+                '<strong>' + escapeHtml(team.lead.name) + '</strong>' +
+                '<span class="team-role">' +
+                  escapeHtml(team.lead.title || '\u2014') +
+                  ' \u00b7 Enterprise Application Services</span>' +
+              '</div>' +
+            '</div>' +
+            '<div class="team-lines">' +
+              teamLink('mail', team.lead.email, 'Email') +
+              teamLink('phone', team.lead.phone, 'Mobile') +
+              teamLink('ext', team.lead.ext ? 'Ext ' + team.lead.ext : '', 'Extension') +
+            '</div>' +
+          '</article>' +
+          // The line down to the sections, as on the organogram. Drawn rather
+          // than implied: four cards under a fifth is a row of five without
+          // it.
+          '<span class="team-stem" aria-hidden="true"></span>' +
+        '</div>';
+    }
+
+    html += '<div class="team-sections">' +
+      team.sections.map(teamSectionCard).join('') +
+    '</div>';
 
     // ---- where the sheet and the roster disagree ----
     // Admins only. It is a maintenance note, not news: a viewer can do
@@ -5572,6 +5657,19 @@
     }
 
     body.innerHTML = html;
+
+    // ---- opening a section ----
+    // Bound here rather than with an onclick attribute, and after the HTML is
+    // in place, because these buttons do not exist until this line has run.
+    body.querySelectorAll('.team-sec-card').forEach(function (button) {
+      button.addEventListener('click', function () {
+        const open = button.getAttribute('aria-expanded') === 'true';
+        const panel = document.getElementById(button.getAttribute('aria-controls'));
+        button.setAttribute('aria-expanded', open ? 'false' : 'true');
+        button.closest('.team-sec').classList.toggle('is-open', !open);
+        if (panel) panel.hidden = open;
+      });
+    });
   }
 
 

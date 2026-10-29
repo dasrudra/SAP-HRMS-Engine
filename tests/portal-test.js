@@ -268,53 +268,124 @@ const FILE = 'file://' + PAGE;
   const t = await open('?view=team');
   await t.waitForTimeout(900);
 
-  check('the team page draws a card for every person the server sent',
-    (await t.$$eval('.team-card', (n) => n.length)) === 4,
-    (await t.$$eval('.team-card', (n) => n.length)) + ' cards');
+  // ---- the department head, above the sections and not one of them ----
+  check('the department head is lifted out of the sections and put on top',
+    (await t.$$eval('.team-lead', (n) => n.length)) === 1 &&
+    /Utpal Biswas/.test(await t.$eval('.team-lead', (n) => n.textContent)) &&
+    /Department Head/i.test(await t.$eval('.team-lead-flag', (n) => n.textContent)),
+    'his row says ALL, which is not a section anybody is in');
 
-  check('grouped by section, with each section counted',
-    (await t.$$eval('.team-group-head h2', (ns) => ns.map((n) => n.textContent.trim())))
-      .join(' | ') === 'Sales Applications | Supply Chain Applications',
-    await t.$eval('.team-group-count', (n) => n.textContent.trim()));
+  const names = await t.$$eval('.team-sec-name', (ns) => ns.map((n) => n.textContent.trim()));
+  check('and the sections are the organogram\'s, in the organogram\'s order',
+    // Read in the case the markup has them. The heading LOOKS uppercase
+    // because text-transform makes it so, which changes the pixels and not
+    // the text - asserting on the shouted version tests the stylesheet.
+    names.join(' | ') === 'Supply Chain Applications | Sales Applications | Financial Applications',
+    names.join(' | '));
 
-  // THE CONTACT DETAILS, which are the reason this page exists.
-  const ayesha = await t.evaluate(() => {
-    const card = Array.from(document.querySelectorAll('.team-card'))
-      .filter((c) => /Ayesha Rahman/.test(c.textContent))[0];
-    if (!card) return null;
+  // THE INTERIM CASE, which is the one the data cannot state directly: he
+  // leads Supply Chain while sitting in no section at all.
+  const first = await t.evaluate(() => {
+    const sec = document.querySelectorAll('.team-sec')[0];
     return {
-      role: card.querySelector('.team-role').textContent.trim(),
-      head: card.classList.contains('is-head'),
-      flag: Boolean(card.querySelector('.team-flag')),
-      hrefs: Array.from(card.querySelectorAll('a.team-line')).map((a) => a.getAttribute('href')),
-      lines: card.querySelectorAll('.team-line').length
+      who: sec.querySelector('.team-sec-who strong').textContent.trim(),
+      role: sec.querySelector('.team-sec-role').textContent.trim(),
+      count: sec.querySelector('.team-sec-count').textContent.trim()
     };
   });
+  check('a head who leads a section he is not in is marked interim',
+    first.who === 'Utpal Biswas' && first.role === 'Section Head, Interim',
+    first.who + ' - ' + first.role);
 
-  check('a card carries the designation and marks a section head',
-    ayesha && ayesha.role === 'Manager' && ayesha.head === true && ayesha.flag === true,
-    ayesha ? ayesha.role : '(no card)');
+  const second = await t.$eval('.team-sec:nth-child(2) .team-sec-role', (n) => n.textContent.trim());
+  check('and a head who leads their own section is not',
+    second === 'Section Head', second);
 
-  check('and turns the address and the mobile into things you can press',
-    ayesha && ayesha.hrefs.indexOf('mailto:ayesha@example.test') !== -1 &&
-    ayesha.hrefs.indexOf('tel:01700000001') !== -1,
-    (ayesha ? ayesha.hrefs.join(' ') : ''));
+  // ---- closed until pressed ----
+  // Counted by what is ON SCREEN, not by what is in the DOM: the member
+  // cards are built up front and hidden, so querySelectorAll finds them
+  // whether or not anybody can see them. offsetParent is null for an element
+  // inside a hidden container, which is the question being asked.
+  const visibleCards = (page) => page.$$eval('.team-card',
+    (ns) => ns.filter((n) => n.offsetParent !== null).length);
 
-  // An empty cell must leave the line out rather than print a blank one.
-  // Ayesha has no extension in the fixture; Carim has one.
-  const carimLines = await t.evaluate(() => {
+  check('every section starts closed, so the page opens readable',
+    (await visibleCards(t)) === 0 &&
+    (await t.$$eval('.team-sec-card[aria-expanded="true"]', (n) => n.length)) === 0,
+    'thirty-seven cards at once is a page you scroll rather than read');
+
+  await t.click('.team-sec:nth-child(1) .team-sec-card');
+  await t.waitForTimeout(400);
+
+  const opened = await t.evaluate(() => {
+    const sec = document.querySelectorAll('.team-sec')[0];
+    return {
+      expanded: sec.querySelector('.team-sec-card').getAttribute('aria-expanded'),
+      marked: sec.classList.contains('is-open'),
+      cards: Array.from(sec.querySelectorAll('.team-card strong')).map((n) => n.textContent.trim())
+    };
+  });
+  check('pressing one opens it, and says so to a screen reader too',
+    opened.expanded === 'true' && opened.marked === true);
+
+  // THE NUMBER ON THE CARD HAS TO BE THE NUMBER BEHIND IT. "1 member" over a
+  // panel holding two people is the kind of small wrongness that makes
+  // somebody stop trusting the figures on the rest of the site.
+  check('and the count on the card is what opening it actually shows',
+    opened.cards.length === Number(first.count.replace(/\D/g, '')),
+    first.count + ' vs ' + opened.cards.length + ' cards');
+
+  // The head appears inside their own section as well. The card you pressed
+  // is a control; losing his extension by opening him would be odd.
+  check('and it lists the head and the people under them',
+    opened.cards.join(' | ') === 'Utpal Biswas | Bilal Hossain',
+    opened.cards.join(' | '));
+
+  check('while the other sections stay shut',
+    (await t.$$eval('.team-sec-card[aria-expanded="true"]', (n) => n.length)) === 1);
+
+  // ---- the contact details, which are the reason this page exists ----
+  const utpal = await t.evaluate(() => {
     const card = Array.from(document.querySelectorAll('.team-card'))
-      .filter((c) => /Carim Uddin/.test(c.textContent))[0];
-    return card ? card.querySelectorAll('.team-line').length : -1;
+      .filter((c) => /Utpal Biswas/.test(c.textContent))[0];
+    return card ? {
+      hrefs: Array.from(card.querySelectorAll('a.team-line')).map((a) => a.getAttribute('href')),
+      lines: card.querySelectorAll('.team-line').length
+    } : null;
+  });
+  check('a card turns the address and the mobile into things you can press',
+    utpal && utpal.hrefs.indexOf('mailto:utpal@example.test') !== -1 &&
+    utpal.hrefs.indexOf('tel:01700000000') !== -1,
+    utpal ? utpal.hrefs.join(' ') : '(no card)');
+
+  // An empty cell leaves its line out rather than printing a blank one.
+  // Ayesha has no extension in the fixture; Carim has one.
+  await t.click('.team-sec:nth-child(2) .team-sec-card');
+  await t.waitForTimeout(400);
+  const lineCounts = await t.evaluate(() => {
+    const of = (name) => {
+      const c = Array.from(document.querySelectorAll('.team-card'))
+        .filter((x) => new RegExp(name).test(x.textContent))[0];
+      return c ? c.querySelectorAll('.team-line').length : -1;
+    };
+    return { ayesha: of('Ayesha Rahman'), carim: of('Carim Uddin') };
   });
   check('a missing extension leaves the line out instead of printing an empty one',
-    ayesha && ayesha.lines === 2 && carimLines === 3,
-    'Ayesha ' + (ayesha ? ayesha.lines : '?') + ' lines, Carim ' + carimLines);
+    lineCounts.ayesha === 2 && lineCounts.carim === 3,
+    'Ayesha ' + lineCounts.ayesha + ' lines, Carim ' + lineCounts.carim);
 
   check('and somebody with no photograph gets their initials',
-    (await t.$eval('.team-card .team-face', (n) => n.classList.contains('is-initials'))) === true &&
-    (await t.$eval('.team-card .team-face', (n) => n.textContent.trim())) === 'AR',
-    await t.$eval('.team-card .team-face', (n) => n.textContent.trim()));
+    (await t.$eval('.team-lead .team-face', (n) => n.classList.contains('is-initials'))) === true &&
+    (await t.$eval('.team-lead .team-face', (n) => n.textContent.trim())) === 'UB',
+    await t.$eval('.team-lead .team-face', (n) => n.textContent.trim()));
+
+  // A section nobody is marked as leading still opens and still lists people.
+  const headless = await t.evaluate(() => {
+    const sec = document.querySelectorAll('.team-sec')[2];
+    return sec.querySelector('.team-sec-role').textContent.trim();
+  });
+  check('a section with nobody marked as head says so rather than guessing',
+    headless === 'No head marked', headless);
 
   // The roster disagreement. Shown to an admin, because a viewer can do
   // nothing about it and would read it as the page being broken.
@@ -328,7 +399,7 @@ const FILE = 'file://' + PAGE;
   await viewer.waitForTimeout(900);
   check('and a viewer is not, because it is not theirs to close',
     (await viewer.$$eval('.team-drift', (n) => n.length)) === 0 &&
-    (await viewer.$$eval('.team-card', (n) => n.length)) === 4,
+    (await viewer.$$eval('.team-sec', (n) => n.length)) === 3,
     'they still see the whole directory');
   await viewer.close();
 

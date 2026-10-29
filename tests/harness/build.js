@@ -696,33 +696,44 @@ const stub = `
       never happens.
     */
     getTeam: function () {
+      var utpal = { name: 'Utpal Biswas', id: '20000000', title: 'Senior Manager',
+                    section: 'ALL', office: 'TVL HQ', ext: '2428',
+                    phone: '01700000000', email: 'utpal@example.test',
+                    photo: '', note: '', leads: 'Supply Chain Applications' };
+      var ayesha = { name: 'Ayesha Rahman', id: '20000001', title: 'Manager',
+                     section: 'Sales Applications', office: 'TVL HQ', ext: '',
+                     phone: '01700000001', email: 'ayesha@example.test',
+                     photo: '', note: '', leads: 'Yes' };
       return {
         filled: true,
-        count: 4,
+        count: 5,
+        // The department head, lifted out of the sections - his row says ALL,
+        // which is not a section anybody is in.
+        lead: utpal,
         sections: [
-          { name: 'Sales Applications', count: 2,
-            head: { name: 'Ayesha Rahman' },
-            members: [
-              { name: 'Ayesha Rahman', id: '20000001', title: 'Manager',
-                section: 'Sales Applications', office: 'TVL HQ', ext: '',
-                phone: '01700000001', email: 'ayesha@example.test',
-                photo: '', note: '', head: true },
-              { name: 'Carim Uddin', id: '20000002', title: 'Senior Officer',
-                section: 'Sales Applications', office: 'TVL HQ', ext: '1234',
-                phone: '01700000002', email: 'carim@example.test',
-                photo: '', note: '', head: false }
-            ] },
-          { name: 'Supply Chain Applications', count: 2,
-            head: { name: 'Bilal Hossain' },
+          // Supply Chain first and led by somebody who is not in it: that is
+          // what interim means here, and it is the one case the ordering and
+          // the labelling both have to get right.
+          { name: 'Supply Chain Applications', count: 2, head: utpal, interim: true,
             members: [
               { name: 'Bilal Hossain', id: '20000003', title: 'Deputy Manager',
                 section: 'Supply Chain Applications', office: 'YCL', ext: '2222',
                 phone: '01700000003', email: 'bilal@example.test',
-                photo: '', note: '', head: true },
+                photo: '', note: '', leads: '' }
+            ] },
+          { name: 'Sales Applications', count: 2, head: ayesha, interim: false,
+            members: [
+              { name: 'Carim Uddin', id: '20000002', title: 'Senior Officer',
+                section: 'Sales Applications', office: 'TVL HQ', ext: '1234',
+                phone: '01700000002', email: 'carim@example.test',
+                photo: '', note: '', leads: '' }
+            ] },
+          { name: 'Financial Applications', count: 1, head: null, interim: false,
+            members: [
               { name: 'Nobody In Roster', id: '20000004', title: 'Officer',
-                section: 'Supply Chain Applications', office: 'YCL', ext: '3333',
+                section: 'Financial Applications', office: 'YCL', ext: '3333',
                 phone: '01700000004', email: 'nobody@example.test',
-                photo: '', note: '', head: false }
+                photo: '', note: '', leads: '' }
             ] }
         ],
         drift: { missing: ['Dilruba Khatun'], unknown: ['Nobody In Roster'] }

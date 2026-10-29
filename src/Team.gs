@@ -147,7 +147,8 @@ function readTeam() {
   const wide = Math.max(sheet.getLastColumn(), TEAM_COLUMNS.length);
 
   if (last < 2) {
-    return { sections: [], count: 0, drift: { missing: [], unknown: [] }, filled: false };
+    return { sections: [], lead: null, count: 0,
+             drift: { missing: [], unknown: [] }, filled: false };
   }
 
   const headers = sheet.getRange(1, 1, 1, wide).getValues()[0];
@@ -178,30 +179,94 @@ function readTeam() {
       email: cell(row, at.email),
       photo: teamPhotoUrl(cell(row, at.photo)),
       note: cell(row, at.note),
-      head: /^(y|yes|true|1|head)$/i.test(cell(row, at.head))
+
+      // The Head cell says one of three things:
+      //   empty            not a head
+      //   Yes / true / 1   heads their own Sub-Department
+      //   a section name   heads THAT section
+      //
+      // The third exists because the head of EAS covers Supply Chain on an
+      // interim basis while sitting in no section himself. Putting the
+      // section name in his Head cell says that in one cell, and the page
+      // can tell it is interim because the section he leads is not the
+      // section he is in.
+      leads: cell(row, at.head)
     });
   });
 
-  // ---- grouped, in the order the sections first appear ----
+  // ---- the department head comes out of the section list ----
+  // He is above the sections on the organogram, not one of them. Left in, the
+  // page reads "five sections" and one of them is a heading called ALL with a
+  // single person under it.
+  const isWholeDepartment = function (section) {
+    return String(section).trim().toUpperCase() ===
+           String(CONFIG.DEPARTMENT_SECTION).trim().toUpperCase();
+  };
+
+  const yes = function (value) { return /^(y|yes|true|1|head)$/i.test(String(value).trim()); };
+
+  const lead = people.filter(function (p) { return isWholeDepartment(p.section); })[0] || null;
+  const inSections = people.filter(function (p) { return !isWholeDepartment(p.section); });
+
+  // ---- grouped ----
   const order = [];
   const byName = {};
-  people.forEach(function (person) {
+  inSections.forEach(function (person) {
     if (!byName[person.section]) { byName[person.section] = []; order.push(person.section); }
     byName[person.section].push(person);
   });
 
+  // Somebody may lead a section they are not in - that is what interim means
+  // here - so the sections they name have to exist even before anyone is
+  // grouped under them.
+  people.forEach(function (person) {
+    const named = person.leads;
+    if (!named || yes(named) || isWholeDepartment(named)) return;
+    if (!byName[named]) { byName[named] = []; order.push(named); }
+  });
+
+  // ---- in the organogram's order, with anything unnamed after it ----
+  const rank = function (name) {
+    const flat = String(name).toLowerCase();
+    for (let i = 0; i < CONFIG.PORTAL_SECTION_ORDER.length; i++) {
+      if (flat.indexOf(CONFIG.PORTAL_SECTION_ORDER[i]) !== -1) return i;
+    }
+    return CONFIG.PORTAL_SECTION_ORDER.length;
+  };
+  order.sort(function (a, b) {
+    const ra = rank(a), rb = rank(b);
+    return ra === rb ? order.indexOf(a) - order.indexOf(b) : ra - rb;
+  });
+
   const sections = order.map(function (name) {
-    const members = byName[name].slice().sort(function (a, b) {
-      // Heads first; everybody else keeps the order the sheet has them in,
-      // which is the order the team itself maintains and not one to override.
-      if (a.head !== b.head) return a.head ? -1 : 1;
-      return 0;
-    });
+    const members = (byName[name] || []).slice();
+
+    // Whoever names this section in their Head cell, or says Yes while
+    // sitting in it.
+    const head = people.filter(function (p) {
+      if (!p.leads) return false;
+      if (yes(p.leads)) return p.section === name;
+      return String(p.leads).trim().toLowerCase() === String(name).trim().toLowerCase();
+    })[0] || null;
+
+    const under = members.filter(function (p) { return !head || p.name !== head.name; });
+
     return {
       name: name,
-      count: members.length,
-      head: members.filter(function (p) { return p.head; })[0] || null,
-      members: members
+      // Everybody the section shows when it is opened, the head included.
+      //
+      // It has to equal what the grid draws or the card is lying: "1 member"
+      // above a panel containing two people is the kind of small wrongness
+      // that makes somebody distrust the rest of the page. The head is
+      // counted here even when they sit in no section themselves - the
+      // interim lead of Supply Chain is one of the people you find under
+      // Supply Chain, which is the question the number answers.
+      count: under.length + (head ? 1 : 0),
+      head: head,
+      // Leading a section you are not in. The organogram calls it
+      // "Section Head (Interim)" and so does the page.
+      interim: Boolean(head && head.section !== name),
+      members: under
     };
   });
 
@@ -211,14 +276,23 @@ function readTeam() {
   // has joined and will not appear in the figures, or somebody who has left
   // and still does. Both are worth knowing and neither is this function's to
   // decide.
+  // matchPerson() from Config.gs, not a squash of our own. It already knows
+  // that md / md. / mohammad / muhammad / mohd are one honorific, which is
+  // exactly the difference between these two lists: the directory says
+  // 'Md. Abul Masum Siddique' and the roster says 'Muhammad Abul Masum
+  // Siddique'. Comparing the raw strings reports that as two missing people
+  // and sends somebody looking for a problem that is a spelling.
+  //
+  // It is the same function the ingest matches a ticket's owner with, so a
+  // name this agrees about is a name the figures agree about too.
   const inSheet = people.map(function (p) { return p.name; });
   const inRoster = rosterNames();
-  const squash = function (s) { return String(s).toLowerCase().replace(/[^a-z]/g, ''); };
-  const sheetFlat = inSheet.map(squash);
-  const rosterFlat = inRoster.map(squash);
+  const sheetFlat = inSheet.map(matchPerson);
+  const rosterFlat = inRoster.map(matchPerson);
 
   return {
     sections: sections,
+    lead: lead,
     count: people.length,
     filled: true,
     drift: {
@@ -275,10 +349,14 @@ function checkTeamTab() {
     return;
   }
 
-  Logger.log('%s people in %s section(s):', team.count, team.sections.length);
+  Logger.log('%s people in %s section(s). Department head: %s',
+             team.count, team.sections.length,
+             team.lead ? team.lead.name : '(none - nobody is marked ' +
+                                          CONFIG.DEPARTMENT_SECTION + ')');
   team.sections.forEach(function (section) {
-    Logger.log('  %s - %s people, head: %s', section.name, section.count,
-               section.head ? section.head.name : '(none marked)');
+    Logger.log('  %s - %s under %s%s', section.name, section.count,
+               section.head ? section.head.name : '(nobody marked as head)',
+               section.interim ? ' (interim)' : '');
   });
 
   if (team.drift.missing.length) {
