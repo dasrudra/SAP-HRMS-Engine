@@ -108,21 +108,19 @@
   .portal[data-page="home"] .portal-sky { height: 620px; }
 
   /*
-    The team page needs the blue to reach past the four section cards,
-    because those cards ARE glass - a glass card over a white page is a grey
-    card. Everything below them, once a section is opened, is on the light
-    surface and is solid white.
-  */
-  .portal[data-page="team"] .portal-sky { height: 700px; }
+    EVERY PAGE BUT HOME GETS THE SAME HEADER BAND.
 
-  /*
-    The Links page is blue all the way down, not for effect but because every
-    bar on it is glass - and glass over the light surface is a grey box. A
-    fixed height would have been a guess at how many links there will ever
-    be, and the first one past the edge would have been the one that looked
-    broken.
+    The team and links pages used to carry a tall one - 700px and then the
+    full height of the shell - because the cards on them were glass, and
+    glass over the light surface is a grey box. The band was sized around
+    the cards rather than around the page.
+
+    That is the wrong way round: the break between the blue and the light is
+    the strongest line on the site and it belongs in the same place on every
+    page, just under the heading. So the band went back to 232px and the
+    cards became solid - see the note on .team-sec-card. The first row of
+    them straddles the break, the way the figure cards do on Home.
   */
-  .portal[data-page="links"] .portal-sky { height: 100%; border-radius: 0; }
 
   /*
     The two layers above it. Transparent backgrounds, so the sky shows
@@ -541,30 +539,20 @@
     padding: 18px 20px 16px;
     border-radius: 18px;
     overflow: hidden;
-    /* The same frosted-glass build as the section cards: a gradient sheen
-       rather than a flat film, and a lit lip along the top edge. */
-    background:
-      linear-gradient(180deg, rgba(255, 255, 255, .19) 0%, rgba(255, 255, 255, .075) 100%);
-    border: 1px solid rgba(255, 255, 255, .24);
-    -webkit-backdrop-filter: blur(20px) saturate(160%);
-    backdrop-filter: blur(20px) saturate(160%);
-    box-shadow:
-      0 18px 48px rgba(2, 10, 32, .42),
-      inset 0 1px 0 rgba(255, 255, 255, .34);
-    transition: box-shadow .2s ease, transform .2s ease, background .2s ease;
+    background: var(--portal-card);
+    border: 1px solid var(--portal-card-edge);
+    box-shadow: 0 12px 34px rgba(8, 26, 66, .16);
+    transition: box-shadow .2s ease, transform .2s ease;
   }
+  /* The accent along the top edge, as the section cards have. */
   .team-lead::before {
     content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
-    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .85), transparent);
+    background: linear-gradient(90deg, transparent, var(--blue-500), transparent);
+    opacity: .8;
   }
   .team-lead:hover {
     transform: translateY(-3px);
-    background:
-      linear-gradient(180deg, rgba(255, 255, 255, .26) 0%, rgba(255, 255, 255, .12) 100%);
-    box-shadow:
-      0 26px 60px rgba(2, 10, 32, .50),
-      0 0 34px rgba(150, 200, 255, .38),
-      inset 0 1px 0 rgba(255, 255, 255, .46);
+    box-shadow: 0 22px 52px rgba(8, 26, 66, .22), 0 0 30px rgba(120, 170, 255, .35);
   }
 
   .team-lead-flag {
@@ -572,25 +560,18 @@
     font-size: 10px; font-weight: 700; letter-spacing: .09em;
     text-transform: uppercase;
     padding: 4px 10px; border-radius: 999px;
-    background: rgba(255, 255, 255, .92); color: var(--blue-600);
+    background: var(--blue-050); color: var(--blue-600);
   }
-  .team-lead .team-who strong { color: #fff; font-size: 15px; }
-  .team-lead .team-role { color: rgba(255, 255, 255, .80); }
-  .team-lead .team-face.is-initials {
-    background: rgba(255, 255, 255, .92); color: var(--blue-600);
-    border-color: transparent;
-  }
-  .team-lead .team-lines { border-top-color: rgba(255, 255, 255, .22); }
-  .team-lead .team-line { color: rgba(255, 255, 255, .84); }
-  .team-lead .team-line svg { color: rgba(255, 255, 255, .62); }
-  .team-lead a.team-line:hover { color: #fff; }
-  .team-lead a.team-line:hover svg { color: #fff; }
+  .team-lead .team-who strong { font-size: 15px; }
+  .team-lead .team-lines { border-top-color: var(--portal-card-rule); }
 
-  /* The line down to the sections. Drawn, because four cards under a fifth
-     is a row of five without it. */
+  /*
+    The line down to the sections. Dark on a light page now - it was white,
+    which was right when it was drawn across the blue and is invisible here.
+  */
   .team-stem {
     width: 2px; height: 30px;
-    background: linear-gradient(rgba(255, 255, 255, .55), rgba(255, 255, 255, .16));
+    background: linear-gradient(rgba(21, 44, 84, .30), rgba(21, 44, 84, .08));
     border-radius: 2px;
   }
 
@@ -620,19 +601,14 @@
   .team-sec:nth-child(4) .team-sec-card { grid-column: 4; }
 
   /*
-    A SECTION CARD.
+    SOLID, not glass.
 
-    Frosted dark glass rather than a white film. A flat rgba(255,255,255,.12)
-    over a deep blue comes out as a milky grey rectangle - it lightens the
-    background without looking like a material. Two things fix that and both
-    are how real glass behaves: the sheen is a GRADIENT, brighter at the top
-    edge where light would catch it, and there is a hairline of pure white
-    along that edge (the inset shadow) to stand for the lit lip of the pane.
-
-    Each card carries an --accent, set below. It is the only per-card colour
-    and it stays inside the blue family on purpose: the organogram uses green
-    and orange, which would read as status here, where this project has spent
-    a lot of effort making green and amber mean exactly one thing.
+    These were frosted panes, which needed a tall blue band behind them to be
+    glass at all - a frosted panel over a pale page is a grey rectangle. With
+    the break moved up to sit under the heading they stand on the light
+    surface, so they are the same card as every other card here and the glass
+    is expressed as behaviour instead: they lift, they glow, and the glow
+    takes each section's own accent.
   */
   .team-sec-card {
     position: relative;
@@ -641,24 +617,18 @@
     padding: 17px 16px 13px;
     border-radius: 16px;
     overflow: hidden;
-    border: 1px solid rgba(255, 255, 255, .20);
-    background:
-      linear-gradient(180deg, rgba(255, 255, 255, .17) 0%, rgba(255, 255, 255, .065) 100%);
-    -webkit-backdrop-filter: blur(18px) saturate(160%);
-    backdrop-filter: blur(18px) saturate(160%);
-    box-shadow:
-      0 12px 34px rgba(2, 10, 32, .38),
-      inset 0 1px 0 rgba(255, 255, 255, .30);
+    background: var(--portal-card);
+    border: 1px solid var(--portal-card-edge);
+    box-shadow: 0 8px 24px rgba(8, 26, 66, .13);
     font: inherit; cursor: pointer;
     transition: transform .2s cubic-bezier(.3, 0, .2, 1),
-                background .2s ease, border-color .2s ease, box-shadow .2s ease;
+                border-color .2s ease, box-shadow .2s ease;
   }
 
-  /* The accent, as a hairline along the top edge. */
   .team-sec-card::before {
     content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
     background: linear-gradient(90deg, transparent, var(--accent), transparent);
-    opacity: .75;
+    opacity: .7;
     transition: opacity .2s ease;
   }
 
@@ -669,65 +639,46 @@
     declaration it appears in - so the hover would lose its shadow entirely
     rather than just its tint. Not a trade worth one line.
   */
-  .team-sec:nth-child(1) .team-sec-card { --accent: #4cc9f0; --glow: rgba(76, 201, 240, .42); }
-  .team-sec:nth-child(2) .team-sec-card { --accent: #5b9cf8; --glow: rgba(91, 156, 248, .42); }
-  .team-sec:nth-child(3) .team-sec-card { --accent: #7b86f0; --glow: rgba(123, 134, 240, .42); }
-  .team-sec:nth-child(4) .team-sec-card { --accent: #9d7bef; --glow: rgba(157, 123, 239, .42); }
+  .team-sec:nth-child(1) .team-sec-card { --accent: #22a7d0; --glow: rgba(34, 167, 208, .40); }
+  .team-sec:nth-child(2) .team-sec-card { --accent: #3b82f6; --glow: rgba(59, 130, 246, .38); }
+  .team-sec:nth-child(3) .team-sec-card { --accent: #6366f1; --glow: rgba(99, 102, 241, .38); }
+  .team-sec:nth-child(4) .team-sec-card { --accent: #8b5cf6; --glow: rgba(139, 92, 246, .38); }
 
   .team-sec-card:hover {
     transform: translateY(-4px);
-    border-color: rgba(255, 255, 255, .34);
-    background:
-      linear-gradient(180deg, rgba(255, 255, 255, .25) 0%, rgba(255, 255, 255, .11) 100%);
-    /* The halo takes the card's own accent, so the four do not all glow the
-       same colour - and it is the one place the accent is bright enough to
-       be read as a choice rather than a line. */
-    box-shadow:
-      0 22px 52px rgba(2, 10, 32, .46),
-      0 0 30px var(--glow),
-      inset 0 1px 0 rgba(255, 255, 255, .44);
+    border-color: #d9c9ac;
+    box-shadow: 0 22px 48px rgba(8, 26, 66, .20), 0 0 28px var(--glow);
   }
   .team-sec-card:hover::before { opacity: 1; }
-  .team-sec-card:focus-visible { outline: 2px solid #fff; outline-offset: 3px; }
+  .team-sec-card:focus-visible { outline: 2px solid var(--blue-500); outline-offset: 3px; }
 
-  /* Open: a solid card, because what is under it is solid too. */
+  /* Open: deeper, and its accent at full strength. The chevron turns too. */
   .team-sec.is-open .team-sec-card {
     transform: none;
-    background: var(--portal-card);
-    border-color: transparent;
-    box-shadow: 0 16px 42px rgba(2, 10, 32, .34);
+    border-color: #d9c9ac;
+    box-shadow: 0 18px 44px rgba(8, 26, 66, .22);
   }
   .team-sec.is-open .team-sec-card::before { opacity: 1; }
 
   .team-sec-name {
     font-size: 11px; font-weight: 700; letter-spacing: .07em;
     text-transform: uppercase;
-    color: rgba(255, 255, 255, .82);
+    color: var(--text-mut);
   }
   .team-sec.is-open .team-sec-name { color: var(--blue-600); }
 
   .team-sec-person { display: flex; align-items: center; gap: 10px; }
   .team-sec-who { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
   .team-sec-who strong {
-    font-size: 13.5px; font-weight: 700; color: #fff; line-height: 1.25;
+    font-size: 13.5px; font-weight: 700; color: var(--navy-900); line-height: 1.25;
   }
-  .team-sec-role { font-size: 11px; color: rgba(255, 255, 255, .74); }
-  .team-sec.is-open .team-sec-who strong { color: var(--navy-900); }
-  .team-sec.is-open .team-sec-role { color: var(--text-dim); }
-
-  .team-sec-card .team-face.is-initials {
-    background: rgba(255, 255, 255, .92); color: var(--blue-600);
-    border-color: transparent;
-  }
+  .team-sec-role { font-size: 11px; color: var(--text-dim); }
 
   .team-sec-open {
     display: flex; align-items: center; justify-content: space-between; gap: 8px;
     padding-top: 10px;
-    border-top: 1px solid rgba(255, 255, 255, .22);
-    font-size: 11px; color: rgba(255, 255, 255, .78);
-  }
-  .team-sec.is-open .team-sec-open {
-    border-top-color: var(--portal-card-rule); color: var(--text-dim);
+    border-top: 1px solid var(--portal-card-rule);
+    font-size: 11px; color: var(--text-dim);
   }
   .team-sec-open svg { transition: transform .2s ease; }
   .team-sec.is-open .team-sec-open svg { transform: rotate(180deg); }
@@ -869,69 +820,63 @@
     gap: 14px;
   }
 
+  /*
+    SOLID, for the same reason the section cards are: the break sits under
+    the heading now, so these stand on the light surface and a frosted pane
+    there is a grey rectangle. The glass survives as behaviour - it lifts, it
+    glows, and the accent along its top edge brightens.
+  */
   .link-card {
     position: relative; overflow: hidden;
     display: flex; align-items: center; gap: 16px;
     padding: 18px 22px;
     border-radius: 16px;
     text-decoration: none;
-    border: 1px solid rgba(255, 255, 255, .22);
-    /* The cream, at a fifth: enough to warm the glass, not enough to be a
-       surface in its own right. */
-    background:
-      linear-gradient(180deg, rgba(252, 248, 241, .20) 0%, rgba(252, 248, 241, .075) 100%);
-    -webkit-backdrop-filter: blur(20px) saturate(165%);
-    backdrop-filter: blur(20px) saturate(165%);
-    box-shadow:
-      0 14px 38px rgba(2, 10, 32, .34),
-      inset 0 1px 0 rgba(255, 255, 255, .32);
+    background: var(--portal-card);
+    border: 1px solid var(--portal-card-edge);
+    box-shadow: 0 10px 28px rgba(8, 26, 66, .14);
     transition: transform .2s cubic-bezier(.3, 0, .2, 1),
-                background .2s ease, border-color .2s ease, box-shadow .2s ease;
+                border-color .2s ease, box-shadow .2s ease;
   }
 
-  /* The lit lip along the top edge, as on every other glass panel here. */
   .link-card::before {
     content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
-    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .8), transparent);
+    background: linear-gradient(90deg, transparent, var(--blue-500), transparent);
     opacity: .7; transition: opacity .2s ease;
   }
+
   .link-card:hover {
     transform: translateY(-3px);
-    border-color: rgba(255, 255, 255, .40);
-    background:
-      linear-gradient(180deg, rgba(252, 248, 241, .30) 0%, rgba(252, 248, 241, .13) 100%);
-    box-shadow:
-      0 26px 58px rgba(2, 10, 32, .46),
-      0 0 38px rgba(140, 195, 255, .50),
-      inset 0 1px 0 rgba(255, 255, 255, .48);
+    border-color: #d9c9ac;
+    box-shadow: 0 24px 52px rgba(8, 26, 66, .22), 0 0 30px rgba(90, 150, 250, .40);
   }
   .link-card:hover::before { opacity: 1; }
-  .link-card:focus-visible { outline: 2px solid #fff; outline-offset: 4px; }
+  .link-card:focus-visible { outline: 2px solid var(--blue-500); outline-offset: 4px; }
 
   .link-card-mark {
     flex: 0 0 auto;
     display: flex; align-items: center; justify-content: center;
     width: 42px; height: 42px;
     border-radius: 12px;
-    background: rgba(255, 255, 255, .93);
+    background: var(--blue-050);
+    border: 1px solid #d8e5f8;
     color: var(--blue-600);
-    box-shadow: 0 2px 10px rgba(2, 10, 32, .22);
   }
   .link-card-mark svg { width: 20px; height: 20px; }
 
   .link-card-text { display: flex; min-width: 0; }
   .link-card-text strong {
-    font-size: 16px; font-weight: 700; color: #fff; letter-spacing: -.01em;
+    font-size: 16px; font-weight: 700; color: var(--navy-900); letter-spacing: -.01em;
   }
 
   .link-card-go {
     flex: 0 0 auto; margin-left: auto;
-    color: rgba(255, 255, 255, .60);
+    color: var(--text-mut);
     transition: color .16s ease, transform .16s ease;
   }
   .link-card-go svg { width: 17px; height: 17px; display: block; }
   .link-card:hover .link-card-go {
-    color: #fff;
+    color: var(--blue-600);
     transform: translate(3px, -3px);
   }
 
