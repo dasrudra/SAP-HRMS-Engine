@@ -49,12 +49,14 @@
      placed off the edges on purpose - a blob whose centre is visible reads as
      a spotlight, and one whose centre is outside the box reads as light.
 
-     Darkened once, on request. The floor on how dark it can go is the glass
-     navigation: the tabs are white at 80 per cent over a blur of whatever is
-     behind them, so the bar reads as glass only while there is still some
-     light in the gradient for it to pick up. Take the cyan much below the
-     value here and the pill stops looking like glass and starts looking like
-     a grey box.
+     Darkened twice, on request. There is a floor, and it is the glass: a
+     frosted panel is only legible as glass while there is light behind it
+     for the blur to pick up. Past this the navigation pill and the section
+     cards stop reading as glass and start reading as grey boxes.
+
+     The cards were brightened at the same time to hold their contrast
+     against it - a film that reads as glass over a mid blue reads as haze
+     over this one, so the two have to move together.
 
      Height comes from data-page, set by applyShell(). A hero's worth on Home,
      a header band on every other page, and the transition makes walking
@@ -66,11 +68,11 @@
     z-index: 0;
     pointer-events: none;
     background:
-      radial-gradient(90% 120% at 12% 8%,   #3a6ad4 0%, rgba(58, 106, 212, 0) 60%),
-      radial-gradient(70% 110% at 88% 0%,   #1795bb 0%, rgba(23, 149, 187, 0) 55%),
-      radial-gradient(80% 130% at 72% 100%, #3d27b0 0%, rgba(61, 39, 176, 0) 62%),
-      radial-gradient(120% 140% at 30% 110%, #10307f 0%, rgba(16, 48, 127, 0) 70%),
-      linear-gradient(135deg, #0a2160 0%, #113a93 48%, #1c53b8 100%);
+      radial-gradient(90% 120% at 12% 8%,   #27508f 0%, rgba(39, 80, 143, 0) 60%),
+      radial-gradient(70% 110% at 88% 0%,   #0d6076 0%, rgba(13, 96, 118, 0) 55%),
+      radial-gradient(80% 130% at 72% 100%, #271a6e 0%, rgba(39, 26, 110, 0) 62%),
+      radial-gradient(120% 140% at 30% 110%, #071a4c 0%, rgba(7, 26, 76, 0) 70%),
+      linear-gradient(135deg, #04112c 0%, #0a2558 48%, #113b7c 100%);
     /* Only the bottom corners, so it meets the window squarely at the top. */
     border-radius: 0 0 26px 26px;
     transition: height .32s cubic-bezier(.4, 0, .2, 1);
@@ -488,26 +490,35 @@
 
   .team-lead {
     position: relative;
-    width: min(360px, 100%);
+    width: min(380px, 100%);
     display: flex; flex-direction: column; gap: 11px;
     padding: 18px 20px 16px;
     border-radius: 18px;
-    background: rgba(255, 255, 255, .14);
-    border: 1px solid rgba(255, 255, 255, .26);
-    -webkit-backdrop-filter: blur(18px) saturate(150%);
-    backdrop-filter: blur(18px) saturate(150%);
+    overflow: hidden;
+    /* The same frosted-glass build as the section cards: a gradient sheen
+       rather than a flat film, and a lit lip along the top edge. */
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, .19) 0%, rgba(255, 255, 255, .075) 100%);
+    border: 1px solid rgba(255, 255, 255, .24);
+    -webkit-backdrop-filter: blur(20px) saturate(160%);
+    backdrop-filter: blur(20px) saturate(160%);
     box-shadow:
-      0 14px 40px rgba(4, 16, 46, .28),
+      0 18px 48px rgba(2, 10, 32, .42),
       inset 0 1px 0 rgba(255, 255, 255, .34);
     transition: box-shadow .2s ease, transform .2s ease, background .2s ease;
   }
+  .team-lead::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .85), transparent);
+  }
   .team-lead:hover {
-    transform: translateY(-2px);
-    background: rgba(255, 255, 255, .19);
+    transform: translateY(-3px);
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, .26) 0%, rgba(255, 255, 255, .12) 100%);
     box-shadow:
-      0 20px 52px rgba(4, 16, 46, .34),
-      0 0 34px rgba(150, 200, 255, .42),
-      inset 0 1px 0 rgba(255, 255, 255, .42);
+      0 26px 60px rgba(2, 10, 32, .50),
+      0 0 34px rgba(150, 200, 255, .38),
+      inset 0 1px 0 rgba(255, 255, 255, .46);
   }
 
   .team-lead-flag {
@@ -562,35 +573,85 @@
   .team-sec:nth-child(3) .team-sec-card { grid-column: 3; }
   .team-sec:nth-child(4) .team-sec-card { grid-column: 4; }
 
+  /*
+    A SECTION CARD.
+
+    Frosted dark glass rather than a white film. A flat rgba(255,255,255,.12)
+    over a deep blue comes out as a milky grey rectangle - it lightens the
+    background without looking like a material. Two things fix that and both
+    are how real glass behaves: the sheen is a GRADIENT, brighter at the top
+    edge where light would catch it, and there is a hairline of pure white
+    along that edge (the inset shadow) to stand for the lit lip of the pane.
+
+    Each card carries an --accent, set below. It is the only per-card colour
+    and it stays inside the blue family on purpose: the organogram uses green
+    and orange, which would read as status here, where this project has spent
+    a lot of effort making green and amber mean exactly one thing.
+  */
   .team-sec-card {
+    position: relative;
     display: flex; flex-direction: column; gap: 12px;
     width: 100%; text-align: left;
-    padding: 16px 16px 13px;
+    padding: 17px 16px 13px;
     border-radius: 16px;
-    border: 1px solid rgba(255, 255, 255, .24);
-    background: rgba(255, 255, 255, .12);
-    -webkit-backdrop-filter: blur(16px) saturate(150%);
-    backdrop-filter: blur(16px) saturate(150%);
+    overflow: hidden;
+    border: 1px solid rgba(255, 255, 255, .20);
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, .17) 0%, rgba(255, 255, 255, .065) 100%);
+    -webkit-backdrop-filter: blur(18px) saturate(160%);
+    backdrop-filter: blur(18px) saturate(160%);
     box-shadow:
-      0 10px 30px rgba(4, 16, 46, .22),
+      0 12px 34px rgba(2, 10, 32, .38),
       inset 0 1px 0 rgba(255, 255, 255, .30);
     font: inherit; cursor: pointer;
-    transition: transform .18s ease, background .18s ease, box-shadow .18s ease;
+    transition: transform .2s cubic-bezier(.3, 0, .2, 1),
+                background .2s ease, border-color .2s ease, box-shadow .2s ease;
   }
+
+  /* The accent, as a hairline along the top edge. */
+  .team-sec-card::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    background: linear-gradient(90deg, transparent, var(--accent), transparent);
+    opacity: .75;
+    transition: opacity .2s ease;
+  }
+
+  /*
+    Two variables and not one, because the glow is an rgba and the line is a
+    hex. color-mix() would derive the second from the first in one line, and
+    it is new enough that a browser without it drops the WHOLE box-shadow
+    declaration it appears in - so the hover would lose its shadow entirely
+    rather than just its tint. Not a trade worth one line.
+  */
+  .team-sec:nth-child(1) .team-sec-card { --accent: #4cc9f0; --glow: rgba(76, 201, 240, .42); }
+  .team-sec:nth-child(2) .team-sec-card { --accent: #5b9cf8; --glow: rgba(91, 156, 248, .42); }
+  .team-sec:nth-child(3) .team-sec-card { --accent: #7b86f0; --glow: rgba(123, 134, 240, .42); }
+  .team-sec:nth-child(4) .team-sec-card { --accent: #9d7bef; --glow: rgba(157, 123, 239, .42); }
+
   .team-sec-card:hover {
-    transform: translateY(-3px);
-    background: rgba(255, 255, 255, .20);
+    transform: translateY(-4px);
+    border-color: rgba(255, 255, 255, .34);
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, .25) 0%, rgba(255, 255, 255, .11) 100%);
+    /* The halo takes the card's own accent, so the four do not all glow the
+       same colour - and it is the one place the accent is bright enough to
+       be read as a choice rather than a line. */
     box-shadow:
-      0 18px 46px rgba(4, 16, 46, .30),
-      0 0 30px rgba(150, 200, 255, .48),
-      inset 0 1px 0 rgba(255, 255, 255, .40);
+      0 22px 52px rgba(2, 10, 32, .46),
+      0 0 30px var(--glow),
+      inset 0 1px 0 rgba(255, 255, 255, .44);
   }
+  .team-sec-card:hover::before { opacity: 1; }
   .team-sec-card:focus-visible { outline: 2px solid #fff; outline-offset: 3px; }
+
+  /* Open: a solid card, because what is under it is solid too. */
   .team-sec.is-open .team-sec-card {
-    background: rgba(255, 255, 255, .95);
+    transform: none;
+    background: #fff;
     border-color: transparent;
-    box-shadow: 0 14px 38px rgba(4, 16, 46, .26);
+    box-shadow: 0 16px 42px rgba(2, 10, 32, .34);
   }
+  .team-sec.is-open .team-sec-card::before { opacity: 1; }
 
   .team-sec-name {
     font-size: 11px; font-weight: 700; letter-spacing: .07em;

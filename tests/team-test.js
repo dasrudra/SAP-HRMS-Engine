@@ -135,18 +135,20 @@ check('and is taken out of the section list rather than heading one called ALL',
 // order would give that back; this has to give the organogram's.
 check('the sections come back in the organogram order, not the sheet order',
   team.sections.map((s) => s.name).join(' | ') ===
-    'Supply Chain Applications | Manufacturing Applications | ' +
-    'Sales and Customer Applications | Financial Applications',
+    'Supply Chain Applications | Sales and Customer Applications | ' +
+    'Manufacturing Applications | Financial Applications',
   team.sections.map((s) => s.name).join(' | '));
 
+const find = (text) => team.sections.filter((x) => new RegExp(text, 'i').test(x.name))[0];
+
 check('matched loosely, so the tab may say Sales and Customer Applications',
-  team.sections[2].name === 'Sales and Customer Applications',
+  find('sales').name === 'Sales and Customer Applications',
   'CONFIG.DEPARTMENTS calls the same section Sales Applications');
 
 // ---------------------------------------------------------------------------
 // who leads what, and when that is interim
 // ---------------------------------------------------------------------------
-const sca = team.sections[0];
+const sca = find('supply chain');
 check('a Head cell naming a section makes that person its head',
   sca.head !== null && sca.head.name === 'Utpal Biswas',
   sca.head ? sca.head.name : '(none)');
@@ -154,14 +156,14 @@ check('a Head cell naming a section makes that person its head',
 check('and it is interim, because the section is not the one he sits in',
   sca.interim === true, 'his own Sub-Department is ALL');
 
-const mfg = team.sections[1];
+const mfg = find('manufactur');
 check('a Head cell saying Yes makes them head of their OWN section',
   mfg.head !== null && mfg.head.name === 'Pradip Kumar Nath' && mfg.interim === false,
   (mfg.head ? mfg.head.name : '(none)') + ', interim ' + mfg.interim);
 
 check('Yes is read whatever its case',
-  team.sections[2].head !== null &&
-  team.sections[2].head.name === 'Md. Abul Masum Siddique',
+  find('sales').head !== null &&
+  find('sales').head.name === 'Md. Abul Masum Siddique',
   'row 4 says lower-case yes');
 
 // A SECTION NOBODY IS MARKED AS LEADING FALLS TO THE DEPARTMENT HEAD.
@@ -170,7 +172,7 @@ check('Yes is read whatever its case',
 // Chain has no head of its own and the head of EAS covers it. Deriving it
 // means nobody has to describe it in a spreadsheet, and the day somebody is
 // appointed their Yes takes over without anyone coming back to undo this.
-const fin = team.sections[3];
+const fin = find('financial');
 check('a section nobody claims falls to the department head, as interim',
   fin.head !== null && fin.head.name === 'Utpal Biswas' && fin.interim === true,
   (fin.head ? fin.head.name : '(none)') + ', interim ' + fin.interim);

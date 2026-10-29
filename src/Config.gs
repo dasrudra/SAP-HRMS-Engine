@@ -525,7 +525,7 @@ const CONFIG = {
    * the page the day it appears in the sheet rather than the day somebody
    * remembers to add it here.
    */
-  PORTAL_SECTION_ORDER: ['supply chain', 'manufacturing', 'sales', 'financial'],
+  PORTAL_SECTION_ORDER: ['supply chain', 'sales', 'manufacturing', 'financial'],
 
   /**
    * The Sub-Department value that means "the whole department".

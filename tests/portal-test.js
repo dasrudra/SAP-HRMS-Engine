@@ -265,6 +265,13 @@ const FILE = 'file://' + PAGE;
   // Thirty-seven colleagues' work email, extension and personal mobile. It is
   // drawn from a TEAM tab in the database and never from the source, because
   // this repository is public and a git history keeps what you delete from it.
+  // Counted by what is ON SCREEN, not by what is in the DOM: the member
+  // cards are built up front and hidden, so querySelectorAll finds them
+  // whether or not anybody can see them. offsetParent is null for an element
+  // inside a hidden container, which is the question being asked.
+  const visibleCards = (page) => page.$$eval('.team-card',
+    (ns) => ns.filter((n) => n.offsetParent !== null).length);
+
   const t = await open('?view=team');
   await t.waitForTimeout(900);
 
@@ -302,13 +309,6 @@ const FILE = 'file://' + PAGE;
     second === 'Section Head', second);
 
   // ---- closed until pressed ----
-  // Counted by what is ON SCREEN, not by what is in the DOM: the member
-  // cards are built up front and hidden, so querySelectorAll finds them
-  // whether or not anybody can see them. offsetParent is null for an element
-  // inside a hidden container, which is the question being asked.
-  const visibleCards = (page) => page.$$eval('.team-card',
-    (ns) => ns.filter((n) => n.offsetParent !== null).length);
-
   check('every section starts closed, so the page opens readable',
     (await visibleCards(t)) === 0 &&
     (await t.$$eval('.team-sec-card[aria-expanded="true"]', (n) => n.length)) === 0,
@@ -343,6 +343,38 @@ const FILE = 'file://' + PAGE;
 
   check('while the other sections stay shut',
     (await t.$$eval('.team-sec-card[aria-expanded="true"]', (n) => n.length)) === 1);
+
+  // ONE AT A TIME, AND WHY IT IS NOT A PREFERENCE.
+  //
+  // Every open panel is placed in the same cell of the grid - full width,
+  // second row - so two of them land on top of each other and the one drawn
+  // last wins. The reported symptom was three sections showing an open
+  // chevron above a single list of people: the other two were not hidden,
+  // they were underneath.
+  await t.click('.team-sec:nth-child(2) .team-sec-card');
+  await t.waitForTimeout(400);
+
+  const afterSecond = await t.evaluate(() => ({
+    open: Array.from(document.querySelectorAll('.team-sec-card'))
+      .map((b, i) => (b.getAttribute('aria-expanded') === 'true' ? i : -1))
+      .filter((i) => i !== -1),
+    panels: Array.from(document.querySelectorAll('.team-sec-body'))
+      .filter((p) => !p.hidden).length
+  }));
+  check('opening a second section closes the first',
+    afterSecond.open.length === 1 && afterSecond.open[0] === 1 &&
+    afterSecond.panels === 1,
+    'open: [' + afterSecond.open.join(',') + '], panels showing: ' + afterSecond.panels);
+
+  // The chevron has been pointing up; pressing it has to do what that says.
+  await t.click('.team-sec:nth-child(2) .team-sec-card');
+  await t.waitForTimeout(400);
+  check('and pressing the open one shuts it',
+    (await t.$$eval('.team-sec-card[aria-expanded="true"]', (n) => n.length)) === 0 &&
+    (await visibleCards(t)) === 0);
+
+  await t.click('.team-sec:nth-child(1) .team-sec-card');
+  await t.waitForTimeout(400);
 
   // ---- the contact details, which are the reason this page exists ----
   const utpal = await t.evaluate(() => {

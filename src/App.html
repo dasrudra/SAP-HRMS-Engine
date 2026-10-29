@@ -5661,13 +5661,39 @@
     // ---- opening a section ----
     // Bound here rather than with an onclick attribute, and after the HTML is
     // in place, because these buttons do not exist until this line has run.
+    // ONE SECTION OPEN AT A TIME.
+    //
+    // Not a preference. Every open panel is placed in the same cell of the
+    // grid - full width, second row - so two of them land on top of each
+    // other and the one drawn last wins. Three sections showing an open
+    // chevron above a single list of people is what that looks like from the
+    // outside, and the people in the other two are not hidden, they are
+    // underneath.
+    //
+    // Closing the others is therefore the fix and not a nicety; the layout
+    // has exactly one place to put a list.
+    const closeAll = function () {
+      body.querySelectorAll('.team-sec-card').forEach(function (other) {
+        other.setAttribute('aria-expanded', 'false');
+        other.closest('.team-sec').classList.remove('is-open');
+        const panel = document.getElementById(other.getAttribute('aria-controls'));
+        if (panel) panel.hidden = true;
+      });
+    };
+
     body.querySelectorAll('.team-sec-card').forEach(function (button) {
       button.addEventListener('click', function () {
-        const open = button.getAttribute('aria-expanded') === 'true';
+        const wasOpen = button.getAttribute('aria-expanded') === 'true';
+        closeAll();
+
+        // Pressing the open one shuts it, which is what the chevron pointing
+        // up has been promising.
+        if (wasOpen) return;
+
         const panel = document.getElementById(button.getAttribute('aria-controls'));
-        button.setAttribute('aria-expanded', open ? 'false' : 'true');
-        button.closest('.team-sec').classList.toggle('is-open', !open);
-        if (panel) panel.hidden = open;
+        button.setAttribute('aria-expanded', 'true');
+        button.closest('.team-sec').classList.add('is-open');
+        if (panel) panel.hidden = false;
       });
     });
   }
