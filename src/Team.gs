@@ -241,13 +241,30 @@ function readTeam() {
   const sections = order.map(function (name) {
     const members = (byName[name] || []).slice();
 
-    // Whoever names this section in their Head cell, or says Yes while
-    // sitting in it.
-    const head = people.filter(function (p) {
+    // WHO LEADS THIS SECTION, in three steps.
+    //
+    //   1  somebody's Head cell names this section by name
+    //   2  somebody in this section says Yes
+    //   3  nobody does, so it falls to the department head
+    //
+    // Step 3 is the one that matters, and it is why nothing has to be typed
+    // into a spreadsheet to describe the arrangement the team is actually in.
+    // Supply Chain has no head of its own; the head of EAS covers it. That is
+    // not a fact somebody has to remember to record - it is what an unled
+    // section MEANS when there is a department head above it, and the day
+    // somebody is appointed to it their Yes takes over at step 2 without
+    // anybody having to come back and undo anything here.
+    //
+    // What is NOT done is picking by seniority. Financial Applications has
+    // two Managers; rank would choose between them, confidently, and might
+    // choose wrong. An unled section says so, or says who is covering it.
+    const claimed = people.filter(function (p) {
       if (!p.leads) return false;
       if (yes(p.leads)) return p.section === name;
       return String(p.leads).trim().toLowerCase() === String(name).trim().toLowerCase();
     })[0] || null;
+
+    const head = claimed || lead || null;
 
     const under = members.filter(function (p) { return !head || p.name !== head.name; });
 

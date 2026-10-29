@@ -164,10 +164,31 @@ check('Yes is read whatever its case',
   team.sections[2].head.name === 'Md. Abul Masum Siddique',
   'row 4 says lower-case yes');
 
+// A SECTION NOBODY IS MARKED AS LEADING FALLS TO THE DEPARTMENT HEAD.
+//
+// This is the arrangement the team is in rather than a convenience: Supply
+// Chain has no head of its own and the head of EAS covers it. Deriving it
+// means nobody has to describe it in a spreadsheet, and the day somebody is
+// appointed their Yes takes over without anyone coming back to undo this.
 const fin = team.sections[3];
-check('a section nobody claims has no head rather than a guessed one',
-  fin.head === null && fin.interim === false,
-  'two Managers sit in Financial - picking by rank would pick wrongly');
+check('a section nobody claims falls to the department head, as interim',
+  fin.head !== null && fin.head.name === 'Utpal Biswas' && fin.interim === true,
+  (fin.head ? fin.head.name : '(none)') + ', interim ' + fin.interim);
+
+// AND STILL NOT BY SENIORITY. Abul Bashar is a Manager sitting in Financial;
+// rank would pick him, confidently, and would be picking between two Managers
+// on no evidence. Covering a section and running it are different facts.
+check('and not by rank, which would have picked a Manager out of the section',
+  fin.head.name !== 'Abul Bashar',
+  'two Managers sit in Financial - rank would choose between them');
+
+// With nobody above them either, there is simply no head, and the card says
+// so rather than inventing one.
+const orphan = load(ROWS.filter((r) => r[6] !== 'ALL')).readTeam();
+check('with no department head either, an unled section says so',
+  orphan.lead === null &&
+  orphan.sections.filter((s) => /Financial/.test(s.name))[0].head === null,
+  'nothing above it to fall to');
 
 // ---------------------------------------------------------------------------
 // the number on the card

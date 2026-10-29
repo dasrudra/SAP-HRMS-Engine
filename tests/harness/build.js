@@ -728,7 +728,9 @@ const stub = `
                 phone: '01700000002', email: 'carim@example.test',
                 photo: '', note: '', leads: '' }
             ] },
-          { name: 'Financial Applications', count: 1, head: null, interim: false,
+          // Nobody marked as its head, so it falls to the department head -
+          // the arrangement the real team is in for Supply Chain.
+          { name: 'Financial Applications', count: 2, head: utpal, interim: true,
             members: [
               { name: 'Nobody In Roster', id: '20000004', title: 'Officer',
                 section: 'Financial Applications', office: 'YCL', ext: '3333',

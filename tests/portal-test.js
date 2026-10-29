@@ -379,13 +379,18 @@ const FILE = 'file://' + PAGE;
     (await t.$eval('.team-lead .team-face', (n) => n.textContent.trim())) === 'UB',
     await t.$eval('.team-lead .team-face', (n) => n.textContent.trim()));
 
-  // A section nobody is marked as leading still opens and still lists people.
+  // A section nobody is marked as leading shows the department head covering
+  // it, interim - which is the arrangement the team is actually in.
   const headless = await t.evaluate(() => {
     const sec = document.querySelectorAll('.team-sec')[2];
-    return sec.querySelector('.team-sec-role').textContent.trim();
+    return {
+      who: sec.querySelector('.team-sec-who strong').textContent.trim(),
+      role: sec.querySelector('.team-sec-role').textContent.trim()
+    };
   });
-  check('a section with nobody marked as head says so rather than guessing',
-    headless === 'No head marked', headless);
+  check('an unled section shows the department head covering it',
+    headless.who === 'Utpal Biswas' && headless.role === 'Section Head, Interim',
+    headless.who + ' - ' + headless.role);
 
   // The roster disagreement. Shown to an admin, because a viewer can do
   // nothing about it and would read it as the page being broken.
