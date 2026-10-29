@@ -115,8 +115,14 @@
   */
   .portal[data-page="team"] .portal-sky { height: 700px; }
 
-  /* The link cards are glass too, so they need something behind them. */
-  .portal[data-page="links"] .portal-sky { height: 460px; }
+  /*
+    The Links page is blue all the way down, not for effect but because every
+    bar on it is glass - and glass over the light surface is a grey box. A
+    fixed height would have been a guess at how many links there will ever
+    be, and the first one past the edge would have been the one that looked
+    broken.
+  */
+  .portal[data-page="links"] .portal-sky { height: 100%; border-radius: 0; }
 
   /*
     The two layers above it. Transparent backgrounds, so the sky shows
@@ -843,114 +849,90 @@
      two pseudo-elements rather than with real empty cards, so a second link
      added later lands beside this one instead of having to displace a prop.
   */
+  /*
+    THE LINKS PAGE.
+
+    One bar per system, the full width of the page. It began as a narrow card
+    with a paragraph in it and a stack of panes drawn behind; both are gone.
+    The paragraph repeated the line under the heading once per link, and the
+    stack was scenery - it implied cards that were not there, which is a
+    strange thing to draw on a page whose whole job is to be an honest list.
+
+    Warm GLASS rather than cream: the cream is still in the mix, at a fifth
+    of its strength, which keeps the family resemblance to the cards
+    elsewhere without turning the bar into a block of paper laid over the
+    gradient. The tint is what stops the glass reading cold against them.
+  */
   .link-stack {
     display: grid;
-    /* Wide enough that the description sits on two lines. At 340 it took
-       three and pushed the open-in-new-tab icon into the text. */
-    grid-template-columns: repeat(auto-fill, minmax(430px, 1fr));
-    gap: 26px;
-    max-width: 920px;
+    grid-template-columns: 1fr;
+    gap: 14px;
   }
 
-  /*
-    CREAM, not glass.
-
-    It was frosted glass like the section cards, and over this blue that made
-    a white-on-blue card holding white text - legible, but the only surface
-    on the site where the writing is light. Everything else a person reads
-    sits on the cream card colour, and a link is something you read before
-    you press it.
-
-    So the card is the same surface as every other card, and what stays from
-    the glass is the behaviour: it lifts, it glows, and the stack behind it
-    fans out. The glow is the only part that needed rethinking - a halo the
-    colour of the sky disappears against a pale card, so it is thrown OUTSIDE
-    the card rather than over it.
-  */
   .link-card {
-    position: relative;
-    display: flex; align-items: center; gap: 15px;
-    padding: 20px 20px 19px;
+    position: relative; overflow: hidden;
+    display: flex; align-items: center; gap: 16px;
+    padding: 18px 22px;
     border-radius: 16px;
     text-decoration: none;
-    background: var(--portal-card);
-    border: 1px solid var(--portal-card-edge);
+    border: 1px solid rgba(255, 255, 255, .22);
+    /* The cream, at a fifth: enough to warm the glass, not enough to be a
+       surface in its own right. */
+    background:
+      linear-gradient(180deg, rgba(252, 248, 241, .20) 0%, rgba(252, 248, 241, .075) 100%);
+    -webkit-backdrop-filter: blur(20px) saturate(165%);
+    backdrop-filter: blur(20px) saturate(165%);
     box-shadow:
-      0 14px 36px rgba(2, 10, 32, .34),
-      inset 0 1px 0 rgba(255, 255, 255, .7);
+      0 14px 38px rgba(2, 10, 32, .34),
+      inset 0 1px 0 rgba(255, 255, 255, .32);
     transition: transform .2s cubic-bezier(.3, 0, .2, 1),
-                border-color .2s ease, box-shadow .2s ease;
+                background .2s ease, border-color .2s ease, box-shadow .2s ease;
   }
 
-  /*
-    THE QUEUE. Two more cards behind this one, each stepped down and in, so a
-    page holding one link still looks like a place links live.
-
-    Drawn with pseudo-elements rather than as real empty cards: a second link
-    added later lands beside this one in the grid instead of having to
-    displace a prop, and nothing in the markup pretends to be a link that
-    goes nowhere.
-  */
-  .link-card::before,
-  .link-card::after {
-    content: ''; position: absolute; left: 14px; right: 14px;
-    border-radius: 14px;
-    border: 1px solid var(--portal-card-edge);
-    z-index: -1;
-    transition: transform .2s cubic-bezier(.3, 0, .2, 1);
+  /* The lit lip along the top edge, as on every other glass panel here. */
+  .link-card::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .8), transparent);
+    opacity: .7; transition: opacity .2s ease;
   }
-
-  /*
-    SOLID, each a step darker - NOT the card colour at reduced opacity.
-    Opacity blends a pane with whatever is behind it, and what is behind it
-    here is a very dark blue, so cream at 72 per cent came out grey. The
-    stack read as a shadow with corners rather than as more cards.
-  */
-  .link-card::before { bottom: -8px;  height: 22px; background: #f3ecdf; }
-  .link-card::after  { bottom: -16px; left: 30px; right: 30px; height: 22px;
-                       background: #e7dece; }
-
   .link-card:hover {
-    transform: translateY(-4px);
-    border-color: #d9c9ac;
+    transform: translateY(-3px);
+    border-color: rgba(255, 255, 255, .40);
+    background:
+      linear-gradient(180deg, rgba(252, 248, 241, .30) 0%, rgba(252, 248, 241, .13) 100%);
     box-shadow:
-      0 26px 58px rgba(2, 10, 32, .44),
-      0 0 38px rgba(150, 200, 255, .55),
-      inset 0 1px 0 rgba(255, 255, 255, .85);
+      0 26px 58px rgba(2, 10, 32, .46),
+      0 0 38px rgba(140, 195, 255, .50),
+      inset 0 1px 0 rgba(255, 255, 255, .48);
   }
-  /* The queue fans as the top card lifts off it. */
-  .link-card:hover::before { transform: translateY(3px); }
-  .link-card:hover::after  { transform: translateY(6px); }
+  .link-card:hover::before { opacity: 1; }
   .link-card:focus-visible { outline: 2px solid #fff; outline-offset: 4px; }
 
   .link-card-mark {
     flex: 0 0 auto;
     display: flex; align-items: center; justify-content: center;
-    width: 44px; height: 44px;
+    width: 42px; height: 42px;
     border-radius: 12px;
-    background: var(--blue-050);
-    border: 1px solid #d8e5f8;
+    background: rgba(255, 255, 255, .93);
     color: var(--blue-600);
+    box-shadow: 0 2px 10px rgba(2, 10, 32, .22);
   }
-  .link-card-mark svg { width: 21px; height: 21px; }
+  .link-card-mark svg { width: 20px; height: 20px; }
 
-  .link-card-text { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+  .link-card-text { display: flex; min-width: 0; }
   .link-card-text strong {
-    font-size: 15px; font-weight: 700; color: var(--navy-900); letter-spacing: -.01em;
-  }
-  .link-card-text span {
-    font-size: 12px; line-height: 1.5; color: var(--text-dim);
+    font-size: 16px; font-weight: 700; color: #fff; letter-spacing: -.01em;
   }
 
   .link-card-go {
     flex: 0 0 auto; margin-left: auto;
-    color: var(--text-mut);
+    color: rgba(255, 255, 255, .60);
     transition: color .16s ease, transform .16s ease;
   }
-  .link-card-go svg { width: 16px; height: 16px; display: block; }
+  .link-card-go svg { width: 17px; height: 17px; display: block; }
   .link-card:hover .link-card-go {
-    color: var(--blue-600);
-    transform: translate(2px, -2px);
+    color: #fff;
+    transform: translate(3px, -3px);
   }
 
   /* ---------- the waiting pages ---------- */
