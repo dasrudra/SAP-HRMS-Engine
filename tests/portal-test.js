@@ -559,9 +559,31 @@ const FILE = 'file://' + PAGE;
     } : null;
   });
   check('the hero offers SAP UserHub where it used to offer the team',
-    cta !== null && cta.text === 'SAP UserHub' && cta.hidden === false &&
+    cta !== null && cta.text === 'Open SAP UserHub' && cta.hidden === false &&
     cta.href === 'https://sapuserhub.blogspot.com/' && cta.target === '_blank',
     cta ? cta.text + ' -> ' + cta.href : '(missing)');
+
+  // AN ANCHOR WEARING A BUTTON'S CLASS, which is where this went wrong once.
+  // .portal-cta was written for a button, and a button is never underlined
+  // and is inline-block; an anchor is both, by default. The class never said
+  // so, so the SAP button shipped underlined and a shade shorter than the
+  // one beside it. Styling by class rather than by tag means the class has
+  // to state what the tag would have assumed.
+  const pair = await hero.evaluate(() => {
+    const read = (el) => {
+      const css = getComputedStyle(el);
+      return { line: css.textDecorationLine, h: Math.round(el.getBoundingClientRect().height),
+               bg: css.backgroundColor };
+    };
+    return {
+      kpi: read(document.querySelector('.portal-cta[data-view="kpi1"]')),
+      sap: read(document.getElementById('heroSapLink'))
+    };
+  });
+  check('it is not underlined, and is the same button as the one beside it',
+    pair.sap.line === 'none' && pair.sap.h === pair.kpi.h &&
+    pair.sap.bg === pair.kpi.bg,
+    'decoration ' + pair.sap.line + ', ' + pair.sap.h + 'px vs ' + pair.kpi.h + 'px');
 
   // THE TRAP THIS GUARDS. wireNavigation() binds every .portal-cta and calls
   // showView(dataset.view); an external link has none, showView falls back to
