@@ -317,41 +317,12 @@
       </button>
 
       <!--
-        LINKS - other systems, not screens of this app.
-
-        This one is an anchor carrying class nav-link, deliberately NOT
-        nav-item. wireNavigation() in App.html attaches a click handler to
-        every .nav-item and calls showView(dataset.view); an external link has
-        no view, showView falls back to KPI 1, and the click would silently
-        change the screen behind the new tab. Keeping it out of .nav-item
-        means that handler never sees it. Styles.html gives .nav-link the
-        same look.
-
-        Tag syntax is spelled out in words here rather than written literally.
-        A literal tag in a comment is invisible to the browser but not to a
-        grep or a test, and it sent this file's own regression check hunting
-        through prose instead of markup.
-
-        target="_blank" is required, not a preference: this page is inside
-        the Apps Script sandbox iframe, and a same-frame navigation to
-        another origin is refused by the browser.
-
-        rel="noopener noreferrer" stops the opened page from reaching back
-        through window.opener to redirect this tab, and keeps the internal
-        googleusercontent URL out of the other app's referrer logs.
-
-        The href comes from CONFIG so the address lives with every other
-        setting. Scriptlets run in the script's own scope, so CONFIG is in
-        reach here with no help from doGet.
+        THE LINKS GROUP HAS MOVED to the portal's own Links page, where there
+        is room to say what each system is rather than fitting its name into
+        a sidebar. Nothing here links out of the app any more, which also
+        retires the one control in this nav that was not a .nav-item and
+        needed a paragraph explaining why.
       -->
-      <div class="nav-group-label">Links</div>
-      <a class="nav-link" href="<?= CONFIG.SAP_APP_URL ?>"
-         target="_blank" rel="noopener noreferrer"
-         title="SAP &amp; HRMS Database Center - opens in a new tab">
-        <svg viewBox="0 0 16 16"><ellipse cx="8" cy="3.6" rx="5" ry="2"/><path d="M3 3.6v4c0 1.1 2.2 2 5 2s5-.9 5-2v-4M3 7.6v4c0 1.1 2.2 2 5 2s5-.9 5-2v-4"/></svg>
-        <span class="nav-text">SAP &amp; HRMS</span>
-        <svg class="nav-out" viewBox="0 0 16 16" aria-hidden="true"><path d="M6.5 3h-3A1.5 1.5 0 0 0 2 4.5v8A1.5 1.5 0 0 0 3.5 14h8a1.5 1.5 0 0 0 1.5-1.5v-3M9.5 2H14v4.5M14 2L7.5 8.5"/></svg>
-      </a>
     </nav>
    </div>
   </aside>
@@ -363,6 +334,20 @@
       <div class="topbar-left">
         <span class="topbar-label">SIGNED IN:</span>
         <strong id="operatorName">&mdash;</strong>
+
+        <!--
+          BACK, inside the app - which is not what the browser's Back does
+          here. Every screen is a .view being shown and hidden on one page,
+          so the browser's would leave the app entirely and go to whatever
+          was open before it. Home goes to the front door; this goes to
+          wherever you just were. Hidden until there is somewhere to go.
+        -->
+        <button class="back-btn" id="backBtn" type="button" hidden>
+          <svg viewBox="0 0 16 16" width="12" height="12" fill="none"
+               stroke="currentColor" stroke-width="2" stroke-linecap="round"
+               stroke-linejoin="round" aria-hidden="true"><path d="M10 3L5 8l5 5"/></svg>
+          Back
+        </button>
       </div>
       <div class="topbar-right">
         <span id="viewLabel">KPI 1 &#xB7; ITSM</span>
@@ -1541,6 +1526,19 @@
 -->
 <script>
   window.__EAS_DEV_TOKEN__ = '<?= devToken ?>';
+
+  // The SAP & HRMS address, for the Links page and the hero button.
+  //
+  // It has to be handed over HERE. Portal.html and App.html are pulled in by
+  // include(), which pastes a file in as plain text and never processes its
+  // scriptlets, so a printing scriptlet written in either of them would reach
+  // the browser as those literal characters. This file is the template that IS
+  // processed, so it is the only place CONFIG can be read into the page.
+  //
+  // The tag is described in words rather than typed out, because a literal one
+  // inside a comment is still a scriptlet to the templating engine - it is
+  // invisible to a reader of the page and not at all invisible to Apps Script.
+  window.__EAS_SAP_URL__ = '<?= CONFIG.SAP_APP_URL ?>';
 </script>
 
 <!--

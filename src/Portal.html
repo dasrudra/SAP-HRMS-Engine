@@ -130,6 +130,17 @@
       still exactly one sign-out in this project and this is a handle on it.
     -->
     <div class="portal-who">
+      <!--
+        Back inside the app, not the browser's Back. Every screen here is a
+        .view being shown and hidden, so the browser's would leave the app
+        altogether. Hidden until there is somewhere to go back to.
+      -->
+      <button class="portal-back" id="portalBack" type="button" hidden>
+        <svg viewBox="0 0 16 16" width="12" height="12" fill="none"
+             stroke="currentColor" stroke-width="2" stroke-linecap="round"
+             stroke-linejoin="round" aria-hidden="true"><path d="M10 3L5 8l5 5"/></svg>
+        Back
+      </button>
       <span class="portal-who-name" id="portalWho">&mdash;</span>
       <button class="portal-signout" id="portalSignOut" hidden>Sign out</button>
     </div>
@@ -159,7 +170,15 @@
         </p>
         <div class="portal-hero-actions">
           <button class="portal-cta" data-view="kpi1">Open the KPI Engine</button>
-          <button class="portal-cta is-ghost" data-view="about">About the team</button>
+          <!--
+            An anchor, not a button, and carrying NO data-view: it leaves the
+            app. wireNavigation() skips anything without one, so this cannot
+            quietly change the screen behind the tab it opens. The address is
+            filled in by App.html from window.__EAS_SAP_URL__, for the same
+            reason the Links page is drawn rather than written.
+          -->
+          <a class="portal-cta is-ghost" id="heroSapLink"
+             target="_blank" rel="noopener noreferrer" hidden>SAP UserHub</a>
         </div>
       </div>
 
@@ -396,13 +415,19 @@
       </div>
     </section>
 
+    <!--
+      ---- LINKS ----
+      Drawn by renderLinks() in App.html, because the addresses live in CONFIG
+      and this file's scriptlets are never processed - include() pastes it in
+      as text. Index.html hands the address over on window; see renderLinks.
+    -->
     <section class="view portal-page" id="view-links" hidden>
-      <h1 class="portal-page-title">Links</h1>
-      <div class="portal-empty">
-        <h2>This page is waiting for its links</h2>
-        <p>Phase 5, from the <b>PORTAL</b> tab - one row per link, so adding
-           one is adding a row.</p>
+      <div class="portal-page-head">
+        <h1 class="portal-page-title">Links</h1>
+        <p class="portal-page-sub">The other systems EAS runs. Each opens in a
+           new tab and signs in separately from this one.</p>
       </div>
+      <div id="linksBody"></div>
     </section>
 
   </div>

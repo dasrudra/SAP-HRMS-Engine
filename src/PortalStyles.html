@@ -115,6 +115,9 @@
   */
   .portal[data-page="team"] .portal-sky { height: 700px; }
 
+  /* The link cards are glass too, so they need something behind them. */
+  .portal[data-page="links"] .portal-sky { height: 460px; }
+
   /*
     The two layers above it. Transparent backgrounds, so the sky shows
     through, and a stacking context above it so they are not painted under.
@@ -801,6 +804,124 @@
     font-size: 12px; line-height: 1.6; color: var(--amber-ink);
   }
   .team-drift div { margin-top: 6px; }
+
+  /* =========================================================
+     THE BACK BUTTON
+     ========================================================= */
+  .portal-back {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 6px 12px 6px 9px;
+    border: 1px solid rgba(255, 255, 255, .28); border-radius: 999px;
+    background: rgba(255, 255, 255, .10);
+    -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+    color: rgba(255, 255, 255, .90);
+    font: 600 12px/1 inherit; cursor: pointer;
+    transition: background .16s ease, box-shadow .16s ease, transform .16s ease;
+  }
+  .portal-back:hover {
+    background: rgba(255, 255, 255, .20);
+    box-shadow: 0 0 16px rgba(150, 200, 255, .45);
+    /* Leftwards, because that is the direction the button means. */
+    transform: translateX(-2px);
+  }
+  .portal-back:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+
+
+  /* =========================================================
+     THE LINKS PAGE
+     =========================================================
+     One card now, built to take a list: the stack behind it is drawn with
+     two pseudo-elements rather than with real empty cards, so a second link
+     added later lands beside this one instead of having to displace a prop.
+  */
+  .link-stack {
+    display: grid;
+    /* Wide enough that the description sits on two lines. At 340 it took
+       three and pushed the open-in-new-tab icon into the text. */
+    grid-template-columns: repeat(auto-fill, minmax(430px, 1fr));
+    gap: 26px;
+    max-width: 920px;
+  }
+
+  .link-card {
+    position: relative;
+    display: flex; align-items: center; gap: 15px;
+    padding: 20px 20px 19px;
+    border-radius: 16px;
+    text-decoration: none;
+    border: 1px solid rgba(255, 255, 255, .22);
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, .17) 0%, rgba(255, 255, 255, .065) 100%);
+    -webkit-backdrop-filter: blur(18px) saturate(160%);
+    backdrop-filter: blur(18px) saturate(160%);
+    box-shadow:
+      0 14px 36px rgba(2, 10, 32, .38),
+      inset 0 1px 0 rgba(255, 255, 255, .30);
+    transition: transform .2s cubic-bezier(.3, 0, .2, 1),
+                background .2s ease, border-color .2s ease, box-shadow .2s ease;
+  }
+
+  /*
+    The stack. Two panes behind the card, each stepped down and back, drawn
+    from the same glass recipe at lower opacity so they read as further away
+    rather than as a drop shadow with corners.
+  */
+  .link-card::before,
+  .link-card::after {
+    content: ''; position: absolute; left: 14px; right: 14px;
+    border-radius: 14px;
+    background: rgba(255, 255, 255, .10);
+    border: 1px solid rgba(255, 255, 255, .14);
+    z-index: -1;
+    transition: transform .2s cubic-bezier(.3, 0, .2, 1), opacity .2s ease;
+  }
+  .link-card::before { bottom: -8px;  height: 22px; opacity: .80; }
+  .link-card::after  { bottom: -16px; left: 30px; right: 30px; height: 22px; opacity: .50; }
+
+  .link-card:hover {
+    transform: translateY(-4px);
+    border-color: rgba(255, 255, 255, .38);
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, .26) 0%, rgba(255, 255, 255, .12) 100%);
+    box-shadow:
+      0 26px 58px rgba(2, 10, 32, .48),
+      0 0 34px rgba(120, 190, 255, .45),
+      inset 0 1px 0 rgba(255, 255, 255, .44);
+  }
+  /* The stack fans out as the top card lifts off it. */
+  .link-card:hover::before { transform: translateY(3px); }
+  .link-card:hover::after  { transform: translateY(6px); }
+  .link-card:focus-visible { outline: 2px solid #fff; outline-offset: 4px; }
+
+  .link-card-mark {
+    flex: 0 0 auto;
+    display: flex; align-items: center; justify-content: center;
+    width: 44px; height: 44px;
+    border-radius: 12px;
+    background: rgba(255, 255, 255, .92);
+    color: var(--blue-600);
+    box-shadow: 0 2px 10px rgba(2, 10, 32, .22);
+  }
+  .link-card-mark svg { width: 21px; height: 21px; }
+
+  .link-card-text { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+  .link-card-text strong {
+    font-size: 15px; font-weight: 700; color: #fff; letter-spacing: -.01em;
+  }
+  .link-card-text span {
+    font-size: 12px; line-height: 1.5; color: rgba(255, 255, 255, .76);
+  }
+
+  .link-card-go {
+    flex: 0 0 auto; margin-left: auto;
+    color: rgba(255, 255, 255, .62);
+    transition: color .16s ease, transform .16s ease;
+  }
+  .link-card-go svg { width: 16px; height: 16px; display: block; }
+  .link-card:hover .link-card-go {
+    color: #fff;
+    transform: translate(2px, -2px);
+  }
 
   /* ---------- the waiting pages ---------- */
   .portal-empty {

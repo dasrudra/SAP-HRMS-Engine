@@ -1555,6 +1555,27 @@
      rather than inside the app shell, because it has to survive the shell not
      being there. */
 
+  /*
+    BACK, in the dashboard's top bar. Quiet: it sits beside the signed-in
+    name, which is a label and not a control, so a loud button there would
+    read as the more important of the two.
+  */
+  .back-btn {
+    display: inline-flex; align-items: center; gap: 5px;
+    margin-left: 14px;
+    padding: 5px 11px 5px 8px;
+    border: 1px solid rgba(255, 255, 255, .22); border-radius: 999px;
+    background: rgba(255, 255, 255, .07);
+    color: rgba(255, 255, 255, .86);
+    font: 600 11.5px/1 inherit; cursor: pointer;
+    transition: background .15s ease, color .15s ease, transform .15s ease;
+  }
+  .back-btn:hover {
+    background: rgba(255, 255, 255, .16); color: #fff;
+    transform: translateX(-2px);
+  }
+  .back-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+
   .msgr {
     /*
       ABOVE THE SIGN-IN SCREEN, WHICH IS z-index 200 AND COVERS THE VIEWPORT.

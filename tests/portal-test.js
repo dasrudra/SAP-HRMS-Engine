@@ -453,6 +453,149 @@ const FILE = 'file://' + PAGE;
     'the thresholds table is still drawn');
   await sum.close();
 
+  // ---------------------------------------------------------------------------
+  // Back, which is not the browser's Back
+  // ---------------------------------------------------------------------------
+  // Every screen here is a .view being shown and hidden on one page, so the
+  // browser's own Back leaves the app entirely - it goes to whatever was open
+  // before the dashboard. Hence one of our own.
+  const nav = await open();
+
+  check('Back is not offered before there is anywhere to go back to',
+    (await nav.$eval('#portalBack', (n) => n.hidden)) === true,
+    'a dead control is worse than no control');
+
+  await nav.click('.portal-tab[data-view="team"]');
+  await nav.waitForTimeout(700);
+  check('and appears once you have moved',
+    (await nav.$eval('#portalBack', (n) => n.hidden)) === false);
+
+  await nav.click('.portal-tab[data-view="links"]');
+  await nav.waitForTimeout(700);
+  await nav.click('#portalBack');
+  await nav.waitForTimeout(700);
+  check('pressing it goes back one screen, not home',
+    (await nav.$eval('#view-team', (n) => !n.hidden)) === true &&
+    (await nav.$eval('#view-home', (n) => n.hidden)) === true,
+    'Home is a different button and goes somewhere else');
+
+  await nav.click('#portalBack');
+  await nav.waitForTimeout(700);
+  check('and again goes back another, to where the trail started',
+    (await nav.$eval('#view-home', (n) => !n.hidden)) === true &&
+    (await nav.$eval('#portalBack', (n) => n.hidden)) === true,
+    'the trail is spent, so the button goes away again');
+
+  // It has to cross the two shells, because the dashboard is where somebody
+  // is most likely to want it - and its own Back button is a second element.
+  await nav.click('.portal-tab[data-view="team"]');
+  await nav.waitForTimeout(700);
+  await nav.click('.portal-tab[data-view="kpi1"]');
+  await nav.waitForTimeout(1200);
+  check('the dashboard has one too, and the trail crosses between shells',
+    (await nav.$eval('#backBtn', (n) => n.hidden)) === false);
+
+  await nav.click('#backBtn');
+  await nav.waitForTimeout(900);
+  check('and it comes back out of the dashboard to the portal page before it',
+    (await nav.$eval('#view-team', (n) => !n.hidden)) === true &&
+    (await nav.$eval('#portalRoot', (n) => n.hidden)) === false,
+    'one trail, both shells');
+  await nav.close();
+
+  // ---------------------------------------------------------------------------
+  // the SAP & HRMS link, which has moved
+  // ---------------------------------------------------------------------------
+  const lk = await open('?view=links');
+  await lk.waitForTimeout(900);
+
+  const card = await lk.evaluate(() => {
+    const a = document.querySelector('.link-card');
+    return a ? {
+      href: a.getAttribute('href'),
+      target: a.getAttribute('target'),
+      rel: a.getAttribute('rel'),
+      text: a.textContent.replace(/\s+/g, ' ').trim()
+    } : null;
+  });
+
+  check('the Links page carries the SAP & HRMS UserHub',
+    card !== null && /SAP & HRMS UserHub/.test(card.text),
+    card ? card.text.slice(0, 48) : '(no card)');
+
+  // target and rel are required, not preferences: this page runs inside the
+  // Apps Script sandbox iframe, where a same-frame navigation to another
+  // origin is refused outright, and window.opener would otherwise let the
+  // opened page redirect this tab.
+  check('and opens in a new tab, with the opener closed off',
+    card.target === '_blank' && /noopener/.test(card.rel) && /noreferrer/.test(card.rel),
+    card.target + ' / ' + card.rel);
+
+  check('pointing at the address in CONFIG rather than one typed into markup',
+    card.href === 'https://sapuserhub.blogspot.com/', card.href);
+
+  // It used to be a nav entry in the dashboard sidebar.
+  await lk.click('.portal-tab[data-view="kpi1"]');
+  await lk.waitForTimeout(1200);
+  check('and is gone from the dashboard sidebar, where it used to live',
+    (await lk.$$eval('.sidebar a[href^="http"]', (n) => n.length)) === 0,
+    'nothing in that nav leaves the app any more');
+  await lk.close();
+
+  // ---------------------------------------------------------------------------
+  // the hero button that leaves the app
+  // ---------------------------------------------------------------------------
+  const hero = await open();
+  await hero.waitForTimeout(900);
+
+  const cta = await hero.evaluate(() => {
+    const a = document.getElementById('heroSapLink');
+    return a ? {
+      text: a.textContent.trim(),
+      href: a.getAttribute('href'),
+      target: a.getAttribute('target'),
+      view: a.getAttribute('data-view'),
+      hidden: a.hidden
+    } : null;
+  });
+  check('the hero offers SAP UserHub where it used to offer the team',
+    cta !== null && cta.text === 'SAP UserHub' && cta.hidden === false &&
+    cta.href === 'https://sapuserhub.blogspot.com/' && cta.target === '_blank',
+    cta ? cta.text + ' -> ' + cta.href : '(missing)');
+
+  // THE TRAP THIS GUARDS. wireNavigation() binds every .portal-cta and calls
+  // showView(dataset.view); an external link has none, showView falls back to
+  // Home, and the screen changes behind the tab that just opened.
+  check('and carries no data-view, so pressing it cannot also change the page',
+    cta.view === null, 'the same trap the old sidebar link had a paragraph about');
+
+  // PRESSED FROM ANOTHER SCREEN, which is the only way the trap is visible.
+  //
+  // The first version of this clicked the link while sitting on Home - where
+  // a stray showView() falling back to Home changes precisely nothing, so it
+  // passed whether the guard was there or not. Removing the guard did not
+  // fail it, which is how that was found.
+  //
+  // The element is inside the hidden Home view here. A listener on a hidden
+  // element still fires on a programmatic click, so this asks exactly the
+  // question that matters: was one ever attached?
+  await hero.click('.portal-tab[data-view="links"]');
+  await hero.waitForTimeout(700);
+
+  await hero.evaluate(() => {
+    const a = document.getElementById('heroSapLink');
+    a.removeAttribute('target');          // so the click does not open a tab
+    a.setAttribute('href', 'javascript:void 0');
+    a.click();
+  });
+  await hero.waitForTimeout(600);
+
+  check('pressing it cannot navigate the page behind the tab it opens',
+    (await hero.$eval('#view-links', (n) => !n.hidden)) === true &&
+    (await hero.$eval('#view-home', (n) => n.hidden)) === true,
+    'still on Links; without the guard this lands on Home');
+  await hero.close();
+
   check('no JS errors across the whole run', errors.length === 0, errors.slice(0, 3).join(' | '));
 
   await b.close();
