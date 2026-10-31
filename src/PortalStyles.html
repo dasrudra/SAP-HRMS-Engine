@@ -335,6 +335,41 @@
   }
   .portal-signout:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 
+  /*
+    AWAY, in the portal bar. The same glass as Back and Sign out either side
+    of it - a third pill in a row of two that looked different would read as
+    belonging to the page rather than to the bar - but dimmer than Sign out
+    while it is off, because it is the least consequential of the three.
+
+    Pressed, it goes amber and matches the dot two elements to its left. That
+    pairing is doing real work: it is the only thing on screen that explains
+    why the glow stopped.
+  */
+  .portal-away {
+    padding: 6px 13px;
+    border: 1px solid rgba(255, 255, 255, .22); border-radius: 999px;
+    background: rgba(255, 255, 255, .07);
+    -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+    color: rgba(255, 255, 255, .86);
+    font: 600 12px/1 inherit; cursor: pointer;
+    transition: background .16s ease, box-shadow .16s ease,
+                border-color .16s ease, color .16s ease;
+  }
+  .portal-away:hover {
+    background: rgba(255, 255, 255, .18); color: #fff;
+    box-shadow: 0 0 16px rgba(150, 200, 255, .42);
+  }
+  .portal-away:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+  .portal-away[aria-pressed="true"] {
+    background: rgba(240, 173, 60, .24);
+    border-color: rgba(240, 173, 60, .60);
+    color: #ffe0b0;
+  }
+  .portal-away[aria-pressed="true"]:hover {
+    background: rgba(240, 173, 60, .34);
+    box-shadow: 0 0 16px rgba(240, 173, 60, .45);
+  }
+
 
   /* =========================================================
      THE PAGES

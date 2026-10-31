@@ -334,6 +334,11 @@
       <div class="topbar-left">
         <span class="topbar-label">SIGNED IN:</span>
         <strong id="operatorName">&mdash;</strong>
+        <!-- The same dot as the portal bar and the team cards, and after the
+             name in all three. Both shells carry it for the same reason both
+             carry Back: whichever one you happen to be looking at is the one
+             that has to tell you the truth about yourself. -->
+        <span class="pres-dot" id="presDot" data-state="OFFLINE" hidden></span>
 
         <!--
           BACK, inside the app - which is not what the browser's Back does
@@ -357,6 +362,8 @@
         <!-- Which login is in use. Set by applyRole(); ADMIN is marked, so
              nobody deletes an upload thinking they were only looking. -->
         <span class="badge" id="roleBadge">USER</span>
+        <button class="away-btn" id="awayBtn" type="button" hidden
+                aria-pressed="false">Away</button>
         <button class="signout-btn" id="signOut" title="Sign out">Sign out</button>
       </div>
     </header>

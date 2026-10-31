@@ -597,6 +597,18 @@
     if (Date.now() - IDLE.lastActivity <= IDLE.LIMIT_MS) return;
 
     dropToken();
+
+    // The timers stop here too, exactly as they do in sessionEnded(). They
+    // did not, for a long time, and it did not show: a badge poll firing
+    // against a dropped token is refused, and the refusal lands in
+    // sessionEnded(), which stops it - so the leak closed itself a minute
+    // later and nobody noticed.
+    //
+    // Presence made it visible. A beat is a statement that somebody is at
+    // their desk, and carrying on making it after the screen has locked
+    // itself is the one claim this feature must never make.
+    stopPolling();
+
     showSignIn('You were away for an hour, so the dashboard locked itself. ' +
                'Sign in to carry on.');
   }
@@ -731,6 +743,15 @@
     // telling them something untrue.
     applyRole();
 
+    // SIGNING IN MAKES YOU ACTIVE, every time, which is also what pressing
+    // Away does not survive. Away lasts while the page stays open and no
+    // longer - the same bargain Messenger makes, and the right way round: a
+    // state that survived a reload would mean somebody who came back, signed
+    // in and got on with their morning sat there showing as absent until
+    // they noticed a button they had pressed the day before.
+    presenceAway = false;
+    startPresence();
+
     google.script.run
       .withSuccessHandler(onBootstrap)
       .withFailureHandler(onError)
@@ -840,6 +861,13 @@
       if (real) real.click();
     });
 
+    // Both Away buttons, straight onto the one toggle. Not the click-the-
+    // other-button trick the sign-outs use: that one exists because signing
+    // out is twenty lines of disabling and relabelling that nobody wants a
+    // second copy of, and this is one function call either way.
+    bind('awayBtn', 'click', toggleAway);
+    bind('portalAway', 'click', toggleAway);
+
     bind('signOut', 'click', function () {
       const button = document.getElementById('signOut');
       if (button) { button.disabled = true; button.textContent = 'Signing out\u2026'; }
@@ -849,6 +877,13 @@
       // whose refusal used to print an idle message over a deliberate
       // sign-out.
       signedOutOnPurpose = true;
+
+      // Take the dot off the page now rather than in eight minutes. Fired
+      // before stopPolling() so the token is still live, and fired without
+      // waiting: the sign-out must not hang on it, and if it never lands the
+      // entry expires on its own anyway.
+      try { callServer('presenceClear').catch(function () {}); } catch (e) {}
+
       stopPolling();
 
       const finish = function () {
@@ -1060,6 +1095,15 @@
 
     const portalOut = document.getElementById('portalSignOut');
     if (portalOut) portalOut.hidden = false;
+
+    // The dot and the Away button travel with Sign out, in both bars, for the
+    // same reason: all three are statements about a session, and there is no
+    // session to make them about until somebody is signed in.
+    ['presDot', 'portalPresDot', 'awayBtn', 'portalAway'].forEach(function (id) {
+      const node = document.getElementById(id);
+      if (node) node.hidden = false;
+    });
+    paintPresenceSelf();
   }
 
 
@@ -1145,6 +1189,10 @@
   function stopPolling() {
     if (badgeTimer) { clearInterval(badgeTimer); badgeTimer = null; }
     if (msgrTimer) { clearInterval(msgrTimer); msgrTimer = null; }
+    // The beat belongs here with the others. A session that has ended must
+    // stop claiming its owner is at their desk, and sessionEnded() reaches
+    // this function by every route there is.
+    stopPresence();
   }
 
 
@@ -1512,6 +1560,11 @@
     // state.team inside loadTeam, so tabbing back and forth costs nothing.
     if (name === 'team') loadTeam();
     if (name === 'links') renderLinks();
+
+    // The dots are only drawn on one page, so only one page pays for keeping
+    // them current. stopTeamPresence() is idempotent, which is what lets this
+    // sit in the middle of a function every view change passes through.
+    if (name === 'team') startTeamPresence(); else stopTeamPresence();
 
     // And the caption under the KPI selector, because KPI 1's standard toggle
     // lives on a DIFFERENT screen. Written once at boot it kept the target it
@@ -5512,6 +5565,271 @@
    * discovering - the only question left is which section you are looking at.
    */
   // =========================================================================
+  // PRESENCE - the green dot
+  // =========================================================================
+  /*
+    WHAT IT IS FOR. The team sits across two floors, and most of what one
+    person needs from another is thirty seconds on an extension. Ringing
+    somebody who is not there, waiting, then walking over to find an empty
+    chair is the thing being removed. A dot beside a name says whether the
+    call is worth making.
+
+    THREE STATES, in the words the page uses:
+
+      green, gently glowing   at their desk
+      amber, still            signed in, but said they had stepped away
+      hollow grey             not signed in
+
+    TWO TIMERS, because they answer two different questions.
+
+      The BEAT says "I am still here". It has to run for every role and on
+      every screen, which is why it is started from startApp() and not from
+      watchForMessages() - that one returns early unless canAdmin(), so a
+      beat riding on it would have left everybody below admin permanently
+      grey. It costs one cache write and reads nothing.
+
+      The PAINT asks "where is everybody else", and only runs while the EAS
+      Team page is the page on screen. Nothing else in the app draws a dot
+      for anybody but you, so nothing else needs to ask.
+
+    WHY THE PAINT DOES NOT RE-RENDER THE DIRECTORY. It walks [data-pres] and
+    sets an attribute. Calling renderTeam() instead would have been fewer
+    lines and would have closed whichever section the person was reading
+    every sixty seconds, which is the kind of bug that gets a feature turned
+    off rather than reported.
+
+    WHY THE BEAT DOES NOT STOP WHEN THE TAB IS HIDDEN. It was the first thing
+    I tried, and it is wrong here: half this team keeps the dashboard in a
+    background tab and works in SAP in front of it. Pausing on
+    visibilitychange would have shown the people most likely to be at their
+    desks as the ones who had left.
+  */
+
+  /*
+    HOW OFTEN THE BEAT GOES OUT.
+
+    Three minutes, against the eight-minute window the server counts as
+    fresh: two missed beats of slack, so a dropped poll on bad wifi does not
+    blink somebody off the page, and a closed laptop is gone inside ten
+    minutes.
+
+    It is also a figure worth being honest about. Thirty-seven people beating
+    through an eight-hour day is on the order of six thousand calls, and this
+    is a consumer Google account with a daily script-runtime allowance the
+    KPI engine also has to fit inside. A cache write is cheap - this is
+    minutes a day, not hours - but one minute instead of three would have
+    tripled it for an accuracy nobody asked for.
+  */
+  const PRESENCE_POLL_MS = 180000;
+
+  /*
+    HOW OFTEN THE TEAM PAGE REPAINTS, while it is open.
+
+    Faster than the beat, and not pointlessly so: pressing Away writes
+    through immediately rather than waiting for the next beat, so a minute is
+    what somebody else's Away press takes to appear here. Going grey still
+    takes the full window, because there is no message for a closed laptop.
+  */
+  const PRESENCE_PAINT_MS = 60000;
+
+  // What the dots say when you hover them. Other people in the third person,
+  // yourself in the second: the dot in the top bar is about you, and "At
+  // their desk" sitting beside your own name reads like somebody else's.
+  const PRESENCE_WORDS = {
+    ACTIVE: 'At their desk',
+    AWAY: 'Away from their desk',
+    OFFLINE: 'Not signed in'
+  };
+  const PRESENCE_WORDS_SELF = {
+    ACTIVE: 'At your desk - press Away to change it',
+    AWAY: 'Showing as away - press Back to change it',
+    OFFLINE: 'Not signed in'
+  };
+
+  let presenceTimer = null;
+  let presencePaintTimer = null;
+
+  // Which beat is the current one. Replies carrying an older number have
+  // been overtaken by a newer intent and are discarded; see presenceBeat().
+  let presenceSeq = 0;
+
+  // My own state, held here rather than read back from the server, because
+  // this is the one state in the system the client is the authority on: the
+  // server knows what it was last told and nothing more.
+  let presenceAway = false;
+
+  // Everybody else's, as of the last paint. Kept so that renderTeam() can
+  // draw the dots in their right colours immediately instead of flashing a
+  // page of grey while a round trip happens.
+  let presenceMap = {};
+
+
+  function startPresence() {
+    stopPresence();
+    presenceBeat();
+    presenceTimer = setInterval(presenceBeat, PRESENCE_POLL_MS);
+  }
+
+
+  function stopPresence() {
+    if (presenceTimer) { clearInterval(presenceTimer); presenceTimer = null; }
+    stopTeamPresence();
+  }
+
+
+  /**
+   * One beat. Says I am here, and says whether I am at my desk.
+   *
+   * WHICH PERSON THIS IS ABOUT IS NOT SENT. The server takes that from the
+   * token, so there is nothing here that could name somebody else, by
+   * accident or on purpose.
+   *
+   * THE SEQUENCE NUMBER IS NOT CEREMONY. Press Away during the half second a
+   * scheduled beat is in the air and its reply - which says ACTIVE, because
+   * that was true when it was sent - lands after the press and puts the dot
+   * back to green. The button would have looked broken, intermittently,
+   * about once in every few hundred presses, which is the worst frequency a
+   * bug can have. A reply that a newer beat has already overtaken is stale,
+   * and stale answers are dropped rather than painted.
+   *
+   * The same crossing can still leave the SERVER holding ACTIVE for a few
+   * minutes, because it cannot tell which of two writes the person meant
+   * last. The next beat says away=true again and settles it. Worth knowing;
+   * not worth a protocol.
+   */
+  function presenceBeat() {
+    const mine = ++presenceSeq;
+
+    callServer('presenceTick', presenceAway)
+      .then(function (res) {
+        if (mine !== presenceSeq) return;    // overtaken; this answer is old
+        // Otherwise the server's answer wins over the local flag, so the
+        // button cannot end up disagreeing with the dot beside it.
+        presenceAway = Boolean(res && res.me === 'AWAY');
+        paintPresenceSelf();
+      })
+      .catch(function () {
+        // A dropped beat costs one dot for a few minutes, and the next beat
+        // fixes it. Not worth saying anything about.
+      });
+  }
+
+
+  /**
+   * Away, or back again.
+   *
+   * Painted before the server is told. The person pressed a button about
+   * their own state and knows the answer already; making them watch a round
+   * trip for it would make a toggle feel like a form.
+   */
+  function toggleAway() {
+    presenceAway = !presenceAway;
+    paintPresenceSelf();
+    presenceBeat();
+
+    // My own card on the directory, if that is the page I am on. Without
+    // this, pressing Away while looking at the team page leaves my own card
+    // green for up to a minute - the one dot I am certain to be watching.
+    if (state.view === 'team') refreshTeamPresence();
+  }
+
+
+  /** My own dot and my own button, in both shells. */
+  function paintPresenceSelf() {
+    const now = presenceAway ? 'AWAY' : 'ACTIVE';
+
+    ['presDot', 'portalPresDot'].forEach(function (id) {
+      const dot = document.getElementById(id);
+      if (!dot) return;
+      dot.setAttribute('data-state', now);
+      dot.setAttribute('title', PRESENCE_WORDS_SELF[now]);
+    });
+
+    // "Away" to go away, "Back" to come back. The label names what pressing
+    // it will do, not what the state currently is - a button reading "Away"
+    // while you are already away says nothing about which of those it means.
+    ['awayBtn', 'portalAway'].forEach(function (id) {
+      const button = document.getElementById(id);
+      if (!button) return;
+      button.textContent = presenceAway ? 'Back' : 'Away';
+      button.setAttribute('aria-pressed', presenceAway ? 'true' : 'false');
+      button.setAttribute('title', presenceAway
+        ? 'You are showing as away. Press to show as at your desk.'
+        : 'Show as away from your desk, without signing out.');
+    });
+  }
+
+
+  function startTeamPresence() {
+    if (presencePaintTimer) return;
+    refreshTeamPresence();
+    presencePaintTimer = setInterval(refreshTeamPresence, PRESENCE_PAINT_MS);
+  }
+
+
+  function stopTeamPresence() {
+    if (presencePaintTimer) { clearInterval(presencePaintTimer); presencePaintTimer = null; }
+  }
+
+
+  function refreshTeamPresence() {
+    callServer('getPresence')
+      .then(function (map) {
+        presenceMap = map || {};
+        paintTeamPresence();
+      })
+      .catch(function () { /* the dots keep their last colours */ });
+  }
+
+
+  /**
+   * The dots, without touching anything else on the page.
+   *
+   * Every place a person is drawn carries a span with data-pres set to the
+   * same string the server keys the map by - employee ID, or the name when
+   * there is no ID - so this is a lookup and an attribute, and the open
+   * section stays open.
+   */
+  function paintTeamPresence() {
+    const dots = document.querySelectorAll('#teamBody [data-pres]');
+    for (let i = 0; i < dots.length; i++) {
+      const who = dots[i].getAttribute('data-pres');
+      const now = presenceMap[who] || 'OFFLINE';
+      dots[i].setAttribute('data-state', now);
+      dots[i].setAttribute('title', PRESENCE_WORDS[now]);
+    }
+  }
+
+
+  /*
+    Three handles for the tests, in the same spirit as __setIdleAge above and
+    safe to ship for the same reason: none of them can say anything the page
+    could not say by itself a minute later, and none of them names a person -
+    whose state a beat sets comes out of the signed token on the server and is
+    not reachable from here at all.
+
+    They exist because the alternative is a test that waits sixty seconds for
+    a repaint, and the property being tested is worth having: a dot refresh
+    must not close whichever section somebody was reading.
+  */
+  window.__easRefreshPresence = refreshTeamPresence;
+  window.__easPresencePolling = function () { return Boolean(presencePaintTimer); };
+  window.__easPresenceBeating = function () { return Boolean(presenceTimer); };
+  window.__easBeatNow = presenceBeat;
+
+
+  /** The span itself. One shape, drawn in three places. */
+  function presenceDot(person) {
+    const who = (person && (person.id || person.name)) || '';
+    if (!who) return '';
+    const now = presenceMap[who] || 'OFFLINE';
+    return '<span class="pres-dot" data-pres="' + escapeHtml(who) + '" ' +
+                 'data-state="' + now + '" ' +
+                 'title="' + escapeHtml(PRESENCE_WORDS[now]) + '"></span>';
+  }
+
+
+  // =========================================================================
   // THE EAS TEAM PAGE
   // =========================================================================
   /**
@@ -5580,7 +5898,7 @@
       '<div class="team-card-top">' +
         face +
         '<div class="team-who">' +
-          '<strong>' + escapeHtml(person.name) + '</strong>' +
+          '<strong>' + escapeHtml(person.name) + presenceDot(person) + '</strong>' +
           '<span class="team-role">' +
             escapeHtml(roleOverride || person.title || '\u2014') + '</span>' +
         '</div>' +
@@ -5624,7 +5942,8 @@
             // No head marked: the role line carries the whole message, so a
             // name line here would be an em dash sitting where a person
             // should be, which reads as a name that failed to load.
-            (head ? '<strong>' + escapeHtml(head.name) + '</strong>' : '') +
+            (head ? '<strong>' + escapeHtml(head.name) + presenceDot(head) +
+                    '</strong>' : '') +
             '<span class="team-sec-role">' + escapeHtml(role) + '</span>' +
           '</span>' +
         '</span>' +
@@ -5752,7 +6071,8 @@
             '<div class="team-card-top">' +
               face +
               '<div class="team-who">' +
-                '<strong>' + escapeHtml(team.lead.name) + '</strong>' +
+                '<strong>' + escapeHtml(team.lead.name) +
+                  presenceDot(team.lead) + '</strong>' +
                 '<span class="team-role">' +
                   escapeHtml(team.lead.title || '\u2014') +
                   ' \u00b7 Enterprise Application Services</span>' +

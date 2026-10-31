@@ -141,7 +141,23 @@
              stroke-linejoin="round" aria-hidden="true"><path d="M10 3L5 8l5 5"/></svg>
         Back
       </button>
+      <!--
+        YOUR OWN DOT, beside your own name, in the same three colours the
+        team cards use. It is here rather than only on the EAS Team page
+        because the state is yours to see at a glance: the point of the Away
+        button is that you remember you pressed it, and a green dot next to
+        your name is how you notice you are still showing as at your desk
+        when you are not.
+      -->
       <span class="portal-who-name" id="portalWho">&mdash;</span>
+      <span class="pres-dot" id="portalPresDot" data-state="OFFLINE" hidden></span>
+      <!--
+        A toggle, not a button that does one thing. aria-pressed is what says
+        so to a screen reader, and it is kept in step with data-state by
+        paintPresenceSelf().
+      -->
+      <button class="portal-away" id="portalAway" type="button" hidden
+              aria-pressed="false">Away</button>
       <button class="portal-signout" id="portalSignOut" hidden>Sign out</button>
     </div>
   </header>

@@ -888,6 +888,110 @@
   .signout-btn:hover { background: rgba(255,255,255,.22); color: #fff; }
   .signout-btn:focus-visible { outline: 2px solid #7cb1ff; outline-offset: 2px; }
 
+  /* ---------------- presence: the dot ---------------- */
+  /*
+    Defined here rather than in PortalStyles because it is drawn in three
+    places across both shells - this top bar, the portal's top bar, and every
+    card on the EAS Team page - and three copies of a colour is three chances
+    for the green on a card to stop matching the green beside your name.
+
+    ONE RING FOR ALL FOUR BACKGROUNDS. The dot sits on dark navy in both top
+    bars, on a cream card for most of the directory, and on a dark blue card
+    for the department head. The offline state is the hard one, because it is
+    a ring and nothing else: white would vanish on cream, dark would vanish on
+    navy. The mid grey below is the one value legible against all four, which
+    is why it is not simply currentColor at low opacity - that follows the
+    text and so disappears against exactly the background it was drawn on.
+
+    It is also NOT .dot, which already exists eight lines up and means
+    something else entirely: that one is whether the figures are live.
+  */
+  .pres-dot {
+    display: inline-block; flex: 0 0 auto;
+    width: 8px; height: 8px; border-radius: 50%;
+    /* middle, not baseline: a circle sitting on the baseline reads as a full
+       stop. This puts it level with the middle of the name beside it. The
+       property is ignored in the two top bars, where the dot is a flex item
+       and align-items centres it anyway. */
+    margin-left: 7px; vertical-align: middle;
+    background: transparent;
+    border: 1.5px solid rgba(132, 142, 156, .75);
+  }
+
+  /* In a flex row the parent's gap already separates it, so the margin that
+     spaces it inside a <strong> would double up - and in the portal bar the
+     dot would end up floating midway between the name it belongs to and the
+     Away button it does not. Two values rather than one because the two bars
+     set different gaps (8px and 10px) and this has to land at the same
+     distance from the name in both. */
+  .topbar-left .pres-dot { margin-left: -1px; }
+  .portal-who .pres-dot { margin-left: -3px; }
+
+  .pres-dot[data-state="ACTIVE"] {
+    background: #34d26a; border-color: #34d26a;
+    animation: presGlow 2.6s ease-in-out infinite;
+  }
+
+  /*
+    AMBER AND PERFECTLY STILL. The glow is the whole signal here, so the away
+    state has to be the absence of it - an amber dot that also pulsed would
+    read as a second kind of present rather than as not-present. Filled
+    rather than hollow, because "I am signed in but not at my desk" is a
+    thing somebody has said, and offline is the one nobody has said anything
+    about.
+  */
+  .pres-dot[data-state="AWAY"] {
+    background: #f0ad3c; border-color: #f0ad3c;
+    box-shadow: 0 0 0 2px rgba(240, 173, 60, .16);
+    animation: none;
+  }
+
+  @keyframes presGlow {
+    0%, 100% {
+      box-shadow: 0 0 0 2px rgba(52, 210, 106, .20),
+                  0 0 6px 1px rgba(52, 210, 106, .45);
+    }
+    50% {
+      box-shadow: 0 0 0 3px rgba(52, 210, 106, .30),
+                  0 0 11px 2px rgba(52, 210, 106, .85);
+    }
+  }
+
+  /*
+    The glow stays, the breathing stops. Dropping the box-shadow as well
+    would have taken the green dot down to a flat circle and lost the
+    distinction the feature is built on; it is the movement that some people
+    cannot be shown, not the colour.
+  */
+  @media (prefers-reduced-motion: reduce) {
+    .pres-dot[data-state="ACTIVE"] {
+      animation: none;
+      box-shadow: 0 0 0 2px rgba(52, 210, 106, .24),
+                  0 0 8px 1px rgba(52, 210, 106, .60);
+    }
+  }
+
+  /*
+    AWAY, in the dashboard bar. Quieter than Sign out until it is pressed,
+    and then it is the loudest thing in the bar - that is the point, since
+    the failure this feature has is somebody showing as away all afternoon
+    without noticing.
+  */
+  .away-btn {
+    margin-left: 2px; padding: 4px 11px; border-radius: 999px;
+    background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.18);
+    color: #c6d4e8; font-family: inherit; font-size: 11px; font-weight: 600;
+    cursor: pointer;
+    transition: background .14s ease, color .14s ease, border-color .14s ease;
+  }
+  .away-btn:hover { background: rgba(255,255,255,.18); color: #fff; }
+  .away-btn:focus-visible { outline: 2px solid #7cb1ff; outline-offset: 2px; }
+  .away-btn[aria-pressed="true"] {
+    background: rgba(240,173,60,.20); border-color: rgba(240,173,60,.55);
+    color: #ffd79a;
+  }
+  .away-btn[aria-pressed="true"]:hover { background: rgba(240,173,60,.30); }
+
   @media (prefers-reduced-motion: reduce) { .login-card { animation: none; } }
 
   /* ---------------- the organisation stage ---------------- */

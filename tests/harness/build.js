@@ -235,18 +235,18 @@ const stub = `
   window.__expireSession = function () { window.__sessionDead = true; };
   var MY_NAME = NO_NAME ? '' : 'Rudra Das';
   var ACCOUNTS = [
-    { username: '20217450', role: 'USER', created: '2026-10-05T06:46:00.000Z',
+    { username: '20990011', role: 'USER', created: '2026-10-05T06:46:00.000Z',
       lastSignIn: '2026-10-05T06:46:00.000Z', signIns: 1, mustChange: false,
       fullName: 'Ayesha Rahman', email: 'ayesha@example.com' },
-    { username: '20536723', role: 'MASTER', created: '2026-10-04T09:15:00.000Z',
+    { username: '20990012', role: 'MASTER', created: '2026-10-04T09:15:00.000Z',
       lastSignIn: '2026-10-18T02:19:00.000Z', signIns: 29, mustChange: false,
       fullName: 'Rudra Das', email: 'rudra@example.com' },
-    { username: '20217474', role: 'ADMIN', created: '2026-10-15T06:49:00.000Z',
+    { username: '20990013', role: 'ADMIN', created: '2026-10-15T06:49:00.000Z',
       lastSignIn: '2026-10-17T02:20:00.000Z', signIns: 3, mustChange: false,
       fullName: '', email: '' },
     { username: '20900001', role: 'USER', created: '2026-10-16T04:00:00.000Z',
       lastSignIn: '', signIns: 0, mustChange: true, fullName: '', email: '' },
-    { username: '20467174', role: 'ADMIN', created: '2026-10-04T09:33:00.000Z',
+    { username: '20990014', role: 'ADMIN', created: '2026-10-04T09:33:00.000Z',
       lastSignIn: '2026-10-15T03:17:00.000Z', signIns: 17, mustChange: false,
       fullName: 'Pritam Saha', email: '' },
     // Deliberately the MOST RECENT date in the list. With an empty one it
@@ -262,7 +262,7 @@ const stub = `
       lastBy: 'USER', status: 'OPEN', waiting: 1,
       messages: [ { id: 'M1', at: '2026-08-02T09:15:00.000Z', side: 'USER',
                     text: 'Why is my section showing a delayed ticket?' } ] },
-    { id: 'T2', person: '20536723', name: 'Rudra', verified: false, topic: '',
+    { id: 'T2', person: '20990012', name: 'Rudra', verified: false, topic: '',
       startedAt: '2026-08-02T10:02:00.000Z', lastAt: '2026-08-02T10:02:00.000Z',
       lastBy: 'USER', status: 'OPEN', waiting: 1,
       messages: [ { id: 'M2', at: '2026-08-02T10:02:00.000Z', side: 'USER',
@@ -283,7 +283,7 @@ const stub = `
         { id: 'M3', at: '2026-08-01T08:00:00.000Z', side: 'USER',
           text: 'Can I get the September export?' },
         { id: 'M4', at: '2026-08-01T08:30:00.000Z', side: 'TEAM',
-          by: 'Pritam Saha (20467174)',
+          by: 'Pritam Saha (20990014)',
           text: 'Sent it to you just now.' } ] }
   ];
 
@@ -315,6 +315,32 @@ const stub = `
         answer: 'They are the ratings in the approved KPI policy.' }
     ];
   }
+
+  /*
+    PRESENCE, as the script cache would hold it.
+
+    Stateful on purpose. The feature is a two-button state machine, and a
+    stub that answered with a constant would let the Away button be wired to
+    nothing at all - or to the wrong person - and still pass every assertion
+    about the colour of a dot.
+
+    Seeded with all three states already on the page, because a fixture where
+    everybody is active only ever exercises the one branch. 20000000 is the
+    username getSession hands back below, so it is the signed-in person AND
+    the department head in the getTeam fixture: pressing Away has to change a
+    card in the directory as well as the dot in the top bar, which is the
+    join between the two halves of this feature and the thing most likely to
+    be wrong.
+  */
+  var PRESENCE = {
+    '20000000': 'ACTIVE',   // me - the department head
+    '20000001': 'ACTIVE',   // Ayesha, head of Sales
+    '20000002': 'AWAY',     // Carim, signed in but stepped away
+    '20000003': 'OFFLINE'   // Bilal, not signed in
+    // 20000004 is absent entirely, which is what the server really returns
+    // for somebody with no cache entry. A page that only ever saw the string
+    // 'OFFLINE' would pass while being unable to cope with a missing key.
+  };
 
   var HANDLERS = {
     getSession: function () {
@@ -544,7 +570,7 @@ const stub = `
       var out = [];
       for (var i = 0; i < 120; i++) {
         out.push({ when: new Date(Date.UTC(2026, 9, 18, 9, 0) - i * 36e5).toISOString(),
-                   username: i % 3 ? '20536723' : '20467174',
+                   username: i % 3 ? '20990012' : '20990014',
                    event: 'SIGNIN', role: i % 3 ? 'MASTER' : 'ADMIN', detail: '' });
       }
       return out;
@@ -740,6 +766,38 @@ const stub = `
         ],
         drift: { missing: ['Dilruba Khatun'], unknown: ['Nobody In Roster'] }
       };
+    },
+
+    /*
+      THE BEAT. Reads the token it is given, and reads 'away' as a parameter,
+      exactly as the server does - and writes the state of 20000000 and
+      nobody else, which is the one thing about the real endpoint worth
+      modelling: whose state it sets is not something the caller gets to say.
+    */
+    presenceTick: function (token, away) {
+      if (!token) {
+        throw new Error('Your session has ended. Reload the page and sign in again.');
+      }
+      PRESENCE['20000000'] = away ? 'AWAY' : 'ACTIVE';
+      return { me: PRESENCE['20000000'] };
+    },
+
+    getPresence: function (token) {
+      if (!token) {
+        throw new Error('Your session has ended. Reload the page and sign in again.');
+      }
+      // A copy. Handing the page the object the stub keeps its state in
+      // would let a bug that mutated the answer pass unnoticed, and the
+      // server returns a fresh object every time.
+      var copy = {};
+      Object.keys(PRESENCE).forEach(function (key) { copy[key] = PRESENCE[key]; });
+      return copy;
+    },
+
+    presenceClear: function (token) {
+      if (!token) return { me: 'OFFLINE' };
+      delete PRESENCE['20000000'];
+      return { me: 'OFFLINE' };
     },
 
     getKpi2: function () { return { hasData: false }; },

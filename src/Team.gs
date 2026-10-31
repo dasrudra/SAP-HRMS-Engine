@@ -332,7 +332,19 @@ function readTeam() {
  */
 function getTeam(token) {
   requireSignedIn(token);
-  return readTeam();
+  const team = readTeam();
+
+  // The tab has just been read, so this is the cheapest moment there will
+  // ever be to refresh the list presence keys its dots by. It matters because
+  // that key comes out of the row: filling in a missing employee ID changes
+  // it, and a cached roster would go on looking for that person under their
+  // name for hours afterwards and show them grey at their own desk.
+  //
+  // Wrapped, because a directory nobody can read is a worse failure than a
+  // dot that is briefly out of date. Presence is the garnish on this page.
+  try { presenceRosterFrom(team); } catch (e) { /* dots can wait */ }
+
+  return team;
 }
 
 

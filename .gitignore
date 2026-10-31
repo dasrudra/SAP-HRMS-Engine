@@ -33,6 +33,11 @@ package-lock.json
 # build artifact - half a megabyte that changes on every edit to any source
 # file - so it is rebuilt rather than committed.
 tests/harness/page.html
+
+# Screenshots rendered from the harness to show a change before it is pasted
+# into Apps Script. Same reasoning as the page above: generated, and stale the
+# moment anything is edited.
+preview/
 .DS_Store
 Thumbs.db
 *.log
