@@ -1560,6 +1560,8 @@
     // state.team inside loadTeam, so tabbing back and forth costs nothing.
     if (name === 'team') loadTeam();
     if (name === 'links') renderLinks();
+    if (name === 'about') renderAbout();
+    if (name === 'partners') renderPartners();
 
     // The dots are only drawn on one page, so only one page pays for keeping
     // them current. stopTeamPresence() is idempotent, which is what lets this
@@ -5985,6 +5987,131 @@
    * that IS processed, so it hands the value over on window and this reads it
    * from there. Same route __EAS_DEV_TOKEN__ already takes.
    */
+  // =========================================================================
+  // THE WRITTEN PAGES - About us, Partners
+  // =========================================================================
+  /*
+    Both are drawn from CONFIG rather than written into Portal.html, by the
+    window globals Index.html sets - the only file that can read CONFIG,
+    because include() pastes the others in without processing them.
+
+    WHY DRAW WORDING AT ALL, when it is not secret and not going to change
+    this week. Because the alternative puts fourteen sentences inside nested
+    markup, and the two people likeliest to want to reword one are the two
+    least likely to enjoy finding it there. In Config.gs they are a list of
+    strings with the commas showing.
+
+    One shared head - pill, heading, lede - so the two pages are visibly the
+    same KIND of page, the way the reference design has them.
+  */
+
+  /** The pill, the big heading and the paragraph beside it. */
+  function pageHead(pill, titleTop, titleFoot, lede) {
+    return '<div class="pcontent-head">' +
+      '<span class="pcontent-pill">' + escapeHtml(pill) + '</span>' +
+      '<div class="pcontent-headline">' +
+        '<h1 class="pcontent-title">' + escapeHtml(titleTop) + '<br>' +
+          escapeHtml(titleFoot) + '</h1>' +
+        '<p class="pcontent-lede">' + escapeHtml(lede) + '</p>' +
+      '</div>' +
+    '</div>';
+  }
+
+
+  function renderAbout() {
+    const body = document.getElementById('aboutBody');
+    if (!body) return;
+
+    const about = window.__EAS_PORTFOLIO__;
+    if (!about || !about.pillars || !about.pillars.length) {
+      body.innerHTML =
+        '<h1 class="portal-page-title">About us</h1>' +
+        '<div class="portal-empty"><h2>Nothing to show yet</h2>' +
+        '<p>CONFIG.PORTFOLIO in Config.gs is empty.</p></div>';
+      return;
+    }
+
+    const cards = about.pillars.map(function (pillar, index) {
+      const items = (pillar.items || []).map(function (line) {
+        return '<li>' + escapeHtml(line) + '</li>';
+      }).join('');
+
+      return '<article class="pillar" data-accent="' + index + '">' +
+        '<div class="pillar-top">' +
+          '<span class="pillar-word">' + escapeHtml(pillar.word) + '</span>' +
+          // The count is worked out, not written down. Same rule as the team
+          // cards: a number beside a list goes wrong the first time somebody
+          // adds to the list and does not look up.
+          '<span class="pillar-count">' + (pillar.items || []).length + '</span>' +
+        '</div>' +
+        '<p class="pillar-line">' + escapeHtml(pillar.line) + '</p>' +
+        '<ul class="pillar-list">' + items + '</ul>' +
+      '</article>';
+    }).join('');
+
+    // The slide's own closing line, built from the same three words the
+    // cards above are headed with - so it cannot end up naming a pillar that
+    // is no longer there.
+    const words = about.pillars.map(function (p) {
+      return '<b>' + escapeHtml(p.word) + '</b>';
+    }).join('<span class="pcontent-plus">+</span>');
+
+    body.innerHTML =
+      pageHead('About us', 'Portfolio of', 'the EAS Team', about.intro || '') +
+      '<div class="pillar-grid">' + cards + '</div>' +
+      '<div class="pcontent-band">' +
+        '<span class="pcontent-band-lead">EAS Team</span>' +
+        '<span class="pcontent-eq">=</span>' + words +
+      '</div>';
+  }
+
+
+  function renderPartners() {
+    const body = document.getElementById('partnersBody');
+    if (!body) return;
+
+    const data = window.__EAS_PARTNERS__;
+    if (!data || !data.zones || !data.zones.length) {
+      body.innerHTML =
+        '<h1 class="portal-page-title">Partners</h1>' +
+        '<div class="portal-empty"><h2>Nothing to show yet</h2>' +
+        '<p>CONFIG.PARTNERS in Config.gs is empty.</p></div>';
+      return;
+    }
+
+    let total = 0;
+
+    const cards = data.zones.map(function (zone, index) {
+      const plants = zone.plants || [];
+      total += plants.length;
+
+      const chips = plants.map(function (name) {
+        return '<span class="plant">' + escapeHtml(name) + '</span>';
+      }).join('');
+
+      return '<article class="zone" data-accent="' + index + '">' +
+        '<div class="zone-top">' +
+          '<span class="zone-code">' + escapeHtml(zone.code) + '</span>' +
+          '<span class="zone-count">' + plants.length +
+            (plants.length === 1 ? ' plant' : ' plants') + '</span>' +
+        '</div>' +
+        '<p class="zone-name">' + escapeHtml(zone.name || '') + '</p>' +
+        '<div class="zone-plants">' + chips + '</div>' +
+      '</article>';
+    }).join('');
+
+    body.innerHTML =
+      pageHead('Partners', 'The plants', 'we keep running', data.intro || '') +
+      '<div class="vendor-strip">' +
+        '<span class="vendor-mark">' + escapeHtml(data.vendorShort || '') + '</span>' +
+        '<span class="vendor-name">' + escapeHtml(data.vendor || '') + '</span>' +
+        '<span class="vendor-sep"></span>' +
+        '<span class="vendor-count"><b>' + total + '</b> plants served</span>' +
+      '</div>' +
+      '<div class="zone-grid">' + cards + '</div>';
+  }
+
+
   function renderLinks() {
     const body = document.getElementById('linksBody');
     if (!body) return;

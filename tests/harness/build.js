@@ -137,6 +137,20 @@ html = html.replace(/<\?=\s*CONFIG\.([A-Z0-9_]+)\s*\?>/g, (whole, key) => {
   return hit[1];
 });
 
+// The wording for About us and Partners, which travels as JSON rather than as
+// a bare string. Resolved from the REAL object above rather than from a
+// fixture of its own: these pages are almost entirely content, so a harness
+// carrying its own copy of the content would be testing a page nobody has.
+// Rewording a bullet in Config.gs should move the browser suite.
+html = html.replace(/<\?!=\s*JSON\.stringify\(CONFIG\.([A-Z0-9_]+)\)\s*\?>/g,
+  (whole, key) => {
+    if (!(key in CONFIG)) {
+      throw new Error('build: Index.html wants CONFIG.' + key +
+                      ', which Config.gs does not define');
+    }
+    return JSON.stringify(CONFIG[key]);
+  });
+
 // EVERY BACKSLASH IN HERE HAS TO BE DOUBLED.
 //
 // This is a template literal, so \s is not an escape JavaScript knows and the

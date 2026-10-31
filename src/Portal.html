@@ -112,7 +112,6 @@
               title="Open the TVL-EAS Database dashboard">KPI Engine</button>
 
       <button class="portal-tab" data-view="partners">Partners</button>
-      <button class="portal-tab" data-view="contact">Contact us</button>
       <button class="portal-tab" data-view="learnings">Learnings</button>
       <button class="portal-tab" data-view="projects">Projects</button>
       <button class="portal-tab" data-view="objective">Objective</button>
@@ -357,14 +356,18 @@
       Questions.gs already serves the FAQ, so that correcting a sentence is an
       edit to a cell and not a deployment.
     -->
+    <!--
+      ---- ABOUT US ----
+
+      Empty markup, like the team page above and for a weaker version of the
+      same reason: the wording lives in CONFIG.PORTFOLIO and is drawn by
+      renderAbout() in App.html. It is not private, so it could have been
+      written here - but a sentence somebody wants to change should be in a
+      file of sentences, not buried in nested spans, and the people who will
+      want to change one did not write the markup.
+    -->
     <section class="view portal-page" id="view-about" hidden>
-      <h1 class="portal-page-title">About us</h1>
-      <div class="portal-empty">
-        <h2>This page is waiting for its words</h2>
-        <p>Phase 5 reads this page out of a <b>PORTAL</b> tab in the database
-           spreadsheet, so you and Nasir can write and correct it without
-           pasting a file or deploying anything.</p>
-      </div>
+      <div id="aboutBody"></div>
     </section>
 
     <!--
@@ -389,23 +392,24 @@
       <div id="teamBody"></div>
     </section>
 
+    <!-- ---- PARTNERS ---- Drawn by renderPartners() from CONFIG.PARTNERS. -->
     <section class="view portal-page" id="view-partners" hidden>
-      <h1 class="portal-page-title">Partners</h1>
-      <div class="portal-empty">
-        <h2>This page is waiting for its words</h2>
-        <p>Phase 5, from the <b>PORTAL</b> tab.</p>
-      </div>
+      <div id="partnersBody"></div>
     </section>
 
-    <section class="view portal-page" id="view-contact" hidden>
-      <h1 class="portal-page-title">Contact us</h1>
-      <div class="portal-empty">
-        <h2>This page is waiting for its words</h2>
-        <p>Phase 5, from the <b>PORTAL</b> tab. In the meantime the Messages
-           button in the bottom corner reaches the EAS team from any page,
-           signed in or not.</p>
-      </div>
-    </section>
+    <!--
+      ---- CONTACT US, REMOVED ----
+
+      There is no Contact us tab and no #view-contact. The Messages button in
+      the bottom corner already reaches the EAS team from every page, signed
+      in or not, and it carries a thread with replies in it - which is more
+      than a page with an address on it would have done. A tab leading to a
+      worse version of a thing already on screen is a tab people press once.
+
+      Nothing else needs changing to drop a page: the nav is a list of
+      buttons and the router asks where a section lives rather than keeping a
+      list of names, so a tab and its section are the whole of a screen.
+    -->
 
     <section class="view portal-page" id="view-learnings" hidden>
       <h1 class="portal-page-title">Learnings</h1>

@@ -528,6 +528,102 @@ const CONFIG = {
   PORTAL_SECTION_ORDER: ['supply chain', 'sales', 'manufacturing', 'financial'],
 
   /**
+   * THE ABOUT US PAGE - the team's portfolio, off the EAS slide deck.
+   *
+   * Here rather than written into Portal.html because that file is markup
+   * and this is wording. Correcting a line should not mean reading past a
+   * hundred lines of nested spans to find it, and the two people who would
+   * want to correct one did not write the markup.
+   *
+   * GROUPED UNDER THE TEAM'S OWN THREE WORDS. The slide lists fourteen
+   * responsibilities as one long column and then, at the bottom, says
+   * EAS Team = Run + Connect + Improve. Fourteen bullets in a row is a list
+   * nobody finishes; the same fourteen under the three words the team
+   * already uses for itself is a page somebody reads. Nothing here is
+   * invented and nothing is left out - every line below is on the slide,
+   * verbatim, and the three headings are the slide's own.
+   */
+  PORTFOLIO: {
+    intro: 'Enterprise Application Services runs the applications every ' +
+           'Youngone plant in Bangladesh works in, connects them to each ' +
+           'other, and keeps looking for the next thing that should not ' +
+           'still be done by hand.',
+    pillars: [
+      {
+        word: 'Run',
+        line: 'Keep applications stable and secure.',
+        items: [
+          'Provide Level 1-3 support for enterprise application (SAP S/4HANA).',
+          'Troubleshoot and resolve application errors, incidents, and integration failures.',
+          'Maintain documentation (configurations, User Manuals, SOPs).',
+          'Ensure integration aligns with data governance and security standards.',
+          'Control application change requests and align them with IT governance.',
+          'Maintain version control and rollback plans.'
+        ]
+      },
+      {
+        word: 'Connect',
+        line: 'Integrate systems and data for real-time business visibility.',
+        items: [
+          'Work closely with business users to understand process requirements.',
+          'Translate business needs into system requirements (functional specifications).',
+          'Develop and maintain dashboards and BI reports (Power BI, Google Scripting etc.).',
+          'Ensure data accuracy and consistency across all YO BD Entities.'
+        ]
+      },
+      {
+        word: 'Improve',
+        line: 'Optimize processes and drive digital innovation.',
+        items: [
+          'Support process automation, digital workflows, and paperless initiatives.',
+          'Provide end-user training for new systems, updates, and best practices.',
+          'Conduct regular knowledge-sharing sessions within EAS team.',
+          'Identify opportunities for automation (RPA, workflow tools).'
+        ]
+      }
+    ]
+  },
+
+  /**
+   * THE PARTNERS PAGE - who EAS serves, by export processing zone.
+   *
+   * NO COUNTS ARE WRITTEN DOWN. The slide says "6 Plants", "12 Plants",
+   * "4 Plants" beside the lists, and the page could have carried those
+   * numbers across. It works them out from the lists instead, for the same
+   * reason the team card counts its own members rather than being told how
+   * many it has: a number typed beside a list is a number that goes wrong
+   * the first time somebody adds to the list and does not look down.
+   *
+   * The zone names are spelled out because three capitals are not a place.
+   * Check them - they came from me, not from the slide, which gives only the
+   * abbreviations.
+   */
+  PARTNERS: {
+    vendor: 'Tekvision (BD) Ltd',
+    vendorShort: 'TVL',
+    intro: 'All Youngone companies in Bangladesh running SAP S/4HANA, across ' +
+           'three export processing zones.',
+    zones: [
+      {
+        code: 'CEPZ',
+        name: 'Chattogram Export Processing Zone',
+        plants: ['YCL', 'KSL', 'TSL', 'YPL', 'YGA', 'SEL']
+      },
+      {
+        code: 'KEPZ',
+        name: 'Karnaphuli Export Processing Zone',
+        plants: ['KSI-GMT', 'KSI-Shoe', 'KSI-BP', 'KSI-VXP', 'KSI-SWT',
+                 'KSI-OS', 'KSI-WS', 'KPP1', 'KPP2', 'KPP3', 'KPP4', 'KPL']
+      },
+      {
+        code: 'DEPZ',
+        name: 'Dhaka Export Processing Zone',
+        plants: ['YHT', 'SDF', 'YSF', 'STL']
+      }
+    ]
+  },
+
+  /**
    * The Sub-Department value that means "the whole department".
    *
    * Utpal Biswas is the head of EAS and his row says ALL, because he does not

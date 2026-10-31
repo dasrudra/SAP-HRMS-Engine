@@ -109,13 +109,22 @@ const FILE = 'file://' + PAGE;
     view: n.getAttribute('data-view')
   })));
 
-  // The list Nasir sent, in his order. Asserted as a whole rather than by
-  // counting, so a tab quietly dropped or reordered is caught by name.
+  // The list Nasir sent, in his order, less Contact us - which was dropped
+  // because the Messages bubble in the corner already reaches the team from
+  // every page and carries replies, which a page with an address on it does
+  // not. Asserted as a whole rather than by counting, so a tab quietly
+  // dropped or reordered is caught by name.
   const WANTED = ['Home', 'About us', 'EAS Team', 'KPI Engine', 'Partners',
-                  'Contact us', 'Learnings', 'Projects', 'Objective', 'Links'];
-  check('all ten tabs are there, in the order they were given',
+                  'Learnings', 'Projects', 'Objective', 'Links'];
+  check('all nine tabs are there, in the order they were given',
     JSON.stringify(tabs.map((t) => t.label)) === JSON.stringify(WANTED),
     tabs.map((t) => t.label).join(' | '));
+
+  // A page left behind after its tab is removed is reachable by ?view= and
+  // by the back trail, and is nobody's job to maintain.
+  check('and Contact us left no orphan page behind it',
+    (await p.evaluate(() => !document.getElementById('view-contact'))) === true,
+    'the section went with the tab');
 
   // THE PROMISE THE SIDEBAR'S OWN COMMENT MAKES: a screen is a button plus a
   // section. A tab naming a view that does not exist would silently bounce the

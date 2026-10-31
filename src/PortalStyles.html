@@ -1016,6 +1016,227 @@
 
 
   /* =========================================================
+     THE WRITTEN PAGES - About us, Partners
+     =========================================================
+     One head and two card grids, shared so the two pages read as the same
+     kind of page: a small pill, a heading that breaks over two lines, and
+     the paragraph set beside it rather than under it.
+
+     Everything here is glass on the blue, so the sky runs the whole height
+     the way it does on Links - glass over the light surface is a grey box,
+     and a fixed height would be a guess at how long the page will ever be.
+  */
+  .portal[data-page="about"] .portal-sky,
+  .portal[data-page="partners"] .portal-sky { height: 100%; border-radius: 0; }
+
+  /* ---------- the shared head ---------- */
+  .pcontent-head { padding: 26px 0 34px; }
+
+  .pcontent-pill {
+    display: inline-block; margin-bottom: 18px;
+    padding: 6px 15px; border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, .26);
+    background: rgba(255, 255, 255, .11);
+    -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+    font-size: 10.5px; font-weight: 700; letter-spacing: .14em;
+    text-transform: uppercase; color: rgba(255, 255, 255, .88);
+  }
+
+  /*
+    Heading left, paragraph right. The gap is wide and the paragraph narrow
+    on purpose: a lede that runs the full width of a 1180px page is a line
+    the eye loses its place in, and the empty middle is what makes the
+    heading look deliberate rather than merely left-aligned.
+  */
+  .pcontent-headline {
+    display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 380px);
+    gap: 24px 60px; align-items: end;
+  }
+  .pcontent-title {
+    margin: 0;
+    font-size: 46px; line-height: 1.08; font-weight: 700;
+    letter-spacing: -.03em; color: #fff;
+    text-shadow: 0 2px 20px rgba(4, 16, 46, .4);
+  }
+  .pcontent-lede {
+    margin: 0 0 6px; font-size: 13.5px; line-height: 1.65;
+    color: rgba(255, 255, 255, .78);
+  }
+
+  /* ---------- the glass card both grids use ---------- */
+  /*
+    The same recipe as a team section card - gradient sheen, lit top lip,
+    accent halo on hover - rather than a second idea about what glass looks
+    like on this site.
+  */
+  .pillar, .zone {
+    position: relative; overflow: hidden;
+    display: flex; flex-direction: column;
+    padding: 20px 19px 18px;
+    border-radius: 18px;
+    border: 1px solid rgba(255, 255, 255, .20);
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, .17) 0%, rgba(255, 255, 255, .065) 100%);
+    -webkit-backdrop-filter: blur(18px) saturate(160%);
+    backdrop-filter: blur(18px) saturate(160%);
+    box-shadow:
+      0 12px 34px rgba(2, 10, 32, .38),
+      inset 0 1px 0 rgba(255, 255, 255, .30);
+    transition: transform .2s cubic-bezier(.3, 0, .2, 1),
+                background .2s ease, border-color .2s ease, box-shadow .2s ease;
+  }
+
+  /* The accent only shows as a bar along the top edge and as the hover
+     halo. Kept in the blue family, because green and amber mean one thing
+     on this site now and it is not decoration. */
+  .pillar::before, .zone::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    background: linear-gradient(90deg, var(--accent), rgba(255, 255, 255, 0));
+    opacity: .75; transition: opacity .2s ease;
+  }
+  .pillar[data-accent="0"], .zone[data-accent="0"] { --accent: #4cc9f0; --glow: rgba(76, 201, 240, .42); }
+  .pillar[data-accent="1"], .zone[data-accent="1"] { --accent: #5b9cf8; --glow: rgba(91, 156, 248, .42); }
+  .pillar[data-accent="2"], .zone[data-accent="2"] { --accent: #9d7bef; --glow: rgba(157, 123, 239, .42); }
+  .pillar[data-accent="3"], .zone[data-accent="3"] { --accent: #7b86f0; --glow: rgba(123, 134, 240, .42); }
+
+  .pillar:hover, .zone:hover {
+    transform: translateY(-4px);
+    border-color: rgba(255, 255, 255, .34);
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, .25) 0%, rgba(255, 255, 255, .11) 100%);
+    box-shadow:
+      0 22px 52px rgba(2, 10, 32, .46),
+      0 0 30px var(--glow),
+      inset 0 1px 0 rgba(255, 255, 255, .44);
+  }
+  .pillar:hover::before, .zone:hover::before { opacity: 1; }
+
+  /* ---------- About us: the three pillars ---------- */
+  .pillar-grid {
+    display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 18px;
+  }
+  .pillar-top {
+    display: flex; align-items: baseline; justify-content: space-between;
+    gap: 10px;
+  }
+  .pillar-word {
+    font-size: 23px; font-weight: 700; letter-spacing: -.02em; color: #fff;
+  }
+  /* How many responsibilities sit under this word. Counted by the page. */
+  .pillar-count {
+    flex: 0 0 auto;
+    padding: 3px 9px; border-radius: 999px;
+    background: rgba(255, 255, 255, .13);
+    border: 1px solid rgba(255, 255, 255, .18);
+    font-size: 11px; font-weight: 600; color: rgba(255, 255, 255, .80);
+  }
+  .pillar-line {
+    margin: 7px 0 15px; font-size: 12.5px; line-height: 1.5;
+    color: var(--accent);
+  }
+  .pillar-list {
+    margin: 0; padding: 0; list-style: none;
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  /*
+    A rule between the lines rather than a bullet glyph. Fourteen bullets
+    down one column is what the slide does and what makes it unreadable; a
+    hairline says "another one" without putting a mark at the start of every
+    line for the eye to step over.
+  */
+  .pillar-list li {
+    padding-top: 10px;
+    border-top: 1px solid rgba(255, 255, 255, .13);
+    font-size: 12.5px; line-height: 1.55;
+    color: rgba(255, 255, 255, .86);
+  }
+  .pillar-list li:first-child { padding-top: 0; border-top: 0; }
+
+  /* ---------- About us: the closing line ---------- */
+  .pcontent-band {
+    margin-top: 26px;
+    display: flex; align-items: center; justify-content: center;
+    flex-wrap: wrap; gap: 12px;
+    padding: 20px 24px; border-radius: 18px;
+    border: 1px solid rgba(255, 255, 255, .18);
+    background: rgba(255, 255, 255, .08);
+    -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px);
+    font-size: 21px; font-weight: 700; letter-spacing: -.02em; color: #fff;
+  }
+  .pcontent-band b { font-weight: 700; }
+  .pcontent-band-lead { color: rgba(255, 255, 255, .72); font-weight: 600; }
+  .pcontent-eq, .pcontent-plus { color: #4cc9f0; font-weight: 400; margin: 0 2px; }
+
+  /* ---------- Partners: who is serving them ---------- */
+  .vendor-strip {
+    display: flex; align-items: center; flex-wrap: wrap; gap: 12px;
+    margin-bottom: 18px;
+    padding: 13px 18px; border-radius: 14px;
+    border: 1px solid rgba(255, 255, 255, .18);
+    background: rgba(255, 255, 255, .09);
+    -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
+    color: rgba(255, 255, 255, .88);
+  }
+  .vendor-mark {
+    padding: 4px 10px; border-radius: 8px;
+    background: rgba(255, 255, 255, .92); color: var(--blue-600);
+    font-size: 11.5px; font-weight: 800; letter-spacing: .04em;
+  }
+  .vendor-name { font-size: 14px; font-weight: 700; color: #fff; }
+  .vendor-sep {
+    width: 1px; height: 16px; background: rgba(255, 255, 255, .22);
+  }
+  .vendor-count { font-size: 12.5px; color: rgba(255, 255, 255, .78); }
+  .vendor-count b { color: #fff; font-size: 14px; }
+
+  /* ---------- Partners: one card per zone ---------- */
+  .zone-grid {
+    display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 18px; align-items: start;
+  }
+  .zone-top {
+    display: flex; align-items: baseline; justify-content: space-between;
+    gap: 10px;
+  }
+  .zone-code {
+    font-size: 25px; font-weight: 800; letter-spacing: -.02em; color: #fff;
+  }
+  .zone-count {
+    flex: 0 0 auto;
+    padding: 3px 10px; border-radius: 999px;
+    background: rgba(255, 255, 255, .13);
+    border: 1px solid rgba(255, 255, 255, .18);
+    font-size: 11px; font-weight: 600; color: rgba(255, 255, 255, .80);
+  }
+  .zone-name {
+    margin: 6px 0 15px; font-size: 12px; line-height: 1.45;
+    color: var(--accent);
+  }
+  .zone-plants { display: flex; flex-wrap: wrap; gap: 7px; }
+
+  /*
+    One chip per plant. Chips rather than a comma-separated line because the
+    question this page is asked is "are we on it" - and a name you can find
+    by scanning a grid is quicker to answer that with than a name inside a
+    sentence twelve items long.
+  */
+  .plant {
+    padding: 5px 10px; border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, .16);
+    background: rgba(255, 255, 255, .10);
+    font-size: 11.5px; font-weight: 600; color: rgba(255, 255, 255, .90);
+    transition: background .15s ease, border-color .15s ease,
+                transform .15s ease;
+  }
+  .plant:hover {
+    background: rgba(255, 255, 255, .22);
+    border-color: rgba(255, 255, 255, .34);
+    transform: translateY(-1px);
+  }
+
+
+  /* =========================================================
      NARROWER WINDOWS
      ========================================================= */
   /*
@@ -1058,9 +1279,26 @@
       set of cards coming off a hero.
     */
     .portal[data-page="home"] .portal-sky { height: 560px; }
+
+    /*
+      Three glass cards side by side stop working well before the window
+      does: the pillar lists are full sentences, and at a third of 1080px
+      they break after two or three words each. Two across, with the last
+      one taking the full width rather than sitting as a half-empty orphan.
+    */
+    .pillar-grid, .zone-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .pillar-grid > :last-child:nth-child(odd),
+    .zone-grid > :last-child:nth-child(odd) { grid-column: 1 / -1; }
+    .pcontent-title { font-size: 38px; }
+    .pcontent-headline { grid-template-columns: minmax(0, 1fr); align-items: start; }
   }
 
   @media (max-width: 760px) {
+    .pillar-grid, .zone-grid { grid-template-columns: 1fr; }
+    .pcontent-head { padding: 18px 0 24px; }
+    .pcontent-title { font-size: 29px; }
+    .pcontent-band { font-size: 17px; gap: 8px; padding: 16px 18px; }
+    .zone-code { font-size: 21px; }
     .portal-top { padding: 10px 14px 12px; }
     .portal-brand-text span { display: none; }
     .portal-page { padding: 12px 16px 96px; }
@@ -1080,6 +1318,13 @@
   */
   @media (prefers-reduced-motion: reduce) {
     .portal-sky { transition: none; }
+    /*
+      The lift goes, the glow stays. Hover still has to say "this is the one
+      under the pointer" - that is information, not decoration - and the
+      halo says it without anything moving.
+    */
+    .pillar, .zone, .plant { transition: box-shadow .2s ease, background .2s ease; }
+    .pillar:hover, .zone:hover, .plant:hover { transform: none; }
   }
 
 </style>

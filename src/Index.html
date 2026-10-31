@@ -1546,6 +1546,17 @@
   // inside a comment is still a scriptlet to the templating engine - it is
   // invisible to a reader of the page and not at all invisible to Apps Script.
   window.__EAS_SAP_URL__ = '<?= CONFIG.SAP_APP_URL ?>';
+
+  // The wording for About us and Partners, by the same route and for the
+  // same reason. These are objects rather than one string, so they travel as
+  // JSON - and through the RAW printing tag, the one with the exclamation
+  // mark, because the escaping tag used above would turn every quotation
+  // mark in the JSON into an entity and hand the page a string it cannot
+  // parse. Raw is safe here and would not be for user input: this is a
+  // constant in a file only a developer can edit, and JSON.stringify cannot
+  // produce a closing script tag out of it.
+  window.__EAS_PORTFOLIO__ = <?!= JSON.stringify(CONFIG.PORTFOLIO) ?>;
+  window.__EAS_PARTNERS__ = <?!= JSON.stringify(CONFIG.PARTNERS) ?>;
 </script>
 
 <!--
