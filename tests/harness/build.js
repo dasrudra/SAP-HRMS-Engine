@@ -137,18 +137,30 @@ html = html.replace(/<\?=\s*CONFIG\.([A-Z0-9_]+)\s*\?>/g, (whole, key) => {
   return hit[1];
 });
 
-// The wording for About us and Partners, which travels as JSON rather than as
-// a bare string. Resolved from the REAL object above rather than from a
-// fixture of its own: these pages are almost entirely content, so a harness
-// carrying its own copy of the content would be testing a page nobody has.
-// Rewording a bullet in Config.gs should move the browser suite.
-html = html.replace(/<\?!=\s*JSON\.stringify\(CONFIG\.([A-Z0-9_]+)\)\s*\?>/g,
-  (whole, key) => {
-    if (!(key in CONFIG)) {
-      throw new Error('build: Index.html wants CONFIG.' + key +
-                      ', which Config.gs does not define');
+// Anything Index.html prints as JSON - the About us and Partners wording, the
+// service layers. EVALUATED IN THE SAME SANDBOX Config.gs was just loaded
+// into, rather than pulled out with a regex, so a value that is worked out by
+// a function is resolved the same way a constant is. serviceLayers() derives
+// the three SLA layers from the four KPIs, and a harness that could only read
+// constants would have needed its own copy of the answer - which is the copy
+// that goes stale.
+//
+// Nothing but Config.gs is in that sandbox, so this runs the project's own
+// code and no more.
+html = html.replace(/<\?!=\s*(JSON\.stringify\([A-Za-z0-9_.()]*\))\s*\?>/g,
+  (whole, expr) => {
+    let value;
+    try {
+      value = vm.runInContext(expr, cfgBox);
+    } catch (e) {
+      throw new Error('build: Index.html prints ' + expr + ', which Config.gs ' +
+                      'could not evaluate: ' + e.message);
     }
-    return JSON.stringify(CONFIG[key]);
+    if (value === undefined) {
+      throw new Error('build: Index.html prints ' + expr + ', which came back ' +
+                      'undefined - Config.gs does not define it');
+    }
+    return value;
   });
 
 // EVERY BACKSLASH IN HERE HAS TO BE DOUBLED.

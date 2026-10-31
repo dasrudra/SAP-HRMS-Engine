@@ -73,6 +73,136 @@ const FILE = 'file://' + PAGE;
   await p.waitForTimeout(1800);
 
   // =========================================================================
+  // THE HOME CARDS
+  // =========================================================================
+  // Five cards in a collage. Four of them are invented shapes and there is
+  // nothing to check in a made-up number; the fifth is read out of the live
+  // KPI configuration, and that one has to be right.
+  const tiles = await p.$$eval('#portalTiles .ptile', (ns) => ns.map((n) => ({
+    cls: n.className,
+    label: n.querySelector('.ptile-label').textContent.trim()
+  })));
+
+  check('the home page carries the five cards, in the order asked for',
+    JSON.stringify(tiles.map((t) => t.label)) === JSON.stringify(
+      ['Comparison', 'ITSM tickets', 'Help & FAQ', 'KPI 2', 'Service layers']),
+    tiles.map((t) => t.label).join(' | '));
+
+  // The collage is grid placement, not source order, so "below" and "beside"
+  // are properties of the rendered box and not of the markup.
+  const where = await p.evaluate(() => {
+    const box = (s) => {
+      const r = document.querySelector(s).getBoundingClientRect();
+      return { top: Math.round(r.top), left: Math.round(r.left), bottom: Math.round(r.bottom) };
+    };
+    return {
+      compare: box('.ptile-compare'), itsm: box('.ptile-itsm'),
+      faq: box('.ptile-faq'), kpi2: box('.ptile-kpi2'), layers: box('.ptile-layers')
+    };
+  });
+
+  check('Help & FAQ sits below the ITSM chart, in the same column',
+    where.faq.top >= where.itsm.bottom - 1 && where.faq.left === where.itsm.left,
+    'faq top ' + where.faq.top + ' vs itsm bottom ' + where.itsm.bottom);
+
+  check('the KPI 2 ring sits beside Help & FAQ, not below it',
+    where.kpi2.left > where.faq.left && where.kpi2.top < where.faq.bottom,
+    'kpi2 left ' + where.kpi2.left + ' vs faq left ' + where.faq.left);
+
+  check('the comparison chart is the tall card on the left, and layers the last',
+    where.compare.left < where.itsm.left &&
+    where.layers.left > where.kpi2.left,
+    'compare ' + where.compare.left + ', itsm ' + where.itsm.left +
+      ', kpi2 ' + where.kpi2.left + ', layers ' + where.layers.left);
+
+  // THE LAYERS CARD IS NOT TYPED. serviceLayers() groups the four KPIs by the
+  // layer each one already carries, so the front page cannot end up
+  // describing a service structure the engine behind it stopped using.
+  const LAYERS = vm.runInContext('serviceLayers()', box);
+
+  const shown = await p.$$eval('#layerStack .layer-row', (ns) => ns.map((n) => ({
+    no: n.querySelector('.layer-no').textContent.trim(),
+    title: n.querySelector('.layer-text b').textContent.trim(),
+    kpis: Array.from(n.querySelectorAll('.layer-kpi')).map((k) => k.textContent.trim())
+  })));
+
+  check('the three service layers come from the KPI configuration',
+    JSON.stringify(shown.map((l) => l.no + ':' + l.title)) ===
+      JSON.stringify(LAYERS.map((l) => l.layer + ':' + l.title)),
+    shown.map((l) => l.no + ' ' + l.title).join(' | '));
+
+  check('and each layer lists the KPIs that answer for it',
+    shown.every((l, i) =>
+      JSON.stringify(l.kpis) === JSON.stringify(LAYERS[i].kpis.map((k) => k.name))),
+    shown.map((l) => l.no + '=[' + l.kpis.join(',') + ']').join(' '));
+
+  // THE TWO ABOVE COMPARE THE PAGE WITH serviceLayers(), WHICH IS HALF A
+  // TEST. It catches a renderer that drops or reorders what it was handed,
+  // and is blind to serviceLayers() itself being wrong - break that and both
+  // sides of the comparison move together. Two mutations proved it: leaving
+  // 'Layer 3: ' on the front of the title, and returning the layers in key
+  // order instead of numeric order, both passed everything above.
+  //
+  // So these three check the page against the raw KPI definitions instead,
+  // which is the thing neither the renderer nor serviceLayers() can move.
+  const rawLayers = {};
+  Object.keys(CONFIG.KPI).forEach(function (key) {
+    const kpi = CONFIG.KPI[key];
+    if (kpi && kpi.layer) rawLayers[kpi.layer] = kpi.slaLayer;
+  });
+  const rawNumbers = Object.keys(rawLayers).map(Number).sort((a, b) => a - b);
+
+  check('the layers are numbered in order, starting at one',
+    JSON.stringify(shown.map((l) => Number(l.no))) === JSON.stringify(rawNumbers),
+    shown.map((l) => l.no).join(', ') + ' against ' + rawNumbers.join(', '));
+
+  // The number is drawn in its own badge, so a title that still carries
+  // "Layer 3:" prints it on the card twice.
+  const doubled = shown.filter((l) => /layer\s*\d/i.test(l.title));
+  check('no layer prints its own number twice',
+    doubled.length === 0,
+    doubled.map((l) => l.no + ' reads "' + l.title + '"').join('; ') || 'none');
+
+  check('each title is the policy\'s own wording for that layer',
+    shown.every((l) => {
+      const full = rawLayers[Number(l.no)] || '';
+      return full.indexOf(l.title) !== -1 && l.title.length > 0;
+    }),
+    shown.map((l) => '"' + l.title + '" from "' + rawLayers[Number(l.no)] + '"').join(' | '));
+
+  // KPI 1 IS IN CONFIG.KPI TWICE - RESOLUTION and RESOLUTION_EAS are the same
+  // indicator against two targets - so the obvious loop over the keys listed
+  // it twice and the card claimed Layer 3 had three KPIs in it.
+  const everyName = shown.reduce((all, l) => all.concat(l.kpis), []);
+  check('no KPI is listed twice, though KPI 1 has two standards',
+    everyName.length === new Set(everyName).size,
+    everyName.join(', '));
+
+  // KPI 2 is not in TVL-KPI-001. It is labelled INTERNAL on every other
+  // screen that shows it and must not sit silently beside three that are
+  // approved.
+  const internalMarked = await p.$$eval('#layerStack .layer-kpi.is-internal',
+    (ns) => ns.map((n) => n.textContent.trim()));
+  check('the one measure outside the approved policy is marked internal',
+    JSON.stringify(internalMarked) ===
+      JSON.stringify(LAYERS.reduce((all, l) =>
+        all.concat(l.kpis.filter((k) => !k.policy).map((k) => k.name)), [])),
+    internalMarked.join(', ') || 'nothing marked');
+
+  // The KPI Engine tab used to be a white pill, which is what "you are here"
+  // looks like in this bar - so the one tab you were never on looked open.
+  const tabSkins = await p.$$eval('.portal-tab', (ns) => ns.map((n) => ({
+    view: n.getAttribute('data-view'),
+    bg: getComputedStyle(n).backgroundColor,
+    on: n.getAttribute('aria-current')
+  })));
+  const engine = tabSkins.filter((t) => t.view === 'kpi1')[0];
+  const plain = tabSkins.filter((t) => t.view === 'partners')[0];
+  check('the KPI Engine tab looks like its neighbours rather than a selected one',
+    engine.bg === plain.bg,
+    'engine ' + engine.bg + ' vs partners ' + plain.bg);
+
+  // =========================================================================
   // ABOUT US
   // =========================================================================
   await p.click('.portal-tab[data-view="about"]');
@@ -201,22 +331,68 @@ const FILE = 'file://' + PAGE;
     strip);
 
   // =========================================================================
-  // both pages, as pages
+  // where the blue stops
   // =========================================================================
-  // Every card here is glass, and glass over the light surface is a grey
-  // box. The sky has to run the whole height - the same rule the Links page
-  // already follows - or the cards below the fold look broken.
-  for (const view of ['about', 'partners']) {
-    await p.click('.portal-tab[data-view="' + view + '"]');
-    await p.waitForTimeout(500);
-    const covered = await p.evaluate(() => {
+  // The two pages answer this differently and both answers are load-bearing.
+  //
+  // PARTNERS is glass all the way down, so the blue has to be too - a
+  // frosted card over the light surface is a grey box.
+  await p.click('.portal-tab[data-view="partners"]');
+  await p.waitForTimeout(600);
+  check('the partners page has blue behind every card on it',
+    (await p.evaluate(() => {
       const sky = document.querySelector('.portal-sky');
-      const root = document.getElementById('portalRoot');
-      return sky.getBoundingClientRect().height >= root.scrollHeight - 2;
+      return sky.getBoundingClientRect().height >=
+             document.getElementById('portalRoot').scrollHeight - 2;
+    })) === true,
+    'its cards are glass, and glass over white goes grey');
+
+  // ABOUT US BREAKS, and the break has a window of about thirty pixels to
+  // land in. Too high and it crosses the heading - which is white text, so
+  // the bottom half of "the EAS Team" would vanish into the white below.
+  // Too low and the cream cards start on blue. Neither throws, neither is
+  // caught by any other assertion, and both are immediately visible to
+  // anybody who opens the page.
+  //
+  // Checked at three widths because the head is a different height at each:
+  // the lede sits beside the heading on a desktop and below it from 1080px
+  // down, which moves the first card by most of a paragraph.
+  for (const width of [1480, 1000, 420]) {
+    const q = await b.newPage({ viewport: { width: width, height: 1000 } });
+    q.on('pageerror', (e) => errors.push(String(e)));
+    await q.goto(FILE);
+    await q.waitForTimeout(1700);
+    await q.click('.portal-tab[data-view="about"]');
+    await q.waitForTimeout(600);
+
+    const m = await q.evaluate(() => {
+      const r = (s) => document.querySelector(s).getBoundingClientRect();
+      return {
+        sky: r('.portal-sky').bottom,
+        head: r('#aboutBody .pcontent-headline').bottom,
+        card: r('#aboutBody .pillar').top
+      };
     });
-    check('the ' + view + ' page has blue behind every card on it', covered === true,
-      'otherwise the glass cards past the fold sit on white and go grey');
+
+    check('at ' + width + 'px the blue ends below the heading and above the cards',
+      m.sky > m.head && m.sky < m.card,
+      'heading ends ' + m.head.toFixed(0) + ', blue ends ' + m.sky.toFixed(0) +
+        ', cards start ' + m.card.toFixed(0));
+    await q.close();
   }
+
+  // And the cards on it are solid, not glass - because they are on white
+  // now. A frosted card there is a grey rectangle with white text in it,
+  // which is to say an empty one.
+  await p.click('.portal-tab[data-view="about"]');
+  await p.waitForTimeout(600);
+  const pillarSkin = await p.$eval('#aboutBody .pillar', (n) => {
+    const s = getComputedStyle(n);
+    return { filter: s.backdropFilter || s.webkitBackdropFilter, colour: s.color };
+  });
+  check('the About cards are solid rather than frosted',
+    (pillarSkin.filter === 'none' || !pillarSkin.filter),
+    'backdrop-filter is ' + pillarSkin.filter);
 
   check('no JS errors across the whole run', errors.length === 0, errors.slice(0, 3).join(' | '));
 

@@ -1562,6 +1562,7 @@
     if (name === 'links') renderLinks();
     if (name === 'about') renderAbout();
     if (name === 'partners') renderPartners();
+    if (name === 'home') renderServiceLayers();
 
     // The dots are only drawn on one page, so only one page pays for keeping
     // them current. stopTeamPresence() is idempotent, which is what lets this
@@ -6004,6 +6005,46 @@
     One shared head - pill, heading, lede - so the two pages are visibly the
     same KIND of page, the way the reference design has them.
   */
+
+  /**
+   * The three SLA layers, on the Home page's last card.
+   *
+   * Drawn rather than written into Portal.html because the layers are not a
+   * fact about the page, they are a fact about the KPIs - each one carries
+   * the layer it answers for, and serviceLayers() in Config.gs groups them.
+   * Typed into the markup, this card would have gone on saying "three
+   * layers" through any change to the policy behind it, which is the kind of
+   * wrong that nobody notices because nothing looks broken.
+   */
+  function renderServiceLayers() {
+    const host = document.getElementById('layerStack');
+    if (!host) return;
+
+    const layers = window.__EAS_LAYERS__ || [];
+    if (!layers.length) {
+      host.innerHTML = '<p class="ptile-foot">No KPI layers are configured.</p>';
+      return;
+    }
+
+    host.innerHTML = layers.map(function (layer) {
+      const names = (layer.kpis || []).map(function (kpi) {
+        // INTERNAL is marked here as it is everywhere else. KPI 2 is not in
+        // the approved policy, and a front page listing it silently beside
+        // three that are would be the page overstating what is signed off.
+        return '<span class="layer-kpi' + (kpi.policy ? '' : ' is-internal') + '">' +
+               escapeHtml(kpi.name) + '</span>';
+      }).join('');
+
+      return '<div class="layer-row">' +
+        '<span class="layer-no">' + escapeHtml(String(layer.layer)) + '</span>' +
+        '<span class="layer-text">' +
+          '<b>' + escapeHtml(layer.title) + '</b>' +
+          '<span class="layer-kpis">' + names + '</span>' +
+        '</span>' +
+      '</div>';
+    }).join('');
+  }
+
 
   /** The pill, the big heading and the paragraph beside it. */
   function pageHead(pill, titleTop, titleFoot, lede) {

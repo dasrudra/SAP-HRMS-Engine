@@ -1557,6 +1557,12 @@
   // produce a closing script tag out of it.
   window.__EAS_PORTFOLIO__ = <?!= JSON.stringify(CONFIG.PORTFOLIO) ?>;
   window.__EAS_PARTNERS__ = <?!= JSON.stringify(CONFIG.PARTNERS) ?>;
+
+  // The three SLA layers for the Home page, read off the KPIs rather than
+  // typed - see serviceLayers() in Config.gs. A function call rather than a
+  // constant, so the front page cannot end up describing a service structure
+  // the engine behind it stopped using.
+  window.__EAS_LAYERS__ = <?!= JSON.stringify(serviceLayers()) ?>;
 </script>
 
 <!--

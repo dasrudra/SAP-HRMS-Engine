@@ -1281,6 +1281,66 @@ function getSpreadsheetId() {
 
 
 /**
+ * The three SLA layers, worked out from the KPIs rather than written down.
+ *
+ * THE LAYERS ARE ALREADY IN THIS FILE. Every KPI above carries the layer it
+ * answers for - it is how the four were matched to their signed definition
+ * sheets, which are named by layer - so a fourth place saying "Layer 1:
+ * Incident & Emergency Management" would be a fourth place to correct and
+ * the one somebody would forget. This reads the layers off the KPIs, so the
+ * front page cannot end up describing a service structure the engine behind
+ * it stopped using.
+ *
+ * Sorted by layer number, which is also the order the policy lists them in.
+ *
+ * @return {Array<{layer: number, title: string, kpis: Array}>}
+ */
+function serviceLayers() {
+  const byLayer = {};
+
+  Object.keys(CONFIG.KPI).forEach(function (key) {
+    const kpi = CONFIG.KPI[key];
+    if (!kpi || !kpi.layer) return;
+
+    if (!byLayer[kpi.layer]) {
+      // 'Layer 1: Incident & Emergency Management' -> 'Incident & Emergency
+      // Management'. The number is drawn separately, so repeating it in the
+      // title would put it on the card twice.
+      const after = String(kpi.slaLayer || '').split(':').slice(1).join(':').trim();
+      byLayer[kpi.layer] = {
+        layer: kpi.layer,
+        title: after || ('Layer ' + kpi.layer),
+        kpis: []
+      };
+    }
+
+    // BY ID, NOT BY KEY. KPI 1 is in here twice - RESOLUTION and
+    // RESOLUTION_EAS are its two standards, the same indicator scored
+    // against two different targets - so walking the keys lists it twice
+    // and the card said Layer 3 had three KPIs in it when it has two.
+    const already = byLayer[kpi.layer].kpis.some(function (seen) {
+      return seen.id === kpi.id;
+    });
+    if (already) return;
+
+    byLayer[kpi.layer].kpis.push({
+      id: kpi.id,
+      name: kpi.shortName || kpi.name,
+      // policy:false marks the one measure that is NOT in TVL-KPI-001. It is
+      // labelled INTERNAL everywhere else it appears and must be here too,
+      // rather than sitting silently beside three approved indicators.
+      policy: kpi.policy !== false
+    });
+  });
+
+  return Object.keys(byLayer)
+    .map(Number)
+    .sort(function (a, b) { return a - b; })
+    .map(function (n) { return byLayer[n]; });
+}
+
+
+/**
  * Reduces a person's name to a form that survives the ITSM's spelling.
  *
  * The same person appears as 'Md. Jafar Ullah' and 'Md.Jafar Ullah', and as

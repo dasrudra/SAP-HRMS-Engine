@@ -105,7 +105,7 @@
     border-radius: 0 0 26px 26px;
     transition: height .32s cubic-bezier(.4, 0, .2, 1);
   }
-  .portal[data-page="home"] .portal-sky { height: 620px; }
+  .portal[data-page="home"] .portal-sky { height: 672px; }
 
   /*
     The team page needs the blue to reach past the four section cards,
@@ -300,17 +300,6 @@
 
   /* The one tab that leaves the portal: white on the glass, so it reads as a
      button among labels rather than another label. */
-  .portal-tab.is-engine {
-    margin: 0 4px;
-    padding: 8px 15px;
-    background: #fff; color: var(--blue-600);
-    box-shadow: 0 2px 12px rgba(5, 20, 56, .26);
-  }
-  .portal-tab.is-engine:hover {
-    background: #fff; color: var(--blue-600);
-    box-shadow: 0 0 0 1px rgba(255, 255, 255, .5), 0 0 22px rgba(150, 200, 255, .8);
-  }
-
   /* ---------- who is signed in ---------- */
   .portal-who {
     flex: 0 0 auto; margin-left: auto;
@@ -457,90 +446,199 @@
      cards in the reference overlap their panel. That overlap is what stops
      the hero reading as a coloured box with a list under it.
   */
+  /* =========================================================
+     THE HOME CARDS
+     =========================================================
+     A COLLAGE, NOT A ROW. Four columns, but the cards inside them are
+     different heights and sit at different offsets - a tall one carrying the
+     chart people come for, a column of two beside it, two more to the right.
+     Four equal rectangles in a line reads as a dashboard template; this
+     reads as somebody having chosen what belongs on a front page.
+
+     The offsets are margin-top rather than transform, because every card
+     lifts on hover and two transforms on one element means the hover has to
+     know what the stagger was.
+  */
   .portal-tiles {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 18px;
-    margin-top: 52px;
+    grid-template-columns: 1.45fr 1.05fr 1fr 1.05fr;
+    gap: 16px;
+    align-items: start;
+    /* Lower than it was. The hero needs room to finish before the cards
+       start, or the two read as one block. */
+    margin-top: 88px;
   }
 
-  .portal-tile {
+  .ptile-compare { grid-column: 1; grid-row: 1 / span 2; }
+  .ptile-itsm    { grid-column: 2; grid-row: 1; }
+  .ptile-faq     { grid-column: 2; grid-row: 2; }
+  .ptile-kpi2    { grid-column: 3; grid-row: 1 / span 2; margin-top: 26px; }
+  .ptile-layers  { grid-column: 4; grid-row: 1 / span 2; margin-top: 12px; }
+
+  .ptile {
     display: flex; flex-direction: column;
-    min-height: 186px;
     padding: 16px 18px 15px;
     background: var(--portal-card);
     border: 1px solid rgba(255, 255, 255, .7);
     border-radius: 16px;
     box-shadow: 0 10px 30px rgba(8, 26, 66, .14), 0 2px 6px rgba(8, 26, 66, .07);
+    transition: transform .2s cubic-bezier(.3, 0, .2, 1), box-shadow .2s ease;
+  }
+  .ptile:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 20px 46px rgba(8, 26, 66, .20), 0 3px 10px rgba(8, 26, 66, .10);
   }
 
-  .portal-tile-head {
-    display: flex; align-items: center; justify-content: space-between; gap: 8px;
-    margin-bottom: 8px;
+  /* ---------- the head every card shares ---------- */
+  .ptile-head {
+    display: flex; align-items: flex-start; justify-content: space-between;
+    gap: 8px; margin-bottom: 10px;
   }
-  .portal-tile-label {
+  .ptile-label {
+    display: block;
     font-size: 11px; font-weight: 700; letter-spacing: .07em;
     text-transform: uppercase; color: var(--text-mut);
   }
-  .portal-tile-trend {
+  .ptile-sub {
+    display: block; margin-top: 2px;
+    font-size: 11.5px; color: var(--text-dim);
+  }
+  .ptile-trend {
+    flex: 0 0 auto;
     font-size: 11px; font-weight: 700;
     padding: 3px 7px; border-radius: 999px;
     background: var(--green-bg); color: var(--green-ink);
   }
+  /* KPI 2 is not in the approved policy. Said here as it is said on every
+     other screen that shows it, rather than left to be assumed. */
+  .ptile-chip {
+    flex: 0 0 auto;
+    font-size: 10px; font-weight: 700; letter-spacing: .06em;
+    text-transform: uppercase;
+    padding: 3px 7px; border-radius: 999px;
+    background: rgba(37, 99, 235, .10); color: var(--blue-600);
+  }
 
-  .portal-tile-value {
-    font-size: 27px; font-weight: 700; letter-spacing: -.025em;
+  /* ---------- the figure ---------- */
+  .ptile-figure { display: flex; align-items: baseline; gap: 9px; flex-wrap: wrap; }
+  .ptile-value {
+    font-size: 30px; font-weight: 700; letter-spacing: -.025em;
     color: var(--navy-900); line-height: 1.1;
   }
-  .portal-tile-unit { font-size: 16px; font-weight: 600; color: var(--text-dim); }
+  .ptile-value.is-sm { font-size: 24px; }
+  .ptile-unit { font-size: 16px; font-weight: 600; color: var(--text-dim); }
+  .ptile-against { font-size: 11.5px; color: var(--text-mut); }
+
+  /* ---------- legends and axes ---------- */
+  .ptile-legend {
+    display: flex; flex-wrap: wrap; gap: 14px;
+    margin: 12px 0 2px;
+    font-size: 11px; color: var(--text-dim);
+  }
+  .ptile-legend.is-stack { flex-direction: column; gap: 6px; margin-top: auto; }
+  .ptile-key { display: inline-flex; align-items: center; gap: 6px; }
+  .ptile-dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
+  .ptile-dot.is-now  { background: var(--blue-600); }
+  .ptile-dot.is-was  { background: #9fb3cd; }
+  .ptile-dot.is-rest { background: #e6ecf6; border: 1px solid #d3dfee; }
 
   /*
-    overflow:visible because the line chart's last point sits ON the right
-    edge of its viewBox, so the dot marking it was being sliced in half by
-    the SVG viewport. Moving the data inwards instead would have left the
-    area fill short of the edge, which looks like missing data.
+    overflow:visible because a line chart's last point sits ON the right edge
+    of its viewBox, so the dot marking it was being sliced in half. Moving
+    the data inwards instead would leave the area fill short of the edge,
+    which looks like missing data rather than like a margin.
   */
-  .portal-chart {
-    display: block; width: 100%; height: 74px; margin: auto 0 6px;
+  .ptile-chart {
+    display: block; width: 100%; height: 72px; margin: 10px 0 6px;
     overflow: visible;
   }
+  .ptile-chart.is-tall { height: 150px; margin-top: 6px; }
 
-  .portal-tile-note { font-size: 11px; color: var(--text-mut); }
+  .ptile-axis {
+    display: flex; justify-content: space-between;
+    font-size: 10px; color: var(--text-mut); letter-spacing: .02em;
+  }
 
-  /* ---------- the donut ---------- */
-  .portal-donut {
-    position: relative;
-    margin: auto; width: 108px; height: 108px;
+  .ptile-eyebrow {
+    font-size: 10px; font-weight: 700; letter-spacing: .1em;
+    text-transform: uppercase; color: var(--text-mut);
+    margin-bottom: 8px;
+  }
+  .ptile-foot {
+    margin: auto 0 0; padding-top: 10px;
+    font-size: 11px; line-height: 1.45; color: var(--text-mut);
+  }
+  .ptile-foot b { color: var(--navy-700); }
+
+  /* ---------- the Help and FAQ card ---------- */
+  .faq-mini {
+    margin: 0; padding: 0; list-style: none;
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .faq-mini li {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    padding: 10px 11px; border-radius: 10px;
+    background: rgba(37, 99, 235, .055);
+    border: 1px solid rgba(37, 99, 235, .10);
+    font-size: 12px; line-height: 1.35; color: var(--navy-700);
+    transition: background .15s ease, border-color .15s ease;
+  }
+  .faq-mini li:hover {
+    background: rgba(37, 99, 235, .10);
+    border-color: rgba(37, 99, 235, .22);
+  }
+  .faq-mini svg { flex: 0 0 auto; color: var(--blue-500); }
+
+  /* ---------- the KPI 2 ring ---------- */
+  .ring-wrap {
+    margin: auto; padding: 6px 0;
+    width: 100%; max-width: 150px;
+  }
+  .ring { display: block; width: 100%; height: auto; }
+  .ring-value {
+    font-size: 26px; font-weight: 700; fill: var(--navy-900);
+    letter-spacing: -.02em;
+  }
+  .ring-note { font-size: 11px; fill: #7d8da4; }
+
+  /* ---------- the service layers ---------- */
+  .layer-stack { display: flex; flex-direction: column; gap: 9px; }
+  .layer-row {
+    display: flex; align-items: flex-start; gap: 10px;
+    padding: 10px 11px; border-radius: 11px;
+    background: rgba(37, 99, 235, .055);
+    border: 1px solid rgba(37, 99, 235, .10);
+    transition: background .15s ease, border-color .15s ease;
+  }
+  .layer-row:hover {
+    background: rgba(37, 99, 235, .10);
+    border-color: rgba(37, 99, 235, .22);
+  }
+  .layer-no {
+    flex: 0 0 auto;
+    width: 22px; height: 22px; border-radius: 7px;
     display: flex; align-items: center; justify-content: center;
+    background: var(--blue-600); color: #fff;
+    font-size: 11.5px; font-weight: 700;
   }
-  .portal-donut svg { width: 100%; height: 100%; }
-  .portal-donut-mid {
-    position: absolute;
-    font-size: 23px; font-weight: 700; letter-spacing: -.02em;
-    color: var(--navy-900);
+  .layer-text { min-width: 0; }
+  .layer-text b {
+    display: block;
+    font-size: 12px; line-height: 1.3; color: var(--navy-900);
   }
-  .portal-donut-mid small { font-size: 12px; font-weight: 600; color: var(--text-dim); }
-
-  /* ---------- the activity list ---------- */
-  .portal-feed {
-    margin: 4px 0 0; padding: 0; list-style: none;
-    display: flex; flex-direction: column; gap: 9px;
+  .layer-kpis {
+    display: flex; flex-wrap: wrap; gap: 5px; margin-top: 5px;
   }
-  .portal-feed li {
-    display: flex; align-items: flex-start; gap: 8px;
-    font-size: 12px; line-height: 1.4; color: var(--text-dim);
+  .layer-kpi {
+    padding: 2px 6px; border-radius: 6px;
+    background: rgba(8, 26, 66, .06);
+    font-size: 10px; font-weight: 600; color: var(--text-dim);
   }
-  /*
-    One colour, because the list stopped being a status feed. Green, amber
-    and grey said "done, waiting, idle"; against a list of capabilities they
-    would be saying something about each one, and there is nothing for them
-    to say.
-  */
-  .portal-dot {
-    flex: 0 0 auto; width: 6px; height: 6px; margin-top: 5px;
-    border-radius: 50%; background: var(--blue-500);
+  /* The one measure that is not in the approved policy, marked as it is
+     everywhere else rather than sitting silently beside three that are. */
+  .layer-kpi.is-internal::after {
+    content: ' - internal'; color: var(--text-mut); font-weight: 500;
   }
-
 
   /* =========================================================
      THE EAS TEAM PAGE
@@ -1026,8 +1124,26 @@
      the way it does on Links - glass over the light surface is a grey box,
      and a fixed height would be a guess at how long the page will ever be.
   */
-  .portal[data-page="about"] .portal-sky,
+  /*
+    PARTNERS runs blue all the way down, because every card on it is glass
+    and glass over the light surface is a grey box.
+
+    ABOUT US BREAKS. The blue is a band behind the heading and the lede, and
+    the cards below it sit on white - which is why they are the one thing on
+    this page that is NOT glass. A card cannot be frosted over nothing; on
+    white the sheen washes out, the backdrop blur has nothing to blur, and
+    the white text inside it disappears into the surface. So the pillars are
+    solid cream with dark type, the same material the team cards use once a
+    section is open and the page under them has gone light.
+
+    The height lands between the lede and the first card. Fixed rather than
+    worked out because the head above it is a fixed shape - a pill, two lines
+    of heading, a paragraph - and the one thing that must not happen is the
+    break crossing the white heading, which would cut the words in half
+    against the white below.
+  */
   .portal[data-page="partners"] .portal-sky { height: 100%; border-radius: 0; }
+  .portal[data-page="about"] .portal-sky { height: 342px; }
 
   /* ---------- the shared head ---------- */
   .pcontent-head { padding: 26px 0 34px; }
@@ -1074,6 +1190,12 @@
     display: flex; flex-direction: column;
     padding: 20px 19px 18px;
     border-radius: 18px;
+    transition: transform .2s cubic-bezier(.3, 0, .2, 1),
+                background .2s ease, border-color .2s ease, box-shadow .2s ease;
+  }
+
+  /* PARTNERS - glass, on blue. */
+  .zone {
     border: 1px solid rgba(255, 255, 255, .20);
     background:
       linear-gradient(180deg, rgba(255, 255, 255, .17) 0%, rgba(255, 255, 255, .065) 100%);
@@ -1082,8 +1204,13 @@
     box-shadow:
       0 12px 34px rgba(2, 10, 32, .38),
       inset 0 1px 0 rgba(255, 255, 255, .30);
-    transition: transform .2s cubic-bezier(.3, 0, .2, 1),
-                background .2s ease, border-color .2s ease, box-shadow .2s ease;
+  }
+
+  /* ABOUT US - solid cream, on white. */
+  .pillar {
+    border: 1px solid var(--portal-card-edge);
+    background: var(--portal-card);
+    box-shadow: 0 10px 30px rgba(8, 26, 66, .12), 0 2px 6px rgba(8, 26, 66, .06);
   }
 
   /* The accent only shows as a bar along the top edge and as the hover
@@ -1094,13 +1221,24 @@
     background: linear-gradient(90deg, var(--accent), rgba(255, 255, 255, 0));
     opacity: .75; transition: opacity .2s ease;
   }
-  .pillar[data-accent="0"], .zone[data-accent="0"] { --accent: #4cc9f0; --glow: rgba(76, 201, 240, .42); }
-  .pillar[data-accent="1"], .zone[data-accent="1"] { --accent: #5b9cf8; --glow: rgba(91, 156, 248, .42); }
-  .pillar[data-accent="2"], .zone[data-accent="2"] { --accent: #9d7bef; --glow: rgba(157, 123, 239, .42); }
-  .pillar[data-accent="3"], .zone[data-accent="3"] { --accent: #7b86f0; --glow: rgba(123, 134, 240, .42); }
+  .zone[data-accent="0"] { --accent: #4cc9f0; --glow: rgba(76, 201, 240, .42); }
+  .zone[data-accent="1"] { --accent: #5b9cf8; --glow: rgba(91, 156, 248, .42); }
+  .zone[data-accent="2"] { --accent: #9d7bef; --glow: rgba(157, 123, 239, .42); }
+  .zone[data-accent="3"] { --accent: #7b86f0; --glow: rgba(123, 134, 240, .42); }
 
-  .pillar:hover, .zone:hover {
-    transform: translateY(-4px);
+  /*
+    A DARKER SET FOR THE PILLARS. The four above are picked to glow against
+    a deep blue; on cream the same values are barely a tint, and the line
+    they colour under each heading stops being readable. These are the same
+    three hues taken down to something that holds its own on a light card.
+  */
+  .pillar[data-accent="0"] { --accent: #0e8aa8; --glow: rgba(14, 138, 168, .20); }
+  .pillar[data-accent="1"] { --accent: #2563eb; --glow: rgba(37, 99, 235, .20); }
+  .pillar[data-accent="2"] { --accent: #7c3aed; --glow: rgba(124, 58, 237, .20); }
+  .pillar[data-accent="3"] { --accent: #4f46e5; --glow: rgba(79, 70, 229, .20); }
+
+  .pillar:hover, .zone:hover { transform: translateY(-4px); }
+  .zone:hover {
     border-color: rgba(255, 255, 255, .34);
     background:
       linear-gradient(180deg, rgba(255, 255, 255, .25) 0%, rgba(255, 255, 255, .11) 100%);
@@ -1108,6 +1246,15 @@
       0 22px 52px rgba(2, 10, 32, .46),
       0 0 30px var(--glow),
       inset 0 1px 0 rgba(255, 255, 255, .44);
+  }
+  /* On white the halo has to be the card's own colour at low strength. The
+     glass version's bright ring is lit by the dark behind it; put the same
+     ring on a white page and it reads as a smudge. */
+  .pillar:hover {
+    border-color: var(--accent);
+    box-shadow: 0 20px 46px rgba(8, 26, 66, .17),
+                0 0 0 1px var(--accent),
+                0 6px 22px var(--glow);
   }
   .pillar:hover::before, .zone:hover::before { opacity: 1; }
 
@@ -1121,15 +1268,16 @@
     gap: 10px;
   }
   .pillar-word {
-    font-size: 23px; font-weight: 700; letter-spacing: -.02em; color: #fff;
+    font-size: 23px; font-weight: 700; letter-spacing: -.02em;
+    color: var(--navy-900);
   }
   /* How many responsibilities sit under this word. Counted by the page. */
   .pillar-count {
     flex: 0 0 auto;
     padding: 3px 9px; border-radius: 999px;
-    background: rgba(255, 255, 255, .13);
-    border: 1px solid rgba(255, 255, 255, .18);
-    font-size: 11px; font-weight: 600; color: rgba(255, 255, 255, .80);
+    background: rgba(8, 26, 66, .06);
+    border: 1px solid rgba(8, 26, 66, .08);
+    font-size: 11px; font-weight: 600; color: var(--text-dim);
   }
   .pillar-line {
     margin: 7px 0 15px; font-size: 12.5px; line-height: 1.5;
@@ -1147,26 +1295,28 @@
   */
   .pillar-list li {
     padding-top: 10px;
-    border-top: 1px solid rgba(255, 255, 255, .13);
+    border-top: 1px solid var(--portal-card-rule);
     font-size: 12.5px; line-height: 1.55;
-    color: rgba(255, 255, 255, .86);
+    color: var(--text-dim);
   }
   .pillar-list li:first-child { padding-top: 0; border-top: 0; }
 
   /* ---------- About us: the closing line ---------- */
+  /* Also on white now, so it is a card rather than a pane of glass. */
   .pcontent-band {
     margin-top: 26px;
     display: flex; align-items: center; justify-content: center;
     flex-wrap: wrap; gap: 12px;
     padding: 20px 24px; border-radius: 18px;
-    border: 1px solid rgba(255, 255, 255, .18);
-    background: rgba(255, 255, 255, .08);
-    -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px);
-    font-size: 21px; font-weight: 700; letter-spacing: -.02em; color: #fff;
+    border: 1px solid var(--portal-card-edge);
+    background: var(--portal-card);
+    box-shadow: 0 10px 30px rgba(8, 26, 66, .10);
+    font-size: 21px; font-weight: 700; letter-spacing: -.02em;
+    color: var(--navy-900);
   }
   .pcontent-band b { font-weight: 700; }
-  .pcontent-band-lead { color: rgba(255, 255, 255, .72); font-weight: 600; }
-  .pcontent-eq, .pcontent-plus { color: #4cc9f0; font-weight: 400; margin: 0 2px; }
+  .pcontent-band-lead { color: var(--text-dim); font-weight: 600; }
+  .pcontent-eq, .pcontent-plus { color: var(--blue-500); font-weight: 400; margin: 0 2px; }
 
   /* ---------- Partners: who is serving them ---------- */
   .vendor-strip {
@@ -1269,7 +1419,18 @@
   }
 
   @media (max-width: 1080px) {
+    /*
+      The collage collapses to two columns, and every card goes back to
+      taking one row of its own - the explicit grid-row spans above are what
+      makes the stagger, and keeping them here would leave holes rather than
+      a layout. The offsets go with them for the same reason.
+    */
     .portal-tiles { grid-template-columns: repeat(2, 1fr); }
+    .ptile-compare, .ptile-itsm, .ptile-faq, .ptile-kpi2, .ptile-layers {
+      grid-column: auto; grid-row: auto; margin-top: 0;
+    }
+    .ptile-compare { grid-column: 1 / -1; }
+    .ptile-chart.is-tall { height: 170px; }
     .portal-hero-title { font-size: 46px; }
     /*
       Tuned so the FIRST row of cards straddles the bottom edge of the sky,
@@ -1278,7 +1439,7 @@
       entirely outside, which reads as two unrelated groups rather than one
       set of cards coming off a hero.
     */
-    .portal[data-page="home"] .portal-sky { height: 560px; }
+    .portal[data-page="home"] .portal-sky { height: 647px; }
 
     /*
       Three glass cards side by side stop working well before the window
@@ -1291,6 +1452,9 @@
     .zone-grid > :last-child:nth-child(odd) { grid-column: 1 / -1; }
     .pcontent-title { font-size: 38px; }
     .pcontent-headline { grid-template-columns: minmax(0, 1fr); align-items: start; }
+    /* The lede drops below the heading here instead of sitting beside it, so
+       the band has further to reach before the first card. */
+    .portal[data-page="about"] .portal-sky { height: 400px; }
   }
 
   @media (max-width: 760px) {
@@ -1298,6 +1462,7 @@
     .pcontent-head { padding: 18px 0 24px; }
     .pcontent-title { font-size: 29px; }
     .pcontent-band { font-size: 17px; gap: 8px; padding: 16px 18px; }
+    .portal[data-page="about"] .portal-sky { height: 441px; }
     .zone-code { font-size: 21px; }
     .portal-top { padding: 10px 14px 12px; }
     .portal-brand-text span { display: none; }
@@ -1305,9 +1470,11 @@
     .portal-hero { padding: 22px 0 6px; }
     .portal-hero-title { font-size: 34px; max-width: none; }
     .portal-hero-sub { font-size: 14.5px; }
-    .portal-tiles { grid-template-columns: 1fr; }
+    .portal-tiles { grid-template-columns: 1fr; margin-top: 44px; }
+    .ptile-compare { grid-column: auto; }
+    .ptile-chart.is-tall { height: 140px; }
     .portal-page-title { font-size: 25px; }
-    .portal[data-page="home"] .portal-sky { height: 470px; }
+    .portal[data-page="home"] .portal-sky { height: 578px; }
     .portal-foot { height: auto; padding: 12px 16px; }
     .portal-foot-dim { display: none; }
   }
