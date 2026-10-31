@@ -524,6 +524,42 @@ asciiScan.forEach(function (where) {
 check('every source file and every suite is plain ASCII',
   bad.length === 0, bad.join('; ') || 'all clean');
 
+// ---------------------------------------------------------------------------
+// nobody's real mobile number is in the repository
+// ---------------------------------------------------------------------------
+// THIS IS NOT HYPOTHETICAL. tests/team-test.js was committed to a PUBLIC
+// repository carrying eight colleagues' real mobile numbers, real employee
+// IDs and real office extensions, pasted out of the spreadsheet to make the
+// fixture realistic. The email addresses in that same fixture had been
+// changed to @x.test, which is what made it look handled.
+//
+// The whole reason the directory is read from a TEAM tab instead of being
+// written into Config.gs is to keep exactly this data out of the repository.
+// A fixture is not an exception to that; it is just a less obvious copy.
+//
+// The rule is a convention rather than a cleverness: every Bangladeshi
+// mobile number anywhere in this project must be in the reserved test block
+// 0170000xxxx. A real one cannot be, so a real one fails here. Fixtures need
+// the SHAPE of a phone number - present, absent, eleven digits - and never
+// the value.
+const PHONE_OK = /^0170000\d{4}$/;
+const phoneScan = [[SRC, /\.(gs|html)$/], [__dirname, /-test\.js$/],
+                   [path.join(__dirname, 'harness'), /\.js$/]];
+const leaked = [];
+phoneScan.forEach(function (where) {
+  if (!fs.existsSync(where[0])) return;
+  fs.readdirSync(where[0]).filter((f) => where[1].test(f)).forEach(function (f) {
+    const text = fs.readFileSync(path.join(where[0], f), 'utf8');
+    (text.match(/\b01[3-9]\d{8}\b/g) || []).forEach(function (n) {
+      if (!PHONE_OK.test(n)) leaked.push(f + ': ' + n.slice(0, 5) + 'xxxxxx');
+    });
+  });
+});
+check('no real mobile number is written into the source or the fixtures',
+  leaked.length === 0,
+  leaked.length ? leaked.filter((v, i, a) => a.indexOf(v) === i).join('; ')
+                : 'every number is in the reserved 0170000xxxx test block');
+
 const failed = out.filter((r) => !r).length;
 console.log('\n' + (out.length - failed) + '/' + out.length + ' passed');
 process.exit(failed ? 1 : 0);

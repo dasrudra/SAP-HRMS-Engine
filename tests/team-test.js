@@ -47,24 +47,24 @@ const HEADERS = ['SL#', 'Employee Name', 'Employee ID', 'Designation', 'Module',
                  'Head', 'Photo', 'Note'];
 
 const ROWS = [
-  [1, 'Utpal Biswas', 20217473, 'Senior Manager', 'MM', 'EAS', 'ALL', 'A+', '',
-   'TVL HQ', '2428/1929', '01556778917', 'utpal@x.test', 'Supply Chain Applications', '', ''],
-  [2, 'Abul Bashar', 20528351, 'Manager', 'FI/CO', 'EAS', 'Financial Applications', '', '',
-   'YHT', '385', '01817291682', 'bashar@x.test', '', '', ''],
-  [3, 'Sadril Ali', 20518622, 'Assistant Officer', 'FI', 'EAS', 'Financial Applications', '', '',
-   'TVL HQ', '1935', '01814243746', 'sadril@x.test', '', '', ''],
-  [4, 'Md. Abul Masum Siddique', 20217450, 'Manager', 'SD', 'EAS',
-   'Sales and Customer Applications', 'B+', '', 'YCL', '2438/1938', '01819617888',
+  [1, 'Utpal Biswas', 20990001, 'Senior Manager', 'MM', 'EAS', 'ALL', 'A+', '',
+   'TVL HQ', '9001/9011', '01700000001', 'utpal@x.test', 'Supply Chain Applications', '', ''],
+  [2, 'Abul Bashar', 20990002, 'Manager', 'FI/CO', 'EAS', 'Financial Applications', '', '',
+   'YHT', '9002', '01700000002', 'bashar@x.test', '', '', ''],
+  [3, 'Sadril Ali', 20990003, 'Assistant Officer', 'FI', 'EAS', 'Financial Applications', '', '',
+   'TVL HQ', '9003', '01700000003', 'sadril@x.test', '', '', ''],
+  [4, 'Md. Abul Masum Siddique', 20990004, 'Manager', 'SD', 'EAS',
+   'Sales and Customer Applications', 'B+', '', 'YCL', '9004/9014', '01700000004',
    'masum@x.test', 'yes', '', ''],
-  [5, 'Lincoln Barua', 20225760, 'Deputy Manager', 'SD', 'EAS',
-   'Sales and Customer Applications', 'A+', '', 'YCL', '2560', '01816823461',
+  [5, 'Lincoln Barua', 20990005, 'Deputy Manager', 'SD', 'EAS',
+   'Sales and Customer Applications', 'A+', '', 'YCL', '9005', '01700000005',
    'lincoln@x.test', '', '', ''],
-  [6, 'Pradip Kumar Nath', 20217474, 'Manager', 'PP', 'EAS', 'Manufacturing Applications',
-   'B+', '', 'TVL HQ', '1930', '01521401571', 'pradip@x.test', 'Yes', '', ''],
-  [7, 'Rudra Das', 20536723, 'Assistant Engineer', 'PP', 'EAS', 'Manufacturing Applications',
-   'B+', '', 'TVL HQ', '1944', '01796726405', 'rudra@x.test', '', '', ''],
-  [8, 'Sudip Paul', 20316988, 'Assistant Manager', 'MD', 'EAS', 'Supply Chain Applications',
-   'O+', '', 'YCL', '2746', '01715423402', 'sudip@x.test', '', '', ''],
+  [6, 'Pradip Kumar Nath', 20990006, 'Manager', 'PP', 'EAS', 'Manufacturing Applications',
+   'B+', '', 'TVL HQ', '9006', '01700000006', 'pradip@x.test', 'Yes', '', ''],
+  [7, 'Rudra Das', 20990007, 'Assistant Engineer', 'PP', 'EAS', 'Manufacturing Applications',
+   'B+', '', 'TVL HQ', '9007', '01700000007', 'rudra@x.test', '', '', ''],
+  [8, 'Sudip Paul', 20990008, 'Assistant Manager', 'MD', 'EAS', 'Supply Chain Applications',
+   'O+', '', 'YCL', '9008', '01700000008', 'sudip@x.test', '', '', ''],
   [9, 'Nobody In Roster', 20999999, 'Officer', 'MM', 'EAS', 'Supply Chain Applications',
    '', '', 'YCL', '', '01700000000', 'nobody@x.test', '', '', '']
 ];
@@ -220,10 +220,10 @@ check('a head who sits in their section is not repeated in its members either',
 // the contact details, read off the columns by meaning
 // ---------------------------------------------------------------------------
 check('an employee ID arrives as a string without a trailing .0',
-  team.lead.id === '20217473', team.lead.id);
+  team.lead.id === '20990001', team.lead.id);
 
 check('and the mobile, extension and address come off the right columns',
-  team.lead.phone === '01556778917' && team.lead.ext === '2428/1929' &&
+  team.lead.phone === '01700000001' && team.lead.ext === '9001/9011' &&
   team.lead.email === 'utpal@x.test',
   team.lead.ext + ' / ' + team.lead.phone);
 

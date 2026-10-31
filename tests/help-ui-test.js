@@ -155,7 +155,7 @@ const FILE = 'file://' + PAGE;
     'a label on every card is furniture; only the unverified one earns one');
 
   check('a conversation is headed by the name, with the ID in brackets',
-    /Rudra \(20536723\)/.test(cards.map((c) => c.text).join(' ')) &&
+    /Rudra \(20990012\)/.test(cards.map((c) => c.text).join(' ')) &&
     /Ayesha Rahman \(20000042\)/.test(cards.map((c) => c.text).join(' ')),
     'the name is what to call somebody; the ID is the half that means anything');
 
@@ -219,7 +219,7 @@ const FILE = 'file://' + PAGE;
     inboxBylines.some((t) => /Rudra Das \(20000000\)/.test(t)),
     'so the next admin can see it is already in hand');
   check('and an older one still names the colleague who answered it',
-    inboxBylines.some((t) => /Pritam Saha \(20467174\)/.test(t)),
+    inboxBylines.some((t) => /Pritam Saha \(20990014\)/.test(t)),
     'the name is stamped when the reply is written, not looked up later');
 
   // -------------------------------------------------------------------------
@@ -241,7 +241,7 @@ const FILE = 'file://' + PAGE;
     'there is nothing to undo it with');
   const asked = await p.$eval('#modal', (el) => el.textContent);
   check('and names who the conversation is with',
-    /Rudra \(20536723\)/.test(asked), 'so you can see what you are about to lose');
+    /Rudra \(20990012\)/.test(asked), 'so you can see what you are about to lose');
   check('and says it goes from their panel too',
     /cannot be brought back/.test(asked) && /their message panel/.test(asked),
     'deleting it takes away what they were told, not just your copy');
@@ -382,7 +382,7 @@ const FILE = 'file://' + PAGE;
   const panelReply = await p.$eval('#msgrThread .bubble-theirs time',
                                    (el) => el.textContent);
   check('and the person who asked sees who answered them, in their own panel',
-    /Pritam Saha \(20467174\)/.test(panelReply), panelReply.trim());
+    /Pritam Saha \(20990014\)/.test(panelReply), panelReply.trim());
 
   // WHICH SIDE IS MINE DEPENDS ON WHO IS LOOKING. The same two messages are on
   // both screens and have to sit on OPPOSITE sides of each. One renderer
@@ -549,7 +549,7 @@ const FILE = 'file://' + PAGE;
     /employee ID/.test(await p.$eval('#msgrNote', (el) => el.textContent)),
     await p.$eval('#msgrNote', (el) => el.textContent.slice(0, 50)));
 
-  await p.fill('#msgrId', '20536723');
+  await p.fill('#msgrId', '20990012');
   await p.click('#msgrSend');
   await p.waitForTimeout(600);
   const note = await p.$eval('#msgrNote', (el) => el.textContent);
@@ -624,7 +624,7 @@ const FILE = 'file://' + PAGE;
     await p.$eval('#msgrIdWrap', (el) => !el.hidden),
     'nobody is signed in yet, so it asks who this is');
 
-  await p.fill('#loginUser', '20536723');
+  await p.fill('#loginUser', '20990012');
   await p.fill('#loginPass', 'whatever');
   await p.click('#loginGo');
   await p.waitForTimeout(2500);
