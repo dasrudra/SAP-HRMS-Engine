@@ -1219,25 +1219,20 @@
      and a fixed height would be a guess at how long the page will ever be.
   */
   /*
-    PARTNERS runs blue all the way down, because every card on it is glass
-    and glass over the light surface is a grey box.
+    BOTH OF THESE RUN BLUE ALL THE WAY DOWN, because every card on them is
+    glass and glass over the light surface is a grey box.
 
-    ABOUT US BREAKS. The blue is a band behind the heading and the lede, and
-    the cards below it sit on white - which is why they are the one thing on
-    this page that is NOT glass. A card cannot be frosted over nothing; on
-    white the sheen washes out, the backdrop blur has nothing to blur, and
-    the white text inside it disappears into the surface. So the pillars are
-    solid cream with dark type, the same material the team cards use once a
-    section is open and the page under them has gone light.
-
-    The height lands between the lede and the first card. Fixed rather than
-    worked out because the head above it is a fixed shape - a pill, two lines
-    of heading, a paragraph - and the one thing that must not happen is the
-    break crossing the white heading, which would cut the words in half
-    against the white below.
+    About us was tried the other way - a band behind the heading and white
+    below - and put back. It is noted here because the reasoning for the
+    break was sound and somebody will have it again: on white the pillars
+    cannot be glass, so they become solid cream with dark type, and at that
+    point the two content pages are built from two different materials and
+    stop looking like one site. A fixed height would also be a guess at how
+    long the page will ever be, and the first card past the edge is the one
+    that looks broken.
   */
+  .portal[data-page="about"] .portal-sky,
   .portal[data-page="partners"] .portal-sky { height: 100%; border-radius: 0; }
-  .portal[data-page="about"] .portal-sky { height: 342px; }
 
   /* ---------- the shared head ---------- */
   .pcontent-head { padding: 26px 0 34px; }
@@ -1284,12 +1279,6 @@
     display: flex; flex-direction: column;
     padding: 20px 19px 18px;
     border-radius: 18px;
-    transition: transform .2s cubic-bezier(.3, 0, .2, 1),
-                background .2s ease, border-color .2s ease, box-shadow .2s ease;
-  }
-
-  /* PARTNERS - glass, on blue. */
-  .zone {
     border: 1px solid rgba(255, 255, 255, .20);
     background:
       linear-gradient(180deg, rgba(255, 255, 255, .17) 0%, rgba(255, 255, 255, .065) 100%);
@@ -1298,13 +1287,8 @@
     box-shadow:
       0 12px 34px rgba(2, 10, 32, .38),
       inset 0 1px 0 rgba(255, 255, 255, .30);
-  }
-
-  /* ABOUT US - solid cream, on white. */
-  .pillar {
-    border: 1px solid var(--portal-card-edge);
-    background: var(--portal-card);
-    box-shadow: 0 10px 30px rgba(8, 26, 66, .12), 0 2px 6px rgba(8, 26, 66, .06);
+    transition: transform .2s cubic-bezier(.3, 0, .2, 1),
+                background .2s ease, border-color .2s ease, box-shadow .2s ease;
   }
 
   /* The accent only shows as a bar along the top edge and as the hover
@@ -1315,24 +1299,13 @@
     background: linear-gradient(90deg, var(--accent), rgba(255, 255, 255, 0));
     opacity: .75; transition: opacity .2s ease;
   }
-  .zone[data-accent="0"] { --accent: #4cc9f0; --glow: rgba(76, 201, 240, .42); }
-  .zone[data-accent="1"] { --accent: #5b9cf8; --glow: rgba(91, 156, 248, .42); }
-  .zone[data-accent="2"] { --accent: #9d7bef; --glow: rgba(157, 123, 239, .42); }
-  .zone[data-accent="3"] { --accent: #7b86f0; --glow: rgba(123, 134, 240, .42); }
+  .pillar[data-accent="0"], .zone[data-accent="0"] { --accent: #4cc9f0; --glow: rgba(76, 201, 240, .42); }
+  .pillar[data-accent="1"], .zone[data-accent="1"] { --accent: #5b9cf8; --glow: rgba(91, 156, 248, .42); }
+  .pillar[data-accent="2"], .zone[data-accent="2"] { --accent: #9d7bef; --glow: rgba(157, 123, 239, .42); }
+  .pillar[data-accent="3"], .zone[data-accent="3"] { --accent: #7b86f0; --glow: rgba(123, 134, 240, .42); }
 
-  /*
-    A DARKER SET FOR THE PILLARS. The four above are picked to glow against
-    a deep blue; on cream the same values are barely a tint, and the line
-    they colour under each heading stops being readable. These are the same
-    three hues taken down to something that holds its own on a light card.
-  */
-  .pillar[data-accent="0"] { --accent: #0e8aa8; --glow: rgba(14, 138, 168, .20); }
-  .pillar[data-accent="1"] { --accent: #2563eb; --glow: rgba(37, 99, 235, .20); }
-  .pillar[data-accent="2"] { --accent: #7c3aed; --glow: rgba(124, 58, 237, .20); }
-  .pillar[data-accent="3"] { --accent: #4f46e5; --glow: rgba(79, 70, 229, .20); }
-
-  .pillar:hover, .zone:hover { transform: translateY(-4px); }
-  .zone:hover {
+  .pillar:hover, .zone:hover {
+    transform: translateY(-4px);
     border-color: rgba(255, 255, 255, .34);
     background:
       linear-gradient(180deg, rgba(255, 255, 255, .25) 0%, rgba(255, 255, 255, .11) 100%);
@@ -1340,15 +1313,6 @@
       0 22px 52px rgba(2, 10, 32, .46),
       0 0 30px var(--glow),
       inset 0 1px 0 rgba(255, 255, 255, .44);
-  }
-  /* On white the halo has to be the card's own colour at low strength. The
-     glass version's bright ring is lit by the dark behind it; put the same
-     ring on a white page and it reads as a smudge. */
-  .pillar:hover {
-    border-color: var(--accent);
-    box-shadow: 0 20px 46px rgba(8, 26, 66, .17),
-                0 0 0 1px var(--accent),
-                0 6px 22px var(--glow);
   }
   .pillar:hover::before, .zone:hover::before { opacity: 1; }
 
@@ -1362,16 +1326,15 @@
     gap: 10px;
   }
   .pillar-word {
-    font-size: 23px; font-weight: 700; letter-spacing: -.02em;
-    color: var(--navy-900);
+    font-size: 23px; font-weight: 700; letter-spacing: -.02em; color: #fff;
   }
   /* How many responsibilities sit under this word. Counted by the page. */
   .pillar-count {
     flex: 0 0 auto;
     padding: 3px 9px; border-radius: 999px;
-    background: rgba(8, 26, 66, .06);
-    border: 1px solid rgba(8, 26, 66, .08);
-    font-size: 11px; font-weight: 600; color: var(--text-dim);
+    background: rgba(255, 255, 255, .13);
+    border: 1px solid rgba(255, 255, 255, .18);
+    font-size: 11px; font-weight: 600; color: rgba(255, 255, 255, .80);
   }
   .pillar-line {
     margin: 7px 0 15px; font-size: 12.5px; line-height: 1.5;
@@ -1389,28 +1352,26 @@
   */
   .pillar-list li {
     padding-top: 10px;
-    border-top: 1px solid var(--portal-card-rule);
+    border-top: 1px solid rgba(255, 255, 255, .13);
     font-size: 12.5px; line-height: 1.55;
-    color: var(--text-dim);
+    color: rgba(255, 255, 255, .86);
   }
   .pillar-list li:first-child { padding-top: 0; border-top: 0; }
 
   /* ---------- About us: the closing line ---------- */
-  /* Also on white now, so it is a card rather than a pane of glass. */
   .pcontent-band {
     margin-top: 26px;
     display: flex; align-items: center; justify-content: center;
     flex-wrap: wrap; gap: 12px;
     padding: 20px 24px; border-radius: 18px;
-    border: 1px solid var(--portal-card-edge);
-    background: var(--portal-card);
-    box-shadow: 0 10px 30px rgba(8, 26, 66, .10);
-    font-size: 21px; font-weight: 700; letter-spacing: -.02em;
-    color: var(--navy-900);
+    border: 1px solid rgba(255, 255, 255, .18);
+    background: rgba(255, 255, 255, .08);
+    -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px);
+    font-size: 21px; font-weight: 700; letter-spacing: -.02em; color: #fff;
   }
   .pcontent-band b { font-weight: 700; }
-  .pcontent-band-lead { color: var(--text-dim); font-weight: 600; }
-  .pcontent-eq, .pcontent-plus { color: var(--blue-500); font-weight: 400; margin: 0 2px; }
+  .pcontent-band-lead { color: rgba(255, 255, 255, .72); font-weight: 600; }
+  .pcontent-eq, .pcontent-plus { color: #4cc9f0; font-weight: 400; margin: 0 2px; }
 
   /* ---------- Partners: who is serving them ---------- */
   .vendor-strip {
@@ -1546,9 +1507,6 @@
     .zone-grid > :last-child:nth-child(odd) { grid-column: 1 / -1; }
     .pcontent-title { font-size: 38px; }
     .pcontent-headline { grid-template-columns: minmax(0, 1fr); align-items: start; }
-    /* The lede drops below the heading here instead of sitting beside it, so
-       the band has further to reach before the first card. */
-    .portal[data-page="about"] .portal-sky { height: 400px; }
   }
 
   @media (max-width: 760px) {
@@ -1556,7 +1514,6 @@
     .pcontent-head { padding: 18px 0 24px; }
     .pcontent-title { font-size: 29px; }
     .pcontent-band { font-size: 17px; gap: 8px; padding: 16px 18px; }
-    .portal[data-page="about"] .portal-sky { height: 441px; }
     .zone-code { font-size: 21px; }
     .portal-top { padding: 10px 14px 12px; }
     .portal-brand-text span { display: none; }

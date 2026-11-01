@@ -389,68 +389,40 @@ const FILE = 'file://' + PAGE;
     strip);
 
   // =========================================================================
-  // where the blue stops
+  // both pages are blue all the way down
   // =========================================================================
-  // The two pages answer this differently and both answers are load-bearing.
+  // Every card on either page is glass, and glass over the light surface is
+  // a grey box with white text in it - which is to say an empty one. So the
+  // sky has to reach the bottom of whatever the page turns out to be.
   //
-  // PARTNERS is glass all the way down, so the blue has to be too - a
-  // frosted card over the light surface is a grey box.
-  await p.click('.portal-tab[data-view="partners"]');
-  await p.waitForTimeout(600);
-  check('the partners page has blue behind every card on it',
-    (await p.evaluate(() => {
+  // About us WAS tried the other way, with the blue stopping below the
+  // heading and the cards sitting on white. It came back, and the reason is
+  // worth keeping: on white those cards cannot be glass, so they become
+  // solid cream with dark type, and at that point the two content pages are
+  // made of two different materials and stop looking like one site.
+  for (const view of ['about', 'partners']) {
+    await p.click('.portal-tab[data-view="' + view + '"]');
+    await p.waitForTimeout(550);
+    const covered = await p.evaluate(() => {
       const sky = document.querySelector('.portal-sky');
       return sky.getBoundingClientRect().height >=
              document.getElementById('portalRoot').scrollHeight - 2;
-    })) === true,
-    'its cards are glass, and glass over white goes grey');
-
-  // ABOUT US BREAKS, and the break has a window of about thirty pixels to
-  // land in. Too high and it crosses the heading - which is white text, so
-  // the bottom half of "the EAS Team" would vanish into the white below.
-  // Too low and the cream cards start on blue. Neither throws, neither is
-  // caught by any other assertion, and both are immediately visible to
-  // anybody who opens the page.
-  //
-  // Checked at three widths because the head is a different height at each:
-  // the lede sits beside the heading on a desktop and below it from 1080px
-  // down, which moves the first card by most of a paragraph.
-  for (const width of [1480, 1000, 420]) {
-    const q = await b.newPage({ viewport: { width: width, height: 1000 } });
-    q.on('pageerror', (e) => errors.push(String(e)));
-    await q.goto(FILE);
-    await q.waitForTimeout(1700);
-    await q.click('.portal-tab[data-view="about"]');
-    await q.waitForTimeout(600);
-
-    const m = await q.evaluate(() => {
-      const r = (s) => document.querySelector(s).getBoundingClientRect();
-      return {
-        sky: r('.portal-sky').bottom,
-        head: r('#aboutBody .pcontent-headline').bottom,
-        card: r('#aboutBody .pillar').top
-      };
     });
-
-    check('at ' + width + 'px the blue ends below the heading and above the cards',
-      m.sky > m.head && m.sky < m.card,
-      'heading ends ' + m.head.toFixed(0) + ', blue ends ' + m.sky.toFixed(0) +
-        ', cards start ' + m.card.toFixed(0));
-    await q.close();
+    check('the ' + view + ' page has blue behind every card on it',
+      covered === true,
+      'otherwise the glass cards past the fold sit on white and go grey');
   }
 
-  // And the cards on it are solid, not glass - because they are on white
-  // now. A frosted card there is a grey rectangle with white text in it,
-  // which is to say an empty one.
+  // And both are actually glass - the thing the blue is there for.
   await p.click('.portal-tab[data-view="about"]');
-  await p.waitForTimeout(600);
-  const pillarSkin = await p.$eval('#aboutBody .pillar', (n) => {
-    const s = getComputedStyle(n);
-    return { filter: s.backdropFilter || s.webkitBackdropFilter, colour: s.color };
+  await p.waitForTimeout(500);
+  const frosted = await p.$eval('#aboutBody .pillar', (n) => {
+    const st = getComputedStyle(n);
+    return (st.backdropFilter || st.webkitBackdropFilter || 'none');
   });
-  check('the About cards are solid rather than frosted',
-    (pillarSkin.filter === 'none' || !pillarSkin.filter),
-    'backdrop-filter is ' + pillarSkin.filter);
+  check('and the About cards are frosted, not solid',
+    frosted !== 'none' && frosted.indexOf('blur') !== -1,
+    'backdrop-filter is ' + frosted);
 
   check('no JS errors across the whole run', errors.length === 0, errors.slice(0, 3).join(' | '));
 
