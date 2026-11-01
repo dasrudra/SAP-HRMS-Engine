@@ -463,7 +463,15 @@
     display: grid;
     grid-template-columns: 1.45fr 1.05fr 1fr 1.05fr;
     gap: 16px;
-    align-items: start;
+    /*
+      STRETCH, AND NO OFFSETS. The cards were staggered - each column
+      starting a little lower than the last - which is what the reference
+      design does and which looked like a layout that had slipped. Every
+      column now starts on the same line and ends on the same line: the
+      three that span both rows are pulled to the full height, and the
+      middle column reaches it by stacking two.
+    */
+    align-items: stretch;
     /* Lower than it was. The hero needs room to finish before the cards
        start, or the two read as one block. */
     margin-top: 88px;
@@ -472,8 +480,8 @@
   .ptile-compare { grid-column: 1; grid-row: 1 / span 2; }
   .ptile-itsm    { grid-column: 2; grid-row: 1; }
   .ptile-faq     { grid-column: 2; grid-row: 2; }
-  .ptile-kpi2    { grid-column: 3; grid-row: 1 / span 2; margin-top: 26px; }
-  .ptile-layers  { grid-column: 4; grid-row: 1 / span 2; margin-top: 12px; }
+  .ptile-kpi2    { grid-column: 3; grid-row: 1 / span 2; }
+  .ptile-layers  { grid-column: 4; grid-row: 1 / span 2; }
 
   .ptile {
     display: flex; flex-direction: column;
@@ -535,7 +543,7 @@
     margin: 12px 0 2px;
     font-size: 11px; color: var(--text-dim);
   }
-  .ptile-legend.is-stack { flex-direction: column; gap: 6px; margin-top: auto; }
+  .ptile-legend.is-stack { flex-direction: column; gap: 6px; margin: 14px 0 auto; }
   .ptile-key { display: inline-flex; align-items: center; gap: 6px; }
   .ptile-dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
   .ptile-dot.is-now  { background: var(--blue-600); }
@@ -548,11 +556,33 @@
     the data inwards instead would leave the area fill short of the edge,
     which looks like missing data rather than like a margin.
   */
+  /*
+    SIZED BY RATIO, NOT BY HEIGHT. An SVG with a viewBox keeps its own
+    proportions: give it a box taller than those and it draws at the width
+    and centres, leaving the rest blank. The comparison card had 159 empty
+    pixels down the middle of it that way, and raising the CSS height only
+    made the gap bigger. Each ratio below matches its viewBox, so the box is
+    exactly the drawing.
+
+    auto on the top margin: when the card is stretched taller than its
+    contents - which it is, because all four columns end on one line - the
+    slack falls between the figure and the chart rather than under the axis,
+    where it would read as the card having been left unfinished.
+  */
   .ptile-chart {
-    display: block; width: 100%; height: 72px; margin: 10px 0 6px;
+    display: block; width: 100%; height: auto;
+    aspect-ratio: 220 / 56;
+    margin: auto 0 6px;
     overflow: visible;
   }
-  .ptile-chart.is-tall { height: 150px; margin-top: 6px; }
+  .ptile-chart.is-tall { aspect-ratio: 300 / 230; margin: 0 0 6px; }
+
+  /*
+    The chart and its month labels, as one block, centred in whatever height
+    is left over. Banking the slack above the chart instead left a visible
+    hole between the legend and the plot; split in two it reads as margin.
+  */
+  .ptile-plot { margin: auto 0; }
 
   .ptile-axis {
     display: flex; justify-content: space-between;
@@ -570,29 +600,81 @@
   }
   .ptile-foot b { color: var(--navy-700); }
 
-  /* ---------- the Help and FAQ card ---------- */
-  .faq-mini {
-    margin: 0; padding: 0; list-style: none;
-    display: flex; flex-direction: column; gap: 8px;
+  /* ---------- the Help and FAQ card: a portrait of the panel ---------- */
+  /*
+    Built to look like the Messages panel rather than to be it - the real one
+    is a bubble in the corner of every page. So it carries the panel's own
+    furniture: the navy bar with the avatar and the collapse chevron, the
+    COMMON QUESTIONS line, and threads showing who last spoke and when.
+
+    It fills whatever height the card has left, because this card shares a
+    column with the ITSM chart above it and the two together have to match
+    the cards either side.
+  */
+  .msgr-demo {
+    flex: 1;
+    display: flex; flex-direction: column;
+    border-radius: 11px; overflow: hidden;
+    border: 1px solid rgba(8, 26, 66, .10);
+    box-shadow: 0 4px 14px rgba(8, 26, 66, .08);
+    background: #fff;
   }
-  .faq-mini li {
-    display: flex; align-items: center; justify-content: space-between; gap: 10px;
-    padding: 10px 11px; border-radius: 10px;
-    background: rgba(37, 99, 235, .055);
-    border: 1px solid rgba(37, 99, 235, .10);
-    font-size: 12px; line-height: 1.35; color: var(--navy-700);
-    transition: background .15s ease, border-color .15s ease;
+
+  .msgr-demo-bar {
+    flex: 0 0 auto;
+    display: flex; align-items: center; gap: 8px;
+    padding: 7px 10px;
+    background: var(--navy-800, #13306b); color: #fff;
   }
-  .faq-mini li:hover {
-    background: rgba(37, 99, 235, .10);
-    border-color: rgba(37, 99, 235, .22);
+  .msgr-demo-face {
+    flex: 0 0 auto;
+    width: 19px; height: 19px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(255, 255, 255, .20); color: rgba(255, 255, 255, .92);
   }
-  .faq-mini svg { flex: 0 0 auto; color: var(--blue-500); }
+  .msgr-demo-title { flex: 1; font-size: 11.5px; font-weight: 700; }
+
+  .msgr-demo-body {
+    flex: 1;
+    display: flex; flex-direction: column; gap: 6px;
+    padding: 8px 10px 9px;
+  }
+  .msgr-demo-eyebrow {
+    display: flex; align-items: center; gap: 4px;
+    font-size: 9.5px; font-weight: 700; letter-spacing: .09em;
+    text-transform: uppercase; color: var(--text-mut);
+  }
+
+  .msgr-demo-row {
+    padding-top: 6px;
+    border-top: 1px solid rgba(8, 26, 66, .07);
+  }
+  .msgr-demo-row:first-of-type { border-top: 0; padding-top: 0; }
+  .msgr-demo-top {
+    display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
+  }
+  .msgr-demo-top b { font-size: 11.5px; color: var(--navy-900); }
+  .msgr-demo-when {
+    flex: 0 0 auto; font-size: 9.5px; color: var(--text-mut);
+  }
+  .msgr-demo-row p {
+    margin: 2px 0 0;
+    font-size: 10.5px; line-height: 1.4; color: var(--text-mut);
+    /* One line, cut with an ellipsis, exactly as the real list does it. */
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .msgr-demo-row p i { font-style: normal; font-weight: 600; color: var(--blue-600); }
 
   /* ---------- the KPI 2 ring ---------- */
+  /*
+    auto on the top here and auto on the legend's bottom: between them the
+    ring and its key are pushed to the middle as one block. The ring alone
+    had auto on all sides and the legend had auto on top, so the two fought
+    and settled with the ring high and the key on the floor.
+  */
   .ring-wrap {
-    margin: auto; padding: 6px 0;
-    width: 100%; max-width: 150px;
+    margin: auto auto 0; padding: 6px 0;
+    width: 100%; max-width: 224px;
   }
   .ring { display: block; width: 100%; height: auto; }
   .ring-value {
@@ -602,7 +684,12 @@
   .ring-note { font-size: 11px; fill: #7d8da4; }
 
   /* ---------- the service layers ---------- */
-  .layer-stack { display: flex; flex-direction: column; gap: 9px; }
+  .layer-stack {
+    display: flex; flex-direction: column; gap: 9px;
+    /* Centred rather than pinned to the top, so a stretched card
+       does not carry all its empty space in one lump underneath. */
+    flex: 1; justify-content: center;
+  }
   .layer-row {
     display: flex; align-items: flex-start; gap: 10px;
     padding: 10px 11px; border-radius: 11px;
@@ -634,10 +721,17 @@
     background: rgba(8, 26, 66, .06);
     font-size: 10px; font-weight: 600; color: var(--text-dim);
   }
-  /* The one measure that is not in the approved policy, marked as it is
-     everywhere else rather than sitting silently beside three that are. */
-  .layer-kpi.is-internal::after {
-    content: ' - internal'; color: var(--text-mut); font-weight: 500;
+  /*
+    The one measure that is not in the approved policy, marked as it is
+    everywhere else rather than sitting silently beside three that are. Its
+    own tag, and unbreakable: as text on the end of the name it wrapped to a
+    second line and read as another KPI.
+  */
+  .layer-flag {
+    padding: 2px 6px; border-radius: 6px;
+    border: 1px solid rgba(8, 26, 66, .12);
+    font-size: 9.5px; font-weight: 600; letter-spacing: .04em;
+    color: var(--text-mut); white-space: nowrap;
   }
 
   /* =========================================================

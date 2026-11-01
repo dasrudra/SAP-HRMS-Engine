@@ -181,13 +181,71 @@ const FILE = 'file://' + PAGE;
   // KPI 2 is not in TVL-KPI-001. It is labelled INTERNAL on every other
   // screen that shows it and must not sit silently beside three that are
   // approved.
-  const internalMarked = await p.$$eval('#layerStack .layer-kpi.is-internal',
-    (ns) => ns.map((n) => n.textContent.trim()));
+  // The marker is its own tag beside the name, so what is asserted is which
+  // NAME it sits next to - gluing it onto the end of the text made it wrap
+  // to a second line and read as another KPI.
+  const flagged = await p.$$eval('#layerStack .layer-flag', (ns) =>
+    ns.map((n) => (n.previousElementSibling || {}).textContent.trim()));
   check('the one measure outside the approved policy is marked internal',
-    JSON.stringify(internalMarked) ===
+    JSON.stringify(flagged) ===
       JSON.stringify(LAYERS.reduce((all, l) =>
         all.concat(l.kpis.filter((k) => !k.policy).map((k) => k.name)), [])),
-    internalMarked.join(', ') || 'nothing marked');
+    flagged.join(', ') || 'nothing marked');
+
+  // =========================================================================
+  // the cards line up
+  // =========================================================================
+  // Asked for in those words - "the same height to make it look
+  // professional". They were staggered before, each column starting a
+  // little lower than the last, which is what the reference design does and
+  // which looked like a layout that had slipped.
+  const edges = await p.evaluate(() => {
+    const r = (s) => document.querySelector(s).getBoundingClientRect();
+    return {
+      tops: ['compare', 'itsm', 'kpi2', 'layers']
+        .map((k) => Math.round(r('.ptile-' + k).top)),
+      // The middle column reaches the bottom by stacking two cards, so its
+      // last one is what has to line up with the other three.
+      bottoms: ['.ptile-compare', '.ptile-faq', '.ptile-kpi2', '.ptile-layers']
+        .map((s) => Math.round(r(s).bottom))
+    };
+  });
+
+  check('every column starts on the same line',
+    new Set(edges.tops).size === 1, edges.tops.join(', '));
+
+  check('and every column ends on the same line',
+    new Set(edges.bottoms).size === 1, edges.bottoms.join(', '));
+
+  // THE BUG THIS CATCHES, which cost two rounds. An SVG with a viewBox keeps
+  // its own proportions: give it a box taller than those and it draws at the
+  // width and centres, banking the rest as blank. The comparison card had
+  // 159 empty pixels down the middle that way, and raising its CSS height
+  // only made the hole bigger. Nothing about it throws or looks broken in
+  // the markup - it is only visible on screen.
+  const waste = await p.evaluate(() => {
+    let worst = 0, which = '';
+    document.querySelectorAll('#portalTiles svg[viewBox]').forEach((svg) => {
+      const b = svg.getBoundingClientRect();
+      const vb = svg.viewBox.baseVal;
+      if (!vb.width || !vb.height || !b.width) return;
+      const scale = Math.min(b.width / vb.width, b.height / vb.height);
+      const blank = b.height - vb.height * scale;
+      if (blank > worst) { worst = blank; which = svg.getAttribute('class') || 'svg'; }
+    });
+    return { worst: Math.round(worst), which: which };
+  });
+  check('no chart is given more box than it actually draws in',
+    waste.worst <= 6,
+    waste.worst + 'px blank inside ' + (waste.which || 'a chart'));
+
+  // The Help & FAQ card is a PICTURE of the Messages panel, not a working
+  // one - so it must not be announced. A screen reader walking it would read
+  // out two messages nobody sent, with the real panel one corner away.
+  check('the Help & FAQ card shows the Messages panel, and is hidden from readers',
+    (await p.$$eval('.ptile-faq .msgr-demo-bar', (ns) => ns.length)) === 1 &&
+    (await p.$eval('.ptile-faq .msgr-demo', (n) => n.getAttribute('aria-hidden'))) === 'true',
+    'a demo of the panel rather than a list of answers');
 
   // The KPI Engine tab used to be a white pill, which is what "you are here"
   // looks like in this bar - so the one tab you were never on looked open.

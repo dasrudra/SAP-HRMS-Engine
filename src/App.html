@@ -6031,8 +6031,11 @@
         // INTERNAL is marked here as it is everywhere else. KPI 2 is not in
         // the approved policy, and a front page listing it silently beside
         // three that are would be the page overstating what is signed off.
-        return '<span class="layer-kpi' + (kpi.policy ? '' : ' is-internal') + '">' +
-               escapeHtml(kpi.name) + '</span>';
+        // The internal marker is its own tag rather than text glued onto the
+        // end of the name: appended, it wrapped as 'Training Feedback -' on
+        // one line and 'internal' on the next, which reads as a second KPI.
+        return '<span class="layer-kpi">' + escapeHtml(kpi.name) + '</span>' +
+               (kpi.policy ? '' : '<span class="layer-flag">internal</span>');
       }).join('');
 
       return '<div class="layer-row">' +
