@@ -148,6 +148,38 @@ const FILE = 'file://' + PAGE;
   check('the button holds still rather than drifting', steady === true,
     'a wandering target is hard to hit and impossible to automate');
 
+  // IT MUST NOT SIT ON THE FOOTER. It did: at 18px from the bottom it
+  // covered the first words of "Enterprise Application Services ...". The
+  // messenger on the other side is fine because the footer reserves 330px
+  // of right-hand padding for it; this one has nothing reserved, so it has
+  // to float clear on its own. Checked at two widths, because the footer
+  // changes height on a phone.
+  for (const width of [1480, 420]) {
+    const q = await b.newPage({ viewport: { width: width, height: 1000 } });
+    q.on('pageerror', (e) => errors.push(String(e)));
+    await q.goto(FILE);
+    await q.waitForTimeout(1700);
+    const gap = await q.evaluate(() => {
+      const fab = document.getElementById('slaFab').getBoundingClientRect();
+      const foot = document.querySelector('.portal-foot').getBoundingClientRect();
+      return Math.round(foot.top - fab.bottom);
+    });
+    check('at ' + width + 'px the button sits clear of the footer',
+      gap >= 0, gap + 'px between the button and the footer');
+    await q.close();
+  }
+
+  // The artwork, not lettering. It was three letters on a blue disc; what
+  // was asked for is the handshake under its badge, which travels in the
+  // stylesheet as a data URI so it cannot arrive late or not at all.
+  const mark = await p.$eval('.sla-btn-mark', (n) => ({
+    text: n.textContent.trim(),
+    image: getComputedStyle(n).backgroundImage.slice(0, 30)
+  }));
+  check('the button shows the handshake icon rather than lettering',
+    mark.text === '' && mark.image.indexOf('data:image/png') !== -1,
+    'text "' + mark.text + '", background ' + mark.image);
+
   check('the two choices are hidden until it is pressed',
     (await p.$eval('#slaMenu', (n) => n.hidden)) === true &&
     (await p.$eval('#slaBtn', (n) => n.getAttribute('aria-expanded'))) === 'false');
