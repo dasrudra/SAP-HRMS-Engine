@@ -2795,64 +2795,98 @@
     font-family: inherit;
   }
 
-  /*
-    THE BUTTON IS THE ICON. It was a blue disc with SLA lettered on it;
-    this is the artwork itself - the handshake under its badge - with
-    nothing drawn behind it.
-
-    Which is why the glow is a drop-shadow rather than a ring. A ring
-    assumes a circle, and this shape is not one: the badge stands proud of
-    the top. drop-shadow follows the alpha channel, so the light comes off
-    the edge of the drawing wherever that edge happens to be.
-
-    The PNG rides along as a data URI - under three kilobytes, flattened to
-    32 colours, which is plenty for flat artwork - for the same reason the
-    messenger's avatar does: a floating button that is missing until a
-    second request comes back is a floating button people see flicker.
-
-    The white square the artwork came on is gone: the background was
-    flood-filled from the border, so white that is CONNECTED TO THE EDGE is
-    transparent and the white inside the SLA letters and the highlights on
-    the hands is not.
-  */
   .sla-btn {
     position: relative;
-    width: 56px; height: 58px;
-    border: 0; background: none; padding: 0;
-    cursor: pointer;
-    /* Animating the glow, not the position. The first version drifted up
-       and down and was both a distraction and an unhittable target; a
-       filter changes no geometry, so the button stays exactly where the
-       hand is going. */
-    animation: slaGlow 3.4s ease-in-out infinite;
-    transition: transform .18s cubic-bezier(.3, 0, .2, 1), filter .18s ease;
+    width: 54px; height: 54px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; padding: 0;
+    /*
+      GLASS OVER WHATEVER IT HAPPENS TO BE ON. This button crosses the deep
+      blue of the portal, the white of a content page and the navy of the
+      dashboard, so it cannot borrow a colour from any of them: the tint is
+      its own, the blur takes the page behind it, and the white hairline
+      along the top edge stands for the lit lip of the pane.
+    */
+    border: 1px solid rgba(255, 255, 255, .42);
+    background:
+      linear-gradient(160deg, rgba(37, 99, 235, .92) 0%, rgba(29, 78, 216, .88) 100%);
+    -webkit-backdrop-filter: blur(14px) saturate(150%);
+    backdrop-filter: blur(14px) saturate(150%);
+    box-shadow:
+      0 10px 26px rgba(6, 22, 60, .34),
+      0 0 0 6px rgba(37, 99, 235, .13),
+      inset 0 1px 0 rgba(255, 255, 255, .45);
+    /*
+      IT FLOATS, IT DOES NOT WANDER. The first version drifted five pixels
+      up and down forever, and that was wrong twice over. This button is on
+      every screen of a tool people have open all day, and something moving
+      in the corner of the eye for eight hours is not ambience, it is a
+      distraction they cannot turn off. It is also a moving target: hard to
+      hit for anybody whose aim is not steady, and the browser driver
+      refused to press it at all because it never stopped moving - which is
+      the same complaint a person would phrase as "the button feels
+      slippery".
+
+      So the floating is in the shadow and the ring, which say the thing is
+      above the page, and in the lift on hover. The glow below still
+      breathes, because a pseudo-element has no bearing on where the button
+      is and nothing has to be aimed at it.
+    */
+    transition: transform .18s cubic-bezier(.3, 0, .2, 1), box-shadow .18s ease;
   }
   .sla-btn-mark {
-    display: block; width: 100%; height: 100%;
-    background: url("data:image/png;base64,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") center/contain no-repeat;
+    font-size: 13px; font-weight: 800; letter-spacing: .04em; color: #fff;
+    text-shadow: 0 1px 4px rgba(4, 16, 46, .4);
+  }
+
+  /*
+    The halo. A second ring that breathes out and fades, which is the glow -
+    drawn as a pseudo-element rather than a box-shadow so it can scale
+    without moving the button under it.
+  */
+  .sla-btn::after {
+    content: ''; position: absolute; inset: -6px;
+    border-radius: 50%; pointer-events: none;
+    box-shadow: 0 0 22px 2px rgba(96, 165, 250, .55);
+    opacity: .75;
+    animation: slaGlow 3.4s ease-in-out infinite;
+  }
+
+  /*
+    IT HOLDS STILL WHEN YOU REACH FOR IT. The drift has to stop on hover and
+    on focus, for two reasons that turned out to be the same reason.
+
+    One is that an animation beats a plain declaration in the cascade, so
+    the lift below was being thrown away every frame and hovering did
+    visibly nothing. The other is that a 54px circle wandering five pixels
+    up and down, forever, is a moving target - fine for a pointer that
+    arrives in one go, tiring for anybody whose aim is not steady. It was
+    also literally unclickable to the browser driver, which waits for an
+    element to stop moving before it will press it, and that is the kind of
+    complaint a person makes as "the button feels slippery".
+  */
+  .sla-btn:hover, .sla-btn:focus-visible {
+    animation: none;
+    transform: translateY(-3px) scale(1.04);
+    box-shadow:
+      0 16px 34px rgba(6, 22, 60, .40),
+      0 0 0 8px rgba(37, 99, 235, .18),
+      inset 0 1px 0 rgba(255, 255, 255, .55);
+  }
+  .sla-btn:hover::after, .sla-btn:focus-visible::after {
+    animation: none; opacity: .95;
+  }
+  .sla-btn:focus-visible { outline: 2px solid #fff; outline-offset: 4px; }
+  /* Open: it stops drifting and turns, so the button itself says the menu
+     above it belongs to it. */
+  .sla-btn[aria-expanded="true"] {
+    transform: rotate(-8deg) scale(1.04);
   }
 
   @keyframes slaGlow {
-    0%, 100% {
-      filter: drop-shadow(0 7px 14px rgba(6, 22, 60, .40))
-              drop-shadow(0 0 7px rgba(96, 165, 250, .45));
-    }
-    50% {
-      filter: drop-shadow(0 7px 14px rgba(6, 22, 60, .40))
-              drop-shadow(0 0 16px rgba(96, 165, 250, .90));
-    }
+    0%, 100% { opacity: .55; transform: scale(1); }
+    50%      { opacity: .95; transform: scale(1.06); }
   }
-
-  .sla-btn:hover, .sla-btn:focus-visible {
-    animation: none;
-    transform: translateY(-3px) scale(1.06);
-    filter: drop-shadow(0 12px 22px rgba(6, 22, 60, .46))
-            drop-shadow(0 0 18px rgba(96, 165, 250, .95));
-  }
-  .sla-btn:focus-visible { outline: 2px solid #fff; outline-offset: 5px; }
-  /* Open: it grows a little, so the two choices above plainly belong to
-     it. Not a rotation any more - a tilted handshake reads as a mistake. */
-  .sla-btn[aria-expanded="true"] { transform: scale(1.06); }
 
   /* ---------- the two choices ---------- */
   .sla-menu {
@@ -3069,7 +3103,7 @@
     sticker.
   */
   @media (prefers-reduced-motion: reduce) {
-    .sla-btn, .sla-menu, .sla-sheet, .sla-sheet-wrap { animation: none; }
+    .sla-btn::after, .sla-menu, .sla-sheet, .sla-sheet-wrap { animation: none; }
     .sla-btn:hover { transform: none; }
     .sla-choice:hover { transform: none; }
   }

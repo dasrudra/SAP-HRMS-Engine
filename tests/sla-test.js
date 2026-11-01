@@ -169,16 +169,17 @@ const FILE = 'file://' + PAGE;
     await q.close();
   }
 
-  // The artwork, not lettering. It was three letters on a blue disc; what
-  // was asked for is the handshake under its badge, which travels in the
-  // stylesheet as a data URI so it cannot arrive late or not at all.
+  // The wordmark, not the artwork. The handshake drawing was tried on this
+  // button and taken off again: at 54px it reads as a smudge where three
+  // letters stay legible. Pinned because it has now been changed in both
+  // directions and the next change should be deliberate.
   const mark = await p.$eval('.sla-btn-mark', (n) => ({
     text: n.textContent.trim(),
-    image: getComputedStyle(n).backgroundImage.slice(0, 30)
+    image: getComputedStyle(n).backgroundImage
   }));
-  check('the button shows the handshake icon rather than lettering',
-    mark.text === '' && mark.image.indexOf('data:image/png') !== -1,
-    'text "' + mark.text + '", background ' + mark.image);
+  check('the button carries the SLA wordmark',
+    mark.text === 'SLA' && mark.image === 'none',
+    'text "' + mark.text + '", background ' + mark.image.slice(0, 24));
 
   check('the two choices are hidden until it is pressed',
     (await p.$eval('#slaMenu', (n) => n.hidden)) === true &&
