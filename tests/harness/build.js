@@ -28,6 +28,21 @@ cfgBox.globalThis = cfgBox;
 vm.createContext(cfgBox);
 vm.runInContext(read('Config.gs'), cfgBox);
 const CONFIG = vm.runInContext('CONFIG', cfgBox);
+
+/*
+  JSON with nothing but ASCII in it, the same way Config.gs's jsonAscii()
+  does for the page itself.
+
+  The harness writes page.html and nothing writes a charset in front of it,
+  so a literal UTF-8 byte in here is read back as Latin-1 and the KPI
+  formula renders as mojibake - which is a fault in the HARNESS that looks
+  exactly like a fault in the product, and the worst kind of time to lose.
+  The deployed app is served as UTF-8 and never had the problem; this keeps
+  the two looking the same.
+*/
+const jsonA = (value) => JSON.stringify(value)
+  .replace(/[^\x20-\x7e]/g, (ch) =>
+    '\\u' + ('000' + ch.charCodeAt(0).toString(16)).slice(-4));
 const K1 = CONFIG.KPI.RESOLUTION;
 // Both of KPI 1's standards, read from Config.gs rather than written out
 // here: the point of the toggle is that two targets score the same counts
@@ -147,7 +162,7 @@ html = html.replace(/<\?=\s*CONFIG\.([A-Z0-9_]+)\s*\?>/g, (whole, key) => {
 //
 // Nothing but Config.gs is in that sandbox, so this runs the project's own
 // code and no more.
-html = html.replace(/<\?!=\s*(JSON\.stringify\([A-Za-z0-9_.()]*\))\s*\?>/g,
+html = html.replace(/<\?!=\s*((?:jsonAscii|JSON\.stringify)\([A-Za-z0-9_.()]*\))\s*\?>/g,
   (whole, expr) => {
     let value;
     try {
@@ -173,7 +188,7 @@ html = html.replace(/<\?!=\s*(JSON\.stringify\([A-Za-z0-9_.()]*\))\s*\?>/g,
 const stub = `
 <script>
 (function () {
-  var FIXTURE = ${JSON.stringify(FIXTURE)};
+  var FIXTURE = ${jsonA(FIXTURE)};
   var EMPTY = Object.assign({}, FIXTURE, {
     hasData: false, people: [], peopleByModule: [], modules: []
   });
@@ -183,7 +198,7 @@ const stub = `
   // target is asked for, so a stub that answered with one set of bands
   // whatever it was handed would let the toggle be wired to nothing at all
   // and this suite would never know.
-  var STANDARDS = ${JSON.stringify(K1_STANDARDS)};
+  var STANDARDS = ${jsonA(K1_STANDARDS)};
 
   function standardOf(code) {
     return String(code || '').trim().toUpperCase() === 'EAS'
@@ -406,18 +421,18 @@ const stub = `
     getBootstrap: function () {
       return {
         ok: true, configured: true,
-        appName: ${JSON.stringify(CONFIG.APP_NAME)},
-        appVersion: ${JSON.stringify(CONFIG.APP_VERSION)},
+        appName: ${jsonA(CONFIG.APP_NAME)},
+        appVersion: ${jsonA(CONFIG.APP_VERSION)},
         role: ROLE, username: '20000000', mode: 'EXEC',
-        departments: ${JSON.stringify(CONFIG.DEPARTMENTS)},
-        kpiList: ${JSON.stringify(CONFIG.KPI_ORDER.map((k) => CONFIG.KPI[k]))},
-        kpiPolicy: ${JSON.stringify(CONFIG.POLICY)},
+        departments: ${jsonA(CONFIG.DEPARTMENTS)},
+        kpiList: ${jsonA(CONFIG.KPI_ORDER.map((k) => CONFIG.KPI[k]))},
+        kpiPolicy: ${jsonA(CONFIG.POLICY)},
         kpi1Standards: STANDARDS,
         teamSize: ${CONFIG.TEAM_SIZE},
         kpiLinks: {},
         questionsWaiting: waitingCount(),
         availableMonths: ['2026-09', '2026-08'],
-        ticketColumns: ${JSON.stringify(CONFIG.TICKET_COLUMNS)},
+        ticketColumns: ${jsonA(CONFIG.TICKET_COLUMNS)},
         feedbackMonths: [], uploads: [], backup: { on: false },
         ticketFrom: '2026-08-01', ticketTo: '2026-08-31'
       };

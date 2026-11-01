@@ -585,6 +585,155 @@ const CONFIG = {
   },
 
   /**
+   * THE SERVICE LEVELS SHEET, off the "Defining the Services of Each Level"
+   * slide. Reached from the floating SLA button, not from a tab.
+   *
+   * Three levels, and the first one is the only one with a sub-list under
+   * its single entry - which is why an item is an object with an optional
+   * `sub` rather than a plain string. Flattening that would have lost the
+   * distinction between a service and the four things that service covers.
+   */
+  SERVICE_LEVELS: {
+    intro: 'What EAS does at each level of SAP S/4HANA support.',
+    levels: [
+      {
+        name: '1st level Services',
+        items: [
+          { text: 'System Administration and Maintenance.',
+            sub: ['User ID Creation/Deletion',
+                  'User Lock/Unlock',
+                  'User ID Password reset',
+                  'Roll Authorization'] }
+        ]
+      },
+      {
+        name: '2nd level Services',
+        items: [
+          { text: 'Troubleshooting and Training.' },
+          { text: 'Reporting and Analytics Support.' },
+          { text: 'Development and Customization.' },
+          { text: 'Project Management.' },
+          { text: 'Testing and system changes.' },
+          { text: 'Process Optimization and Improvement.' },
+          { text: 'Coordination with Other Modules & Teams' },
+          { text: 'Material Master Data management.' },
+          { text: 'BP Master management.' },
+          { text: 'E-Accounting Management.' }
+        ]
+      },
+      {
+        name: '3rd level Services',
+        items: [
+          { text: 'System Administration and Maintenance' },
+          { text: 'Development and Customization' },
+          { text: 'Project Management.' },
+          { text: 'Process Optimization and Improvement' }
+        ]
+      }
+    ]
+  },
+
+  /**
+   * THE SERVICE LEVEL AGREEMENT, as the signed table has it.
+   *
+   * THE LAYER NUMBERS AND TITLES ARE THE SAME THREE the KPIs carry - see
+   * serviceLayers() - and the Home page draws them from there. They are
+   * repeated here because this table is a quotation from an agreement
+   * rather than a description of the system, and a quotation that silently
+   * reworded itself when a KPI moved would be the wrong kind of clever.
+   * checkSlaLayers() in this file reports it if the two ever disagree.
+   *
+   * Em dashes, the >= sign and similar are written as escapes: the whole
+   * project is plain ASCII, enforced by the suite, because a stray byte in
+   * a paste has taken it down before.
+   */
+  SLA: {
+    intro: 'Response and resolution commitments between Tekvision (BD) Ltd ' +
+           'and Youngone, by service layer.',
+    columns: {
+      category: 'Category',
+      definition: 'Definition',
+      response: 'Initial Response Time',
+      target: 'Target Resolution / Fulfillment Time / Availability'
+    },
+    layers: [
+      {
+        layer: 1,
+        title: 'Incident & Emergency Management',
+        rows: [
+          { category: 'P1 \u2013 Critical',
+            definition: 'Complete service outage or critical business disruption.',
+            response: '30 minutes',
+            target: 'Continuous effort until service restoration; status updates ' +
+                    'every 2 hours; target restoration within 12 hours where ' +
+                    'reasonably achievable.' },
+          { category: 'P2 \u2013 High',
+            definition: 'Major service impact with workaround available.',
+            response: '4 Office Hours',
+            target: '1\u20132 Office Days' },
+          { category: 'P3 \u2013 Medium',
+            definition: 'Partial impact affecting limited users/services.',
+            response: '1 Office Day',
+            target: '3\u20135 Office Days' },
+          { category: 'P4 \u2013 Low',
+            definition: 'Minor issue, inquiry or low impact request.',
+            response: '2 Office Days',
+            target: 'As mutually agreed between the Parties.' }
+        ]
+      },
+      {
+        layer: 2,
+        title: 'Service Availability',
+        rows: [
+          { category: 'Core Infrastructure, Network & Internet',
+            definition: 'Servers, storage, LAN/WAN, cloud connectivity, Internet.',
+            response: 'N/A',
+            target: '\u2265 99.5% monthly availability' },
+          { category: 'Enterprise & In-house Applications',
+            definition: 'SAP, ERP and In-house applications.',
+            response: 'N/A',
+            target: '\u2265 99.5% monthly availability' },
+          { category: 'Email Services',
+            definition: 'Corporate email platforms.',
+            response: 'N/A',
+            target: '\u2265 99.5% monthly availability' },
+          { category: 'CCTV, Telephony & Access Control',
+            definition: 'Site-based operational systems.',
+            response: 'N/A',
+            target: '\u2265 97.5% monthly availability' }
+        ]
+      },
+      {
+        layer: 3,
+        title: 'Service Requests',
+        rows: [
+          { category: 'Routine Service Requests',
+            definition: 'Day-to-day Helpdesk support, user assistance, password ' +
+                        'resets, software support, printer issues, email ' +
+                        'configuration and similar operational requests.',
+            response: 'Within 1 Office Hour',
+            target: 'Within 2 office hours' },
+          { category: 'Standard Service Requests',
+            definition: 'User onboarding/offboarding, access provisioning, email ' +
+                        'creation, routine configuration changes and other ' +
+                        'pre-defined service requests.',
+            response: '1 Office Day',
+            target: '1\u20132 Office Days' },
+          // The signed table merges the last two cells on this row into one.
+          // `span` carries that across rather than printing the same sentence
+          // in both columns or inventing a response time it does not state.
+          { category: 'Special Service Requests & Projects',
+            definition: 'Requests requiring significant analysis, multiple teams, ' +
+                        'custom development, infrastructure changes, integrations, ' +
+                        'procurement dependencies or project work.',
+            span: true,
+            target: 'As mutually agreed between the Parties.' }
+        ]
+      }
+    ]
+  },
+
+  /**
    * THE PARTNERS PAGE - who EAS serves, by export processing zone.
    *
    * NO COUNTS ARE WRITTEN DOWN. The slide says "6 Plants", "12 Plants",
@@ -1337,6 +1486,72 @@ function serviceLayers() {
     .map(Number)
     .sort(function (a, b) { return a - b; })
     .map(function (n) { return byLayer[n]; });
+}
+
+
+/**
+ * Where the SLA table and the KPI layers disagree, if anywhere.
+ *
+ * Two lists name the same three layers for two different reasons. The KPIs
+ * carry a layer because that is how each one was matched to its signed
+ * definition sheet; CONFIG.SLA carries one because it is a quotation from
+ * the agreement. Neither can be derived from the other without one of them
+ * stopping being what it is - so they are kept separately and compared here
+ * rather than being silently reconciled.
+ *
+ * Returns the differences, empty when the two agree. Printed by
+ * checkSlaTable() and asserted by the suite.
+ *
+ * @return {Array<string>}
+ */
+/**
+ * JSON with nothing in it but plain ASCII, for printing into a script tag.
+ *
+ * THIS IS NOT TIDINESS, IT IS A BUG THAT SHIPPED. The SLA table quotes the
+ * agreement, which uses an en dash in "P2 - High" and a >= sign in the
+ * availability figures. Written as escapes in the object above, they come
+ * back out of JSON.stringify as real characters - and a page served without
+ * a charset reads those three UTF-8 bytes as three Latin-1 ones, so the
+ * agreement rendered as "P1 a..." and "a.. 99.5%" on screen. Apps Script
+ * does serve UTF-8 and would have been fine; the point is that the page
+ * should not depend on that, and nothing else in this project does.
+ *
+ * Angle brackets and ampersands go the same way, which also means a string
+ * can never close the script tag it is being printed inside.
+ *
+ * @param {*} value
+ * @return {string} JSON, ASCII only
+ */
+function jsonAscii(value) {
+  return JSON.stringify(value).replace(/[^\x20-\x7e]|[<>&]/g, function (ch) {
+    return '\\u' + ('000' + ch.charCodeAt(0).toString(16)).slice(-4);
+  });
+}
+
+
+function slaLayerDrift() {
+  const fromKpis = {};
+  serviceLayers().forEach(function (l) { fromKpis[l.layer] = l.title; });
+
+  const notes = [];
+  ((CONFIG.SLA && CONFIG.SLA.layers) || []).forEach(function (l) {
+    const theirs = fromKpis[l.layer];
+    if (!theirs) {
+      notes.push('SLA names Layer ' + l.layer + ' but no KPI answers for it');
+      return;
+    }
+    if (theirs !== l.title) {
+      notes.push('Layer ' + l.layer + ': SLA says "' + l.title +
+                 '", the KPIs say "' + theirs + '"');
+    }
+    delete fromKpis[l.layer];
+  });
+
+  Object.keys(fromKpis).forEach(function (n) {
+    notes.push('Layer ' + n + ' (' + fromKpis[n] + ') has KPIs but no SLA rows');
+  });
+
+  return notes;
 }
 
 

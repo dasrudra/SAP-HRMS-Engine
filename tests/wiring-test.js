@@ -13,6 +13,8 @@
 // HOW TO RUN
 //   node tests/wiring-test.js
 const fs = require('fs'), vm = require('vm'), path = require('path');
+const PAGE_FILE = process.env.EAS_PAGE ||
+                  path.join(__dirname, 'harness', 'page.html');
 const SRC = process.env.EAS_SRC || path.join(__dirname, '..', 'src');
 
 const out = [];
@@ -555,6 +557,29 @@ phoneScan.forEach(function (where) {
     });
   });
 });
+// ---------------------------------------------------------------------------
+// the ASSEMBLED page is plain ASCII too
+// ---------------------------------------------------------------------------
+// THE SOURCE BEING ASCII IS NOT ENOUGH, which is the whole reason this is a
+// second check rather than a wider glob on the first one. Config.gs writes
+// the agreement's en dash and >= sign as escapes, correctly - and then
+// JSON.stringify turns them back into real characters on the way into the
+// page. The page carries no charset of its own, so those bytes were read
+// back as Latin-1 and the SLA sheet rendered "P1 a..." and "a.. 99.5%".
+//
+// Every file in src/ passed the check above while that was on screen. This
+// one looks at what actually gets served.
+if (fs.existsSync(PAGE_FILE)) {
+  const built = fs.readFileSync(PAGE_FILE, 'utf8');
+  const strays = built.match(/[^\x00-\x7F]/g) || [];
+  const kinds = strays.filter((c, i, a) => a.indexOf(c) === i)
+    .map((c) => 'U+' + c.charCodeAt(0).toString(16).toUpperCase());
+  check('the assembled page is plain ASCII, so no charset has to save it',
+    strays.length === 0,
+    strays.length ? strays.length + ' stray byte(s): ' + kinds.join(' ')
+                  : 'every non-ASCII character is written as an escape');
+}
+
 check('no real mobile number is written into the source or the fixtures',
   leaked.length === 0,
   leaked.length ? leaked.filter((v, i, a) => a.indexOf(v) === i).join('; ')

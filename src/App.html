@@ -868,6 +868,80 @@
     bind('awayBtn', 'click', toggleAway);
     bind('portalAway', 'click', toggleAway);
 
+    // ---- the floating SLA button ----
+    bind('slaBtn', 'click', function () {
+      const menu = document.getElementById('slaMenu');
+      slaMenuOpen(!menu || menu.hidden);
+    });
+
+    // Delegated, so the two choices do not need a binding each and a third
+    // one added later needs none at all.
+    const fab = document.getElementById('slaFab');
+    if (fab) {
+      fab.addEventListener('click', function (event) {
+        const choice = event.target.closest ? event.target.closest('.sla-choice') : null;
+        if (choice) openSlaSheet(choice.getAttribute('data-sheet'));
+      });
+    }
+
+    bind('slaSheetClose', 'click', closeSlaSheet);
+
+    // The backdrop, but only the backdrop - a drag that started inside the
+    // sheet and happened to end on the overlay must not close it, which is
+    // what comparing target to the wrapper checks.
+    const sheet = document.getElementById('slaSheet');
+    if (sheet) {
+      sheet.addEventListener('mousedown', function (event) {
+        if (event.target === sheet) closeSlaSheet();
+      });
+    }
+
+    document.addEventListener('keydown', function (event) {
+      if (event.key !== 'Escape' && event.key !== 'Esc') return;
+      const open = document.getElementById('slaSheet');
+      if (open && !open.hidden) { closeSlaSheet(); return; }
+      const menu = document.getElementById('slaMenu');
+      if (menu && !menu.hidden) {
+        slaMenuOpen(false);
+        const button = document.getElementById('slaBtn');
+        if (button) button.focus();
+      }
+    });
+
+    // Pressing anywhere else puts the two choices away, the way every other
+    // menu on a page does. Not on the fab itself, or the button would open
+    // and close again in the one press.
+    document.addEventListener('mousedown', function (event) {
+      const menu = document.getElementById('slaMenu');
+      if (!menu || menu.hidden) return;
+      const within = document.getElementById('slaFab');
+      if (within && !within.contains(event.target)) slaMenuOpen(false);
+    });
+
+    /*
+      TAB STAYS INSIDE THE SHEET while it is up. Without this it walks
+      straight out into the page behind - which is covered, so the caret
+      disappears and the next few presses do nothing visible. Cycled by
+      hand rather than by setting inert on everything else, because the
+      sheet is one element and the rest of the app is not.
+    */
+    document.addEventListener('keydown', function (event) {
+      if (event.key !== 'Tab') return;
+      const wrap = document.getElementById('slaSheet');
+      if (!wrap || wrap.hidden) return;
+
+      const stops = wrap.querySelectorAll(
+        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+      if (!stops.length) return;
+      const first = stops[0], last = stops[stops.length - 1];
+
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault(); last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault(); first.focus();
+      }
+    });
+
     bind('signOut', 'click', function () {
       const button = document.getElementById('signOut');
       if (button) { button.disabled = true; button.textContent = 'Signing out\u2026'; }
@@ -953,6 +1027,14 @@
 
 
   function showSignIn(note) {
+    // The floating button goes with the session. Its sheets are company
+    // documents, and leaving it over the sign-in card would hand them to
+    // somebody who has just been locked out.
+    closeSlaSheet();
+    slaMenuOpen(false);
+    const fab = document.getElementById('slaFab');
+    if (fab) fab.hidden = true;
+
     setLoginNote(note || '');
     state.role = '';
     state.username = '';
@@ -1099,7 +1181,7 @@
     // The dot and the Away button travel with Sign out, in both bars, for the
     // same reason: all three are statements about a session, and there is no
     // session to make them about until somebody is signed in.
-    ['presDot', 'portalPresDot', 'awayBtn', 'portalAway'].forEach(function (id) {
+    ['presDot', 'portalPresDot', 'awayBtn', 'portalAway', 'slaFab'].forEach(function (id) {
       const node = document.getElementById(id);
       if (node) node.hidden = false;
     });
@@ -6005,6 +6087,175 @@
     One shared head - pill, heading, lede - so the two pages are visibly the
     same KIND of page, the way the reference design has them.
   */
+
+  // =========================================================================
+  // THE FLOATING SLA BUTTON
+  // =========================================================================
+  /*
+    Two sheets behind one button: the service levels, and the agreement
+    table. Both are quotations from the EAS deck, so both live in Config.gs
+    and arrive on window the same way the About us and Partners wording
+    does - this file draws them and knows nothing about their contents.
+
+    WHAT THE DIALOG HAS TO GET RIGHT, beyond looking like one:
+
+      escape closes it, and so does the backdrop. A thing that covers the
+      whole screen and can only be dismissed by hitting one 30px circle is
+      a thing people end up reloading the page to escape.
+
+      the page behind it stops scrolling. Without that, spinning the wheel
+      over the sheet scrolls the portal underneath and the sheet appears to
+      be stuck to a moving page.
+
+      focus goes in and comes back. Tab moves inside the sheet rather than
+      wandering the hidden page behind it, and closing returns the caret to
+      the button that opened it, which is where somebody who is not using a
+      mouse left off.
+  */
+
+  let slaReturnFocus = null;
+
+
+  function slaMenuOpen(open) {
+    const menu = document.getElementById('slaMenu');
+    const button = document.getElementById('slaBtn');
+    if (!menu || !button) return;
+    menu.hidden = !open;
+    button.setAttribute('aria-expanded', open ? 'true' : 'false');
+  }
+
+
+  function openSlaSheet(kind) {
+    const wrap = document.getElementById('slaSheet');
+    const body = document.getElementById('slaSheetBody');
+    if (!wrap || !body) return;
+
+    const drawn = kind === 'levels' ? serviceLevelsHtml() : slaTableHtml();
+    setText('slaSheetTitle', drawn.title);
+    setText('slaSheetSub', drawn.sub);
+    body.innerHTML = drawn.html;
+    body.scrollTop = 0;
+
+    slaMenuOpen(false);
+    wrap.hidden = false;
+    // The page behind a modal must not scroll with it.
+    document.body.style.overflow = 'hidden';
+
+    slaReturnFocus = document.getElementById('slaBtn');
+    const close = document.getElementById('slaSheetClose');
+    if (close) close.focus();
+  }
+
+
+  function closeSlaSheet() {
+    const wrap = document.getElementById('slaSheet');
+    if (!wrap || wrap.hidden) return;
+    wrap.hidden = true;
+    document.body.style.overflow = '';
+    if (slaReturnFocus) { slaReturnFocus.focus(); slaReturnFocus = null; }
+  }
+
+
+  /** The service levels sheet. */
+  function serviceLevelsHtml() {
+    const data = window.__EAS_SERVICE_LEVELS__ || {};
+    const levels = data.levels || [];
+
+    if (!levels.length) {
+      return { title: 'Service levels', sub: '',
+               html: '<p class="sla-empty">CONFIG.SERVICE_LEVELS is empty.</p>' };
+    }
+
+    const cards = levels.map(function (level, index) {
+      const items = (level.items || []).map(function (item) {
+        const sub = (item.sub || []).length
+          ? '<ul class="lvl-sub">' + item.sub.map(function (line) {
+              return '<li>' + escapeHtml(line) + '</li>';
+            }).join('') + '</ul>'
+          : '';
+        return '<li>' + escapeHtml(item.text) + sub + '</li>';
+      }).join('');
+
+      return '<section class="lvl" data-level="' + (index + 1) + '">' +
+        '<h3 class="lvl-head">' + escapeHtml(level.name) + '</h3>' +
+        '<ul class="lvl-list">' + items + '</ul>' +
+      '</section>';
+    }).join('');
+
+    return {
+      title: 'Service levels',
+      sub: data.intro || '',
+      html: '<div class="lvl-grid">' + cards + '</div>'
+    };
+  }
+
+
+  /** The agreement table, one block per layer. */
+  function slaTableHtml() {
+    const data = window.__EAS_SLA__ || {};
+    const layers = data.layers || [];
+    const cols = data.columns || {};
+
+    if (!layers.length) {
+      return { title: 'Service Level Agreement', sub: '',
+               html: '<p class="sla-empty">CONFIG.SLA is empty.</p>' };
+    }
+
+    // One cell. The label is drawn alongside and hidden on wide screens,
+    // where the headings row above carries it instead - it is the same
+    // markup stacking differently rather than two layouts to keep in step.
+    const cell = function (label, value, extra) {
+      return '<div' + (extra ? ' class="' + extra + '"' : '') + '>' +
+        '<span class="sla-row-label">' + escapeHtml(label) + '</span>' +
+        value + '</div>';
+    };
+
+    const blocks = layers.map(function (layer) {
+      const head =
+        '<div class="sla-row is-head">' +
+          '<div>' + escapeHtml(cols.category || 'Category') + '</div>' +
+          '<div>' + escapeHtml(cols.definition || 'Definition') + '</div>' +
+          '<div>' + escapeHtml(cols.response || 'Initial response') + '</div>' +
+          '<div>' + escapeHtml(cols.target || 'Target') + '</div>' +
+        '</div>';
+
+      const rows = (layer.rows || []).map(function (row) {
+        const category = cell(cols.category || 'Category',
+                              '<b>' + escapeHtml(row.category) + '</b>');
+        const definition = cell(cols.definition || 'Definition',
+                                escapeHtml(row.definition || ''));
+
+        // The signed table merges the last two cells on one row, so the
+        // page does too rather than printing the same sentence twice or
+        // inventing a response time the agreement does not give.
+        if (row.span) {
+          return '<div class="sla-row">' + category + definition +
+            cell(cols.target || 'Target', escapeHtml(row.target || ''), 'is-span') +
+          '</div>';
+        }
+
+        return '<div class="sla-row">' + category + definition +
+          cell(cols.response || 'Initial response', escapeHtml(row.response || '')) +
+          cell(cols.target || 'Target', escapeHtml(row.target || '')) +
+        '</div>';
+      }).join('');
+
+      return '<section class="sla-layer">' +
+        '<div class="sla-layer-head">' +
+          '<span class="sla-layer-no">' + escapeHtml(String(layer.layer)) + '</span>' +
+          '<h3>' + escapeHtml(layer.title) + '</h3>' +
+        '</div>' +
+        '<div class="sla-rows">' + head + rows + '</div>' +
+      '</section>';
+    }).join('');
+
+    return {
+      title: 'Service Level Agreement',
+      sub: data.intro || '',
+      html: blocks
+    };
+  }
+
 
   /**
    * The three SLA layers, on the Home page's last card.

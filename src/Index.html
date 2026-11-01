@@ -1488,6 +1488,74 @@
 </div>
 
 <!--
+  ===================== THE SLA BUTTON =====================
+
+  A round button that floats over every screen, in the pattern people
+  already know from Grammarly's bubble and the iPhone's accessibility
+  button: always reachable, never part of the page under it.
+
+  OPPOSITE CORNER FROM MESSAGES, which is not a style choice. Both are
+  floating circles over the same scroll area; in the same corner one would
+  cover the other, and the one underneath would be unreachable at exactly
+  the moment somebody wanted it.
+
+  It is a disclosure, not a menu bar: pressing it reveals two choices and
+  pressing either opens a sheet. Both choices are real buttons with real
+  labels rather than icons, because "Service levels" and "SLA" are not
+  things an icon can say.
+
+  OUTSIDE BOTH SHELLS, here beside the messenger, so one copy serves the
+  portal and the dashboard. Put inside either one it would have had to be
+  built twice and would have gone out of step the first time one was edited.
+-->
+<div class="sla-fab" id="slaFab" hidden>
+
+  <div class="sla-menu" id="slaMenu" hidden>
+    <button class="sla-choice" type="button" data-sheet="levels">
+      <span class="sla-choice-no">1</span>Service levels
+    </button>
+    <button class="sla-choice" type="button" data-sheet="sla">
+      <span class="sla-choice-no">2</span>SLA
+    </button>
+  </div>
+
+  <button class="sla-btn" id="slaBtn" type="button" aria-expanded="false"
+          aria-controls="slaMenu"
+          aria-label="Service levels and the Service Level Agreement"
+          title="Service levels and the Service Level Agreement">
+    <!--
+      The wordmark rather than a drawing. The reference is a handshake under
+      an SLA badge, and a handshake at twenty-two pixels is a smudge; the
+      three letters are the part of it that still reads at this size.
+    -->
+    <span class="sla-btn-mark" aria-hidden="true">SLA</span>
+  </button>
+</div>
+
+<!--
+  The sheet both choices open. One dialog, filled by renderSlaSheet() in
+  App.html from whichever was pressed - two near-identical overlays would
+  have been two places to fix a focus trap or a scroll lock.
+-->
+<div class="sla-sheet-wrap" id="slaSheet" hidden>
+  <div class="sla-sheet" role="dialog" aria-modal="true" aria-labelledby="slaSheetTitle">
+    <header class="sla-sheet-head">
+      <div>
+        <h2 id="slaSheetTitle"></h2>
+        <p class="sla-sheet-sub" id="slaSheetSub"></p>
+      </div>
+      <button class="sla-sheet-close" id="slaSheetClose" type="button"
+              aria-label="Close">
+        <svg viewBox="0 0 16 16" width="14" height="14" fill="none"
+             stroke="currentColor" stroke-width="2" stroke-linecap="round"
+             aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg>
+      </button>
+    </header>
+    <div class="sla-sheet-body" id="slaSheetBody"></div>
+  </div>
+</div>
+
+<!--
   Confirmation dialog.
 
   Replaces window.confirm(), which rendered as a browser-chrome alert headed
@@ -1555,14 +1623,19 @@
   // parse. Raw is safe here and would not be for user input: this is a
   // constant in a file only a developer can edit, and JSON.stringify cannot
   // produce a closing script tag out of it.
-  window.__EAS_PORTFOLIO__ = <?!= JSON.stringify(CONFIG.PORTFOLIO) ?>;
-  window.__EAS_PARTNERS__ = <?!= JSON.stringify(CONFIG.PARTNERS) ?>;
+  window.__EAS_PORTFOLIO__ = <?!= jsonAscii(CONFIG.PORTFOLIO) ?>;
+  window.__EAS_PARTNERS__ = <?!= jsonAscii(CONFIG.PARTNERS) ?>;
 
   // The three SLA layers for the Home page, read off the KPIs rather than
   // typed - see serviceLayers() in Config.gs. A function call rather than a
   // constant, so the front page cannot end up describing a service structure
   // the engine behind it stopped using.
-  window.__EAS_LAYERS__ = <?!= JSON.stringify(serviceLayers()) ?>;
+  window.__EAS_LAYERS__ = <?!= jsonAscii(serviceLayers()) ?>;
+
+  // What the floating SLA button opens: the service levels sheet and the
+  // agreement table, both quotations from the EAS deck.
+  window.__EAS_SERVICE_LEVELS__ = <?!= jsonAscii(CONFIG.SERVICE_LEVELS) ?>;
+  window.__EAS_SLA__ = <?!= jsonAscii(CONFIG.SLA) ?>;
 </script>
 
 <!--
