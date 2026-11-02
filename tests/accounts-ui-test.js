@@ -113,6 +113,68 @@ const check = (n, ok, d) => {
     shared === rows.length - 1, 'row ' + (shared + 1) + ' of ' + rows.length);
 
   // ---------------------------------------------------------------------------
+  // the sign-in log says who, not just which login
+  // ---------------------------------------------------------------------------
+  // The log stores the employee ID and nothing else, so the name is filled in
+  // from the accounts table at render time. Two things have to hold: it has
+  // to find the name, and it has to say something rather than nothing when
+  // it cannot - a removed account's rows genuinely have no name left, and a
+  // blank cell there reads as a rendering fault.
+  const logNames = await p.evaluate(() => {
+    const head = Array.from(document.querySelectorAll('#masterLog thead th'))
+      .map((t) => t.textContent.trim());
+    const first = document.querySelector('#masterLog tbody tr');
+    const cells = first ? Array.from(first.children).map((c) => c.textContent.trim()) : [];
+    // Which IDs the accounts table above knows a name for.
+    // The name cell on THIS table is an editable input, so textContent is
+    // empty and reading it silently matched nothing - the join looked
+    // broken when it was the test that was.
+    const known = {};
+    document.querySelectorAll('#masterTable tbody tr').forEach((r) => {
+      const c = r.children;
+      if (c.length < 2) return;
+      const field = c[1].querySelector('input');
+      const name = (field ? field.value : c[1].textContent).trim();
+      if (name) known[c[0].textContent.trim()] = name;
+    });
+    const rows = Array.from(document.querySelectorAll('#masterLog tbody tr'))
+      .slice(0, 40)
+      .map((r) => ({ id: r.children[1].textContent.trim(),
+                     name: r.children[2].textContent.trim() }));
+    return { head, cells, known, rows };
+  });
+
+  check('the log has a Name column beside the employee ID',
+    logNames.head[1] === 'Employee ID' && logNames.head[2] === 'Name',
+    logNames.head.join(' | '));
+
+  check('and every row fills it with something',
+    logNames.rows.length > 0 && logNames.rows.every((r) => r.name !== ''),
+    logNames.rows.filter((r) => r.name === '').length + ' blank of ' +
+      logNames.rows.length);
+
+  // THE ABOVE IS NOT ENOUGH ON ITS OWN, and a mutant proved it: blanking the
+  // lookup entirely leaves every row reading "not given", which is text, so
+  // the assertion above passes over a column that has stopped working. This
+  // one requires the join to have actually found somebody.
+  const resolved = logNames.rows.filter((r) =>
+    logNames.known[r.id] && r.name === logNames.known[r.id]);
+  check('and the lookup really resolves names rather than giving up on all of them',
+    resolved.length > 0,
+    resolved.length + ' of ' + logNames.rows.length +
+      ' rows matched to an account by name');
+
+  // The join itself: where the accounts table knows a name for that ID, the
+  // log has to show the same one rather than a near miss.
+  const wrongName = logNames.rows.filter((r) =>
+    logNames.known[r.id] && logNames.known[r.id] !== r.name);
+  check('the name matches what the accounts table says for that ID',
+    wrongName.length === 0,
+    wrongName.length ? wrongName.map((r) => r.id + ': "' + r.name + '" vs "' +
+      logNames.known[r.id] + '"').join('; ')
+      : Object.keys(logNames.known).length + ' accounts to match against');
+
+  // ---------------------------------------------------------------------------
   // the sign-in log is capped
   // ---------------------------------------------------------------------------
   // It gains a row on every sign-in, so left to its own height it becomes the

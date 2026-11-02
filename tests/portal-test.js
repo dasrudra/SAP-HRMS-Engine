@@ -317,6 +317,53 @@ const FILE = 'file://' + PAGE;
   check('and a head who leads their own section is not',
     second === 'Section Head', second);
 
+  // ---- designation and module ----
+  // The chart role used to REPLACE the designation, so the one card naming a
+  // manager was the one that did not say they were a manager. Both now, on
+  // two lines, plus the module beside the designation.
+  const heads = await t.$$eval('.team-sec', (ns) => ns.map((sec) => ({
+    role: sec.querySelector('.team-sec-role').textContent.trim(),
+    sub: sec.querySelector('.team-sec-sub')
+      ? sec.querySelector('.team-sec-sub').textContent.trim() : ''
+  })));
+  check('a section head keeps their designation under their chart role',
+    heads[0].role === 'Section Head, Interim' &&
+    heads[0].sub === 'Senior Manager \u00b7 EAS',
+    heads[0].role + ' / ' + heads[0].sub);
+
+  check('and each head shows their own module, not the same one',
+    heads[1].sub === 'Manager \u00b7 SD',
+    heads.map((h) => h.sub).join(' | '));
+
+  // THE DEPARTMENT HEAD'S MODULE IS THE DEPARTMENT. His Module cell names a
+  // module because the sheet has to put something there; he does not belong
+  // to one, and the card saying MM would be the page inventing a fact.
+  check('the department head reads EAS rather than the module in his row',
+    heads[0].sub.indexOf('EAS') !== -1 && heads[0].sub.indexOf('MM') === -1,
+    heads[0].sub);
+
+  // Member cards carry it too.
+  await t.click('.team-sec[data-section="0"] .team-sec-card');
+  await t.waitForTimeout(500);
+  const member = await t.$$eval('#teamSecBody0 .team-card', (ns) => ns.map((c) => ({
+    name: c.querySelector('strong').textContent.trim(),
+    flag: c.querySelector('.team-flag') ? c.querySelector('.team-flag').textContent.trim() : '',
+    role: c.querySelector('.team-role').textContent.trim()
+  })));
+  const bilal = member.filter((m) => m.name.indexOf('Bilal') === 0)[0];
+  check('an ordinary member card shows designation and module',
+    bilal && bilal.role === 'Deputy Manager \u00b7 MM' && bilal.flag === '',
+    bilal ? bilal.role : '(not found)');
+
+  const inSection = member.filter((m) => m.name.indexOf('Utpal') === 0)[0];
+  check('and the head inside the section keeps both as well',
+    inSection && inSection.flag === 'Section Head, Interim' &&
+    inSection.role === 'Senior Manager \u00b7 EAS',
+    inSection ? inSection.flag + ' / ' + inSection.role : '(not found)');
+
+  await t.click('.team-sec[data-section="0"] .team-sec-card');
+  await t.waitForTimeout(400);
+
   // ---- closed until pressed ----
   check('every section starts closed, so the page opens readable',
     (await visibleCards(t)) === 0 &&

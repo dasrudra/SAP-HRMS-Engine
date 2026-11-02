@@ -764,10 +764,15 @@ const stub = `
     */
     getTeam: function () {
       var utpal = { name: 'Utpal Biswas', id: '20000000', title: 'Senior Manager',
+                    // The department head's Module cell names a module
+                    // because the sheet has to put something there; his
+                    // moduleLabel is the department, which readTeam sets.
+                    module: 'MM', moduleLabel: 'EAS', dept: 'EAS',
                     section: 'ALL', office: 'TVL HQ', ext: '2428',
                     phone: '01700000000', email: 'utpal@example.test',
                     photo: '', note: '', leads: 'Supply Chain Applications' };
       var ayesha = { name: 'Ayesha Rahman', id: '20000001', title: 'Manager',
+                     module: 'SD', moduleLabel: 'SD', dept: 'EAS',
                      section: 'Sales Applications', office: 'TVL HQ', ext: '',
                      phone: '01700000001', email: 'ayesha@example.test',
                      photo: '', note: '', leads: 'Yes' };
@@ -784,6 +789,7 @@ const stub = `
           { name: 'Supply Chain Applications', count: 2, head: utpal, interim: true,
             members: [
               { name: 'Bilal Hossain', id: '20000003', title: 'Deputy Manager',
+                module: 'MM', moduleLabel: 'MM', dept: 'EAS',
                 section: 'Supply Chain Applications', office: 'YCL', ext: '2222',
                 phone: '01700000003', email: 'bilal@example.test',
                 photo: '', note: '', leads: '' }
@@ -791,6 +797,7 @@ const stub = `
           { name: 'Sales Applications', count: 2, head: ayesha, interim: false,
             members: [
               { name: 'Carim Uddin', id: '20000002', title: 'Senior Officer',
+                module: 'SD', moduleLabel: 'SD', dept: 'EAS',
                 section: 'Sales Applications', office: 'TVL HQ', ext: '1234',
                 phone: '01700000002', email: 'carim@example.test',
                 photo: '', note: '', leads: '' }
@@ -800,6 +807,7 @@ const stub = `
           { name: 'Financial Applications', count: 2, head: utpal, interim: true,
             members: [
               { name: 'Nobody In Roster', id: '20000004', title: 'Officer',
+                module: 'FI', moduleLabel: 'FI', dept: 'EAS',
                 section: 'Financial Applications', office: 'YCL', ext: '3333',
                 phone: '01700000004', email: 'nobody@example.test',
                 photo: '', note: '', leads: '' }

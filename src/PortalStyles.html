@@ -939,8 +939,19 @@
     font-size: 13.5px; font-weight: 700; color: #fff; line-height: 1.25;
   }
   .team-sec-role { font-size: 11px; color: rgba(255, 255, 255, .74); }
+  /*
+    The designation and module, under the organogram role. A second line
+    rather than more words on the first: "Section Head, Interim - Senior
+    Manager - MM" is four facts in one breath, and the one somebody is
+    scanning for is the first.
+  */
+  .team-sec-sub {
+    display: block; margin-top: 2px;
+    font-size: 10.5px; color: rgba(255, 255, 255, .58);
+  }
   .team-sec.is-open .team-sec-who strong { color: var(--navy-900); }
   .team-sec.is-open .team-sec-role { color: var(--text-dim); }
+  .team-sec.is-open .team-sec-sub { color: var(--text-mut); }
 
   .team-sec-card .team-face.is-initials {
     background: rgba(255, 255, 255, .92); color: var(--blue-600);
@@ -1009,6 +1020,18 @@
     font-size: 13.5px; font-weight: 700; color: var(--navy-900);
     line-height: 1.25;
   }
+  /*
+    What this person is ON THE CHART - Section Head, and whether that is
+    interim. Above the designation and in the card's accent, because it is
+    the thing the organogram exists to show; the designation underneath is
+    what they are everywhere else.
+  */
+  .team-flag {
+    display: block; margin-bottom: 1px;
+    font-size: 10px; font-weight: 700; letter-spacing: .05em;
+    text-transform: uppercase; color: var(--blue-600);
+  }
+  .team-lead .team-flag { color: rgba(255, 255, 255, .82); }
   .team-role { font-size: 11.5px; color: var(--text-dim); }
 
   .team-lines {

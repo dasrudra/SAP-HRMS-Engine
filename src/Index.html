@@ -1327,13 +1327,23 @@
                 <tr>
                   <th>When</th>
                   <th>Employee ID</th>
+                  <!--
+                    The name is NOT in the log. Every row records the login,
+                    which is an employee ID, and nothing else - so this
+                    column is filled in at render time from the accounts
+                    table above it. That is on purpose: a name copied into
+                    the log at the time would be whatever it was that day,
+                    and would go on saying it after somebody corrected their
+                    spelling.
+                  -->
+                  <th>Name</th>
                   <th>What happened</th>
                   <th>Role</th>
                   <th>Detail</th>
                 </tr>
               </thead>
               <tbody>
-                <tr><td colspan="5" class="empty">Loading&#x2026;</td></tr>
+                <tr><td colspan="6" class="empty">Loading&#x2026;</td></tr>
               </tbody>
             </table>
           </div>

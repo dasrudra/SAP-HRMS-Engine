@@ -273,6 +273,48 @@ check('an empty tab returns an empty directory rather than throwing',
   'filled: ' + none.filled);
 
 // ---------------------------------------------------------------------------
+// what goes beside a designation
+// ---------------------------------------------------------------------------
+// Every card prints "<designation> . <module>". Everybody's module is their
+// own, with one exception that is the point of this block: the department
+// head's Module cell names a module because the sheet has to put something
+// there, and he does not belong to one. His card says the department.
+{
+  const find = (name) => {
+    let hit = null;
+    if (team.lead && team.lead.name === name) hit = team.lead;
+    team.sections.forEach((s) => {
+      if (s.head && s.head.name === name) hit = hit || s.head;
+      s.members.forEach((m) => { if (m.name === name) hit = hit || m; });
+    });
+    return hit;
+  };
+
+  const rudra = find('Rudra Das');
+  check('an ordinary person carries their own module',
+    rudra && rudra.moduleLabel === 'PP',
+    rudra ? rudra.title + ' / ' + rudra.moduleLabel : '(not found)');
+
+  check('the department head carries the department instead of a module',
+    team.lead && team.lead.moduleLabel === 'EAS' && team.lead.module === 'MM',
+    team.lead ? 'Module cell "' + team.lead.module + '", card says "' +
+                team.lead.moduleLabel + '"' : '(no lead)');
+
+  // The same object is reached through three routes - the lead card, the
+  // section head and the member list - and all three have to agree, which
+  // they only do because readTeam sets it once on the person rather than at
+  // each place that draws one.
+  const asHead = team.sections.filter((s) => s.head && s.head.name === 'Utpal Biswas')[0];
+  check('and says the same thing wherever he appears',
+    asHead && asHead.head.moduleLabel === 'EAS',
+    asHead ? asHead.name + ' head says ' + asHead.head.moduleLabel : '(not a head anywhere)');
+
+  check('a section head keeps their designation as well as their chart role',
+    asHead && asHead.head.title === 'Senior Manager' && asHead.interim === true,
+    asHead ? asHead.head.title + ', interim ' + asHead.interim : '(none)');
+}
+
+// ---------------------------------------------------------------------------
 // a Drive link in the Photo column
 // ---------------------------------------------------------------------------
 // What people copy out of Drive is a VIEWER page, not an image. Put straight

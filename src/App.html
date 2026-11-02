@@ -2924,24 +2924,65 @@
   }
 
 
+  /**
+   * Fetches one upload's tickets and saves them, a slice at a time.
+   *
+   * IT USED TO BE ONE CALL and the page said nothing for the whole of it.
+   * Twenty-four thousand rows is about eleven megabytes; the button went
+   * grey, half a minute passed, and the only thing distinguishing "working"
+   * from "broken" was whether you were patient enough. The complaint it
+   * earned was that the download was slow, and it was - but what made it
+   * feel broken was the silence rather than the seconds.
+   *
+   * Now the server hands back a slice at a time and the button counts, so
+   * the wait is the same length and no longer a question. It also cannot
+   * hit the call limits as the sheet grows, which the single call would
+   * have done one month without warning.
+   */
+  function downloadUpload(button) {
+    const uploadId = button.dataset.download;
+    const was = button.title || '';
+    let name = '';
+    const parts = [];
+
+    button.disabled = true;
+    button.classList.add('is-busy');
+
+    const step = function (startRow) {
+      return callServer('getUploadCsvChunk', uploadId, startRow).then(function (chunk) {
+        if (chunk.fileName) name = chunk.fileName;
+        if (chunk.csv) parts.push(chunk.csv);
+
+        // Read rows, not matched rows: the bar is a measure of how much of
+        // the sheet has been looked at, and most of it belongs to other
+        // uploads. Counting only the matches would sit at nothing for a
+        // long time and then jump.
+        const pct = chunk.total ? Math.round((chunk.scanned / chunk.total) * 100) : 100;
+        button.title = 'Preparing the file... ' + Math.min(pct, 100) + '%';
+
+        if (!chunk.done) return step(chunk.nextRow);
+
+        downloadText(name || (uploadId + '.csv'), parts.join('\n'));
+      });
+    };
+
+    step(1)
+      .catch(onError)
+      .then(function () {
+        button.disabled = false;
+        button.classList.remove('is-busy');
+        button.title = was;
+      });
+  }
+
+
   function wireRowActions() {
     document.querySelectorAll('[data-open]').forEach(function (button) {
       button.addEventListener('click', function () { openUpload(button.closest('tr')); });
     });
 
     document.querySelectorAll('[data-download]').forEach(function (button) {
-      button.addEventListener('click', function () {
-        button.disabled = true;
-        callServer('getUploadCsv', button.dataset.download)
-          .then(function (file) {
-            downloadText(file.fileName, file.csv);
-            button.disabled = false;
-          })
-          .catch(function (err) {
-            button.disabled = false;
-            onError(err);
-          });
-      });
+      button.addEventListener('click', function () { downloadUpload(button); });
     });
 
     document.querySelectorAll('[data-delete]').forEach(function (button) {
@@ -5970,6 +6011,27 @@
   }
 
 
+  /**
+   * What somebody does, and which module they do it in.
+   *
+   * Both, separated, rather than one or the other. The cards showed the
+   * designation alone, and the section heads did not even get that - the
+   * organogram role replaced it, so the one card that named a manager was
+   * the one that did not say they were a manager.
+   *
+   * The module comes from moduleLabel rather than module, because the
+   * department head's is the department: his Module cell names one module
+   * because the sheet has to put something there, and he does not belong
+   * to one.
+   */
+  function roleLine(person) {
+    const bits = [];
+    if (person.title) bits.push(person.title);
+    if (person.moduleLabel) bits.push(person.moduleLabel);
+    return bits.length ? bits.join(' \u00b7 ') : '\u2014';
+  }
+
+
   function teamCard(person, roleOverride) {
     // A photograph when the Photo column has one, initials when it does not.
     // Initials rather than a silhouette: a page of identical grey outlines
@@ -5984,8 +6046,13 @@
         face +
         '<div class="team-who">' +
           '<strong>' + escapeHtml(person.name) + presenceDot(person) + '</strong>' +
-          '<span class="team-role">' +
-            escapeHtml(roleOverride || person.title || '\u2014') + '</span>' +
+          // The organogram role goes ABOVE the designation and no longer in
+          // place of it. Section Head is what they are on this chart;
+          // Senior Manager is what they are, and both belong on the card.
+          (roleOverride
+            ? '<span class="team-flag">' + escapeHtml(roleOverride) + '</span>'
+            : '') +
+          '<span class="team-role">' + escapeHtml(roleLine(person)) + '</span>' +
         '</div>' +
       '</div>' +
       '<div class="team-lines">' +
@@ -6030,6 +6097,8 @@
             (head ? '<strong>' + escapeHtml(head.name) + presenceDot(head) +
                     '</strong>' : '') +
             '<span class="team-sec-role">' + escapeHtml(role) + '</span>' +
+            (head ? '<span class="team-sec-sub">' + escapeHtml(roleLine(head)) +
+                    '</span>' : '') +
           '</span>' +
         '</span>' +
         '<span class="team-sec-open">' +
@@ -6495,6 +6564,10 @@
               '<div class="team-who">' +
                 '<strong>' + escapeHtml(team.lead.name) +
                   presenceDot(team.lead) + '</strong>' +
+                // Not roleLine() here. This card already carries a
+                // "Department Head" badge above it and names the department
+                // in full below, so the module - which for him IS the
+                // department, abbreviated - would be the same word twice.
                 '<span class="team-role">' +
                   escapeHtml(team.lead.title || '\u2014') +
                   ' \u00b7 Enterprise Application Services</span>' +
@@ -7333,7 +7406,20 @@
 
   function renderMasterLog() {
     const rows = state.master.log || [];
-    if (!rows.length) return emptyTable('#masterLog tbody', 5, 'Nothing logged yet.');
+    if (!rows.length) return emptyTable('#masterLog tbody', 6, 'Nothing logged yet.');
+
+    // WHO 20536723 IS, from the accounts table rather than from the log.
+    // The log stores the login and nothing else, which is right: a name
+    // written into it at the time would still say that after somebody
+    // fixed their spelling, and a row for a removed account would carry a
+    // name the Accounts list no longer shows anywhere.
+    //
+    // The cost is that a removed account's rows lose their name, which is
+    // the honest answer - the system genuinely no longer knows.
+    const named = {};
+    (state.master.accounts || []).forEach(function (a) {
+      if (a && a.username && a.fullName) named[String(a.username)] = a.fullName;
+    });
 
     const said = {
       SIGNUP:   'Created their login',
@@ -7345,8 +7431,12 @@
     };
 
     fillRows('#masterLog tbody', rows, function (l) {
+      const who = named[String(l.username)] || '';
       return '<td>' + escapeHtml(whenText(l.when)) + '</td>' +
              '<td class="name">' + escapeHtml(l.username) + '</td>' +
+             '<td class="name">' +
+               (who ? escapeHtml(who)
+                    : '<span class="muted">not given</span>') + '</td>' +
              '<td>' + escapeHtml(said[l.event] || l.event) + '</td>' +
              '<td>' + (l.role ? rolePill(l.role) : '') + '</td>' +
              '<td class="muted">' + escapeHtml(l.detail || '') + '</td>';

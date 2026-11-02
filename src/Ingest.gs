@@ -27,6 +27,16 @@
  * 29 key names on every row would multiply the payload for no benefit. The cost
  * is that we address fields by number, so these constants keep it readable.
  */
+/*
+  How many TICKETS rows one download slice reads.
+
+  Four thousand rows of 29 columns is about a second on this data and well
+  under every limit there is, so the ceiling moves with the sheet rather
+  than being a number that works until it does not.
+*/
+const UPLOAD_CSV_CHUNK = 4000;
+
+
 const COL = (function () {
   const index = {};
   CONFIG.TICKET_COLUMNS.forEach(function (name, i) { index[name] = i; });
@@ -989,14 +999,39 @@ function removeFeedbackOf(files) {
 
 
 /**
- * The stored tickets for one upload, as CSV text for download.
+ * A download name built from the files the upload actually contained.
+ *
+ * It used to be the upload ID - 'UPL-20261028-102822-8817.csv' - which is
+ * the right name for a row in a log and the wrong one for something landing
+ * in somebody's Downloads folder beside four other exports. The log already
+ * records which files went in; this says the same thing in the name.
  *
  * @param {string} uploadId
- * @return {Object} { fileName, csv, rows }
+ * @param {string[]} files   the source file names on the log row
+ * @return {string}
  */
-function getUploadCsv(token, uploadId) {
-  // Needs a session - see Auth.gs.
-  requireSignedIn(token);
+function uploadCsvName(uploadId, files) {
+  const clean = (files || [])
+    .map(function (f) { return String(f || '').replace(/\.[^.]+$/, '').trim(); })
+    .filter(Boolean);
+
+  let base = clean[0] || uploadId;
+  if (clean.length > 1) base += ' and ' + (clean.length - 1) + ' more';
+
+  // Windows refuses these outright and the rest make a mess of a shell, so
+  // they go. The date is appended because the same export gets re-uploaded
+  // monthly and two files of the same name in one folder helps nobody.
+  base = base.replace(/[\\/:*?"<>|]+/g, '-').replace(/\s+/g, ' ').trim();
+
+  const when = String(uploadId).match(/^UPL-(\d{4})(\d{2})(\d{2})/);
+  const stamp = when ? ' ' + when[1] + '-' + when[2] + '-' + when[3] : '';
+
+  return (base + stamp).slice(0, 120) + '.csv';
+}
+
+
+/** The upload log row for one ID, and the files it named. */
+function uploadFileSet(uploadId) {
   const log = sheetFor(CONFIG.SHEETS.UPLOADS);
   const lastLogRow = log.getLastRow();
   if (lastLogRow < 2) throw new Error('No uploads recorded.');
@@ -1008,33 +1043,81 @@ function getUploadCsv(token, uploadId) {
   }
   if (!match) throw new Error('Upload ' + uploadId + ' not found.');
 
-  const files = {};
-  String(match[3] || '').split(' | ').forEach(function (name) {
-    const trimmed = name.trim();
-    if (trimmed) files[trimmed] = true;
-  });
+  const names = String(match[3] || '').split(' | ')
+    .map(function (n) { return n.trim(); })
+    .filter(Boolean);
 
+  const wanted = {};
+  names.forEach(function (n) { wanted[n] = true; });
+
+  return { names: names, wanted: wanted };
+}
+
+
+/**
+ * One slice of an upload's tickets, as CSV text.
+ *
+ * WHY THIS IS CHUNKED AND THE OLD ONE WAS NOT.
+ *
+ * The old getUploadCsv read every row of TICKETS, filtered it, built one
+ * string and handed the whole thing back in a single call. For the January
+ * to October export that is 24,000 rows and about 11MB travelling through
+ * google.script.run in one go, and the page gave no sign of life for the
+ * whole of it - a disabled button and nothing else. Two problems, and only
+ * one of them is speed.
+ *
+ * The other is that it gets worse every month and fails all at once. A
+ * single call has six minutes and a payload ceiling; the first upload that
+ * crosses either stops downloading at all, with an error that says nothing
+ * useful about why.
+ *
+ * Sliced by row number, each call reads only its own slice, so none of them
+ * is near any limit however big the sheet gets, and the page can say how
+ * far it has got. The total work is the same. What changes is that it is
+ * visible, and that it keeps working.
+ *
+ * @param {string} token
+ * @param {string} uploadId
+ * @param {number} startRow  1-based row of TICKETS to resume at; 1 to start
+ * @return {Object} { csv, nextRow, done, rows, total, fileName }
+ */
+function getUploadCsvChunk(token, uploadId, startRow) {
+  requireSignedIn(token);
+
+  const files = uploadFileSet(uploadId);
   const tickets = sheetFor(CONFIG.SHEETS.TICKETS);
   const lastRow = tickets.getLastRow();
+  const total = Math.max(lastRow - 1, 0);
 
-  const out = [CONFIG.TICKET_COLUMNS.map(csvCell).join(',')];
-  let count = 0;
+  // Row 1 is the header, so data starts at 2. The caller counts from 1 and
+  // means "the first data row", which keeps the arithmetic out of the page.
+  const from = Math.max(1, Number(startRow) || 1);
+  const first = from === 1;
 
-  if (lastRow > 1) {
-    const rows = tickets.getRange(2, 1, lastRow - 1, COL.WIDTH).getValues();
+  const lines = [];
+  if (first) lines.push(CONFIG.TICKET_COLUMNS.map(csvCell).join(','));
+
+  let read = 0;
+  if (total > 0 && from <= total) {
+    read = Math.min(UPLOAD_CSV_CHUNK, total - from + 1);
+    const rows = tickets.getRange(from + 1, 1, read, COL.WIDTH).getValues();
     rows.forEach(function (row) {
       const sources = String(row[COL.SOURCE] || '').split(' | ');
-      const belongs = sources.some(function (s) { return files[s.trim()]; });
-      if (!belongs) return;
-      out.push(row.map(csvCell).join(','));
-      count++;
+      const belongs = sources.some(function (s) { return files.wanted[s.trim()]; });
+      if (belongs) lines.push(row.map(csvCell).join(','));
     });
   }
 
+  const nextRow = from + read;
+  const done = nextRow > total;
+
   return {
-    fileName: uploadId + '.csv',
-    csv: out.join('\n'),
-    rows: count
+    csv: lines.join('\n'),
+    nextRow: nextRow,
+    done: done,
+    scanned: nextRow - 1,
+    total: total,
+    fileName: first ? uploadCsvName(uploadId, files.names) : ''
   };
 }
 

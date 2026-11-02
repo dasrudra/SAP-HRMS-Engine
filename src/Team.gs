@@ -90,6 +90,9 @@ function teamColumnIndex(headers) {
     title:   find(['designation', 'title']),
     module:  find(['module']),
     section: find(['subdepartment', 'section']),
+    // The whole department ('EAS'), as distinct from the section. Only the
+    // department head's card uses it - see moduleLabel below.
+    dept:    find(['department']),
     office:  find(['officelocation', 'office']),
     ext:     find(['ext', 'extension', 'extno']),
     phone:   find(['whatappcellno', 'whatsappcellno', 'cellno', 'mobile', 'phone']),
@@ -173,6 +176,7 @@ function readTeam() {
       title: cell(row, at.title),
       module: cell(row, at.module),
       section: cell(row, at.section) || 'Unassigned',
+      dept: cell(row, at.dept),
       office: cell(row, at.office),
       ext: cell(row, at.ext),
       phone: cell(row, at.phone),
@@ -206,6 +210,13 @@ function readTeam() {
   const yes = function (value) { return /^(y|yes|true|1|head)$/i.test(String(value).trim()); };
 
   const lead = people.filter(function (p) { return isWholeDepartment(p.section); })[0] || null;
+
+  // WHAT TO PRINT BESIDE A DESIGNATION. Everybody's module, except the
+  // department head's - his Module cell names one module because the sheet
+  // has to put something there, and he does not belong to one. His card
+  // says the department instead, which is what he actually heads.
+  people.forEach(function (p) { p.moduleLabel = p.module; });
+  if (lead) lead.moduleLabel = lead.dept || lead.module;
   const inSections = people.filter(function (p) { return !isWholeDepartment(p.section); });
 
   // ---- grouped ----
