@@ -629,7 +629,8 @@ const FILE = 'file://' + PAGE;
     const read = (el) => {
       const css = getComputedStyle(el);
       return { line: css.textDecorationLine, h: Math.round(el.getBoundingClientRect().height),
-               bg: css.backgroundColor };
+               bg: css.backgroundColor, weight: css.fontWeight,
+               size: css.fontSize, family: css.fontFamily };
     };
     return {
       kpi: read(document.querySelector('.portal-cta[data-view="kpi1"]')),
@@ -640,6 +641,31 @@ const FILE = 'file://' + PAGE;
     pair.sap.line === 'none' && pair.sap.h === pair.kpi.h &&
     pair.sap.bg === pair.kpi.bg,
     'decoration ' + pair.sap.line + ', ' + pair.sap.h + 'px vs ' + pair.kpi.h + 'px');
+
+  // BOLD, and bold on BOTH. Four of these sit on a photographic blue hero
+  // where semibold read as a caption. 700 is the heaviest weight the system
+  // stack actually ships, so it is drawn rather than faked - and the pair has
+  // to agree about it for the same reason it has to agree about the
+  // underline: a button and an anchor wearing one class start from different
+  // defaults, and anything a UA stylesheet sets on one of them only shows up
+  // beside the other.
+  check('and both are bold, not semibold, so the words carry on the hero',
+    Number(pair.kpi.weight) >= 700 && pair.sap.weight === pair.kpi.weight,
+    pair.kpi.weight + ' on the button, ' + pair.sap.weight + ' on the link');
+
+  // THE SAME TYPE, not merely the same height - the assertion the check above
+  // was missing. .portal-cta set its type with the `font` shorthand and named
+  // `inherit` as the family, which is illegal inside that shorthand, so the
+  // whole declaration was dropped: the three links inherited the page's 14px
+  // because an anchor does, and this BUTTON fell back to the UA default of
+  // 13.3px Arial. Two typefaces, two sizes, side by side on the hero, for
+  // months - and invisible to a test that only asked whether the boxes were
+  // the same height, which the padding made true anyway.
+  check('and set in the same face at the same size, not just the same box',
+    pair.sap.size === pair.kpi.size && pair.sap.family === pair.kpi.family &&
+    /inherit|apple-system/.test(pair.kpi.family),
+    pair.kpi.size + ' ' + pair.kpi.family.split(',')[0] + ' on the button, ' +
+    pair.sap.size + ' ' + pair.sap.family.split(',')[0] + ' on the link');
 
   // THE TRAP THIS GUARDS. wireNavigation() binds every .portal-cta and calls
   // showView(dataset.view); an external link has none, showView falls back to

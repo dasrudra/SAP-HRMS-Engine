@@ -585,6 +585,47 @@ check('no real mobile number is written into the source or the fixtures',
   leaked.length ? leaked.filter((v, i, a) => a.indexOf(v) === i).join('; ')
                 : 'every number is in the reserved 0170000xxxx test block');
 
+// ---------------------------------------------------------------------------
+// NO `font:` SHORTHAND ENDING IN `inherit`
+// ---------------------------------------------------------------------------
+// `inherit` is a legal value for the WHOLE font property - `font: inherit`
+// is fine, and several rules here use it. It is NOT a legal font-family
+// INSIDE the shorthand, so `font: 600 13px/1 inherit` is invalid and the
+// browser throws the entire declaration away: no weight, no size, no
+// line-height, no family.
+//
+// Seven rules were written that way, all on buttons, and every one of them
+// was dead. The four hero pills were set in no weight at all, and the KPI
+// Engine button - a <button>, which does not inherit type - fell back to the
+// UA default of 13.3px ARIAL beside three links in the page's own 14px.
+// Nothing failed. The test next door compared the underline, the height and
+// the background of that very pair and passed, because the padding happened
+// to round both boxes to the same height.
+//
+// A declaration that silently does nothing is the worst kind to carry: it
+// reads as intent, it survives review, and it cannot be seen without
+// measuring what the browser ended up with. Hence a check on the source.
+const fontShorthand = [];
+[[SRC, /\.html$/]].forEach(function (where) {
+  if (!fs.existsSync(where[0])) return;
+  fs.readdirSync(where[0]).filter((f) => where[1].test(f)).forEach(function (f) {
+    fs.readFileSync(path.join(where[0], f), 'utf8')
+      .split('\n').forEach(function (line, i) {
+        // Something has to stand BETWEEN the colon and `inherit` - that is
+        // what makes `inherit` a family rather than the whole value. A bare
+        // `font: inherit` is legal and several rules here rely on it, so the
+        // \S is the entire difference between the two and not a tidiness.
+        if (/^[^*]*\bfont:\s*[^;{]*\S\s+inherit\s*;/.test(line)) {
+          fontShorthand.push(f + ':' + (i + 1) + ' ' + line.trim().slice(0, 44));
+        }
+      });
+  });
+});
+check('no font shorthand names `inherit` as the family, which kills the rule',
+  fontShorthand.length === 0,
+  fontShorthand.length ? fontShorthand.join(' | ')
+                       : 'the longhands apply; the shorthand would not have');
+
 const failed = out.filter((r) => !r).length;
 console.log('\n' + (out.length - failed) + '/' + out.length + ' passed');
 process.exit(failed ? 1 : 0);

@@ -264,7 +264,10 @@
     position: relative;
     padding: 8px 13px;
     border: 0; background: none;
-    font: 600 13px/1 inherit;
+    /* Longhands, not the font shorthand: `inherit` is illegal as the family
+       inside it and takes the whole declaration down with it. See the note
+       on .portal-cta for what that cost. */
+    font-family: inherit; font-size: 13px; line-height: 1; font-weight: 600;
     color: rgba(255, 255, 255, .80);
     white-space: nowrap;
     border-radius: 999px;
@@ -315,7 +318,11 @@
     background: rgba(255, 255, 255, .12);
     -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
     color: #fff;
-    font: 600 12px/1 inherit; cursor: pointer;
+    /* Longhands, not the font shorthand: `inherit` is illegal as the family
+       inside it and takes the whole declaration down with it. See the note
+       on .portal-cta for what that cost. */
+    font-family: inherit; font-size: 12px; line-height: 1; font-weight: 600;
+    cursor: pointer;
     transition: background .16s ease, box-shadow .16s ease;
   }
   .portal-signout:hover {
@@ -340,7 +347,11 @@
     background: rgba(255, 255, 255, .07);
     -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
     color: rgba(255, 255, 255, .86);
-    font: 600 12px/1 inherit; cursor: pointer;
+    /* Longhands, not the font shorthand: `inherit` is illegal as the family
+       inside it and takes the whole declaration down with it. See the note
+       on .portal-cta for what that cost. */
+    font-family: inherit; font-size: 12px; line-height: 1; font-weight: 600;
+    cursor: pointer;
     transition: background .16s ease, box-shadow .16s ease,
                 border-color .16s ease, color .16s ease;
   }
@@ -434,7 +445,25 @@
     padding: 13px 26px;
     border: 1px solid transparent; border-radius: 999px;
     background: #fff; color: var(--blue-600);
-    font: 600 14px/1 inherit; cursor: pointer;
+    /* LONGHANDS, AND NOT THE font SHORTHAND, which is how this spent months
+       doing nothing at all. It read `font: 600 14px/1 inherit`, and `inherit`
+       is not a legal family INSIDE the shorthand - only as the whole value -
+       so the browser threw the entire declaration away. Nothing here was
+       applied: no size, no weight, no line-height. The three links fell back
+       to the page's 14px because an anchor inherits, and the KPI Engine
+       button fell back to the UA default, which is 13.3px ARIAL - a different
+       typeface and a different size from the three pills beside it, at weight
+       400. It passed the test next door because that one compares the
+       underline, the height and the background, and the padding happened to
+       round both to the same 45px.
+
+       BOLD, not semibold, now that a weight reaches the screen at all. Four
+       of these sit on a photographic blue hero where 600 read as a caption.
+       700 is a real weight in every family in the stack, so it is drawn
+       rather than faked by smearing the strokes, and the letter-spacing is
+       what stops bold 14px from closing up. */
+    font-family: inherit; font-size: 14px; line-height: 1; font-weight: 700;
+    letter-spacing: .012em; cursor: pointer;
     text-decoration: none;
     box-shadow: 0 6px 22px rgba(5, 20, 56, .26);
     transition: box-shadow .16s ease, transform .16s ease;
@@ -1087,7 +1116,11 @@
     background: rgba(255, 255, 255, .10);
     -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
     color: rgba(255, 255, 255, .90);
-    font: 600 12px/1 inherit; cursor: pointer;
+    /* Longhands, not the font shorthand: `inherit` is illegal as the family
+       inside it and takes the whole declaration down with it. See the note
+       on .portal-cta for what that cost. */
+    font-family: inherit; font-size: 12px; line-height: 1; font-weight: 600;
+    cursor: pointer;
     transition: background .16s ease, box-shadow .16s ease, transform .16s ease;
   }
   .portal-back:hover {

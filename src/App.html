@@ -8280,17 +8280,91 @@
    * boxes on screen, and the whole point of this screen is knowing which one
    * you are answering.
    */
+  /**
+   * ONE CARD PER PERSON - everything they have asked, gathered.
+   *
+   * The screen drew one card per QUERY, which is what the server stores and
+   * what somebody's own panel is built on: a person with three running
+   * questions wants three threads, each with its own subject and its own
+   * answer. Read from the other side it fell apart. Three cards all headed
+   * "Rudra Das (20536723)" inside a list of seven told the team nothing about
+   * who was waiting - only that a name turned up more than once - and
+   * answering one of them meant hunting for the rest.
+   *
+   * So the gathering happens HERE, on the way to the screen, and the stored
+   * threads are left exactly as they are. The card is one conversation with
+   * one person; the queries inside it keep their subjects, their order and
+   * their separate replies.
+   *
+   * VERIFIED AND UNVERIFIED NEVER GATHER TOGETHER, whatever employee ID they
+   * carry. An unverified thread came from the message box on the SIGN-IN
+   * page, where nobody is signed in, so the ID on it is only what somebody
+   * typed into a public web page. Folding one into the signed-in person's
+   * card would lend it that person's name and bury the warning halfway down a
+   * conversation that otherwise looks proven - and that is precisely the card
+   * somebody reads just before resetting a password.
+   */
+  function inboxPeople(rows) {
+    const order = [];
+    const byKey = {};
+
+    rows.forEach(function (t) {
+      const key = (t.verified ? 'V' : 'U') + ':' + t.person;
+      let group = byKey[key];
+      if (!group) {
+        group = byKey[key] = {
+          key: key, person: t.person, name: '', verified: Boolean(t.verified),
+          threads: [], waiting: 0, lastAt: ''
+        };
+        order.push(group);
+      }
+      // A NAME BELONGS TO THE PERSON, not to one of their queries, so the
+      // first one any of them carries names the card. An empty one never
+      // wins: a query sent before they typed a name should not leave the
+      // card showing a bare employee ID when another of theirs knows it.
+      if (!group.name && t.name) group.name = t.name;
+      group.threads.push(t);
+      group.waiting += Number(t.waiting) || 0;
+      if (String(t.lastAt) > String(group.lastAt)) group.lastAt = t.lastAt;
+    });
+
+    order.forEach(function (group) {
+      // Oldest query first, so the card reads in the order it happened.
+      group.threads.sort(function (a, b) {
+        return String(a.lastAt).localeCompare(String(b.lastAt));
+      });
+      // The query they spoke in last. It supplies the subject and the last
+      // line on the closed row, and it is where a reply goes unless the
+      // person answering picks another - see the note on the reply box.
+      group.newest = group.threads[group.threads.length - 1];
+    });
+
+    // Waiting first, then by the last thing said. The same ordering the
+    // server uses on the threads themselves, applied to the people.
+    return order.sort(function (a, b) {
+      if ((a.waiting > 0) !== (b.waiting > 0)) return a.waiting > 0 ? -1 : 1;
+      return String(b.lastAt).localeCompare(String(a.lastAt));
+    });
+  }
+
+
   function renderInbox(rows) {
     const list = document.getElementById('inboxList');
     if (!list) return;
 
-    const waiting = rows.filter(function (t) { return (t.waiting || 0) > 0; }).length;
-    setText('inboxCount', rows.length
-      ? rows.length + (rows.length === 1 ? ' conversation' : ' conversations') +
+    const people = inboxPeople(rows);
+    const waiting = people.filter(function (g) { return g.waiting > 0; }).length;
+    // PEOPLE, since that is what the cards are now - and the number of
+    // queries behind them as well when the two differ, because "4 people"
+    // over a screen holding seven questions is a count that looks wrong.
+    setText('inboxCount', people.length
+      ? people.length + (people.length === 1 ? ' person' : ' people') +
+        (rows.length === people.length
+          ? '' : ' \u00b7 ' + rows.length + ' queries') +
         (waiting ? ' \u00b7 ' + waiting + ' waiting' : ' \u00b7 all answered')
       : '');
 
-    if (!rows.length) {
+    if (!people.length) {
       list.innerHTML = '<p class="empty">Nothing waiting.</p>';
       return;
     }
@@ -8298,15 +8372,18 @@
     // Whichever was open before the redraw stays open. A reply redraws this
     // list, and having it snap shut the moment you answered would mean
     // reopening it to read what you just wrote.
-    const wasOpen = openThreadId;
+    const wasOpen = openPersonKey;
 
-    list.innerHTML = rows.map(function (t) {
-      const open = t.id === wasOpen;
-      const last = (t.messages || [])[(t.messages || []).length - 1];
-      const peek = last ? last.text : '';
+    list.innerHTML = people.map(function (g) {
+      const open = g.key === wasOpen;
+      const queries = g.threads.length;
+      const many = queries > 1;
+      const said = g.newest.messages || [];
+      const peek = said.length ? said[said.length - 1].text : '';
+      const ids = g.threads.map(function (t) { return t.id; }).join(',');
 
-      return '<article class="thread' + (t.verified ? '' : ' is-unverified') +
-               (open ? ' is-open' : '') + '" data-thread="' + escapeHtml(t.id) + '">' +
+      return '<article class="thread' + (g.verified ? '' : ' is-unverified') +
+               (open ? ' is-open' : '') + '" data-thread="' + escapeHtml(g.key) + '">' +
 
         '<div class="thread-row" role="button" tabindex="0" ' +
              'aria-expanded="' + (open ? 'true' : 'false') + '">' +
@@ -8315,19 +8392,25 @@
             'stroke="currentColor" stroke-width="2.2" stroke-linecap="round" ' +
             'stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>' +
           '</span>' +
-          (t.waiting ? '<span class="pill pill-wait">WAITING</span>' : '') +
+          (g.waiting ? '<span class="pill pill-wait">WAITING</span>' : '') +
           '<span class="thread-who">' +
-            escapeHtml(t.name ? t.name + ' (' + t.person + ')' : t.person) +
+            escapeHtml(g.name ? g.name + ' (' + g.person + ')' : g.person) +
           '</span>' +
           // Only the unverified mark is worth a label. "signed in" was on
           // every other card, which made it furniture - and a word that is on
           // everything is a word nobody reads on the one that matters.
-          (t.verified ? '' : '<span class="thread-warn">NOT VERIFIED</span>') +
-          (t.topic ? '<span class="q-topic">' + escapeHtml(t.topic) + '</span>' : '') +
+          (g.verified ? '' : '<span class="thread-warn">NOT VERIFIED</span>') +
+          // The subject of the query they spoke in last, and - only when
+          // there is more than one - how many are inside. The closed row says
+          // what this person is waiting on now; the rest is a click away.
+          (g.newest.topic
+            ? '<span class="q-topic">' + escapeHtml(g.newest.topic) + '</span>' : '') +
+          (many ? '<span class="thread-many">' + queries + ' queries</span>' : '') +
           '<span class="thread-peek">' + escapeHtml(peek) + '</span>' +
-          '<span class="q-when">' + escapeHtml(whenText(t.lastAt)) + '</span>' +
+          '<span class="q-when">' + escapeHtml(whenText(g.lastAt)) + '</span>' +
           (canMaster()
-            ? '<button class="thread-del" data-del="' + escapeHtml(t.id) +
+            ? '<button class="thread-del" data-del="' + escapeHtml(g.key) +
+              '" data-del-ids="' + escapeHtml(ids) +
               '" title="Delete this conversation" aria-label="Delete this conversation">' +
               '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" ' +
               'stroke="currentColor" stroke-width="2" stroke-linecap="round" ' +
@@ -8337,17 +8420,59 @@
         '</div>' +
 
         '<div class="thread-open"' + (open ? '' : ' hidden') + '>' +
-          (t.verified ? '' :
+          (g.verified ? '' :
             '<p class="thread-note">This came from the sign-in page, where nobody ' +
             'is signed in. That employee ID is only what the sender typed. Do not ' +
             'reset a password or share anything on the strength of it - ring them ' +
             'or check in SAP first. They cannot see a reply here either.</p>') +
-          '<div class="thread-body">' + bubbles(t.messages || [], true) + '</div>' +
+
+          // ONE RUN OF BUBBLES PER QUERY, oldest query at the top, with a
+          // thin rule naming each one. Merging the messages themselves into a
+          // single stream by time was the other way to do this, and it is
+          // worse: two questions asked the same afternoon come back
+          // interleaved, and an answer to one sits under a line of the other.
+          // The rule only appears when there is more than one, because with a
+          // single query its subject is already on the row above.
+          '<div class="thread-body">' +
+            g.threads.map(function (t) {
+              return (many
+                ? '<div class="thread-sub">' +
+                    '<span class="thread-sub-topic">' +
+                      escapeHtml(t.topic || 'No subject') + '</span>' +
+                    ((Number(t.waiting) || 0) > 0
+                      ? '<span class="thread-sub-wait">waiting</span>' : '') +
+                    '<span class="thread-sub-when">' +
+                      escapeHtml(whenText(t.startedAt)) + '</span>' +
+                  '</div>'
+                : '') +
+                bubbles(t.messages || [], true);
+            }).join('') +
+          '</div>' +
+
+          // WHICH QUERY THE REPLY GOES INTO, said out loud and changeable.
+          // One box for one person is the point of this card, but a reply is
+          // still a line in one conversation: it arrives in their panel under
+          // whichever question it was filed against, and the wrong one means
+          // somebody reads the answer to Tuesday's problem underneath
+          // Thursday's. It defaults to the query they spoke in last, which is
+          // the one being read here.
+          (many
+            ? '<label class="reply-into">Reply to' +
+                '<select data-reply-into="' + escapeHtml(g.key) + '">' +
+                  g.threads.slice().reverse().map(function (t) {
+                    return '<option value="' + escapeHtml(t.id) + '">' +
+                      escapeHtml(t.topic || 'No subject') + '</option>';
+                  }).join('') +
+                '</select>' +
+              '</label>'
+            : '<input type="hidden" data-reply-into="' + escapeHtml(g.key) +
+              '" value="' + escapeHtml(g.newest.id) + '">') +
+
           '<div class="q-reply">' +
-            '<textarea rows="2" data-reply="' + escapeHtml(t.id) +
-              '" placeholder="Reply' + (t.verified ? '' : ' (they will not see it)') +
+            '<textarea rows="2" data-reply="' + escapeHtml(g.key) +
+              '" placeholder="Reply' + (g.verified ? '' : ' (they will not see it)') +
               '\u2026"></textarea>' +
-            '<button class="btn btn-primary" data-reply-go="' + escapeHtml(t.id) +
+            '<button class="btn btn-primary" data-reply-go="' + escapeHtml(g.key) +
               '">Reply</button>' +
           '</div>' +
         '</div>' +
@@ -8360,8 +8485,12 @@
   }
 
 
-  /** Which conversation is open, so a redraw does not close it. */
-  let openThreadId = '';
+  /**
+   * Which card is open, so a redraw does not close it. A person's key, not a
+   * thread id - the card is one conversation with one person, and replying
+   * into one of their queries redraws this whole list.
+   */
+  let openPersonKey = '';
 
 
   function wireThreadRows() {
@@ -8385,11 +8514,11 @@
   }
 
 
-  function toggleThread(id) {
-    openThreadId = (openThreadId === id) ? '' : id;
+  function toggleThread(key) {
+    openPersonKey = (openPersonKey === key) ? '' : key;
 
     document.querySelectorAll('#inboxList .thread').forEach(function (card) {
-      const isOpen = card.getAttribute('data-thread') === openThreadId;
+      const isOpen = card.getAttribute('data-thread') === openPersonKey;
       card.classList.toggle('is-open', isOpen);
       const body = card.querySelector('.thread-open');
       if (body) body.hidden = !isOpen;
@@ -8444,8 +8573,14 @@
   function wireReplyButtons() {
     document.querySelectorAll('[data-reply-go]').forEach(function (button) {
       button.addEventListener('click', function () {
-        const id = button.getAttribute('data-reply-go');
-        const box = document.querySelector('[data-reply="' + id + '"]');
+        // THE CARD IS A PERSON; THE REPLY IS A LINE IN ONE OF THEIR QUERIES.
+        // So the button carries the person's key, and the thread the reply
+        // goes into is read off the card - the picker when they have several
+        // queries, a hidden field holding the only one when they do not.
+        const key = button.getAttribute('data-reply-go');
+        const box = document.querySelector('[data-reply="' + key + '"]');
+        const into = document.querySelector('[data-reply-into="' + key + '"]');
+        const id = into ? into.value : key;
         const text = box ? box.value.trim() : '';
         if (!text) { if (box) box.focus(); return; }
 
@@ -8487,11 +8622,17 @@
   function wireDeleteButtons() {
     document.querySelectorAll('[data-del]').forEach(function (button) {
       button.addEventListener('click', function () {
-        const id = button.getAttribute('data-del');
+        const key = button.getAttribute('data-del');
+        // EVERY QUERY ON THE CARD, because the card is the conversation now.
+        // A bin that took away one of three and left two behind would be a
+        // control whose effect you cannot see from the thing you pressed.
+        const ids = (button.getAttribute('data-del-ids') || '')
+          .split(',').filter(function (s) { return s; });
         const card = button.closest('.thread');
         const whoWith = card
-          ? (card.querySelector('.thread-who') || {}).textContent || id : id;
+          ? (card.querySelector('.thread-who') || {}).textContent || key : key;
         const lines = card ? card.querySelectorAll('.bubble').length : 0;
+        const count = ids.length;
 
         confirmDialog({
           title: 'Delete this conversation?',
@@ -8499,16 +8640,27 @@
           target:
             '<span class="modal-target"><b>' + escapeHtml(whoWith) + '</b>' +
             '<span>' + lines + ' message' + (lines === 1 ? '' : 's') +
+            (count > 1 ? ' across ' + count + ' queries' : '') +
             '</span></span>',
           body:
             '<p>The whole conversation goes, both sides of it, and it ' +
             '<strong>cannot be brought back</strong>.</p>' +
+            (count > 1
+              ? '<p>That is <strong>all ' + count + ' of their queries</strong>, ' +
+                'not only the one you can see at the top.</p>'
+              : '') +
             '<p>It disappears from their message panel too, so anything they ' +
             'were told here goes with it.</p>',
           confirmLabel: 'Delete it'
         }).then(function (yes) {
           if (!yes) return;
-          callServer('deleteThread', id)
+          // One at a time rather than all at once: each call writes to the
+          // same two tabs, and the server takes a lock per call.
+          ids.reduce(function (chain, id) {
+            return chain.then(function () {
+              return callServer('deleteThread', id);
+            });
+          }, Promise.resolve())
             .then(function (result) {
               // The refresh FIRST. It is the part that matters, and the
               // confirmation is the part that is only ever decoration -
@@ -8517,7 +8669,11 @@
               loadInbox();
               toast((result && result.message) || 'Deleted.');
             })
-            .catch(onError);
+            // And the refresh on the way out too. A run that deleted two of
+            // three and then threw has changed the screen, and leaving the
+            // old three on it under an error would be a lie about what is
+            // still there.
+            .catch(function (err) { loadInbox(); onError(err); });
         });
       });
     });

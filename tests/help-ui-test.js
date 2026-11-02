@@ -90,10 +90,73 @@ const FILE = 'file://' + PAGE;
 
   const cards = await p.$$eval('#inboxList .thread', (ns) => ns.map((n) => ({
     unverified: n.classList.contains('is-unverified'),
+    who: (n.querySelector('.thread-who') || {}).textContent || '',
+    many: (n.querySelector('.thread-many') || {}).textContent || '',
+    topic: (n.querySelector('.q-topic') || {}).textContent || '',
+    peek: (n.querySelector('.thread-peek') || {}).textContent || '',
+    subs: Array.from(n.querySelectorAll('.thread-sub-topic'))
+               .map((s) => s.textContent),
     text: n.textContent
   })));
-  check('every conversation is on the screen', cards.length === 4,
-    cards.length + ' of 4');
+
+  // -------------------------------------------------------------------------
+  // ONE CARD PER PERSON
+  // -------------------------------------------------------------------------
+  // The fixture holds four queries from three people - one of them asked
+  // twice. The screen drew four cards, two of them under the same name, which
+  // told the team that a name had come up twice and nothing else: nobody
+  // could see at a glance how many people were waiting, and answering one of
+  // somebody's questions meant hunting the list for the rest.
+  check('one card per person, not one per query', cards.length === 3,
+    cards.length + ' cards for 4 queries from 3 people');
+  const names = cards.map((c) => c.who);
+  check('so nobody appears on the screen twice',
+    new Set(names).size === names.length, names.join(' | '));
+
+  const headNote = await p.$eval('#inboxCount', (el) => el.textContent.trim());
+  check('and the count says people, and the queries behind them',
+    /3 people/.test(headNote) && /4 queries/.test(headNote),
+    headNote + ' - "3 people" alone reads as a wrong number over 4 questions');
+
+  const mine = cards.filter((c) => /Rudra Das/.test(c.who))[0] ||
+               { text: '', subs: [], many: '' };
+  check('both of that person\'s queries are inside the one card',
+    /September export/.test(mine.text) && /affiliate-wise table/.test(mine.text),
+    'gathered on the way to the screen - the stored threads are untouched');
+  check('each keeping its own subject, oldest first',
+    mine.subs.length === 2 && mine.subs[0] === 'September export' &&
+    mine.subs[1] === 'Affiliate table',
+    mine.subs.join(' then ') || 'no subjects inside');
+  check('and the closed row says how many are in there',
+    /2 queries/.test(mine.many), mine.many || '(nothing)');
+  // WHICH OF THE TWO THE ROW SPEAKS FOR. A gathered card still has to be
+  // triageable without opening it, and what somebody needs to see there is
+  // the question they are waiting on NOW - not the first one they ever
+  // asked, with an answer already underneath it.
+  check('and speaks for the query they spoke in last, not their first ever',
+    mine.topic === 'Affiliate table' && /No rush on it/.test(mine.peek),
+    mine.topic + ' - "' + mine.peek + '"');
+  check('while a person with one query gets no such count',
+    cards.filter((c) => c.many).length === 1,
+    'a "1 query" chip on every other row is furniture');
+
+  // WHERE A REPLY LANDS. One box for one person is the point of the card, but
+  // a reply is still a line in one query: it reaches their panel filed under
+  // whichever question it was sent against, and the wrong one means they read
+  // the answer to Tuesday's problem underneath Thursday's.
+  const pickers = await p.$$eval('#inboxList [data-reply-into]',
+    (ns) => ns.map((n) => ({
+      tag: n.tagName,
+      options: n.tagName === 'SELECT'
+        ? Array.from(n.options).map((o) => o.textContent) : []
+    })));
+  const picker = pickers.filter((n) => n.tag === 'SELECT')[0] || { options: [] };
+  check('a card with several queries asks which one a reply goes into',
+    pickers.filter((n) => n.tag === 'SELECT').length === 1 &&
+    picker.options.length === 2,
+    pickers.map((n) => n.tag).join(', '));
+  check('and offers the one they spoke in last first, as the default',
+    picker.options[0] === 'Affiliate table', picker.options.join(' then '));
 
   // -------------------------------------------------------------------------
   // a stack, not a wall
@@ -194,6 +257,15 @@ const FILE = 'file://' + PAGE;
     const after = await p.$eval('#inboxList', (el) => el.textContent);
     check('replying adds it to the conversation without a reload',
       /filed under <Sales> & re-run/.test(after), 'and it reads as typed');
+    // UNDER THE RIGHT QUESTION. The card holds two queries, drawn oldest
+    // first, so a reply filed against the newer one has to appear after that
+    // subject - and a reply that went into the older one would land above it.
+    const where = await p.$eval('#inboxList .thread.is-open',
+                                (el) => el.textContent);
+    check('and it lands under the query it was sent against',
+      where.indexOf('Affiliate table') !== -1 &&
+      where.indexOf('filed under <Sales>') > where.indexOf('Affiliate table'),
+      'not above it, under the question it does not answer');
     check('and an admin\'s own words are escaped too',
       (await p.evaluate(() => window.__owned2 === 1)) === false &&
       (await p.$eval('#inboxList', (el) => el.innerHTML)).indexOf('<img src=y') === -1,
@@ -226,14 +298,17 @@ const FILE = 'file://' + PAGE;
   // deleting a conversation
   // -------------------------------------------------------------------------
   const delButtons = await p.$$eval('[data-del]', (ns) => ns.length);
-  check('every conversation has a delete control for a MASTER',
-    delButtons === 4, delButtons + ' of 4');
+  check('every card has a delete control for a MASTER',
+    delButtons === 3, delButtons + ' of 3');
   check('which is quiet until the card is wanted',
     await p.$eval('[data-del]', (el) => Number(getComputedStyle(el).opacity) === 0),
     'the one control here that destroys something should not lead the eye');
 
+  // The unverified card, named rather than "the first bin on the screen" -
+  // which card comes first depends on who is waiting, and that changes the
+  // moment anything above gets answered.
   const cardsBefore = await p.$$eval('#inboxList .thread', (ns) => ns.length);
-  await p.$eval('[data-del]', (el) => el.click());
+  await p.$eval('#inboxList .thread.is-unverified [data-del]', (el) => el.click());
   await p.waitForTimeout(400);
 
   check('it asks before deleting anything',
@@ -284,6 +359,7 @@ const FILE = 'file://' + PAGE;
   check('and no error banner anywhere near it',
     await p.$eval('#errorBox', (el) => el.hidden),
     await p.$eval('#errorText', (el) => el.textContent) || 'clean');
+
 
   // -------------------------------------------------------------------------
   // THE ONE THAT MATTERS: a message is data, not markup
@@ -473,12 +549,92 @@ const FILE = 'file://' + PAGE;
   p = await open('?view=help&role=ADMIN');
 
   check('an admin still gets the inbox and can reply',
-    (await p.$$eval('#inboxList .thread', (n) => n.length)) === 4 &&
-    (await p.$$eval('#inboxList [data-reply-go]', (n) => n.length)) === 4,
+    (await p.$$eval('#inboxList .thread', (n) => n.length)) === 3 &&
+    (await p.$$eval('#inboxList [data-reply-go]', (n) => n.length)) === 3,
     'answering queries is the job');
   check('but is offered no delete control at all',
     (await p.$$eval('#inboxList [data-del]', (n) => n.length)) === 0,
     'it destroys the conversation for the person who wrote it too');
+
+  // -------------------------------------------------------------------------
+  // DELETING A CARD TAKES EVERY QUERY ON IT
+  // -------------------------------------------------------------------------
+  // The bin sits on a card that can hold several conversations. One that took
+  // away the query showing at the top and left the others behind would be a
+  // control whose effect you cannot see from the thing you pressed - the card
+  // would simply come back with one fewer question inside it.
+  //
+  // On a page of its own, because it is the only assertion here that wants
+  // the signed-in person's conversations gone: everything above reads them.
+  await p.close();
+  p = await open('?view=help');
+
+  const multiKey = await p.$$eval('#inboxList .thread', (ns) => {
+    const n = ns.filter((x) => x.querySelector('.thread-many'))[0];
+    return n ? n.getAttribute('data-thread') : '';
+  });
+  check('the card holding two queries carries one bin, not two',
+    Boolean(multiKey) &&
+    (await p.$$eval('#inboxList .thread-many',
+      (ns) => ns[0].closest('.thread').querySelectorAll('[data-del]').length)) === 1,
+    multiKey || '(no multi-query card)');
+
+  const beforeMulti = await p.$$eval('#inboxList .thread', (ns) => ns.length);
+  await p.$eval('#inboxList .thread-many',
+                (el) => el.closest('.thread').querySelector('[data-del]').click());
+  await p.waitForTimeout(400);
+  const askedMulti = await p.$eval('#modal', (el) => el.textContent);
+  check('and it warns that this is all of their queries, not just the top one',
+    /all 2 of their queries/.test(askedMulti),
+    'the one thing somebody pressing this cannot see for themselves');
+
+  await p.$eval('#modalGo, #modal .btn-danger, #modal button:last-of-type',
+                (el) => el.click());
+  await p.waitForTimeout(1400);
+  const left = await p.$$eval('#inboxList .thread',
+                              (ns) => ns.map((n) => n.getAttribute('data-thread')));
+  check('and both of them go, in one press',
+    left.length === beforeMulti - 1 && left.indexOf(multiKey) === -1,
+    left.join(', ') + ' left - deleting one would leave the card standing');
+  check('with no error on the way through either call',
+    await p.$eval('#errorBox', (el) => el.hidden),
+    await p.$eval('#errorText', (el) => el.textContent) || 'clean');
+
+  // -------------------------------------------------------------------------
+  // VERIFIED AND UNVERIFIED NEVER GATHER INTO ONE CARD
+  // -------------------------------------------------------------------------
+  // Gathering by person is a convenience. Gathering by person ALONE would be
+  // a hole, and a bad one: anybody can type a colleague's employee ID into
+  // the message box on the sign-in page, and folding that message into the
+  // colleague's card would lend it their name, their history of proven
+  // questions, and the absence of a warning - on precisely the card somebody
+  // reads just before resetting a password.
+  await p.close();
+  p = await open('?view=help&impostor=1');
+
+  const claimed = await p.$$eval('#inboxList .thread', (ns) => ns
+    .filter((n) => /20000000/.test((n.querySelector('.thread-who') || {}).textContent || ''))
+    .map((n) => ({
+      unverified: n.classList.contains('is-unverified'),
+      who: (n.querySelector('.thread-who') || {}).textContent || '',
+      text: n.textContent
+    })));
+
+  check('a sign-in-page message claiming a real employee ID gets its own card',
+    claimed.length === 2 && claimed.filter((c) => c.unverified).length === 1,
+    claimed.length + ' cards for that ID, ' +
+      claimed.filter((c) => c.unverified).length + ' of them unverified');
+
+  const borrowed = claimed.filter((c) => c.unverified)[0] || { who: '', text: '' };
+  check('and it does not borrow the name sitting on the proven one',
+    !/Rudra Das/.test(borrowed.who), borrowed.who || '(no card)');
+  check('and keeps the warning a merged card would have buried',
+    /NOT VERIFIED/.test(borrowed.text) && /Do not reset a password/.test(borrowed.text),
+    'the moment it matters is the moment this card is open');
+  check('and the proven card does not carry the stranger\'s words',
+    !/reset my password/.test(
+      (claimed.filter((c) => !c.unverified)[0] || { text: '' }).text),
+    'a password request inside a signed-in history reads as that person\'s');
 
   // -------------------------------------------------------------------------
   // a viewer

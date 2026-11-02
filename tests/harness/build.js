@@ -268,6 +268,11 @@ const stub = `
   // What the signed-in person's ACCOUNT says they are called, and the switch
   // for the one case that still has to be asked.
   var NO_NAME = new URLSearchParams(location.search).get('noname') === '1';
+  // ?impostor=1 adds a sign-in-page message carrying the signed-in person's
+  // own employee ID. Nobody proved anything to send it, and the inbox must
+  // not gather it into that person's card. Off by default, so every other
+  // assertion in the suites keeps the four conversations it was written for.
+  var IMPOSTOR = new URLSearchParams(location.search).get('impostor') === '1';
   // ?signups=closed drives the sign-in page with the door shut.
   var SIGNUPS_OPEN =
     new URLSearchParams(location.search).get('signups') !== 'closed';
@@ -327,6 +332,18 @@ const stub = `
           by: 'Pritam Saha (20990014)',
           text: 'Sent it to you just now.' } ] }
   ];
+
+  // The claimed-ID message, only when asked for. No name on it: nobody typed
+  // one, and the point of the test it serves is that the card must not borrow
+  // the name sitting on the proven conversation with the same employee ID.
+  if (IMPOSTOR) {
+    THREADS.push(
+      { id: 'T9', person: ME, name: '', verified: false, topic: '',
+        startedAt: '2026-08-04T06:00:00.000Z', lastAt: '2026-08-04T06:00:00.000Z',
+        lastBy: 'USER', status: 'OPEN', waiting: 1,
+        messages: [ { id: 'M9', at: '2026-08-04T06:00:00.000Z', side: 'USER',
+                      text: 'Hi, this is Rudra - please reset my password.' } ] });
+  }
 
   // Every query of this person's, newest activity first. The panel lists these
   // and opens one; the single-thread version it replaced could not show that a

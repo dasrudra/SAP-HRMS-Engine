@@ -1566,6 +1566,54 @@
   .thread-who { font-size: 13px; font-weight: 700; color: var(--navy-700); }
   .thread-ok { font-size: 11px; color: var(--text-mut); }
   .q-topic { font-size: 12px; font-weight: 650; color: var(--navy-700); }
+
+  /* How many queries are inside this person's card. Only drawn when there is
+     more than one, so it reads as information rather than as a "1" on every
+     row - and quiet, because the row is already carrying a name, a subject
+     and the last thing said. */
+  .thread-many {
+    flex: none; font-size: 10.5px; font-weight: 700; letter-spacing: .04em;
+    text-transform: uppercase; color: var(--blue-600);
+    background: var(--blue-050); border: 1px solid var(--border-str);
+    padding: 2px 7px; border-radius: 5px;
+  }
+
+  /* The rule between two queries inside one card. A hairline and a subject:
+     enough to see where one question ends and the next begins, without
+     turning the card back into the list of cards it replaced. */
+  .thread-sub {
+    display: flex; align-items: center; gap: 8px;
+    margin: 2px 0 9px; padding-top: 10px;
+    border-top: 1px solid var(--border);
+  }
+  .thread-body > .thread-sub:first-child { padding-top: 2px; border-top: 0; }
+  .thread-sub-topic {
+    font-size: 11.5px; font-weight: 700; letter-spacing: .02em;
+    color: var(--navy-700);
+  }
+  .thread-sub-wait {
+    font-size: 10px; font-weight: 700; letter-spacing: .06em;
+    text-transform: uppercase;
+    background: var(--amber-bg); color: var(--amber-ink);
+    padding: 1px 6px; border-radius: 5px;
+  }
+  .thread-sub-when { font-size: 11px; color: var(--text-mut); }
+
+  /* Which query a reply lands in. On its own line above the box, because it
+     is a decision about where the words go and not an ornament on the box. */
+  .reply-into {
+    display: flex; align-items: center; gap: 8px; margin: 0 0 8px;
+    font-size: 11.5px; font-weight: 600; color: var(--text-mut);
+  }
+  .reply-into select {
+    font-family: inherit; font-size: 12px; font-weight: 650;
+    color: var(--navy-700); background: var(--surface);
+    border: 1px solid var(--border-str); border-radius: 7px;
+    padding: 4px 8px; max-width: 260px; cursor: pointer;
+  }
+  .reply-into select:focus-visible {
+    outline: 2px solid var(--blue-500); outline-offset: 1px;
+  }
   .q-when { font-size: 11.5px; color: var(--text-mut); flex: none; }
   .pill-wait {
     background: var(--amber-bg); color: var(--amber-ink);
@@ -1671,7 +1719,11 @@
     border: 1px solid rgba(255, 255, 255, .22); border-radius: 999px;
     background: rgba(255, 255, 255, .07);
     color: rgba(255, 255, 255, .86);
-    font: 600 11.5px/1 inherit; cursor: pointer;
+    /* Longhands, not the font shorthand: `inherit` is illegal as the family
+       inside it and takes the whole declaration down with it. See the note
+       on .portal-cta for what that cost. */
+    font-family: inherit; font-size: 11.5px; line-height: 1; font-weight: 600;
+    cursor: pointer;
     transition: background .15s ease, color .15s ease, transform .15s ease;
   }
   .back-btn:hover {
@@ -2907,7 +2959,12 @@
     backdrop-filter: blur(14px) saturate(150%);
     box-shadow: 0 8px 22px rgba(6, 22, 60, .30),
                 inset 0 1px 0 rgba(255, 255, 255, .28);
-    color: #fff; font: 600 12.5px/1 inherit; cursor: pointer;
+    color: #fff;
+    /* Longhands, not the font shorthand: `inherit` is illegal as the family
+       inside it and takes the whole declaration down with it. See the note
+       on .portal-cta for what that cost. */
+    font-family: inherit; font-size: 12.5px; line-height: 1; font-weight: 600;
+    cursor: pointer;
     white-space: nowrap;
     transition: background .15s ease, transform .15s ease, box-shadow .15s ease;
   }
