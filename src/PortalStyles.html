@@ -406,6 +406,13 @@
   }
 
   .portal-hero-actions { display: flex; justify-content: center; gap: 12px; flex-wrap: wrap; }
+  /*
+    The second line of buttons. Its own row rather than four buttons wrapping
+    in one, because wrapping would put three on the first line and one alone
+    on the second at most widths - and which two sit together is the point:
+    the pair above are the two systems this portal is about.
+  */
+  .portal-hero-actions.is-more { margin-top: 12px; }
 
   /*
     Both hero buttons wear this, and one of them is an anchor because it

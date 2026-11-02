@@ -1433,6 +1433,50 @@ function getSpreadsheetId() {
 
 
 /**
+ * Every system the portal links out to, in the order the Links page shows
+ * them.
+ *
+ * A FUNCTION RATHER THAN A CONFIG KEY because the first entry's address is
+ * CONFIG.SAP_APP_URL, and an object literal cannot refer to itself while it
+ * is being built. Keeping that one in SAP_APP_URL matters: it is the
+ * address the KPI engine's own sidebar uses too, so there is one place to
+ * correct it rather than two that can disagree.
+ *
+ * `hero` is the label for the button on the front page, and `row` is which
+ * line of buttons it belongs on - 1 sits beside Open the KPI Engine, 2 goes
+ * underneath. A link with no `hero` appears on the Links page only, which
+ * is most of them: the front page is not a menu of everything.
+ *
+ * An entry with no address is dropped rather than drawn as a dead button.
+ *
+ * @return {Array<{name: string, url: string, hero: string, row: number}>}
+ */
+function portalLinks() {
+  return [
+    { name: 'SAP & HRMS UserHub',
+      url: CONFIG.SAP_APP_URL,
+      hero: 'Open SAP UserHub', row: 1 },
+
+    { name: 'RMG PA Report',
+      url: 'https://rmg-pa.blogspot.com/',
+      hero: 'Open RMG PA Report', row: 2 },
+
+    { name: 'Groupware & ITSM',
+      url: 'https://gw2.youngone.com/covicore/login.do',
+      hero: 'Open Groupware & ITSM', row: 2 },
+
+    // Links-page only. Both are reference rather than daily work, and four
+    // buttons under the headline is already the most a front page can say
+    // without becoming a menu.
+    { name: 'YO PABX', url: 'https://www.youngonectg.com/' },
+
+    { name: 'Tekvision', url: 'https://www.tekvision.com.bd/home' }
+
+  ].filter(function (link) { return link && link.url; });
+}
+
+
+/**
  * The three SLA layers, worked out from the KPIs rather than written down.
  *
  * THE LAYERS ARE ALREADY IN THIS FILE. Every KPI above carries the layer it

@@ -674,6 +674,96 @@ const FILE = 'file://' + PAGE;
     'still on Links; without the guard this lands on Home');
   await hero.close();
 
+  // ---------------------------------------------------------------------------
+  // the rest of the links, and the second row of buttons
+  // ---------------------------------------------------------------------------
+  // Both the Links page and the hero are drawn from portalLinks() in
+  // Config.gs, so what is asserted here is that the page matches the list -
+  // not that it matches five addresses typed into a test, which would have
+  // to be corrected every time a sixth is added.
+  {
+    const q = await open();
+    await q.waitForTimeout(900);
+
+    const wanted = await q.evaluate(() => window.__EAS_LINKS__ || []);
+    check('(fixture check) the page was handed a list to draw from',
+      wanted.length >= 5, wanted.length + ' links');
+
+    // ---- the hero ----
+    const buttons = await q.evaluate(() => {
+      const rows = Array.from(document.querySelectorAll('.portal-hero-actions'))
+        .filter((r) => !r.hidden);
+      return rows.map((row) => Array.from(row.children).map((el) => ({
+        tag: el.tagName,
+        text: el.textContent.trim(),
+        href: el.getAttribute('href'),
+        target: el.getAttribute('target'),
+        rel: el.getAttribute('rel'),
+        view: el.getAttribute('data-view')
+      })));
+    });
+
+    check('the hero has two rows of two',
+      buttons.length === 2 && buttons[0].length === 2 && buttons[1].length === 2,
+      buttons.map((r) => r.length).join(' + '));
+
+    check('the first row is the KPI Engine and the SAP UserHub',
+      buttons[0][0].text === 'Open the KPI Engine' &&
+      buttons[0][1].text === 'Open SAP UserHub',
+      buttons[0].map((x) => x.text).join(' | '));
+
+    const wantSecond = wanted.filter((l) => l.hero && Number(l.row) !== 1);
+    check('and the second row is every other hero link in Config.gs',
+      JSON.stringify(buttons[1].map((x) => x.text)) ===
+        JSON.stringify(wantSecond.map((l) => l.hero)) &&
+      JSON.stringify(buttons[1].map((x) => x.href)) ===
+        JSON.stringify(wantSecond.map((l) => l.url)),
+      buttons[1].map((x) => x.text).join(' | '));
+
+    // EVERY ONE OF THEM, not just the one that was there first. This page
+    // runs inside the Apps Script sandbox iframe, where a same-frame
+    // navigation to another origin is refused outright - so a link missing
+    // target="_blank" does not open in the wrong place, it does nothing at
+    // all. And a .portal-cta carrying a data-view would change the screen
+    // behind the tab it just opened.
+    const outward = buttons.reduce((all, r) => all.concat(r), [])
+      .filter((x) => x.tag === 'A');
+    const unsafe = outward.filter((x) =>
+      x.target !== '_blank' || !/noopener/.test(x.rel || '') || x.view !== null);
+    check('every hero link opens in a new tab and carries no data-view',
+      outward.length === 3 && unsafe.length === 0,
+      outward.length + ' links, ' + unsafe.length + ' of them wrong');
+
+    // ---- the Links page ----
+    await q.click('.portal-tab[data-view="links"]');
+    await q.waitForTimeout(700);
+
+    const cards = await q.$$eval('#linksBody .link-card', (ns) => ns.map((a) => ({
+      name: a.querySelector('.link-card-text strong').textContent.trim(),
+      href: a.getAttribute('href'),
+      target: a.getAttribute('target'),
+      rel: a.getAttribute('rel')
+    })));
+
+    check('the Links page lists every link in Config.gs, in order',
+      JSON.stringify(cards.map((c) => c.name)) ===
+        JSON.stringify(wanted.map((l) => l.name)),
+      cards.map((c) => c.name).join(' | '));
+
+    check('and each one points where Config.gs says',
+      JSON.stringify(cards.map((c) => c.href)) ===
+        JSON.stringify(wanted.map((l) => l.url)),
+      cards.length + ' addresses');
+
+    check('every card opens in a new tab, with opener and referrer closed off',
+      cards.length > 0 && cards.every((c) =>
+        c.target === '_blank' && /noopener/.test(c.rel || '') &&
+        /noreferrer/.test(c.rel || '')),
+      cards.filter((c) => c.target !== '_blank').length + ' without target');
+
+    await q.close();
+  }
+
   check('no JS errors across the whole run', errors.length === 0, errors.slice(0, 3).join(' | '));
 
   await b.close();

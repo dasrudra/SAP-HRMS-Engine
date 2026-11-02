@@ -56,6 +56,35 @@ const CONFIG = vm.runInContext('CONFIG', box);
 const PORTFOLIO = CONFIG.PORTFOLIO;
 const PARTNERS = CONFIG.PARTNERS;
 
+// ---------------------------------------------------------------------------
+// the links list, before any browser is involved
+// ---------------------------------------------------------------------------
+// portalLinks() builds its first entry from CONFIG.SAP_APP_URL, which is a
+// setting and can legitimately be empty - it is empty on a fresh install,
+// before anybody has pointed the portal at a UserHub. An entry with no
+// address must be dropped rather than drawn, because a link-shaped thing
+// that goes nowhere is something people press once and then distrust.
+{
+  const links = vm.runInContext('portalLinks()', box);
+  check('every link in the list has somewhere to go',
+    links.length > 0 && links.every((l) => l.name && l.url),
+    links.length + ' links, all addressed');
+
+  const blanked = vm.runInContext(
+    '(function () { var was = CONFIG.SAP_APP_URL; CONFIG.SAP_APP_URL = "";' +
+    ' var got = portalLinks(); CONFIG.SAP_APP_URL = was; return got; })()', box);
+  check('and an unset address drops its link rather than drawing a dead one',
+    blanked.length === links.length - 1 &&
+    !blanked.some((l) => l.name === 'SAP & HRMS UserHub'),
+    blanked.length + ' links left when SAP_APP_URL is empty');
+
+  // Row 1 is the pair beside Open the KPI Engine. Exactly one, because the
+  // markup has exactly one anchor there.
+  const row1 = links.filter((l) => l.hero && Number(l.row) === 1);
+  check('exactly one hero link belongs on the first row',
+    row1.length === 1, row1.map((l) => l.name).join(', ') || 'none');
+}
+
 const FILE = 'file://' + PAGE;
 
 (async () => {

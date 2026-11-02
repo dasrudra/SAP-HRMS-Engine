@@ -190,13 +190,23 @@
           <!--
             An anchor, not a button, and carrying NO data-view: it leaves the
             app. wireNavigation() skips anything without one, so this cannot
-            quietly change the screen behind the tab it opens. The address is
-            filled in by App.html from window.__EAS_SAP_URL__, for the same
-            reason the Links page is drawn rather than written.
+            quietly change the screen behind the tab it opens. The address
+            and the label are filled in by App.html from portalLinks(), the
+            same list the Links page is drawn from - so a system added there
+            can be put on the front page by giving it a `hero` label and
+            nothing else has to change.
           -->
           <a class="portal-cta" id="heroSapLink"
              target="_blank" rel="noopener noreferrer" hidden>Open SAP UserHub</a>
         </div>
+
+        <!--
+          The second line of buttons. Empty and hidden until there is
+          something to put on it, because an empty row still takes its
+          margin and leaves a gap under the first two that reads as a
+          rendering fault.
+        -->
+        <div class="portal-hero-actions is-more" id="heroMore" hidden></div>
       </div>
 
       <!--

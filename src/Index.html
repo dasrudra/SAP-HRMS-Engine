@@ -1623,7 +1623,15 @@
   // The tag is described in words rather than typed out, because a literal one
   // inside a comment is still a scriptlet to the templating engine - it is
   // invisible to a reader of the page and not at all invisible to Apps Script.
-  window.__EAS_SAP_URL__ = '<?= CONFIG.SAP_APP_URL ?>';
+  // Every system the portal links out to. The Links page and the buttons
+  // under the headline are both drawn from this one list, so a system
+  // added to portalLinks() in Config.gs appears in both without anything
+  // here changing.
+  //
+  // It replaces __EAS_SAP_URL__, which carried one address because there
+  // was only ever one. Nothing reads that global now, so it is gone rather
+  // than left behind for somebody to wire a sixth link to.
+  window.__EAS_LINKS__ = <?!= jsonAscii(portalLinks()) ?>;
 
   // The wording for About us and Partners, by the same route and for the
   // same reason. These are objects rather than one string, so they travel as
