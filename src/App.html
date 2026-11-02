@@ -7135,6 +7135,23 @@
       .then(function (rows) {
         state.master.accounts = rows || [];
         renderMasterAccounts();
+
+        /*
+          AND EVERYTHING ELSE THAT IS DRAWN FROM THIS LIST.
+
+          Three calls leave this function at once and they do not come back
+          in the order they went out. Two of the three things on this
+          screen read the accounts - the count beside the sign-ups switch,
+          and the Name column in the log - and both were painted by calls
+          that answer sooner. The counter said "0 of 37" over a table of
+          thirteen; the log said "not given" against every row.
+
+          Whichever call lands last is the one that has to repaint, so this
+          one repaints both. The other two are harmless if they run first -
+          they simply draw again.
+        */
+        renderSignupSwitch();
+        renderMasterLog();
       })
       .catch(onError);
 
@@ -7160,6 +7177,29 @@
    * it, and the master would have no idea why.
    */
   function renderSignupSwitch(open) {
+    /*
+      IT SAID "0 of 37 SIGNED UP" WITH THIRTEEN ACCOUNTS ON SCREEN.
+
+      Three calls leave loadMaster() at once and this was painted by
+      whichever of them answered - signupsAreOpen, which reads one script
+      property. masterListAccounts reads a sheet, so it is always slower,
+      and this ran against an accounts list that was still empty. Nothing
+      painted it again afterwards, so the nought stayed there.
+
+      Both halves now call in: signupsAreOpen passes the switch state and it
+      is remembered, the accounts call passes nothing and only refreshes the
+      count. Either order works, and neither needs the other to have
+      finished.
+    */
+    if (open !== undefined && open !== null) {
+      state.master.signupsKnown = true;
+      state.master.signupsOpen = Boolean(open);
+    }
+    // Nothing to say until the switch state is known - drawing "Closed"
+    // on the way to "Open" is a worse answer than drawing nothing.
+    if (!state.master || !state.master.signupsKnown) return;
+
+    const isOpen = Boolean(state.master.signupsOpen);
     const state2 = document.getElementById('signupState');
     const note = document.getElementById('signupNote');
     const button = document.getElementById('signupToggle');
@@ -7169,23 +7209,23 @@
     const target = (state.boot && state.boot.teamSize) || 0;
 
     if (state2) {
-      state2.textContent = open ? 'Open' : 'Closed';
-      state2.className = 'signup-state ' + (open ? 'is-open' : 'is-shut');
+      state2.textContent = isOpen ? 'Open' : 'Closed';
+      state2.className = 'signup-state ' + (isOpen ? 'is-open' : 'is-shut');
     }
     if (note) {
       // SHORT ENOUGH TO SIT BESIDE THE BUTTON. This row already carries two
       // fields and a button; a sentence of advice here pushed the whole
       // control onto a line of its own and left a gap where it had been.
       // What is useful every time is the count - the advice is read once.
-      note.textContent = open
+      note.textContent = isOpen
         ? (target ? real + ' of ' + target + ' signed up' : real + ' signed up')
         : 'Only an employee ID you add above';
     }
     if (button) {
       button.disabled = false;
-      button.textContent = open ? 'Close sign-ups' : 'Open sign-ups';
-      button.className = 'btn ' + (open ? 'btn-danger-ghost' : 'btn-primary');
-      button.dataset.open = open ? '1' : '';
+      button.textContent = isOpen ? 'Close sign-ups' : 'Open sign-ups';
+      button.className = 'btn ' + (isOpen ? 'btn-danger-ghost' : 'btn-primary');
+      button.dataset.open = isOpen ? '1' : '';
     }
   }
 

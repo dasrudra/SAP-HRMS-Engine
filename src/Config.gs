@@ -149,34 +149,37 @@ const CONFIG = {
     'Manufacturing Applications': [
       'Pradip Kumar Nath',            // section head
       'Shamsul Arefin',
-      'Palash Kusum Nandi',
+      'Palash Kusum Nandi',           // the chart writes this one 'Kushum'
       'Md.Jafar Ullah',
+      'Asma Akter',
       'Md. Rahim Ullah',
       'Mohammad Mamunur Rashid',
       'Rudra Das',
-      'Asma Akter',
       'Md. Sajjad Hossain Shuvo'
     ],
     'Sales Applications': [
       'Muhammad Abul Masum Siddique', // section head
-      'Lincoln Barua',
-      'Mohammad Abul Kalam',
       'Tito Das Gupta',
-      'Sanjib Guha',                  // MM/MD module role, Sales section
-      'Nazma Begum',                  // MM/MD module role, Sales section
-      'Mohammad Osman Goni',
-      'Md. Nasir Uddin',              // MM/MD module role, Sales section
-      'Al Muhib Bhuiyan',
+      'Lincoln Barua',
       'Md. Mosharraf Hossain',
+      'Sanjib Guha',                  // MM/MD module role, Sales section
+      'Mohammad Osman Goni',
+      'Nazma Begum',                  // MM/MD module role, Sales section
+      'Mohammad Abul Kalam',
+      'Al Muhib Bhuiyan',
+      'Md. Nasir Uddin',              // MM/MD module role, Sales section
       'Mahfuzur Rahman Bhuiyan'
     ],
     'Supply Chain Applications': [
+      // Utpal Biswas heads this section on an interim basis and is listed
+      // first on the chart. He is not here because he sits under 'EAS'
+      // below - the page puts the head first wherever it finds them.
+      'Md. Ashraful Islam',           // org chart writes this one 'Ashraful Islam'
       'Shanta Aich',
       'Aungshuman Das',
-      'Sudip Paul',
       'Jowel Barua',
+      'Sudip Paul',
       'Md. Ashraful Karim',
-      'Md. Ashraful Islam',           // org chart writes this one 'Ashraful Islam'
       'Md. Abdullah Al Mamun',
       'Debobroto Mondol'
     ],
@@ -1586,6 +1589,50 @@ function matchPerson(name) {
  * calls this for every ticket, and there are over twelve thousand of them.
  */
 let ROSTER_INDEX = null;
+
+/**
+ * The order a section's people are listed in on the organogram.
+ *
+ * CONFIG.ROSTER already names everybody, grouped by section, and that list
+ * is now kept in the order the chart puts them in - so the page reads the
+ * sequence off it rather than carrying a second copy of thirty-seven names
+ * that would have to be corrected twice every time somebody moves.
+ *
+ * Nothing else cares about the order. rosterIndex() builds a name to
+ * section map and rosterNames() flattens it, so reordering the lists
+ * changes what the team page draws and nothing about how a ticket is
+ * attributed.
+ *
+ * MATCHED LOOSELY, because the two lists do not spell the sections the same
+ * way: the TEAM tab says 'Sales and Customer Applications' where this file
+ * says 'Sales Applications'. Both reduce to something starting 'sales'.
+ *
+ * @param {string} sectionName  as the TEAM tab spells it
+ * @return {string[]} matchPerson keys, in order; empty when nothing matches
+ */
+function rosterOrderFor(sectionName) {
+  const trim = function (value) {
+    return String(value || '').toLowerCase()
+      .replace(/applications?/g, '')
+      .replace(/[^a-z ]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  };
+
+  const want = trim(sectionName);
+  if (!want) return [];
+
+  const keys = Object.keys(CONFIG.ROSTER);
+  for (let i = 0; i < keys.length; i++) {
+    const have = trim(keys[i]);
+    if (!have) continue;
+    if (want === have || want.indexOf(have) === 0 || have.indexOf(want) === 0) {
+      return CONFIG.ROSTER[keys[i]].map(matchPerson);
+    }
+  }
+  return [];
+}
+
 
 function rosterIndex() {
   if (ROSTER_INDEX) return ROSTER_INDEX;

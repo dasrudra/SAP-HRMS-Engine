@@ -279,6 +279,23 @@ function readTeam() {
 
     const under = members.filter(function (p) { return !head || p.name !== head.name; });
 
+    // IN THE ORDER THE CHART PUTS THEM IN, not the order the rows happen to
+    // sit in the tab. CONFIG.ROSTER carries that sequence - see
+    // rosterOrderFor() - and somebody the roster does not name keeps their
+    // place at the end rather than being dropped or sorted to the front.
+    // The drift notice below already says who those people are.
+    //
+    // sort() is stable in this runtime, so the unnamed keep sheet order
+    // among themselves rather than being shuffled by a tie.
+    const order = rosterOrderFor(name);
+    if (order.length) {
+      const rank = function (person) {
+        const at = order.indexOf(matchPerson(person.name));
+        return at === -1 ? order.length : at;
+      };
+      under.sort(function (a, b) { return rank(a) - rank(b); });
+    }
+
     return {
       name: name,
       // Everybody the section shows when it is opened, the head included.

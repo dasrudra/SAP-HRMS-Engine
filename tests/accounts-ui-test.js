@@ -113,6 +113,37 @@ const check = (n, ok, d) => {
     shared === rows.length - 1, 'row ' + (shared + 1) + ' of ' + rows.length);
 
   // ---------------------------------------------------------------------------
+  // the sign-ups counter counts
+  // ---------------------------------------------------------------------------
+  // IT READ "0 of 37 SIGNED UP" WITH THIRTEEN ACCOUNTS ON THE SCREEN BELOW
+  // IT. Three calls leave loadMaster() at once and this line was painted by
+  // whichever answered - signupsAreOpen, which reads one script property and
+  // is always quicker than the one that reads a sheet of accounts. So it ran
+  // against an empty list, and nothing painted it again.
+  //
+  // Asserted against the table rather than against a number, so it stays
+  // true when the fixture changes.
+  const signups = await p.evaluate(() => {
+    const rows = Array.from(document.querySelectorAll('#masterTable tbody tr'));
+    // The shared starting login is not a person who signed up.
+    const real = rows.filter((r) => {
+      const id = r.cells[0] ? r.cells[0].textContent.trim() : '';
+      return id && id !== 'user';
+    }).length;
+    const note = document.getElementById('signupNote');
+    return { real: real, text: note ? note.textContent.trim() : '' };
+  });
+
+  check('the sign-ups line counts the accounts that exist',
+    signups.real > 0 &&
+    signups.text.indexOf(signups.real + ' of ') === 0,
+    '"' + signups.text + '" with ' + signups.real + ' real accounts in the table');
+
+  check('and it is not the nought it used to be',
+    signups.text.indexOf('0 of ') !== 0,
+    signups.text);
+
+  // ---------------------------------------------------------------------------
   // the sign-in log says who, not just which login
   // ---------------------------------------------------------------------------
   // The log stores the employee ID and nothing else, so the name is filled in

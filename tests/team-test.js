@@ -273,6 +273,69 @@ check('an empty tab returns an empty directory rather than throwing',
   'filled: ' + none.filled);
 
 // ---------------------------------------------------------------------------
+// the order people are listed in
+// ---------------------------------------------------------------------------
+// The chart has a sequence - seniority, mostly - and the TEAM tab does not
+// carry it: rows sit in whatever order they were pasted. CONFIG.ROSTER does
+// carry it, so the page reads it off there.
+//
+// The fixture below is DELIBERATELY SHUFFLED against the roster. Sorted by
+// sheet order it comes out backwards, so an implementation that quietly did
+// nothing would fail rather than pass by coincidence.
+{
+  const SCM = 'Supply Chain Applications';
+  const shuffled = [
+    [1, 'Utpal Biswas', 20990001, 'Senior Manager', 'MM', 'EAS', 'ALL', '', '',
+     'TVL HQ', '9001', '01700000001', 'u@x.test', SCM, '', ''],
+    // roster order is Ashraful Islam, Shanta Aich, Aungshuman Das, Jowel
+    // Barua, Sudip Paul, Ashraful Karim, Abdullah Al Mamun, Debobroto Mondol
+    [2, 'Debobroto Mondol', 20990002, 'Assistant Officer', 'MM', 'EAS', SCM, '', '',
+     'YCL', '9002', '01700000002', 'd@x.test', '', '', ''],
+    [3, 'Shanta Aich', 20990003, 'Assistant Manager', 'MM', 'EAS', SCM, '', '',
+     'YCL', '9003', '01700000003', 's@x.test', '', '', ''],
+    [4, 'Md. Ashraful Islam', 20990004, 'Deputy Manager', 'MM', 'EAS', SCM, '', '',
+     'YCL', '9004', '01700000004', 'a@x.test', '', '', ''],
+    // Not in CONFIG.ROSTER at all. Has to keep a place rather than vanish.
+    [5, 'Brand New Person', 20990005, 'Officer', 'MM', 'EAS', SCM, '', '',
+     'YCL', '9005', '01700000005', 'n@x.test', '', '', ''],
+    [6, 'Sudip Paul', 20990006, 'Assistant Manager', 'MM', 'EAS', SCM, '', '',
+     'YCL', '9006', '01700000006', 'p@x.test', '', '', '']
+  ];
+
+  const ctx2 = load(shuffled);
+  const scm = ctx2.readTeam().sections.filter((x) => x.name === SCM)[0];
+  const order = scm.members.map((m) => m.name);
+
+  check('members come back in the roster order, not the order of the tab',
+    JSON.stringify(order.slice(0, 4)) === JSON.stringify(
+      ['Md. Ashraful Islam', 'Shanta Aich', 'Sudip Paul', 'Debobroto Mondol']),
+    order.join(' | '));
+
+  check('and somebody the roster does not name keeps a place, at the end',
+    order[order.length - 1] === 'Brand New Person' &&
+    order.length === 5,
+    order.length + ' members, last is ' + order[order.length - 1]);
+
+  check('(fixture check) the tab order really is different from the roster order',
+    JSON.stringify(order) !== JSON.stringify(
+      ['Debobroto Mondol', 'Shanta Aich', 'Md. Ashraful Islam',
+       'Brand New Person', 'Sudip Paul']),
+    'otherwise sorting nothing at all would pass this');
+
+  // The two lists spell the sections differently - the tab says 'Sales and
+  // Customer Applications', Config.gs says 'Sales Applications' - so the
+  // match has to be loose or the order silently does not apply at all.
+  const loose = ctx2.rosterOrderFor('Sales and Customer Applications');
+  check('a section the two files spell differently still finds its order',
+    loose.length === 11 && loose[0] === ctx.matchPerson('Muhammad Abul Masum Siddique'),
+    loose.length + ' names matched for "Sales and Customer Applications"');
+
+  check('and a section name that matches nothing returns no order at all',
+    ctx2.rosterOrderFor('Something Else Entirely').length === 0,
+    'rather than imposing the wrong section order on it');
+}
+
+// ---------------------------------------------------------------------------
 // what goes beside a designation
 // ---------------------------------------------------------------------------
 // Every card prints "<designation> . <module>". Everybody's module is their

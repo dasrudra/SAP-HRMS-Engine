@@ -856,6 +856,31 @@ const stub = `
     logout: function () { window.__sessionDead = true; return { ok: true }; }
   };
 
+  /*
+    ENDPOINTS THAT READ A SPREADSHEET, AND ROUGHLY WHAT THAT COSTS.
+
+    Every stub here used to answer in the same tick, in the order the page
+    asked - which is not how the real server behaves and hid a bug that was
+    plainly visible on the live site. The Accounts screen fires three calls
+    at once: one reads a script property, two read sheets. The property
+    always wins, and the line it paints reads the accounts the slower call
+    has not delivered yet, so it said "0 of 37 signed up" above a table of
+    thirteen people.
+
+    In this harness all three landed in issue order, the accounts arrived
+    first, and the count was right. The fix passed and so did the bug.
+
+    These delays are not a simulation of Google's latency - they are only
+    big enough to put the calls in the order the real server puts them in,
+    which is what the race needs to exist at all.
+  */
+  var SHEET_READS = {
+    masterListAccounts: 150,
+    masterAuditLog: 120,
+    getTeam: 80,
+    getUploads: 80
+  };
+
   // google.script.run, as Apps Script presents it: chainable handlers, then a
   // call. Asynchronous on purpose - code that happens to work only because a
   // fixture answered instantly would not work in production.
@@ -882,7 +907,7 @@ const stub = `
           // reproduce what actually goes wrong on this page: a poll sent
           // before Sign out was pressed, landing after it, carrying a token
           // the server has just forgotten.
-          var hold = window.__slowNext || 0;
+          var hold = window.__slowNext || SHEET_READS[name] || 0;
           window.__slowNext = 0;
           setTimeout(function () {
             // HOW MANY TIMES EACH ENDPOINT WAS ASKED. Some of what the page
