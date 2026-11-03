@@ -214,6 +214,69 @@ function photoRowFor(filename, people) {
 }
 
 
+/**
+ * Where the team photographs live, for the two functions below.
+ *
+ * THE RUN BUTTON CANNOT PASS AN ARGUMENT. Pick a function from the editor's
+ * dropdown, press Run, and it is called with nothing - so a function whose
+ * only input is a parameter cannot be run from the editor at all. The first
+ * version of these two took the folder link as an argument, which made them
+ * unrunnable by the one person who needs to run them, and said so with
+ * "That does not look like a Drive folder link or id: null".
+ *
+ * So the link lives in a SCRIPT PROPERTY, set once in Project Settings, and
+ * both functions take no arguments. A property rather than a constant in
+ * this file for two reasons: this file gets replaced wholesale every time
+ * the project is updated, and a constant would have to be retyped each
+ * time; and the folder holds photographs of thirty-six people, so its
+ * address does not belong in a repository that anybody can read.
+ *
+ * An argument still works when one is given, so the functions can be called
+ * from other code.
+ */
+const TEAM_PHOTO_FOLDER_KEY = 'TEAM_PHOTO_FOLDER';
+
+
+function teamPhotoFolder(given) {
+  const said = String(given || '').trim();
+  if (said) return said;
+  try {
+    return String(PropertiesService.getScriptProperties()
+                    .getProperty(TEAM_PHOTO_FOLDER_KEY) || '').trim();
+  } catch (e) {
+    return '';
+  }
+}
+
+
+/**
+ * What to do when there is no folder to work from.
+ *
+ * Printed rather than thrown, and printed as instructions rather than as a
+ * complaint: the person reading this log is the person who has to fix it,
+ * and "not a valid folder id" tells them nothing they can act on.
+ */
+function teamPhotoFolderHelp(link) {
+  if (link) {
+    Logger.log('That does not look like a Drive folder link or id:');
+    Logger.log('  %s', link);
+    Logger.log('Open the folder in Drive and copy the address out of the ' +
+               'browser bar. It looks like');
+    Logger.log('  https://drive.google.com/drive/folders/1yfTgtc...');
+    return;
+  }
+  Logger.log('No photo folder is set yet. Set it once and these two ' +
+             'functions will find it every time:');
+  Logger.log('  1. In this editor, click the gear - Project Settings - on ' +
+             'the left.');
+  Logger.log('  2. Scroll to Script Properties and click Add script property.');
+  Logger.log('  3. Property:  %s', TEAM_PHOTO_FOLDER_KEY);
+  Logger.log('  4. Value:     the folder address from Drive, which looks ' +
+             'like https://drive.google.com/drive/folders/1yfTgtc...');
+  Logger.log('  5. Save script properties, come back here and press Run again.');
+}
+
+
 /** The Drive folder id inside a link, or the id if that is what was given. */
 function driveFolderId(link) {
   const value = String(link || '').trim();
@@ -227,9 +290,10 @@ function driveFolderId(link) {
 /**
  * Fills the Photo column from a Drive folder of photographs.
  *
- * Run from the Apps Script editor, once, with the folder's sharing link:
- *
- *   importTeamPhotos('https://drive.google.com/drive/folders/....')
+ * Run it from the editor: pick importTeamPhotos in the dropdown beside Run
+ * and press Run. It takes no arguments - the Run button cannot pass one -
+ * and reads the folder from the TEAM_PHOTO_FOLDER script property. If that
+ * is not set yet, the log says how to set it.
  *
  * It writes a file id into the Photo cell of every row it can match and
  * leaves everything else alone. In particular:
@@ -246,15 +310,14 @@ function driveFolderId(link) {
  *   shareTeamPhotos() below is the deliberate step that opens them, and it
  *   is separate because it is the half that changes who can see what.
  *
- * @param {string}  folderLink  the Drive folder's link, or its id
+ * @param {string}  folderLink  optional; the script property is used without it
  * @param {boolean} overwrite   replace Photo cells that already have a value
  */
 function importTeamPhotos(folderLink, overwrite) {
-  const id = driveFolderId(folderLink);
-  if (!id) {
-    Logger.log('That does not look like a Drive folder link or id: %s', folderLink);
-    return;
-  }
+  const link = teamPhotoFolder(folderLink);
+  const id = driveFolderId(link);
+  if (!id) { teamPhotoFolderHelp(link); return; }
+  Logger.log('Reading %s', link);
 
   const sheet = teamTab();
   const headers = sheet.getRange(1, 1, 1, Math.max(sheet.getLastColumn(),
@@ -366,14 +429,16 @@ function importTeamPhotos(folderLink, overwrite) {
  * It is the folder's own files that are opened, nothing else, and it prints
  * every one it changed.
  *
- * @param {string} folderLink  the same folder passed to importTeamPhotos
+ * Run from the dropdown like the one above, and reads the same script
+ * property.
+ *
+ * @param {string} folderLink  optional; the script property is used without it
  */
 function shareTeamPhotos(folderLink) {
-  const id = driveFolderId(folderLink);
-  if (!id) {
-    Logger.log('That does not look like a Drive folder link or id: %s', folderLink);
-    return;
-  }
+  const link = teamPhotoFolder(folderLink);
+  const id = driveFolderId(link);
+  if (!id) { teamPhotoFolderHelp(link); return; }
+  Logger.log('Opening the images in %s', link);
 
   const files = DriveApp.getFolderById(id).getFiles();
   let opened = 0, already = 0;

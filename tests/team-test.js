@@ -92,12 +92,17 @@ function makeSheet(rows) {
   };
 }
 
-function load(rows) {
+function load(rows, props) {
+  const stored = props || {};
   const ctx = {
     console: console,
     Logger: { log: () => {} },
     SpreadsheetApp: {},
-    PropertiesService: { getScriptProperties: () => ({ getProperty: () => null }) }
+    PropertiesService: {
+      getScriptProperties: () => ({
+        getProperty: (key) => (key in stored ? stored[key] : null)
+      })
+    }
   };
   vm.createContext(ctx);
   vm.runInContext(fs.readFileSync(path.join(SRC, 'Config.gs'), 'utf8'), ctx);
@@ -583,6 +588,37 @@ check('a filename that answers to two rows is refused, not guessed',
   ctx.photoRowFor('Rudra Das.jpg', twins).ambiguous !== undefined &&
   ctx.photoRowFor('Rudra Das.jpg', twins).person === undefined,
   JSON.stringify(ctx.photoRowFor('Rudra Das.jpg', twins)));
+
+// ---------------------------------------------------------------------------
+// THE RUN BUTTON CANNOT PASS AN ARGUMENT
+// ---------------------------------------------------------------------------
+// importTeamPhotos originally took the folder link as its only parameter,
+// which made it unrunnable by the only person who needs to run it: pick a
+// function from the editor's dropdown, press Run, and it is called with
+// nothing. It answered "That does not look like a Drive folder link or id:
+// null" and there was no way, from that screen, to give it one.
+//
+// So the folder comes from a script property when no argument is given. An
+// argument still wins, so other code can call it with a different folder.
+const FOLDER = 'https://drive.google.com/drive/folders/1yfTgtcdAFIsRSV8McU';
+const withProp = load(ROWS, { TEAM_PHOTO_FOLDER: FOLDER });
+
+check('pressing Run with no argument still finds the folder',
+  withProp.teamPhotoFolder() === FOLDER &&
+  withProp.teamPhotoFolder(undefined) === FOLDER,
+  withProp.teamPhotoFolder() || '(nothing)');
+
+check('and an argument still beats the stored one',
+  withProp.teamPhotoFolder('https://drive.google.com/drive/folders/OTHER') ===
+    'https://drive.google.com/drive/folders/OTHER',
+  withProp.teamPhotoFolder('https://drive.google.com/drive/folders/OTHER'));
+
+// NOTHING SET AND NOTHING PASSED is the state a first run is in, and it has
+// to be distinguishable from a mistyped link - one needs setting up, the
+// other needs correcting, and the log says something different for each.
+check('with nothing set and nothing passed it comes back empty, not undefined',
+  ctx.teamPhotoFolder() === '' && ctx.teamPhotoFolder('  ') === '',
+  JSON.stringify(ctx.teamPhotoFolder()));
 
 check('a Drive folder link gives up its id, and a stray string does not',
   ctx.driveFolderId('https://drive.google.com/drive/folders/1aB2cD3eF4gH5iJ6kL7m?usp=sharing') ===
