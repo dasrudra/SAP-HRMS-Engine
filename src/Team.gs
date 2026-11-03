@@ -388,6 +388,7 @@ function importTeamPhotos(folderLink, overwrite) {
   const files = DriveApp.getFolderById(id).getFiles();
   const done = [], skipped = [], unmatched = [], unshared = [];
   const taken = {};
+  let same = 0;
 
   while (files.hasNext()) {
     const file = files.next();
@@ -414,6 +415,16 @@ function importTeamPhotos(folderLink, overwrite) {
       continue;
     }
 
+    // ALREADY RIGHT IS NOT A CHANGE. This runs on a schedule, so most of
+    // what it finds every hour is what it wrote the hour before; writing
+    // all thirty-six cells back unchanged is thirty-six edits on a shared
+    // spreadsheet and thirty-six lines of log saying nothing happened.
+    if (hit.person.had === file.getId()) {
+      taken[hit.person.row] = file.getName();
+      same++;
+      continue;
+    }
+
     sheet.getRange(hit.person.row, at.photo + 1).setValue(file.getId());
     taken[hit.person.row] = file.getName();
     done.push(hit.person.name + ' <- ' + file.getName());
@@ -427,7 +438,8 @@ function importTeamPhotos(folderLink, overwrite) {
     }
   }
 
-  Logger.log('%s photograph(s) linked.', done.length);
+  Logger.log('%s photograph(s) linked, %s already pointing at the right file.',
+             done.length, same);
   done.forEach(function (line) { Logger.log('  %s', line); });
 
   if (skipped.length) {
@@ -483,6 +495,72 @@ function reimportTeamPhotos() {
 
 
 /**
+ * Keeps the Photo column in step with the Drive folder, hourly, by itself.
+ *
+ * THE POINT OF ALL OF THIS IS THAT NOBODY SHOULD HAVE TO REMEMBER.
+ * Everything else on the EAS Team page is read from the TEAM tab on every
+ * page load, so a correction typed into the spreadsheet is on the screen
+ * the moment somebody reloads. Photographs were the exception: the cell
+ * holds a Drive FILE ID, a replaced photograph is a new file with a new
+ * id, and the page went on drawing the old one until somebody ran an
+ * import by hand - which is exactly the kind of step that gets forgotten
+ * and then disbelieved.
+ *
+ * An hourly trigger closes that. Replace a face in Drive, give it the hour,
+ * and the page has it. reimportTeamPhotos() is still there for when the
+ * hour is too long to wait.
+ *
+ * Run this ONCE. Running it again replaces the trigger rather than adding a
+ * second one, because two of these would do the same work twice and the
+ * second would find nothing to do - which is harmless and still wrong.
+ */
+function installPhotoSync() {
+  const folder = teamPhotoFolder('');
+  if (!driveFolderId(folder)) { teamPhotoFolderHelp(folder); return; }
+
+  removePhotoSync();
+  ScriptApp.newTrigger('syncTeamPhotos').timeBased().everyHours(1).create();
+
+  Logger.log('The Photo column will now follow the Drive folder, once an hour.');
+  Logger.log('Replace a photograph in %s and the page has it within the hour.',
+             folder);
+  Logger.log('Run reimportTeamPhotos to pick one up straight away, or ' +
+             'removePhotoSync to stop this.');
+}
+
+
+/** Stops the hourly sync. Removes every copy, in case one was ever doubled. */
+function removePhotoSync() {
+  let gone = 0;
+  ScriptApp.getProjectTriggers().forEach(function (trigger) {
+    if (trigger.getHandlerFunction() === 'syncTeamPhotos') {
+      ScriptApp.deleteTrigger(trigger);
+      gone++;
+    }
+  });
+  Logger.log('%s photo sync trigger(s) removed.', gone);
+}
+
+
+/**
+ * What the hourly trigger runs. Not meant to be pressed.
+ *
+ * Wrapped in a try/catch because a trigger that throws sends the owner a
+ * failure email every hour until somebody notices, and the thing it is
+ * most likely to throw on - a folder renamed, unshared or moved to the bin
+ * - is not an emergency. It is written to the log, where checkTeamPhotos
+ * and the next person to look will find it.
+ */
+function syncTeamPhotos() {
+  try {
+    importTeamPhotos('', true);
+  } catch (e) {
+    Logger.log('Hourly photo sync could not run: %s', e.message);
+  }
+}
+
+
+/**
  * What size image the page is actually being served, per person.
  *
  * WRITTEN BECAUSE THE FACES KEPT COMING BACK SOFT AND EVERY FIX WAS A
@@ -515,8 +593,10 @@ function checkTeamPhotos() {
   const rows = sheet.getRange(2, 1, last - 1, wide).getValues();
   let checked = 0, small = 0, missing = 0;
 
-  Logger.log('What the page is actually served. The largest avatar is 76px,');
-  Logger.log('so anything under ~230 is an upscale on a high-resolution screen.');
+  Logger.log('What the page is actually served, by both addresses it can use.');
+  Logger.log('Avatars draw at 88px, so on a high-resolution screen anything');
+  Logger.log('under about 230 pixels is being upscaled - which is what soft');
+  Logger.log('looks like. CDN is the one the page prefers.');
   Logger.log('--');
 
   rows.forEach(function (row) {
@@ -526,24 +606,39 @@ function checkTeamPhotos() {
     if (!cell) { missing++; return; }
 
     checked++;
-    const size = photoPixelSize(teamPhotoUrl(cell));
-    if (!size) {
-      Logger.log('  %s - could not be read (not shared, or not an image)', name);
+    // BOTH ADDRESSES, because which one is answering is the open question.
+    // The page asks the CDN first and falls back to the old Drive
+    // thumbnail if that will not load - and if it has been falling back
+    // all along, the fix that was supposed to sharpen these never took
+    // effect and nothing on the page says so.
+    const main = photoPixelSize(teamPhotoUrl(cell));
+    const alt = photoPixelSize(teamPhotoAltUrl(cell));
+
+    if (!main && !alt) {
+      Logger.log('  %s - neither address would load. Not shared, or not an image.',
+                 name);
+      small++;
       return;
     }
-    const soft = Math.min(size.w, size.h) < 230;
+    const best = main || alt;
+    const soft = Math.min(best.w, best.h) < 230;
     if (soft) small++;
-    Logger.log('  %s - %sx%s%s', name, size.w, size.h, soft ? '   <-- small' : '');
+    Logger.log('  %s - CDN %s, Drive %s%s', name,
+               main ? main.w + 'x' + main.h : 'no answer',
+               alt ? alt.w + 'x' + alt.h : 'no answer',
+               soft ? '   <-- small' : '');
   });
 
   Logger.log('--');
   Logger.log('%s checked, %s smaller than the cards want, %s with no photograph.',
              checked, small, missing);
   if (small) {
-    Logger.log('A small one means the CDN is not honouring the size asked for, ' +
-               'or the file in Drive is small to begin with. Open one in Drive ' +
-               'and look at its dimensions: if the original is large and this ' +
-               'says otherwise, the address is the problem and not the photo.');
+    Logger.log('Read the two columns against each other:');
+    Logger.log('  both large  - the page has the pixels; the softness is the');
+    Logger.log('                original photograph or the crop, not the size.');
+    Logger.log('  CDN small   - it is ignoring the width asked for.');
+    Logger.log('  CDN absent  - the page is falling back to Drive every time.');
+    Logger.log('  both small  - the file in Drive is small to begin with.');
   }
 }
 

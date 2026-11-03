@@ -74,17 +74,25 @@ const ROWS = [
 // ---------------------------------------------------------------------------
 function makeSheet(rows) {
   const all = [HEADERS].concat(rows);
+  // Every single-cell write, in order. importTeamPhotos runs on an hourly
+  // trigger now, so what it does NOT write matters as much as what it does.
+  const writes = [];
   return {
+    writes: writes,
     getLastRow: () => all.length,
     getLastColumn: () => HEADERS.length,
     getRange: function (r, c, n, w) {
       return {
         getValues: function () {
           const got = [];
-          for (let i = 0; i < n; i++) {
-            got.push((all[r - 1 + i] || []).slice(c - 1, c - 1 + w));
+          for (let i = 0; i < (n === undefined ? 1 : n); i++) {
+            got.push((all[r - 1 + i] || []).slice(c - 1, c - 1 + (w || 1)));
           }
           return got;
+        },
+        setValue: function (v) {
+          writes.push({ row: r, col: c, value: v });
+          if (all[r - 1]) all[r - 1][c - 1] = v;
         },
         setValues: () => ({ setFontWeight: () => ({ setBackground: () => ({ setFontColor: () => {} }) }) })
       };
@@ -112,6 +120,7 @@ function load(rows, props) {
   // and a Drive, and neither decides anything this suite is about.
   const sheet = makeSheet(rows);
   ctx.sheetWithHeaders = () => sheet;
+  ctx.__sheet = sheet;
   ctx.requireSignedIn = () => ({ u: '20000000', r: 'ADMIN' });
 
   vm.runInContext(fs.readFileSync(path.join(SRC, 'Team.gs'), 'utf8'), ctx);
@@ -621,6 +630,71 @@ check('a filename that answers to two rows is refused, not guessed',
   ctx.photoRowFor('Rudra Das.jpg', twins).ambiguous !== undefined &&
   ctx.photoRowFor('Rudra Das.jpg', twins).person === undefined,
   JSON.stringify(ctx.photoRowFor('Rudra Das.jpg', twins)));
+
+// ---------------------------------------------------------------------------
+// AN IMPORT THAT RUNS EVERY HOUR MUST DO NOTHING MOST HOURS
+// ---------------------------------------------------------------------------
+// Photographs are the one thing on the EAS Team page that did not follow
+// the thing they come from: the cell holds a Drive FILE ID, a replaced
+// photograph is a new file with a new id, and the page went on drawing the
+// old one until somebody ran an import by hand. An hourly trigger closes
+// that - and an hourly job that rewrites all thirty-six cells whether or
+// not anything changed is thirty-six edits an hour, forever, on a
+// spreadsheet other people have open.
+//
+// So: write the ones that moved, leave the ones that did not.
+const FOLDER_LINK = 'https://drive.google.com/drive/folders/1yfTgtcdAFIsRSV8McU';
+const PHOTO_ROWS = ROWS.map(function (row, i) {
+  const copy = row.slice();
+  // Everybody already pointing at the file that is about to be found again,
+  // except Rudra Das, whose photograph has just been replaced.
+  copy[14] = i === 6 ? 'OLD_FILE_ID_FOR_RUDRA' : 'FILE_' + row[1];
+  return copy;
+});
+
+const driveCtx = load(PHOTO_ROWS, { TEAM_PHOTO_FOLDER: FOLDER_LINK });
+driveCtx.DriveApp = {
+  getFolderById: function () {
+    const files = PHOTO_ROWS.map(function (row) {
+      const id = 'FILE_' + row[1];
+      return {
+        getName: function () { return row[1] + '.jpg'; },
+        getMimeType: function () { return 'image/jpeg'; },
+        getId: function () { return id; },
+        getSharingAccess: function () { return 'ANYONE_WITH_LINK'; }
+      };
+    });
+    let i = 0;
+    return { getFiles: function () {
+      return { hasNext: function () { return i < files.length; },
+               next: function () { return files[i++]; } };
+    } };
+  },
+  Access: { ANYONE_WITH_LINK: 'ANYONE_WITH_LINK' },
+  Permission: { VIEW: 'VIEW' }
+};
+
+driveCtx.importTeamPhotos('', true);
+const wrote = driveCtx.__sheet.writes;
+
+check('an hourly re-import writes only the photograph that changed',
+  wrote.length === 1,
+  wrote.length + ' cell(s) written for ' + PHOTO_ROWS.length +
+  ' people - the other ' + (PHOTO_ROWS.length - 1) + ' already pointed at ' +
+  'the right file');
+
+check('and it is the right person\'s cell, holding the new file',
+  wrote.length === 1 && wrote[0].row === 8 &&
+  wrote[0].value === 'FILE_Rudra Das',
+  wrote.length ? 'row ' + wrote[0].row + ' <- ' + wrote[0].value : '(nothing)');
+
+// A SECOND RUN OVER THE SAME FOLDER CHANGES NOTHING AT ALL, which is what
+// every hour but the one after a photograph is replaced looks like.
+driveCtx.__sheet.writes.length = 0;
+driveCtx.importTeamPhotos('', true);
+check('and a run after that writes nothing whatsoever',
+  driveCtx.__sheet.writes.length === 0,
+  driveCtx.__sheet.writes.length + ' cell(s) on the second pass');
 
 // ---------------------------------------------------------------------------
 // READING A SIZE OUT OF IMAGE BYTES

@@ -414,18 +414,23 @@ const FILE = 'file://' + PAGE;
   // rather than as the top of the same chart. It matches them now. The
   // person card inside an opened section is the only one that is larger,
   // because it is the one being read rather than scanned past.
+  // 84 as the floor, not 52. The size has been raised twice on the same
+  // complaint - the faces are too small to tell who is who - and a floor
+  // that still passes at the size being complained about is not a floor.
   check('the photo slot is big enough to recognise somebody by',
-    faces.card >= 64 && faces.summary >= 52 && faces.lead >= 52,
+    faces.card >= 84 && faces.summary >= 84 && faces.lead >= 84,
     faces.lead + 'px lead, ' + faces.card + 'px card, ' +
     faces.summary + 'px summary');
-  check('and the head card\'s face matches the section cards it sits over',
-    faces.lead === faces.summary && faces.card > faces.summary,
-    faces.lead + ' lead vs ' + faces.summary + ' summary, person card ' +
-    faces.card);
+  check('and every face on the page is the same size as every other',
+    faces.lead === faces.summary && faces.card === faces.summary,
+    faces.lead + ' lead, ' + faces.card + ' card, ' + faces.summary +
+    ' summary - three sizes was a hierarchy nobody asked for, and the ' +
+    'smallest was the one being squinted at');
 
-  // AND THE CARD ITSELF, which is the half of that anybody actually sees.
-  // Within a pixel, because both are worked out from the same column
-  // geometry and a rounding difference is not a fault.
+  // THE HEAD CARD KEEPS ITS OWN WIDTH. It was briefly narrowed to one
+  // column on a misreading - "match the section card" meant bring the
+  // cards below UP to this one, and this assertion is here so the
+  // misreading cannot come back quietly.
   const headWidth = await t.evaluate(() => {
     const lead = document.querySelector('.team-lead');
     const sec = document.querySelector('.team-sec-card');
@@ -433,9 +438,9 @@ const FILE = 'file://' + PAGE;
     return { lead: Math.round(lead.getBoundingClientRect().width),
              section: Math.round(sec.getBoundingClientRect().width) };
   });
-  check('and the head card is one column wide, like the cards under it',
-    headWidth && Math.abs(headWidth.lead - headWidth.section) <= 1,
-    headWidth ? headWidth.lead + 'px over ' + headWidth.section + 'px'
+  check('while the head card stays wider than one section column',
+    headWidth && headWidth.lead > headWidth.section + 40,
+    headWidth ? headWidth.lead + 'px over a ' + headWidth.section + 'px column'
               : '(not found)');
 
   // NO BLOOD GROUP ON THE HEAD CARD. One person, alone at the top of the

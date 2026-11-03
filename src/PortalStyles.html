@@ -861,16 +861,13 @@
   }
 
   /*
-    ONE COLUMN WIDE, LIKE THE CARDS UNDER IT. It was 380px over four cards
-    of about 268, which read as a different kind of card rather than as the
-    top of the same chart - and the extra width bought nothing: the longest
-    line on it is an email address that fits either way. The face matches
-    the section cards' for the same reason.
+    THE CARD AT THE TOP OF THE CHART KEEPS ITS SIZE. It was briefly narrowed
+    to one column on a misreading of "match the section card" - the ask was
+    the other way round, and the cards below came up to meet this one.
   */
   .team-lead {
     position: relative;
-    width: calc((100% - (var(--team-cols) - 1) * var(--team-gap)) / var(--team-cols));
-    min-width: 248px;
+    width: min(380px, 100%);
     display: flex; flex-direction: column; gap: 11px;
     padding: 18px 20px 16px;
     border-radius: 18px;
@@ -1068,16 +1065,11 @@
   .team-sec.is-open .team-sec-role { color: var(--text-dim); }
   .team-sec.is-open .team-sec-sub { color: var(--text-mut); }
 
-  /*
-    The summary card's face. Bigger than it was, smaller than the one on the
-    person card below it: four of these sit in a row above the chart and
-    carry a section name, a role, a designation and a count as well, so the
-    face here is an identifier rather than the subject.
-  */
-  .team-sec-card .team-face { width: 58px; height: 58px; }
+  /* The summary card's face is the same size as every other one; only its
+     colours differ, because it sits on the blue rather than on a card. */
   .team-sec-card .team-face.is-initials {
     background: rgba(255, 255, 255, .92); color: var(--blue-600);
-    border-color: transparent; font-size: 16px;
+    border-color: transparent;
   }
 
   .team-sec-open {
@@ -1148,7 +1140,7 @@
   */
   .team-face {
     flex: 0 0 auto;
-    width: 76px; height: 76px;
+    width: 88px; height: 88px;
     border-radius: 50%;
     object-fit: cover;
     /*
@@ -1170,13 +1162,17 @@
   }
   .team-face.is-initials {
     display: flex; align-items: center; justify-content: center;
-    font-size: 21px; font-weight: 700; letter-spacing: .02em;
+    font-size: 24px; font-weight: 700; letter-spacing: .02em;
     color: var(--blue-600);
     border: 1px solid #d8e5f8;
   }
-  /* The card above the chart now matches the four below it. */
-  .team-lead .team-face { width: 58px; height: 58px; }
-  .team-lead .team-face.is-initials { font-size: 16px; }
+  /*
+    ONE FACE SIZE ON THE WHOLE PAGE. The head card, the four section cards
+    and the person cards inside them all draw at 88px now. Three sizes was
+    a hierarchy nobody had asked for, and the smallest of them - 58px on
+    the four cards everybody looks at first - was the one being squinted
+    at. The rule above carries all three; there is nothing to override.
+  */
 
   .team-who { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
   .team-who strong {
