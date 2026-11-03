@@ -116,6 +116,11 @@ function load(rows) {
 const ctx = load(ROWS);
 const team = ctx.readTeam();
 
+// CONFIG is declared with `const` at the top level of Config.gs, so it lives
+// in the vm's global LEXICAL scope and never appears on the context object -
+// ctx.CONFIG is undefined. Read it the way the other suites do.
+const CFG = vm.runInContext('CONFIG', ctx);
+
 // ---------------------------------------------------------------------------
 // the department head is not a section
 // ---------------------------------------------------------------------------
@@ -333,9 +338,17 @@ check('an empty tab returns an empty directory rather than throwing',
   // Customer Applications', Config.gs says 'Sales Applications' - so the
   // match has to be loose or the order silently does not apply at all.
   const loose = ctx2.rosterOrderFor('Sales and Customer Applications');
+  // Counted off CONFIG rather than written as a number here. The number was
+  // 11, and it became 10 the day somebody resigned - which is a change to
+  // the team, not to the loose matching this line is about. What makes the
+  // assertion real is the head landing first and the line below it, where a
+  // section name that matches nothing has to come back empty.
+  const sales = CFG.ROSTER['Sales Applications'];
   check('a section the two files spell differently still finds its order',
-    loose.length === 11 && loose[0] === ctx.matchPerson('Muhammad Abul Masum Siddique'),
-    loose.length + ' names matched for "Sales and Customer Applications"');
+    loose.length === sales.length && loose.length > 1 &&
+    loose[0] === ctx.matchPerson('Muhammad Abul Masum Siddique'),
+    loose.length + ' names matched for "Sales and Customer Applications", ' +
+    sales.length + ' in the roster');
 
   check('and a section name that matches nothing returns no order at all',
     ctx2.rosterOrderFor('Something Else Entirely').length === 0,
@@ -437,6 +450,50 @@ check('a bare Drive id works too, and anything else is left alone',
   ctx.teamPhotoUrl('https://example.test/me.jpg') === 'https://example.test/me.jpg' &&
   ctx.teamPhotoUrl('not a link') === '',
   'a value that is not a URL is dropped rather than put in an src');
+
+// ---------------------------------------------------------------------------
+// SOMEBODY LEAVING MUST NOT MOVE LAST QUARTER'S FIGURES
+// ---------------------------------------------------------------------------
+// The obvious way to handle a resignation is to delete the name from
+// CONFIG.ROSTER. It clears the organogram and it clears the drift notice,
+// and it also drops the person out of rosterIndex() - after which
+// sectionFor() falls back to the Department recorded at upload, which is
+// the exact thing the roster exists to override. Three people here hold
+// MM/MD module roles while reporting into Sales, so their tickets LOOK like
+// supply-chain work; a leaver in that position would have every month they
+// ever worked silently re-filed under the wrong section, and the only
+// symptom would be two totals moving in a period nobody touched.
+//
+// CONFIG.FORMER is the answer, and these three assertions are the whole
+// contract: off the chart, out of the drift notice, still scored.
+const gone = Object.keys(CFG.FORMER || {});
+check('(fixture check) somebody has actually left, so this tests something',
+  gone.length > 0, gone.join(', ') || 'CONFIG.FORMER is empty');
+
+if (gone.length) {
+  const leaver = gone[0];
+  const theirSection = CFG.FORMER[leaver];
+
+  check('a leaver is off the roster, so the chart and the sheet stop expecting them',
+    ctx.rosterNames().indexOf(leaver) === -1 &&
+    ctx.rosterOrderFor(theirSection).indexOf(ctx.matchPerson(leaver)) === -1,
+    leaver + ' is still on the chart');
+
+  // AND THIS IS THE ONE THAT MATTERS. Tickets they handled still have to
+  // land in the section they handled them for.
+  check('but their tickets still score to the section they worked in',
+    ctx.sectionFor(leaver, '2026-09', 'Supply Chain Applications') === theirSection,
+    ctx.sectionFor(leaver, '2026-09', 'Supply Chain Applications') +
+    ', expected ' + theirSection);
+
+  // The fallback in that call is deliberately the WRONG section: it is what
+  // sectionFor() returns for a name it does not know, so if FORMER were
+  // dropped the assertion above would come back with it and say so.
+  check('and a name nobody has ever heard of still falls back, as before',
+    ctx.sectionFor('Someone Not On Any List', '2026-09',
+                   'Supply Chain Applications') === 'Supply Chain Applications',
+    'the fallback is unchanged - FORMER adds a name, it does not replace it');
+}
 
 // ---------------------------------------------------------------------------
 // matching a photograph to the person in it

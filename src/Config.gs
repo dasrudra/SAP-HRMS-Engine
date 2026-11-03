@@ -167,8 +167,7 @@ const CONFIG = {
       'Nazma Begum',                  // MM/MD module role, Sales section
       'Mohammad Abul Kalam',
       'Al Muhib Bhuiyan',
-      'Md. Nasir Uddin',              // MM/MD module role, Sales section
-      'Mahfuzur Rahman Bhuiyan'
+      'Md. Nasir Uddin'               // MM/MD module role, Sales section
     ],
     'Supply Chain Applications': [
       // Utpal Biswas heads this section on an interim basis and is listed
@@ -196,6 +195,33 @@ const CONFIG = {
     'EAS': [
       'Utpal Biswas'                  // EAS lead; his own section throughout
     ]
+  },
+
+  /**
+   * People who have left, and the section their work belonged to.
+   *
+   * SOMEBODY LEAVING DOES NOT UNDO THE WORK THEY DID. Their tickets are
+   * still in the ITSM export, still in every month they worked, and still
+   * part of what their section delivered that quarter. Deleting the name
+   * from ROSTER takes them out of the organogram - correctly - but it also
+   * takes them out of rosterIndex(), and sectionFor() then falls back to
+   * the Department recorded at upload. That fallback is the very thing the
+   * roster exists to override: three people here hold MM/MD module roles
+   * while reporting into Sales, so their tickets LOOK like supply-chain
+   * work. A leaver in that position would have a year of their output
+   * quietly re-filed under the wrong section the day their row came out of
+   * the sheet, and the only visible symptom would be two section totals
+   * moving in a month nobody changed.
+   *
+   * So they move here instead. rosterIndex() reads this as well as ROSTER,
+   * which keeps the history right; rosterNames() does not, which is what
+   * stops the TEAM tab being nagged for somebody who has gone; and
+   * rosterOrderFor() does not, so they leave the chart.
+   *
+   * Only the dated comment says when. Nothing reads it.
+   */
+  FORMER: {
+    'Mahfuzur Rahman Bhuiyan': 'Sales Applications'   // resigned, Nov 2026
   },
 
   /**
@@ -1689,22 +1715,35 @@ function rosterIndex() {
   const bare = {};      // honorific dropped entirely
   const clash = {};
 
-  Object.keys(CONFIG.ROSTER).forEach(function (section) {
-    CONFIG.ROSTER[section].forEach(function (person) {
-      const key = matchPerson(person);
-      if (!key) return;
-      full[key] = section;
+  const add = function (person, section) {
+    const key = matchPerson(person);
+    if (!key) return;
+    full[key] = section;
 
-      // A second key with the honorific removed, so a ticket raised against
-      // 'Ashraful Islam' still finds 'Md. Ashraful Islam'. The ITSM writes the
-      // honorific today, but if it ever stops, the symptom would be silent -
-      // that person's tickets would drop into '(unassigned)' and the section
-      // totals would quietly go wrong.
-      const stripped = key.replace(/^md/, '');
-      if (!stripped || stripped === key) return;
-      if (bare[stripped] && bare[stripped] !== section) clash[stripped] = true;
-      bare[stripped] = section;
-    });
+    // A second key with the honorific removed, so a ticket raised against
+    // 'Ashraful Islam' still finds 'Md. Ashraful Islam'. The ITSM writes the
+    // honorific today, but if it ever stops, the symptom would be silent -
+    // that person's tickets would drop into '(unassigned)' and the section
+    // totals would quietly go wrong.
+    const stripped = key.replace(/^md/, '');
+    if (!stripped || stripped === key) return;
+    if (bare[stripped] && bare[stripped] !== section) clash[stripped] = true;
+    bare[stripped] = section;
+  };
+
+  Object.keys(CONFIG.ROSTER).forEach(function (section) {
+    CONFIG.ROSTER[section].forEach(function (person) { add(person, section); });
+  });
+
+  // AND THE PEOPLE WHO HAVE LEFT. Only this index reads them: they are off
+  // the chart and out of the drift check, but their tickets are still in
+  // every month they worked, and those months have to keep totalling the
+  // same number tomorrow as they did yesterday. See CONFIG.FORMER.
+  //
+  // Added second, so that if a name somehow appears in both, the person who
+  // is still here wins.
+  Object.keys(CONFIG.FORMER || {}).forEach(function (person) {
+    if (!full[matchPerson(person)]) add(person, CONFIG.FORMER[person]);
   });
 
   // The bare form is a fallback, never an override, and any bare form that
