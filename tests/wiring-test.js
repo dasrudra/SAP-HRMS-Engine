@@ -665,6 +665,57 @@ check('no employee ID outside the reserved test blocks is written anywhere',
   realIds.length ? realIds.filter((v, i, a) => a.indexOf(v) === i).join('; ')
                  : 'every ID is in 200000xx, 2090xxxx or 2099xxxx');
 
+// ---------------------------------------------------------------------------
+// EVERY TOOL MEANT TO BE RUN FROM THE EDITOR CAN BE
+// ---------------------------------------------------------------------------
+// The Run button calls a function with NOTHING. Pick it from the dropdown,
+// press Run, and that is the whole interface - there is no box to type an
+// argument into. So a diagnostic whose only input is a parameter cannot be
+// run by the person it was written for.
+//
+// This has now happened twice. importTeamPhotos took the Drive folder as
+// its only argument and answered "That does not look like a Drive folder
+// link or id: null" from the one screen that could not give it one.
+// explainModule, which says why a ticket is filed where it is, needed the
+// module name - so the '(unassigned)' row on the By module table could be
+// seen by anybody and explained by nobody.
+//
+// The list is written out rather than inferred. "Is this meant to be run
+// from the editor?" is a judgement, not a pattern: grantMaster takes an
+// employee ID because the ID IS the input, and wrapping it in a
+// zero-argument version would mean inventing a default employee.
+const EDITOR_TOOLS = [
+  'setupTeamTab', 'checkTeamTab',
+  'importTeamPhotos', 'reimportTeamPhotos', 'shareTeamPhotos',
+  'checkTeamPhotos', 'installPhotoSync', 'removePhotoSync',
+  'listPersonModules', 'explainUnassigned'
+];
+const unrunnable = [], absent = [];
+const gsText = fs.readdirSync(SRC).filter((f) => /\.gs$/.test(f))
+  .map((f) => fs.readFileSync(path.join(SRC, f), 'utf8')).join('\n');
+EDITOR_TOOLS.forEach(function (name) {
+  const hit = new RegExp('^function ' + name + '\\(([^)]*)\\)', 'm').exec(gsText);
+  if (!hit) { absent.push(name); return; }
+  const params = hit[1].trim();
+  if (!params) return;
+  // A parameter is fine as long as the function copes without it. What is
+  // not fine is a parameter the body cannot do without - which, from here,
+  // is any that is not read through a default, a fallback or a guard.
+  const body = gsText.slice(hit.index);
+  const first = params.split(',')[0].trim();
+  const copes = new RegExp(
+    '(teamPhotoFolder\\(' + first + '\\)|' + first + '\\s*\\|\\||' +
+    'String\\(' + first + '\\s*\\|\\||if\\s*\\(\\s*!?' + first + '\\b|' +
+    first + '\\s*&&|\\b' + first + '\\s*\\?)'
+  ).test(body.slice(0, 1400));
+  if (!copes) unrunnable.push(name + '(' + params + ')');
+});
+check('every editor tool can be run from the Run button, which passes nothing',
+  unrunnable.length === 0 && absent.length === 0,
+  absent.length ? 'missing: ' + absent.join(', ')
+    : unrunnable.length ? unrunnable.join('; ') + ' - needs a zero-argument form'
+    : EDITOR_TOOLS.length + ' tools, all runnable from the dropdown');
+
 check('no font shorthand names `inherit` as the family, which kills the rule',
   fontShorthand.length === 0,
   fontShorthand.length ? fontShorthand.join(' | ')

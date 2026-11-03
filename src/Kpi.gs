@@ -1225,6 +1225,27 @@ function whyModule(part, inCharge, month) {
 
 
 /**
+ * Why anything is filed under '(unassigned)' - and who handled it.
+ *
+ * A zero-argument way into explainModule, because the editor's Run button
+ * cannot pass one. '(unassigned)' is the row somebody notices and cannot
+ * act on: a module with no name, on a table where every other row is a
+ * module they work in. It is not an error - it is the figures refusing to
+ * guess - but the ticket behind it is real and findable, and the only
+ * thing standing between the two was an argument.
+ *
+ * A ticket lands there when BOTH of the two rules miss: the Part column
+ * does not name a module EAS reports on, and the person in Current
+ * Activity In Charge cannot be placed in a section for that month. The log
+ * below names them, so the fix is usually one line in CONFIG.ROSTER,
+ * CONFIG.FORMER or CONFIG.PERSON_MODULES - and then recomputeKpiCache().
+ */
+function explainUnassigned() {
+  return explainModule('(unassigned)');
+}
+
+
+/**
  * Prints why every ticket in one module is in it. Run from the editor.
  *
  *   explainModule('PP')             every month
