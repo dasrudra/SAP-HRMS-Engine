@@ -109,33 +109,65 @@ function teamColumnIndex(headers) {
 
 
 /**
- * Turns whatever is in the Photo cell into something an <img> can load.
+ * The Drive file id inside whatever somebody pasted into the Photo cell.
  *
- * A Drive file shared with the team is the likely source, and the address
- * people copy out of Drive is a VIEWER page, not an image - putting it in an
- * <img> yields a broken icon. The id inside it is what matters, so both the
- * sharing link and a bare id are accepted and rewritten to the thumbnail
- * endpoint. Anything already http(s) and not Drive is passed through.
- *
- * ASK DRIVE FOR MORE PIXELS THAN THE BOX NEEDS. sz=w320 means "320 pixels
- * wide", and that is the WHOLE picture - a landscape photograph comes back
- * 320x213, of which the circular crop uses 213. Against an 88px avatar on a
- * phone at three device pixels per CSS pixel, 264 are needed and 213 is an
- * upscale: soft faces, and nothing in the page to explain why. 512 covers
- * the largest avatar here at 3x with room over, and it is a thumbnail of a
- * head either way - the cost is a few kilobytes each, once, from a cache.
+ * The address people copy out of Drive is a VIEWER page, not an image, so
+ * putting it straight into an <img> yields a broken icon. The id inside it
+ * is the part that matters, and a bare id is accepted too.
  */
-function teamPhotoUrl(raw) {
+function teamPhotoId(raw) {
   const value = String(raw || '').trim();
   if (!value) return '';
+  const drive = /drive\.google\.com\/(?:file\/d\/|open\?id=|uc\?id=|thumbnail\?id=)([A-Za-z0-9_-]{20,})/.exec(value) ||
+                /lh3\.googleusercontent\.com\/d\/([A-Za-z0-9_-]{20,})/.exec(value);
+  if (drive) return drive[1];
+  return /^[A-Za-z0-9_-]{25,}$/.test(value) ? value : '';
+}
 
-  const drive = /drive\.google\.com\/(?:file\/d\/|open\?id=|uc\?id=|thumbnail\?id=)([A-Za-z0-9_-]{20,})/.exec(value);
-  if (drive) return 'https://drive.google.com/thumbnail?id=' + drive[1] + '&sz=w512';
 
-  if (/^[A-Za-z0-9_-]{25,}$/.test(value)) {
-    return 'https://drive.google.com/thumbnail?id=' + value + '&sz=w512';
-  }
+/**
+ * Turns whatever is in the Photo cell into something an <img> can load.
+ *
+ * NOT drive.google.com/thumbnail, WHICH IS WHY THE FACES WERE SOFT. That
+ * endpoint takes an sz= hint and is free to ignore it: for a file whose
+ * thumbnail Drive generated once and cached, it hands back that cached
+ * thumbnail whatever you ask for, and some of them are 128px. Raising sz=
+ * from 320 to 512 changed the address and not one pixel of what came back,
+ * which is exactly what it looked like.
+ *
+ * lh3.googleusercontent.com/d/<id>=w600 is Google's image CDN resizing the
+ * actual file, and it honours the width given. 600 covers the largest
+ * avatar here - 88px on the lead card - at three device pixels to the CSS
+ * pixel, with room over; a 600px-wide photograph of a head is tens of
+ * kilobytes, fetched once and cached after that.
+ *
+ * Anything already http(s) and not Drive is passed through untouched.
+ */
+function teamPhotoUrl(raw) {
+  const id = teamPhotoId(raw);
+  if (id) return 'https://lh3.googleusercontent.com/d/' + id + '=w600';
+  const value = String(raw || '').trim();
   return /^https?:\/\//.test(value) ? value : '';
+}
+
+
+/**
+ * The same picture by the older route, for an <img> whose src did not load.
+ *
+ * ONE CDN, ONE POINT OF FAILURE. lh3 is the sharper address and it is also
+ * the less documented one: if Google ever changes it, or a particular file
+ * will not serve from it, every face on the page becomes a broken icon at
+ * once. drive.google.com/thumbnail is the address that has been working all
+ * along, so it is kept as the thing to fall back to rather than deleted for
+ * tidiness. The page wires it up on error - see wireTeamFaces().
+ *
+ * Empty when there is nothing to fall back to, which is the case for a
+ * photograph hosted somewhere that is not Drive: there is no second address
+ * for it and pretending otherwise would just be a second broken request.
+ */
+function teamPhotoAltUrl(raw) {
+  const id = teamPhotoId(raw);
+  return id ? 'https://drive.google.com/thumbnail?id=' + id + '&sz=w600' : '';
 }
 
 
@@ -533,6 +565,9 @@ function readTeam() {
       email: cell(row, at.email),
       blood: cell(row, at.blood),
       photo: teamPhotoUrl(cell(row, at.photo)),
+      // The same picture by the older address, for the page to fall back
+      // to if the first one will not load. See teamPhotoAltUrl().
+      photoAlt: teamPhotoAltUrl(cell(row, at.photo)),
       note: cell(row, at.note),
 
       // The Head cell says one of three things:

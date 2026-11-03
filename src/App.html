@@ -6037,6 +6037,67 @@
    * without reading the card - and it says what it is to a screen reader,
    * because "B+" alone is not a sentence.
    */
+  /**
+   * Somebody's face: the photograph when there is one, initials when not.
+   *
+   * ONE PLACE, because there were three - the person card, the summary card
+   * above it and the lead card above that - each building the same <img>
+   * with its own copy of the same decision. They agreed by luck. The
+   * fallback below had to be added to all three, which is the point at
+   * which three copies stop being a tidiness question.
+   *
+   * Initials rather than a silhouette: a page of identical grey outlines
+   * tells you nothing, and initials() already knows that Md., Mohammad,
+   * Muhammad and Syed are honorifics and not somebody's first name.
+   *
+   * data-alt carries the second address. wireTeamFaces() uses it if the
+   * first will not load - see teamPhotoAltUrl() in Team.gs for why there
+   * are two.
+   */
+  function faceFor(person) {
+    const who = person || {};
+    if (!who.photo) {
+      return '<span class="team-face is-initials">' +
+             escapeHtml(initials(who.name || '?')) + '</span>';
+    }
+    return '<img class="team-face" src="' + escapeHtml(who.photo) + '" ' +
+           (who.photoAlt ? 'data-alt="' + escapeHtml(who.photoAlt) + '" ' : '') +
+           'alt="" loading="lazy">';
+  }
+
+
+  /**
+   * The second address, tried once, when the first will not load.
+   *
+   * Once, and then it gives up: swapping back and forth between two
+   * addresses that are both failing is a loop, and a loop that makes a
+   * network request each time round.
+   *
+   * The initials are what a failure finally lands on, because a broken
+   * image icon on a directory card reads as a broken page, and the initials
+   * were a perfectly good answer before any of these photographs existed.
+   */
+  function wireTeamFaces(root) {
+    (root || document).querySelectorAll('img.team-face').forEach(function (img) {
+      img.addEventListener('error', function () {
+        const second = img.getAttribute('data-alt');
+        if (second && !img.hasAttribute('data-tried')) {
+          img.setAttribute('data-tried', '1');
+          img.src = second;
+          return;
+        }
+        const span = document.createElement('span');
+        span.className = 'team-face is-initials';
+        const card = img.closest('.team-card, .team-sec-card, .team-lead');
+        const name = card && card.querySelector('strong')
+          ? card.querySelector('strong').textContent.trim() : '';
+        span.textContent = initials(name || '?');
+        img.replaceWith(span);
+      });
+    });
+  }
+
+
   function bloodPill(person) {
     const group = String((person && person.blood) || '').trim();
     if (!group) return '';
@@ -6048,13 +6109,7 @@
 
 
   function teamCard(person, roleOverride) {
-    // A photograph when the Photo column has one, initials when it does not.
-    // Initials rather than a silhouette: a page of identical grey outlines
-    // tells you nothing, and initials() already knows that Md., Mohammad,
-    // Muhammad and Syed are honorifics and not somebody's first name.
-    const face = person.photo
-      ? '<img class="team-face" src="' + escapeHtml(person.photo) + '" alt="" loading="lazy">'
-      : '<span class="team-face is-initials">' + escapeHtml(initials(person.name)) + '</span>';
+    const face = faceFor(person);
 
     return '<article class="team-card">' +
       '<div class="team-card-top">' +
@@ -6091,10 +6146,7 @@
    */
   function teamSectionCard(section, index) {
     const head = section.head;
-    const face = head && head.photo
-      ? '<img class="team-face" src="' + escapeHtml(head.photo) + '" alt="" loading="lazy">'
-      : '<span class="team-face is-initials">' +
-        escapeHtml(head ? initials(head.name) : '?') + '</span>';
+    const face = faceFor(head);
 
     // SECTION HEAD, full stop. It used to read "Section Head, Interim" when
     // the person heading a section sits outside it - which is true of the
@@ -6626,10 +6678,7 @@
     // ---- the department head, above everything, in the middle ----
     let html = '';
     if (team.lead) {
-      const face = team.lead.photo
-        ? '<img class="team-face" src="' + escapeHtml(team.lead.photo) + '" alt="" loading="lazy">'
-        : '<span class="team-face is-initials">' +
-          escapeHtml(initials(team.lead.name)) + '</span>';
+      const face = faceFor(team.lead);
 
       html +=
         '<div class="team-lead-wrap">' +
@@ -6689,6 +6738,12 @@
     }
 
     body.innerHTML = html;
+
+    // The photographs, after the HTML is in place for the same reason the
+    // buttons below are: the <img> elements do not exist until this line
+    // has run, and an error listener attached later than the error is no
+    // listener at all.
+    wireTeamFaces(body);
 
     // ---- opening a section ----
     // Bound here rather than with an onclick attribute, and after the HTML is

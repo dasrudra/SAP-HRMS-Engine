@@ -839,7 +839,19 @@ const stub = `
                 section: 'Sales Applications', office: 'TVL HQ', ext: '1234',
                 phone: '01700000002', email: 'carim@example.test',
                 blood: 'AB+',
-                photo: '', note: '', leads: '' }
+                // A FIRST ADDRESS THAT WILL NOT LOAD, and a second that
+                // will. lh3 is the sharper route and the less documented
+                // one; this is the fixture that proves the page survives it
+                // going away, rather than turning every face on the
+                // directory into a broken icon at once.
+                photo: 'data:image/png;base64,QUJD',
+                photoAlt: 'data:image/svg+xml;charset=UTF-8,%3Csvg%20xmlns%3D%22' +
+                       'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D' +
+                       '%220%200%20200%20300%22%3E%3Crect%20width%3D%22200%22' +
+                       '%20height%3D%22300%22%20fill%3D%22%23cfe0f7%22%2F%3E' +
+                       '%3Ccircle%20cx%3D%22100%22%20cy%3D%22110%22%20r%3D' +
+                       '%2255%22%20fill%3D%22%232563eb%22%2F%3E%3C%2Fsvg%3E',
+                note: '', leads: '' }
             ] },
           // Nobody marked as its head, so it falls to the department head -
           // the arrangement the real team is in for Supply Chain.
@@ -852,7 +864,13 @@ const stub = `
                 // No blood group on this one, on purpose: the card has to
                 // show nothing rather than an empty pill.
                 blood: '',
-                photo: '', note: '', leads: '' }
+                // And a photograph that will not load with nowhere to go
+                // after it - a picture hosted off Drive has no second
+                // address. The card has to land on initials rather than on
+                // a broken-image icon, which on a directory reads as a
+                // broken page.
+                photo: 'data:image/png;base64,QUJD',
+                note: '', leads: '' }
             ] }
         ],
         drift: { missing: ['Dilruba Khatun'], unknown: ['Nobody In Roster'] }

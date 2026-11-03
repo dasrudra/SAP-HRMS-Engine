@@ -397,12 +397,22 @@
     text-shadow: 0 1px 14px rgba(6, 22, 60, .3);
   }
 
-  /* ---------- the hero ---------- */
-  .portal-hero { padding: 44px 0 10px; text-align: center; }
+  /* ---------- the hero ----------
+     TIGHTER THAN IT WAS, SO THE PAGE ENDS WHERE THE SCREEN DOES. The hero
+     and the five cards under it are one thought - the team, and the four
+     figures it is measured on - and on a 1920x1080 screen the cards ran
+     about sixty pixels past the fold, so the thought was cut in half and
+     the first thing anybody did on the front page was scroll.
+
+     The space came off the parts with the most of it: 44px of padding
+     above a 58px headline, then 20 under it, then 32 under the standfirst,
+     then 88 before the cards. Nothing here is small now and nothing was
+     load-bearing. */
+  .portal-hero { padding: 26px 0 6px; text-align: center; }
 
   .portal-hero-title {
-    margin: 0 auto 20px;
-    font-size: 58px; line-height: 1.04; font-weight: 800;
+    margin: 0 auto 12px;
+    font-size: 50px; line-height: 1.05; font-weight: 800;
     letter-spacing: -.04em;
     color: #fff;
     text-shadow: 0 2px 30px rgba(6, 22, 60, .32);
@@ -410,7 +420,7 @@
   }
 
   .portal-hero-sub {
-    margin: 0 auto 32px;
+    margin: 0 auto 20px;
     max-width: 58ch;
     font-size: 16px; line-height: 1.62;
     color: rgba(255, 255, 255, .86);
@@ -534,9 +544,36 @@
       middle column reaches it by stacking two.
     */
     align-items: stretch;
-    /* Lower than it was. The hero needs room to finish before the cards
-       start, or the two read as one block. */
-    margin-top: 88px;
+    /* Enough that the hero finishes before the cards start and the two do
+       not read as one block - and no more than that, because every pixel
+       here is a pixel of the last card hanging below the fold. */
+    margin-top: 38px;
+  }
+
+  /*
+    A SHORTER WINDOW, which is most laptops.
+
+    The front page is one thought - the team, and the four figures it is
+    measured on - and it only works if the whole thought is on the screen.
+    The measurements above fit a 1920x1080 monitor with room over and run
+    off the bottom of a 1440x900 laptop, so the same space comes off again
+    where there is less of it to begin with.
+
+    Keyed on HEIGHT, which is the thing that is short. Keyed on width too,
+    only to leave the phone layout further down alone: it stacks, and
+    nothing about it is trying to fit in one screen.
+
+    The headline shrinks here and nowhere else. It is the one measurement
+    on this page that can be given up without the page looking squeezed,
+    because at 50px it is already shouting.
+  */
+  @media (min-width: 1100px) and (max-height: 899px) {
+    .portal-hero { padding-top: 10px; }
+    .portal-hero-title { font-size: 37px; margin-bottom: 8px; }
+    .portal-hero-sub { margin-bottom: 10px; font-size: 15px; line-height: 1.55; }
+    .portal-hero-actions.is-more { margin-top: 10px; }
+    .portal-tiles { margin-top: 16px; }
+    .ptile { padding: 10px 15px 10px; }
   }
 
   .ptile-compare { grid-column: 1; grid-row: 1 / span 2; }
@@ -547,7 +584,7 @@
 
   .ptile {
     display: flex; flex-direction: column;
-    padding: 16px 18px 15px;
+    padding: 14px 18px 13px;
     background: var(--portal-card);
     border: 1px solid rgba(255, 255, 255, .7);
     border-radius: 16px;

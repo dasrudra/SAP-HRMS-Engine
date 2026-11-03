@@ -445,16 +445,49 @@ check('an empty tab returns an empty directory rather than throwing',
 // ---------------------------------------------------------------------------
 // What people copy out of Drive is a VIEWER page, not an image. Put straight
 // into an <img> it is a broken icon.
-check('a Drive sharing link becomes something an img can actually load',
-  ctx.teamPhotoUrl('https://drive.google.com/file/d/1aB2cD3eF4gH5iJ6kL7mN8oP9qR0sT1u/view?usp=sharing') ===
-  'https://drive.google.com/thumbnail?id=1aB2cD3eF4gH5iJ6kL7mN8oP9qR0sT1u&sz=w512',
-  ctx.teamPhotoUrl('https://drive.google.com/file/d/1aB2cD3eF4gH5iJ6kL7mN8oP9qR0sT1u/view'));
+const DID = '1aB2cD3eF4gH5iJ6kL7mN8oP9qR0sT1u';
+const SHARE = 'https://drive.google.com/file/d/' + DID + '/view?usp=sharing';
+
+check('every shape of Drive address gives up the same file id',
+  ctx.teamPhotoId(SHARE) === DID &&
+  ctx.teamPhotoId('https://drive.google.com/open?id=' + DID) === DID &&
+  ctx.teamPhotoId('https://lh3.googleusercontent.com/d/' + DID + '=w600') === DID &&
+  ctx.teamPhotoId(DID) === DID,
+  'a sharing link, an open link, our own output, and a bare id');
+
+// NOT drive.google.com/thumbnail, and this is the assertion that says why.
+// That endpoint treats sz= as a hint and may hand back a cached thumbnail
+// of whatever size it made earlier - which is why raising sz= from 320 to
+// 512 changed the address and not one pixel of what arrived. lh3 is the
+// CDN resizing the file itself, and it honours the width.
+check('a Drive sharing link becomes a sized image from the CDN that honours it',
+  ctx.teamPhotoUrl(SHARE) === 'https://lh3.googleusercontent.com/d/' + DID + '=w600',
+  ctx.teamPhotoUrl(SHARE));
+
+check('and the width asked for covers the largest avatar at 3x',
+  Number(/=w(\d+)$/.exec(ctx.teamPhotoUrl(SHARE))[1]) >= 88 * 3,
+  ctx.teamPhotoUrl(SHARE) + ' - the lead card draws 88px');
+
+// THE SECOND ADDRESS. lh3 is the sharper route and the less documented one,
+// so the route that has been working all along is kept to fall back to.
+check('the older address is kept as a fallback, pointing at the same file',
+  ctx.teamPhotoAltUrl(SHARE) ===
+    'https://drive.google.com/thumbnail?id=' + DID + '&sz=w600' &&
+  ctx.teamPhotoAltUrl(SHARE) !== ctx.teamPhotoUrl(SHARE),
+  ctx.teamPhotoAltUrl(SHARE));
 
 check('a bare Drive id works too, and anything else is left alone',
-  ctx.teamPhotoUrl('1aB2cD3eF4gH5iJ6kL7mN8oP9qR0sT1u').indexOf('thumbnail?id=') !== -1 &&
+  ctx.teamPhotoUrl(DID).indexOf('lh3.googleusercontent.com') !== -1 &&
   ctx.teamPhotoUrl('https://example.test/me.jpg') === 'https://example.test/me.jpg' &&
   ctx.teamPhotoUrl('not a link') === '',
   'a value that is not a URL is dropped rather than put in an src');
+
+// A PHOTOGRAPH HOSTED SOMEWHERE THAT IS NOT DRIVE HAS NO SECOND ADDRESS,
+// and inventing one would only be a second request that also fails.
+check('and a non-Drive photograph gets no fallback invented for it',
+  ctx.teamPhotoAltUrl('https://example.test/me.jpg') === '' &&
+  ctx.teamPhotoAltUrl('') === '',
+  JSON.stringify(ctx.teamPhotoAltUrl('https://example.test/me.jpg')));
 
 // ---------------------------------------------------------------------------
 // SOMEBODY LEAVING MUST NOT MOVE LAST QUARTER'S FIGURES

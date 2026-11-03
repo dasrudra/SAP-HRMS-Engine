@@ -49,8 +49,8 @@ const FILE = 'file://' + PAGE;
   const b = await chromium.launch({ executablePath: BROWSER });
   const errors = [];
 
-  const open = async (query) => {
-    const p = await b.newPage({ viewport: { width: 1500, height: 1000 } });
+  const open = async (query, viewport) => {
+    const p = await b.newPage({ viewport: viewport || { width: 1500, height: 1000 } });
     p.on('pageerror', (e) => errors.push(String(e)));
     p.on('console', (m) => {
       if (m.type() !== 'error') return;
@@ -457,6 +457,7 @@ const FILE = 'file://' + PAGE;
     shot && shot.fit === 'cover' && /50%|9999px/.test(shot.round),
     shot ? shot.fit + ', radius ' + shot.round : '(not found)');
 
+
   // WHAT A BIGGER CARD IS FOR, stated as the thing it fixes rather than as
   // a width. The email address is the only line long enough to matter, and
   // at 248px it was the one being cut - a thirty-character address trailing
@@ -464,17 +465,49 @@ const FILE = 'file://' + PAGE;
   // reach that person. The lines still ellipsis rather than wrap,
   // deliberately, so this asks whether the longest address the team has
   // actually fits inside one.
-  const clipped = await t.$$eval('#teamSecBody0 .team-card .team-line', (ns) => ns
-    .map((line) => {
+  // MEASURED ONLY IF THERE IS SOMETHING TO MEASURE. A hidden element
+  // reports scrollWidth and clientWidth as 0, so "nothing is clipped" is
+  // true of every closed section - which is how this assertion quietly
+  // stopped testing anything the first time a later block closed section 0
+  // ahead of it. `seen` is what makes the vacuous case fail.
+  const clip = await t.$$eval('#teamSecBody0 .team-card .team-line', (ns) => {
+    const out = { seen: 0, cut: [] };
+    ns.forEach(function (line) {
       const box = line.querySelector('span');
-      return box && box.scrollWidth > box.clientWidth
-        ? box.textContent.trim() : '';
-    })
-    .filter(Boolean));
+      if (!box || box.clientWidth === 0) return;
+      out.seen++;
+      if (box.scrollWidth > box.clientWidth) out.cut.push(box.textContent.trim());
+    });
+    return out;
+  });
   check('and nothing on a card is cut off, the long email addresses included',
-    clipped.length === 0,
-    clipped.length ? 'cut: ' + clipped.join(' | ')
-                   : 'the 36-character address fits with room over');
+    clip.seen >= 3 && clip.cut.length === 0,
+    clip.cut.length ? 'cut: ' + clip.cut.join(' | ')
+                    : clip.seen + ' lines measured, none clipped');
+
+  // THE SECOND ADDRESS, WHICH IS THE WHOLE REASON THERE ARE TWO. lh3 is the
+  // sharper route and the less documented one; if it ever stops serving, or
+  // one file will not come from it, every face on this page becomes a
+  // broken icon at the same moment. The fixture's Sales section has
+  // somebody whose first address cannot load and whose second can.
+  await t.click('.team-sec[data-section="1"] .team-sec-card');
+  await t.waitForTimeout(700);
+  const swapped = await t.evaluate(() => {
+    const card = Array.from(document.querySelectorAll('#teamSecBody1 .team-card'))
+      .filter((c) => c.querySelector('strong').textContent.trim().indexOf('Carim') === 0)[0];
+    if (!card) return null;
+    const img = card.querySelector('img.team-face');
+    if (!img) return { img: false };
+    return { img: true, src: img.getAttribute('src').slice(0, 24),
+             tried: img.getAttribute('data-tried'),
+             loaded: img.complete && img.naturalWidth > 0 };
+  });
+  check('a photograph the first address cannot serve comes from the second',
+    swapped && swapped.img === true && swapped.loaded === true &&
+    swapped.tried === '1' && swapped.src.indexOf('image/svg') !== -1,
+    swapped ? JSON.stringify(swapped) : '(card not found)');
+  await t.click('.team-sec[data-section="1"] .team-sec-card');
+  await t.waitForTimeout(400);
 
   // NOBODY'S CELL IS EMPTY BY ACCIDENT, so an empty one has to draw nothing
   // at all. An empty red pill reads as a blood group that failed to load,
@@ -489,6 +522,21 @@ const FILE = 'file://' + PAGE;
   check('and a person with no blood group gets no pill, not an empty one',
     noGroup && noGroup.has === false,
     noGroup ? noGroup.name + ' has a pill' : '(card not found)');
+
+  // A PHOTOGRAPH THAT WILL NOT LOAD AND HAS NOWHERE TO GO lands on the
+  // initials, which were a perfectly good answer before any of these
+  // photographs existed. A broken-image icon on a directory card reads as
+  // a broken page.
+  const dead = await t.evaluate(() => {
+    const card = Array.from(document.querySelectorAll('#teamSecBody2 .team-card'))
+      .filter((c) => c.querySelector('strong').textContent.trim().indexOf('Nobody') === 0)[0];
+    if (!card) return null;
+    return { img: Boolean(card.querySelector('img.team-face')),
+             initials: (card.querySelector('.team-face.is-initials') || {}).textContent || '' };
+  });
+  check('a photograph that will not load falls back to initials, not a broken icon',
+    dead && dead.img === false && dead.initials.length > 0,
+    dead ? 'img ' + dead.img + ', initials "' + dead.initials + '"' : '(not found)');
   // Opening a section closes whichever one was open - see "one at a time"
   // below - so this does not close section 2, it reopens section 0 and
   // closes section 2 on the way. Section 0 has to be back open for the line
@@ -959,6 +1007,42 @@ const FILE = 'file://' + PAGE;
       cards.filter((c) => c.target !== '_blank').length + ' without target');
 
     await q.close();
+  }
+
+  // ===========================================================================
+  // THE FRONT PAGE FITS ON THE SCREEN
+  // ===========================================================================
+  // The hero and the five cards under it are one thought: the team, and the
+  // four figures it is measured on. Half a thought is worse than none - the
+  // cards ran about sixty pixels past the fold on a 1920x1080 monitor, so
+  // the first thing anybody did on the front page was scroll it, and the
+  // card that got cut was the one naming the three service layers.
+  //
+  // Checked at two heights, because the fix is in two places: the base
+  // measurements carry the desktop, and a height media query carries the
+  // laptop. One assertion at one size would pass with either half missing.
+  for (const size of [{ width: 1920, height: 930, what: 'a 1080p monitor' },
+                      { width: 1440, height: 860, what: 'a laptop' }]) {
+    const fit = await open('', { width: size.width, height: size.height });
+    const box = await fit.evaluate(() => {
+      const tiles = Array.from(document.querySelectorAll('.ptile'));
+      if (!tiles.length) return null;
+      return {
+        bottom: Math.round(Math.max.apply(null,
+          tiles.map((t) => t.getBoundingClientRect().bottom))),
+        vh: window.innerHeight,
+        tiles: tiles.length,
+        // Every card drawn, not just the ones that happen to be above the
+        // fold - a layout that fits by dropping a card is not a fix.
+        drawn: tiles.filter((t) => t.getBoundingClientRect().height > 40).length
+      };
+    });
+    check('the whole front page is on screen at ' + size.what,
+      box && box.bottom <= box.vh && box.drawn === 5,
+      box ? box.drawn + ' cards, ending at ' + box.bottom + ' of ' + box.vh +
+            (box.bottom <= box.vh ? '' : ' - over by ' + (box.bottom - box.vh))
+          : '(no cards)');
+    await fit.close();
   }
 
   check('no JS errors across the whole run', errors.length === 0, errors.slice(0, 3).join(' | '));
