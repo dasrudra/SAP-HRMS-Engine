@@ -114,7 +114,7 @@ const FILE = 'file://' + PAGE;
   // every page and carries replies, which a page with an address on it does
   // not. Asserted as a whole rather than by counting, so a tab quietly
   // dropped or reordered is caught by name.
-  const WANTED = ['Home', 'About us', 'EAS Team', 'KPI Engine', 'Partners',
+  const WANTED = ['Home', 'About us', 'EAS Team', 'KPI Engine', 'Customers',
                   'Learnings', 'Projects', 'Objective', 'Links'];
   check('all nine tabs are there, in the order they were given',
     JSON.stringify(tabs.map((t) => t.label)) === JSON.stringify(WANTED),
@@ -299,8 +299,14 @@ const FILE = 'file://' + PAGE;
     names.join(' | ') === 'Supply Chain Applications | Sales Applications | Financial Applications',
     names.join(' | '));
 
-  // THE INTERIM CASE, which is the one the data cannot state directly: he
-  // leads Supply Chain while sitting in no section at all.
+  // THE CHART DOES NOT EDITORIALISE ABOUT HOW SOMEBODY CAME TO LEAD.
+  //
+  // A head who leads a section he does not sit in used to be labelled
+  // "Section Head, Interim" - a caveat printed on the card that carries the
+  // most authority on the page, telling a team of thirty-seven something all
+  // thirty-seven of them already knew. The arrangement has not changed and
+  // the server still reports it: team-test.js checks `section.interim` is
+  // true for exactly the sections it should be. The chart just says the role.
   const first = await t.evaluate(() => {
     const sec = document.querySelectorAll('.team-sec')[0];
     return {
@@ -309,13 +315,18 @@ const FILE = 'file://' + PAGE;
       count: sec.querySelector('.team-sec-count').textContent.trim()
     };
   });
-  check('a head who leads a section he is not in is marked interim',
-    first.who === 'Utpal Biswas' && first.role === 'Section Head, Interim',
+  check('a head who leads a section he is not in still reads Section Head',
+    first.who === 'Utpal Biswas' && first.role === 'Section Head',
     first.who + ' - ' + first.role);
 
-  const second = await t.$eval('.team-sec:nth-child(2) .team-sec-role', (n) => n.textContent.trim());
-  check('and a head who leads their own section is not',
-    second === 'Section Head', second);
+  const allRoles = await t.$$eval('.team-sec-role', (ns) => ns.map((n) => n.textContent.trim()));
+  check('and so does every other head, so the row reads as one chart',
+    allRoles.length >= 3 && allRoles.every((r) => r === 'Section Head'),
+    allRoles.join(' | '));
+
+  check('with the word Interim nowhere on the chart at all',
+    !/interim/i.test(await t.$eval('#teamBody', (n) => n.textContent)),
+    'including inside the sections, which have to be opened to be read');
 
   // ---- designation and module ----
   // The chart role used to REPLACE the designation, so the one card naming a
@@ -327,20 +338,24 @@ const FILE = 'file://' + PAGE;
       ? sec.querySelector('.team-sec-sub').textContent.trim() : ''
   })));
   check('a section head keeps their designation under their chart role',
-    heads[0].role === 'Section Head, Interim' &&
-    heads[0].sub === 'Senior Manager \u00b7 EAS',
+    heads[0].role === 'Section Head' &&
+    heads[0].sub === 'Senior Manager \u00b7 MM',
     heads[0].role + ' / ' + heads[0].sub);
 
   check('and each head shows their own module, not the same one',
     heads[1].sub === 'Manager \u00b7 SD',
     heads.map((h) => h.sub).join(' | '));
 
-  // THE DEPARTMENT HEAD'S MODULE IS THE DEPARTMENT. His Module cell names a
-  // module because the sheet has to put something there; he does not belong
-  // to one, and the card saying MM would be the page inventing a fact.
-  check('the department head reads EAS rather than the module in his row',
-    heads[0].sub.indexOf('EAS') !== -1 && heads[0].sub.indexOf('MM') === -1,
-    heads[0].sub);
+  // THE DEPARTMENT HEAD READS LIKE THE HEADS BESIDE HIM. His line used to be
+  // overridden to the DEPARTMENT, on the reasoning that he heads all of it
+  // and sits in no one module. On the page that came out as "Senior Manager
+  // - EAS" at the head of a row reading "Manager - SD" and "Manager - FI/CO":
+  // the one card in four that did not answer the question the line is there
+  // to answer. The Module cell is where the sheet says which modules are
+  // his, so the Module cell is what the card prints.
+  check('the department head shows his module, like the heads beside him',
+    heads[0].sub === 'Senior Manager \u00b7 MM' && heads[0].sub.indexOf('EAS') === -1,
+    heads[0].sub + ' - the old override would put EAS here');
 
   // Member cards carry it too.
   await t.click('.team-sec[data-section="0"] .team-sec-card');
@@ -357,9 +372,83 @@ const FILE = 'file://' + PAGE;
 
   const inSection = member.filter((m) => m.name.indexOf('Utpal') === 0)[0];
   check('and the head inside the section keeps both as well',
-    inSection && inSection.flag === 'Section Head, Interim' &&
-    inSection.role === 'Senior Manager \u00b7 EAS',
+    inSection && inSection.flag === 'Section Head' &&
+    inSection.role === 'Senior Manager \u00b7 MM',
     inSection ? inSection.flag + ' / ' + inSection.role : '(not found)');
+
+  // ---- blood group ----
+  // Everything else on these cards is a way of reaching somebody. This is
+  // the one fact read ABOUT somebody, and read once: when there has been an
+  // accident and a colleague is on the phone to a hospital.
+  const blood = await t.$$eval('#teamSecBody0 .team-card', (ns) => ns.map((c) => ({
+    name: c.querySelector('strong').textContent.trim(),
+    // textContent, so the screen-reader prefix inside the pill comes with
+    // it - that is the half of this assertion the eye cannot check.
+    pill: c.querySelector('.team-blood')
+      ? c.querySelector('.team-blood').textContent.trim() : null
+  })));
+  const bilalBlood = blood.filter((b) => b.name.indexOf('Bilal') === 0)[0];
+  check('a card carries the blood group on the row it belongs to',
+    bilalBlood && bilalBlood.pill === 'Blood group O+',
+    bilalBlood ? String(bilalBlood.pill) : '(no card)');
+  check('and says what the letters are, for a reader that cannot see red',
+    bilalBlood && /^Blood group /.test(bilalBlood.pill),
+    '"O+" on its own is not a sentence');
+
+  // ---- the photograph ----
+  // 42px was a thumbnail to squint at. Asserted as a relationship rather
+  // than a number: the person card is the one being looked at, so its face
+  // is the larger of the two, and both are big enough to be a face.
+  const faces = await t.evaluate(() => {
+    const one = (sel) => {
+      const el = document.querySelector(sel);
+      return el ? Math.round(el.getBoundingClientRect().width) : 0;
+    };
+    return { card: one('#teamSecBody0 .team-card .team-face'),
+             summary: one('.team-sec-card .team-face') };
+  });
+  check('the photo slot is big enough to be a face, and biggest on the card',
+    faces.card >= 52 && faces.summary >= 44 && faces.card > faces.summary,
+    faces.card + 'px on the person card, ' + faces.summary + 'px on the summary');
+
+  // WHAT A BIGGER CARD IS FOR, stated as the thing it fixes rather than as
+  // a width. The email address is the only line long enough to matter, and
+  // at 248px it was the one being cut - a thirty-character address trailing
+  // off into an ellipsis on a card whose entire job is letting somebody
+  // reach that person. The lines still ellipsis rather than wrap,
+  // deliberately, so this asks whether the longest address the team has
+  // actually fits inside one.
+  const clipped = await t.$$eval('#teamSecBody0 .team-card .team-line', (ns) => ns
+    .map((line) => {
+      const box = line.querySelector('span');
+      return box && box.scrollWidth > box.clientWidth
+        ? box.textContent.trim() : '';
+    })
+    .filter(Boolean));
+  check('and nothing on a card is cut off, the long email addresses included',
+    clipped.length === 0,
+    clipped.length ? 'cut: ' + clipped.join(' | ')
+                   : 'the 36-character address fits with room over');
+
+  // NOBODY'S CELL IS EMPTY BY ACCIDENT, so an empty one has to draw nothing
+  // at all. An empty red pill reads as a blood group that failed to load,
+  // and on this of all fields that is worse than silence.
+  await t.click('.team-sec[data-section="2"] .team-sec-card');
+  await t.waitForTimeout(500);
+  const blank = await t.$$eval('#teamSecBody2 .team-card', (ns) => ns.map((c) => ({
+    name: c.querySelector('strong').textContent.trim(),
+    has: Boolean(c.querySelector('.team-blood'))
+  })));
+  const noGroup = blank.filter((b) => b.name.indexOf('Nobody') === 0)[0];
+  check('and a person with no blood group gets no pill, not an empty one',
+    noGroup && noGroup.has === false,
+    noGroup ? noGroup.name + ' has a pill' : '(card not found)');
+  // Opening a section closes whichever one was open - see "one at a time"
+  // below - so this does not close section 2, it reopens section 0 and
+  // closes section 2 on the way. Section 0 has to be back open for the line
+  // under it, whose job is to close it.
+  await t.click('.team-sec[data-section="0"] .team-sec-card');
+  await t.waitForTimeout(400);
 
   await t.click('.team-sec[data-section="0"] .team-sec-card');
   await t.waitForTimeout(400);
@@ -477,7 +566,7 @@ const FILE = 'file://' + PAGE;
     };
   });
   check('an unled section shows the department head covering it',
-    headless.who === 'Utpal Biswas' && headless.role === 'Section Head, Interim',
+    headless.who === 'Utpal Biswas' && headless.role === 'Section Head',
     headless.who + ' - ' + headless.role);
 
   // The roster disagreement. Shown to an admin, because a viewer can do
@@ -661,6 +750,42 @@ const FILE = 'file://' + PAGE;
   // 13.3px Arial. Two typefaces, two sizes, side by side on the hero, for
   // months - and invisible to a test that only asked whether the boxes were
   // the same height, which the padding made true anyway.
+  // FOUR BUTTONS, TWO ROWS, ONE PAIR OF COLUMNS.
+  //
+  // These were two centred flex rows. Each sized itself to its own two
+  // labels and centred the result, so because "Open the KPI Engine" and
+  // "Open SAP UserHub" are not as wide as "Open RMG PA Report" and "Open
+  // Groupware & ITSM", the gap down the middle stepped sideways between the
+  // rows - four buttons that look placed by hand and not quite straight.
+  //
+  // Asserted on EDGES rather than on the CSS, because the edges are what
+  // anybody looking at the hero can see. Left edges must agree down each
+  // column and right edges likewise, which together also mean every button
+  // is the same width.
+  const grid = await hero.evaluate(() => {
+    const rows = Array.from(document.querySelectorAll('.portal-hero-actions'))
+      .filter((r) => !r.hidden && r.querySelector('.portal-cta'));
+    return rows.map((r) => Array.from(r.querySelectorAll('.portal-cta')).map((b) => {
+      const box = b.getBoundingClientRect();
+      return { left: Math.round(box.left), right: Math.round(box.right) };
+    }));
+  });
+  const columns = grid.length >= 2 && grid[0].length === 2 && grid[1].length === 2;
+  check('the four hero buttons line up in two columns, row to row',
+    columns &&
+    grid[0][0].left === grid[1][0].left && grid[0][0].right === grid[1][0].right &&
+    grid[0][1].left === grid[1][1].left && grid[0][1].right === grid[1][1].right,
+    columns
+      ? 'row 1 ' + grid[0].map((b) => b.left + '-' + b.right).join(', ') +
+        ' | row 2 ' + grid[1].map((b) => b.left + '-' + b.right).join(', ')
+      : grid.map((r) => r.length).join('+') + ' buttons, expected 2+2');
+
+  check('so the gap between them is one straight line down the hero',
+    columns && (grid[0][1].left - grid[0][0].right) ===
+               (grid[1][1].left - grid[1][0].right),
+    columns ? 'gutter ' + (grid[0][1].left - grid[0][0].right) + 'px over ' +
+              (grid[1][1].left - grid[1][0].right) + 'px' : 'rows not paired');
+
   check('and set in the same face at the same size, not just the same box',
     pair.sap.size === pair.kpi.size && pair.sap.family === pair.kpi.family &&
     /inherit|apple-system/.test(pair.kpi.family),

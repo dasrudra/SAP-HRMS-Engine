@@ -781,17 +781,20 @@ const stub = `
     */
     getTeam: function () {
       var utpal = { name: 'Utpal Biswas', id: '20000000', title: 'Senior Manager',
-                    // The department head's Module cell names a module
-                    // because the sheet has to put something there; his
-                    // moduleLabel is the department, which readTeam sets.
-                    module: 'MM', moduleLabel: 'EAS', dept: 'EAS',
+                    // The department head reads like every other head:
+                    // his Module cell is what his card prints. It used to be
+                    // overridden to the department, which put "Senior
+                    // Manager - EAS" at the head of a row of "Manager - SD".
+                    module: 'MM', moduleLabel: 'MM', dept: 'EAS',
                     section: 'ALL', office: 'TVL HQ', ext: '2428',
                     phone: '01700000000', email: 'utpal@example.test',
+                    blood: 'A+',
                     photo: '', note: '', leads: 'Supply Chain Applications' };
       var ayesha = { name: 'Ayesha Rahman', id: '20000001', title: 'Manager',
                      module: 'SD', moduleLabel: 'SD', dept: 'EAS',
                      section: 'Sales Applications', office: 'TVL HQ', ext: '',
                      phone: '01700000001', email: 'ayesha@example.test',
+                     blood: 'B+',
                      photo: '', note: '', leads: 'Yes' };
       return {
         filled: true,
@@ -808,7 +811,12 @@ const stub = `
               { name: 'Bilal Hossain', id: '20000003', title: 'Deputy Manager',
                 module: 'MM', moduleLabel: 'MM', dept: 'EAS',
                 section: 'Supply Chain Applications', office: 'YCL', ext: '2222',
-                phone: '01700000003', email: 'bilal@example.test',
+                // A long address on purpose: the real team's worst case is
+                // a 31-character address, and this one
+                // is 36. If it fits on a card, theirs do.
+                phone: '01700000003',
+                email: 'bilal.hossain@tekvision.example.test',
+                blood: 'O+',
                 photo: '', note: '', leads: '' }
             ] },
           { name: 'Sales Applications', count: 2, head: ayesha, interim: false,
@@ -817,6 +825,7 @@ const stub = `
                 module: 'SD', moduleLabel: 'SD', dept: 'EAS',
                 section: 'Sales Applications', office: 'TVL HQ', ext: '1234',
                 phone: '01700000002', email: 'carim@example.test',
+                blood: 'AB+',
                 photo: '', note: '', leads: '' }
             ] },
           // Nobody marked as its head, so it falls to the department head -
@@ -827,6 +836,9 @@ const stub = `
                 module: 'FI', moduleLabel: 'FI', dept: 'EAS',
                 section: 'Financial Applications', office: 'YCL', ext: '3333',
                 phone: '01700000004', email: 'nobody@example.test',
+                // No blood group on this one, on purpose: the card has to
+                // show nothing rather than an empty pill.
+                blood: '',
                 photo: '', note: '', leads: '' }
             ] }
         ],

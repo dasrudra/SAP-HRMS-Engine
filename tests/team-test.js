@@ -230,11 +230,18 @@ check('and the mobile, extension and address come off the right columns',
 // A tab whose headers were renamed or reordered still has to work: it is
 // filled by pasting from a spreadsheet somebody else maintains.
 const moved = load(ROWS);
+// Blood Group is in this list deliberately, and nowhere near the eighth
+// position it occupies in the real sheet. It is the one column here whose
+// value is meaningless out of place and dangerous read off the wrong row:
+// an inserted column ahead of it, matched by position, would put one
+// colleague's blood group under another colleague's name on the card a
+// third colleague reads to a hospital.
 check('the columns are found by meaning, so Ext# may be renamed Extension',
   (function () {
-    const flat = ctx.teamColumnIndex(['Name', 'Mail', 'Extension', 'Mobile', 'Head']);
+    const flat = ctx.teamColumnIndex(['Name', 'Mail', 'Extension', 'Mobile',
+                                      'Head', 'Blood Group']);
     return flat.name === 0 && flat.email === 1 && flat.ext === 2 &&
-           flat.phone === 3 && flat.head === 4;
+           flat.phone === 3 && flat.head === 4 && flat.blood === 5;
   })(),
   'matched on a squashed, lower-cased header');
 
@@ -358,8 +365,15 @@ check('an empty tab returns an empty directory rather than throwing',
     rudra && rudra.moduleLabel === 'PP',
     rudra ? rudra.title + ' / ' + rudra.moduleLabel : '(not found)');
 
-  check('the department head carries the department instead of a module',
-    team.lead && team.lead.moduleLabel === 'EAS' && team.lead.module === 'MM',
+  // HE CARRIES HIS MODULE, LIKE EVERYONE ELSE. readTeam used to override
+  // this one person's label to the DEPARTMENT, which put "Senior Manager -
+  // EAS" at the head of a chart whose other three cards read "Manager - SD",
+  // "Manager - PP" and "Manager - FI/CO" - the only card in four that did
+  // not answer the question the line exists to answer. Whatever the Module
+  // cell says is now what the label says, for him too.
+  check('the department head carries his own module, not the department',
+    team.lead && team.lead.moduleLabel === team.lead.module &&
+    team.lead.moduleLabel === 'MM',
     team.lead ? 'Module cell "' + team.lead.module + '", card says "' +
                 team.lead.moduleLabel + '"' : '(no lead)');
 
@@ -369,12 +383,43 @@ check('an empty tab returns an empty directory rather than throwing',
   // each place that draws one.
   const asHead = team.sections.filter((s) => s.head && s.head.name === 'Utpal Biswas')[0];
   check('and says the same thing wherever he appears',
-    asHead && asHead.head.moduleLabel === 'EAS',
+    asHead && asHead.head.moduleLabel === 'MM',
     asHead ? asHead.name + ' head says ' + asHead.head.moduleLabel : '(not a head anywhere)');
 
   check('a section head keeps their designation as well as their chart role',
     asHead && asHead.head.title === 'Senior Manager' && asHead.interim === true,
     asHead ? asHead.head.title + ', interim ' + asHead.interim : '(none)');
+
+  // -------------------------------------------------------------------------
+  // BLOOD GROUP
+  // -------------------------------------------------------------------------
+  // The column has been in TEAM_COLUMNS since the tab was first laid out -
+  // it is the team spreadsheet's own eighth column - and readTeam simply
+  // walked past it. It reaches the card now, which is the whole point: the
+  // one moment anybody wants this is an accident, and an accident is not
+  // when somebody goes looking for the spreadsheet it is filed in.
+  //
+  // Read BY NAME and not by position. There are sixteen columns and two of
+  // them are blank for most people, so an off-by-one here would publish one
+  // colleague's blood group under another colleague's name.
+  // Heads as well as members: a section head is not in its member list, and
+  // the first run of this reported one of them as undefined rather than as
+  // a missing blood group - which would have read as a bug in readTeam.
+  const everyone = team.sections.reduce(
+    (all, s) => all.concat(s.head ? [s.head] : [], s.members),
+    team.lead ? [team.lead] : []);
+  const bloodOf = (n) => (everyone.filter((p) => p.name === n)[0] || {}).blood;
+
+  check('a blood group is read off the row it belongs to',
+    bloodOf('Utpal Biswas') === 'A+' && bloodOf('Sudip Paul') === 'O+' &&
+    bloodOf('Md. Abul Masum Siddique') === 'B+',
+    'Utpal ' + bloodOf('Utpal Biswas') + ', Sudip ' + bloodOf('Sudip Paul') +
+    ', Masum ' + bloodOf('Md. Abul Masum Siddique'));
+
+  check('and an empty cell stays empty rather than borrowing the row below',
+    bloodOf('Abul Bashar') === '' && bloodOf('Sadril Ali') === '',
+    'Bashar "' + bloodOf('Abul Bashar') + '", Sadril "' +
+    bloodOf('Sadril Ali') + '" - both blank in the sheet');
 }
 
 // ---------------------------------------------------------------------------
@@ -392,6 +437,102 @@ check('a bare Drive id works too, and anything else is left alone',
   ctx.teamPhotoUrl('https://example.test/me.jpg') === 'https://example.test/me.jpg' &&
   ctx.teamPhotoUrl('not a link') === '',
   'a value that is not a URL is dropped rather than put in an src');
+
+// ---------------------------------------------------------------------------
+// matching a photograph to the person in it
+// ---------------------------------------------------------------------------
+// THE FAILURE THIS GUARDS IS SILENT. Thirty-six pictures pasted into
+// thirty-six cells by hand is one transposition away from a card carrying
+// somebody else's face, and the card beside it carrying theirs, with neither
+// mistake visible to whoever made it. So the matching is a pure function and
+// it is asked the questions this team's own names actually pose.
+//
+// The people below are the real shapes: two men whose names differ only in
+// the surname and share an honorific, one honorific spelled three ways in
+// three places, and one short name that is a substring risk.
+const FACES = [
+  { name: 'Utpal Biswas', id: '20990021', row: 2 },
+  { name: 'Md. Ashraful Islam', id: '20990022', row: 3 },
+  { name: 'Md. Ashraful Karim', id: '20990023', row: 4 },
+  { name: 'Mohammad Abul Kalam', id: '20990024', row: 5 },
+  { name: 'Rudra Das', id: '20990025', row: 6 },
+  // A short name, to hold the floor on rule 3 in place. Nobody on the team
+  // is called this today; the shortest real name squashes to exactly eight
+  // characters, which is close enough to the floor that the first colleague
+  // to arrive with a shorter one would quietly stop matching.
+  { name: 'Jo Lee', id: '20990026', row: 7 }
+];
+const who = (file) => {
+  const hit = ctx.photoRowFor(file, FACES);
+  return hit.ambiguous ? 'AMBIGUOUS' : hit.person ? hit.person.name : '(none)';
+};
+
+check('an employee ID in the filename is enough, however it is wrapped',
+  who('20990021.jpg') === 'Utpal Biswas' &&
+  who('IMG_20990022 (1).png') === 'Md. Ashraful Islam' &&
+  who('20990025 - profile.JPEG') === 'Rudra Das',
+  'the ID is the one part of a filename that cannot mean two people');
+
+check('and a full name matches without one',
+  who('Utpal Biswas.jpg') === 'Utpal Biswas' &&
+  who('rudra das.png') === 'Rudra Das',
+  who('Utpal Biswas.jpg') + ' / ' + who('rudra das.png'));
+
+// THE ONE THAT WOULD HAVE PUT THE WRONG FACE ON A CARD. These two differ by
+// a surname and share an honorific that is spelled four ways in the wild. A
+// matcher that collapsed the honorific and stopped there would have them as
+// one person - and whichever file came out of Drive second would overwrite
+// the first.
+check('two colleagues differing only in the surname stay two people',
+  who('Md. Ashraful Islam.jpg') === 'Md. Ashraful Islam' &&
+  who('Mohammad Ashraful Karim.jpg') === 'Md. Ashraful Karim',
+  who('Md. Ashraful Islam.jpg') + ' / ' + who('Mohammad Ashraful Karim.jpg'));
+
+check('and the honorific may be spelled any of its ways',
+  who('Mohammad Ashraful Islam.png') === 'Md. Ashraful Islam' &&
+  who('MD ASHRAFUL ISLAM.PNG') === 'Md. Ashraful Islam' &&
+  who('mohd ashraful islam.jpg') === 'Md. Ashraful Islam',
+  'md / md. / mohammad / mohd are one word in this directory');
+
+check('a name inside a longer filename is still found',
+  who('Utpal Biswas - EAS - 2026.jpg') === 'Utpal Biswas' &&
+  who('EAS Team/Rudra Das (PP).png') === 'Rudra Das',
+  who('Utpal Biswas - EAS - 2026.jpg'));
+
+// THE FLOOR ON RULE 3, which is the rule that asks whether a name appears
+// anywhere inside a filename. A short key turns up inside words that have
+// nothing to do with it, so below six characters that rule does not apply -
+// the whole-name rules still do. Unmatched is printed in the log; matched
+// to the wrong person is printed on their card.
+check('a short name still matches its own file, whole',
+  who('Jo Lee.jpg') === 'Jo Lee' && who('20990026.png') === 'Jo Lee',
+  who('Jo Lee.jpg') + ' / ' + who('20990026.png'));
+
+check('but is not hunted for inside a longer filename',
+  who('workshop jolee group 2026.jpg') === '(none)',
+  who('workshop jolee group 2026.jpg') +
+  ' - five characters inside a sentence is a coincidence, not a match');
+
+check('and a filename that means nobody matches nobody',
+  who('group photo.jpg') === '(none)' && who('IMG_0042.png') === '(none)' &&
+  who('Ashraful.jpg') === '(none)',
+  'a bare first name two people share is not a match, it is a coin toss');
+
+// A FIFTY-FIFTY GUESS IS NOT WORTH MAKING SILENTLY. Reported, so the import
+// skips the file and says which two people it could not choose between.
+const twins = [{ name: 'Rudra Das', id: '1', row: 2 },
+               { name: 'Rudra Das', id: '2', row: 3 }];
+check('a filename that answers to two rows is refused, not guessed',
+  ctx.photoRowFor('Rudra Das.jpg', twins).ambiguous !== undefined &&
+  ctx.photoRowFor('Rudra Das.jpg', twins).person === undefined,
+  JSON.stringify(ctx.photoRowFor('Rudra Das.jpg', twins)));
+
+check('a Drive folder link gives up its id, and a stray string does not',
+  ctx.driveFolderId('https://drive.google.com/drive/folders/1aB2cD3eF4gH5iJ6kL7m?usp=sharing') ===
+    '1aB2cD3eF4gH5iJ6kL7m' &&
+  ctx.driveFolderId('1aB2cD3eF4gH5iJ6kL7m') === '1aB2cD3eF4gH5iJ6kL7m' &&
+  ctx.driveFolderId('the photos folder') === '',
+  'so a mistyped argument is told rather than treated as an id');
 
 const failed = out.filter((r) => !r).length;
 console.log('\n' + (out.length - failed) + '/' + out.length + ' passed');

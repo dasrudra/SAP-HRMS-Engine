@@ -97,6 +97,10 @@ function teamColumnIndex(headers) {
     ext:     find(['ext', 'extension', 'extno']),
     phone:   find(['whatappcellno', 'whatsappcellno', 'cellno', 'mobile', 'phone']),
     email:   find(['mailaddress', 'email', 'mail']),
+    // Blood group. On the card because the one time anybody needs it is an
+    // emergency, and an emergency is not the moment to go looking for the
+    // spreadsheet it is kept in.
+    blood:   find(['bloodgroup', 'blood']),
     head:    find(['head', 'sectionhead']),
     photo:   find(['photo', 'photourl', 'image']),
     note:    find(['note'])
@@ -124,6 +128,279 @@ function teamPhotoUrl(raw) {
     return 'https://drive.google.com/thumbnail?id=' + value + '&sz=w320';
   }
   return /^https?:\/\//.test(value) ? value : '';
+}
+
+
+/**
+ * Which TEAM row a photograph belongs to, worked out from its filename.
+ *
+ * Thirty-six photographs pasted into thirty-six cells by hand is twenty
+ * minutes of clerical work and one transposition away from a card carrying
+ * somebody else's face - and the one on the card beside it carrying theirs,
+ * with neither mistake visible to the person who made it. So the matching is
+ * done here, where it can be tested, and the Drive half of the job is kept
+ * in the function below that calls this one.
+ *
+ * Three rules, strictest first:
+ *
+ *   1. AN EMPLOYEE ID IN THE FILENAME. Eight digits that are somebody's ID
+ *      is not a coincidence, and it survives any amount of creative naming
+ *      around it: "20990021.jpg", "IMG_20990021 (1).png", "EAS/20990021 -
+ *      Utpal.jpeg" all land on the same row.
+ *   2. THE WHOLE NAME. matchPerson() is the key the roster is already
+ *      compared on, so "Md. Ashraful Islam.jpg", "md ashraful islam.JPG"
+ *      and "Mohammad Ashraful Islam.png" are one person - and Ashraful
+ *      Karim, who differs only in the surname, stays a different one.
+ *   3. THE NAME INSIDE A LONGER FILENAME, for "Utpal Biswas - EAS.jpg".
+ *
+ * AMBIGUITY IS NOT RESOLVED, IT IS REPORTED. If a filename answers to two
+ * rows the file is skipped and named in the log. A fifty-fifty guess about
+ * whose face goes on whose card is not a guess worth making silently.
+ *
+ * @param {string} filename  the Drive file's name
+ * @param {Array}  people    [{ id, name, row }]
+ * @return {Object} { person } or { ambiguous: [names] } or {}
+ */
+function photoRowFor(filename, people) {
+  const text = String(filename || '').replace(/\.[A-Za-z0-9]+$/, '');
+
+  // ---- 1. an employee ID ----
+  const digits = text.match(/\d{6,}/g) || [];
+  const byId = people.filter(function (p) {
+    return p.id && digits.indexOf(String(p.id)) !== -1;
+  });
+  if (byId.length === 1) return { person: byId[0] };
+  if (byId.length > 1) {
+    return { ambiguous: byId.map(function (p) { return p.name; }) };
+  }
+
+  const key = matchPerson(text);
+  if (!key) return {};
+
+  // ---- 2. the whole name ----
+  const exact = people.filter(function (p) { return matchPerson(p.name) === key; });
+  if (exact.length === 1) return { person: exact[0] };
+  if (exact.length > 1) {
+    return { ambiguous: exact.map(function (p) { return p.name; }) };
+  }
+
+  // ---- 3. the name inside a longer filename ----
+  //
+  // A FLOOR ON HOW SHORT A NAME MAY BE TO BE FOUND THIS WAY. Rules 1 and 2
+  // need the whole thing and are safe at any length; this one asks whether
+  // a name appears ANYWHERE inside a filename, and a short key turns up
+  // inside words it has nothing to do with.
+  //
+  // Six, not eight. The shortest name on this team squashes to exactly
+  // eight characters - "Rudra Das" - so a floor of eight was sitting on the
+  // boundary it was meant to be clear of, and the first colleague to join
+  // with a shorter name would simply have stopped matching, silently and
+  // only by this rule. Six leaves room and still refuses the keys worth
+  // refusing.
+  //
+  // The trade is deliberate and it is the right way round: a photograph
+  // that matches nobody is printed in the log as unmatched, and a
+  // photograph that matches the wrong person is printed on their card.
+  const inside = people.filter(function (p) {
+    const name = matchPerson(p.name);
+    return name.length >= 6 && key.indexOf(name) !== -1;
+  });
+  if (inside.length === 1) return { person: inside[0] };
+  if (inside.length > 1) {
+    return { ambiguous: inside.map(function (p) { return p.name; }) };
+  }
+
+  return {};
+}
+
+
+/** The Drive folder id inside a link, or the id if that is what was given. */
+function driveFolderId(link) {
+  const value = String(link || '').trim();
+  const hit = /\/folders\/([A-Za-z0-9_-]{15,})/.exec(value) ||
+              /[?&]id=([A-Za-z0-9_-]{15,})/.exec(value);
+  if (hit) return hit[1];
+  return /^[A-Za-z0-9_-]{15,}$/.test(value) ? value : '';
+}
+
+
+/**
+ * Fills the Photo column from a Drive folder of photographs.
+ *
+ * Run from the Apps Script editor, once, with the folder's sharing link:
+ *
+ *   importTeamPhotos('https://drive.google.com/drive/folders/....')
+ *
+ * It writes a file id into the Photo cell of every row it can match and
+ * leaves everything else alone. In particular:
+ *
+ *   A CELL THAT ALREADY HAS SOMETHING IN IT IS NOT TOUCHED. Somebody who
+ *   pasted one photograph by hand, or pointed a row at an address that is
+ *   not in Drive at all, should not have that quietly replaced by a file
+ *   that happened to be named similarly. Pass true as the second argument
+ *   to overwrite on purpose.
+ *
+ *   NOTHING IS SHARED. Writing an id here does not make the picture
+ *   readable, and a picture the portal cannot read is a broken image on
+ *   somebody's card. The log says which files are still private;
+ *   shareTeamPhotos() below is the deliberate step that opens them, and it
+ *   is separate because it is the half that changes who can see what.
+ *
+ * @param {string}  folderLink  the Drive folder's link, or its id
+ * @param {boolean} overwrite   replace Photo cells that already have a value
+ */
+function importTeamPhotos(folderLink, overwrite) {
+  const id = driveFolderId(folderLink);
+  if (!id) {
+    Logger.log('That does not look like a Drive folder link or id: %s', folderLink);
+    return;
+  }
+
+  const sheet = teamTab();
+  const headers = sheet.getRange(1, 1, 1, Math.max(sheet.getLastColumn(),
+                                                   TEAM_COLUMNS.length)).getValues()[0];
+  const at = teamColumnIndex(headers);
+  if (at.photo === -1) {
+    Logger.log('The TEAM tab has no Photo column. Run setupTeamTab first.');
+    return;
+  }
+
+  const last = sheet.getLastRow();
+  if (last < 2) { Logger.log('The TEAM tab has no people in it yet.'); return; }
+
+  const width = Math.max(sheet.getLastColumn(), TEAM_COLUMNS.length);
+  const rows = sheet.getRange(2, 1, last - 1, width).getValues();
+  const people = [];
+  rows.forEach(function (row, i) {
+    const name = String(row[at.name] || '').trim();
+    if (!name) return;
+    people.push({
+      name: name,
+      id: String(row[at.id] || '').trim().replace(/\.0$/, ''),
+      row: i + 2,
+      had: String(row[at.photo] || '').trim()
+    });
+  });
+
+  const files = DriveApp.getFolderById(id).getFiles();
+  const done = [], skipped = [], unmatched = [], unshared = [];
+  const taken = {};
+
+  while (files.hasNext()) {
+    const file = files.next();
+    const type = String(file.getMimeType() || '');
+    if (type.indexOf('image/') !== 0) continue;
+
+    const hit = photoRowFor(file.getName(), people);
+    if (hit.ambiguous) {
+      skipped.push(file.getName() + ' -> ' + hit.ambiguous.join(' or '));
+      continue;
+    }
+    if (!hit.person) { unmatched.push(file.getName()); continue; }
+
+    // TWO FILES FOR ONE PERSON. The second would overwrite the first and
+    // neither the log nor the card would say which one won.
+    if (taken[hit.person.row]) {
+      skipped.push(file.getName() + ' -> ' + hit.person.name +
+                   ', already taken by ' + taken[hit.person.row]);
+      continue;
+    }
+    if (hit.person.had && !overwrite) {
+      skipped.push(file.getName() + ' -> ' + hit.person.name +
+                   ', whose Photo cell is already filled');
+      continue;
+    }
+
+    sheet.getRange(hit.person.row, at.photo + 1).setValue(file.getId());
+    taken[hit.person.row] = file.getName();
+    done.push(hit.person.name + ' <- ' + file.getName());
+
+    try {
+      if (file.getSharingAccess() !== DriveApp.Access.ANYONE_WITH_LINK) {
+        unshared.push(file.getName());
+      }
+    } catch (e) {
+      unshared.push(file.getName() + ' (could not read its sharing)');
+    }
+  }
+
+  Logger.log('%s photograph(s) linked.', done.length);
+  done.forEach(function (line) { Logger.log('  %s', line); });
+
+  if (skipped.length) {
+    Logger.log('%s skipped, on purpose:', skipped.length);
+    skipped.forEach(function (line) { Logger.log('  %s', line); });
+  }
+  if (unmatched.length) {
+    Logger.log('%s file(s) matched nobody - rename them to the employee ID ' +
+               'or the full name:', unmatched.length);
+    unmatched.forEach(function (name) { Logger.log('  %s', name); });
+  }
+
+  const without = people.filter(function (p) { return !taken[p.row] && !p.had; });
+  if (without.length) {
+    Logger.log('%s person/people still have no photograph:', without.length);
+    without.forEach(function (p) { Logger.log('  %s (%s)', p.name, p.id); });
+  }
+
+  if (unshared.length) {
+    Logger.log('--');
+    Logger.log('%s of these files are NOT readable by link, so they will ' +
+               'show as broken images on the cards.', unshared.length);
+    Logger.log('Run shareTeamPhotos with the same folder link to open them, ' +
+               'or set the folder to "Anyone with the link - Viewer" in Drive.');
+  }
+}
+
+
+/**
+ * Opens a folder of team photographs to anyone holding the link.
+ *
+ * SEPARATE FROM THE IMPORT, AND DELIBERATELY SO. This is the step that
+ * changes who can see these pictures: after it, anybody with a file's
+ * address can open it without signing in, which is what lets the portal
+ * draw them for a colleague who is not in the folder's share list. That is
+ * a decision about photographs of thirty-six people and it should be taken
+ * by a person on purpose, not as a side effect of filling in a column.
+ *
+ * It is the folder's own files that are opened, nothing else, and it prints
+ * every one it changed.
+ *
+ * @param {string} folderLink  the same folder passed to importTeamPhotos
+ */
+function shareTeamPhotos(folderLink) {
+  const id = driveFolderId(folderLink);
+  if (!id) {
+    Logger.log('That does not look like a Drive folder link or id: %s', folderLink);
+    return;
+  }
+
+  const files = DriveApp.getFolderById(id).getFiles();
+  let opened = 0, already = 0;
+  const failed = [];
+
+  while (files.hasNext()) {
+    const file = files.next();
+    if (String(file.getMimeType() || '').indexOf('image/') !== 0) continue;
+    try {
+      if (file.getSharingAccess() === DriveApp.Access.ANYONE_WITH_LINK) {
+        already++;
+        continue;
+      }
+      file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+      Logger.log('  opened: %s', file.getName());
+      opened++;
+    } catch (e) {
+      failed.push(file.getName() + ' - ' + e.message);
+    }
+  }
+
+  Logger.log('%s file(s) opened to anyone with the link, %s already were.',
+             opened, already);
+  if (failed.length) {
+    Logger.log('%s could not be changed:', failed.length);
+    failed.forEach(function (line) { Logger.log('  %s', line); });
+  }
 }
 
 
@@ -169,8 +446,8 @@ function readTeam() {
 
     people.push({
       name: name,
-      // An employee ID is a number in the sheet, so it arrives as 20217473 or
-      // as 20217473.0 depending on how the cell was filled. Neither is a
+      // An employee ID is a number in the sheet, so it arrives as 20990021 or
+      // as 20990021.0 depending on how the cell was filled. Neither is a
       // string anybody wants to read.
       id: cell(row, at.id).replace(/\.0$/, ''),
       title: cell(row, at.title),
@@ -181,6 +458,7 @@ function readTeam() {
       ext: cell(row, at.ext),
       phone: cell(row, at.phone),
       email: cell(row, at.email),
+      blood: cell(row, at.blood),
       photo: teamPhotoUrl(cell(row, at.photo)),
       note: cell(row, at.note),
 
@@ -211,12 +489,19 @@ function readTeam() {
 
   const lead = people.filter(function (p) { return isWholeDepartment(p.section); })[0] || null;
 
-  // WHAT TO PRINT BESIDE A DESIGNATION. Everybody's module, except the
-  // department head's - his Module cell names one module because the sheet
-  // has to put something there, and he does not belong to one. His card
-  // says the department instead, which is what he actually heads.
+  // WHAT TO PRINT BESIDE A DESIGNATION: everybody's module, the department
+  // head included.
+  //
+  // His used to be overridden to the DEPARTMENT, on the reasoning that he
+  // heads all of it and belongs to no one module. On the page that came out
+  // as "Senior Manager - Enterprise Application Service" sitting in a row of
+  // section heads reading "Manager - SD", "Manager - PP", "Manager - FI/CO":
+  // the one card in four that did not answer the question the line is there
+  // to answer. He does own modules, and the Module cell is where the sheet
+  // says which - so the cell is now what the card prints, like everyone
+  // else's. The big Department Head card above the chart still names the
+  // department in full, which is where that belongs.
   people.forEach(function (p) { p.moduleLabel = p.module; });
-  if (lead) lead.moduleLabel = lead.dept || lead.module;
   const inSections = people.filter(function (p) { return !isWholeDepartment(p.section); });
 
   // ---- grouped ----

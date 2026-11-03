@@ -356,15 +356,38 @@ const FILE = 'file://' + PAGE;
       (await p.$eval('#aboutBody .pcontent-title', (n) => n.textContent)).replace(/\s+/g, ' ')),
     await p.$eval('#aboutBody .pcontent-title', (n) => n.textContent.replace(/\s+/g, ' ').trim()));
 
+  // ---- the line that says what EAS is for ----
+  // It used to open "runs the applications every Youngone plant in
+  // Bangladesh works in", which claimed all of them: EAS runs 23 of the 37
+  // plants in the country. A page about a team's portfolio overstating that
+  // team's reach is the one error on it that costs something.
+  const lede = (await p.$eval('#aboutBody .pcontent-lede',
+                              (n) => n.textContent)).replace(/\s+/g, ' ').trim();
+  check('the About us line says 23 plants of 37, and does not claim them all',
+    /\b23\b/.test(lede) && /\b37\b/.test(lede) && !/\bevery\b/i.test(lede),
+    lede);
+
   // =========================================================================
-  // PARTNERS
+  // CUSTOMERS (the page is still addressed as `partners`)
   // =========================================================================
+  // THE WORD PEOPLE READ CHANGED; THE NAME THE SCREEN ANSWERS TO DID NOT.
+  // Renaming the data-view as well would have been tidier and would have
+  // broken every ?view=partners link anybody has saved, for a word.
+  const custTab = await p.$eval('.portal-tab[data-view="partners"]',
+                                (n) => n.textContent.trim());
+  check('the tab reads Customers', custTab === 'Customers', custTab);
+
   await p.click('.portal-tab[data-view="partners"]');
   await p.waitForTimeout(700);
 
-  check('the Partners tab opens a page too',
+  check('and still opens the page a saved ?view=partners link points at',
     (await p.$eval('#view-partners', (n) => !n.hidden)) === true &&
     (await p.$$eval('#partnersBody .portal-empty', (ns) => ns.length)) === 0);
+
+  const custEyebrow = await p.$eval('#partnersBody .pcontent-pill',
+                                    (n) => n.textContent.trim());
+  check('with the page itself headed Customers, not Partners',
+    /^Customers$/i.test(custEyebrow), custEyebrow);
 
   const zones = await p.$$eval('#partnersBody .zone', (ns) => ns.map((n) => ({
     code: n.querySelector('.zone-code').textContent.trim(),
@@ -378,8 +401,8 @@ const FILE = 'file://' + PAGE;
       JSON.stringify(PARTNERS.zones.map((z) => z.code)),
     zones.map((z) => z.code).join(' | '));
 
-  // Twenty-two plant codes, and a plant that is missing from this page is a
-  // customer the page says is not served.
+  // Every plant code, and a plant missing from this page is a customer the
+  // page says is not served.
   const wantedPlants = PARTNERS.zones.reduce((all, z) => all.concat(z.plants), []);
   const gotPlants = zones.reduce((all, z) => all.concat(z.plants), []);
   const lost = wantedPlants.filter((t) => gotPlants.indexOf(t) === -1);
@@ -416,6 +439,22 @@ const FILE = 'file://' + PAGE;
     strip.indexOf(PARTNERS.vendor) !== -1 &&
     strip.indexOf(PARTNERS.vendorShort) !== -1,
     strip);
+
+  // TWENTY-THREE, SAID OUT LOUD AND NOT DERIVED.
+  //
+  // Every assertion above reads its expected value out of CONFIG.PARTNERS,
+  // which is right for "the page draws what the config holds" and useless
+  // for "the page is correct": drop a plant from the config and both sides
+  // move together, silently. Tekvision's own plant sits in KEPZ and runs on
+  // the same S/4HANA as the rest, and it was left off the list - so the
+  // page told anybody reading it that EAS serves 22 when it serves 23.
+  const kepz = zones.filter((z) => z.code === 'KEPZ')[0] || { plants: [] };
+  check('Tekvision\'s own plant is in KEPZ, where it actually is',
+    kepz.plants.indexOf('TVL') !== -1,
+    kepz.plants.join(', '));
+  check('and the page says 23 served, the number the team supports',
+    gotPlants.length === 23 && /23 plants served/.test(strip),
+    gotPlants.length + ' chips, strip reads "' + strip + '"');
 
   // =========================================================================
   // both pages are blue all the way down

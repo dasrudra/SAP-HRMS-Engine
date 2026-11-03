@@ -103,7 +103,7 @@ function presenceKey(raw) {
  * The second key goes through matchPerson() from Config.gs, the same function
  * the ticket ingest matches owners with, so a name this agrees about is a name
  * the rest of the project agrees about too. An employee ID squashes to the
- * empty string under it - there are no letters in 20536723 - which is why
+ * empty string under it - there are no letters in 20990025 - which is why
  * there is a first key as well.
  */
 function presenceWriteKeys(username) {

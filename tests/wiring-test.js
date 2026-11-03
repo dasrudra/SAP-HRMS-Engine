@@ -621,6 +621,50 @@ const fontShorthand = [];
       });
   });
 });
+// ---------------------------------------------------------------------------
+// NO REAL EMPLOYEE ID IN THE SOURCE OR THE FIXTURES
+// ---------------------------------------------------------------------------
+// The companion to the mobile-number rule above, and written after the same
+// mistake was made a second time: a photo-matching fixture went in carrying
+// five colleagues' real employee IDs beside their real names, into a public
+// repository, because real values make a fixture feel more convincing. They
+// do not make it a better test - the matcher cannot tell a real ID from an
+// invented one - they only publish something that was not ours to publish.
+//
+// Names are a different matter and are not covered here: CONFIG.ROSTER has
+// to name all thirty-seven people for the KPI scoring to work at all. It is
+// the ID, the mobile number and the address that turn a name into a record.
+//
+// The rule, like the phone one, is a convention rather than a cleverness:
+// every employee ID anywhere in this project lives in a reserved block -
+// 200000xx, 2090xxxx or 2099xxxx. A real one cannot, so a real one fails.
+//
+// Dates are skipped. Upload IDs read 'UPL-20261028-102822-8817', and the
+// date inside one is eight digits beginning 20 like everything else here.
+// No employee ID on this team parses as a date: their fifth and sixth
+// digits run to 74, 86, 99 and are not months.
+const ID_OK = /^20(0000\d{2}|9[09]\d{4})$/;
+const looksLikeDate = function (digits) {
+  const month = Number(digits.slice(4, 6)), day = Number(digits.slice(6, 8));
+  return month >= 1 && month <= 12 && day >= 1 && day <= 31;
+};
+const realIds = [];
+[[SRC, /\.(gs|html)$/], [__dirname, /-test\.js$/],
+ [path.join(__dirname, 'harness'), /\.js$/]].forEach(function (where) {
+  if (!fs.existsSync(where[0])) return;
+  fs.readdirSync(where[0]).filter((f) => where[1].test(f)).forEach(function (f) {
+    const text = fs.readFileSync(path.join(where[0], f), 'utf8');
+    (text.match(/\b20\d{6}\b/g) || []).forEach(function (n) {
+      if (ID_OK.test(n) || looksLikeDate(n)) return;
+      realIds.push(f + ': ' + n.slice(0, 4) + 'xxxx');
+    });
+  });
+});
+check('no employee ID outside the reserved test blocks is written anywhere',
+  realIds.length === 0,
+  realIds.length ? realIds.filter((v, i, a) => a.indexOf(v) === i).join('; ')
+                 : 'every ID is in 200000xx, 2090xxxx or 2099xxxx');
+
 check('no font shorthand names `inherit` as the family, which kills the rule',
   fontShorthand.length === 0,
   fontShorthand.length ? fontShorthand.join(' | ')

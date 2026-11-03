@@ -547,10 +547,10 @@ const CONFIG = {
    * verbatim, and the three headings are the slide's own.
    */
   PORTFOLIO: {
-    intro: 'Enterprise Application Services runs the applications every ' +
-           'Youngone plant in Bangladesh works in, connects them to each ' +
-           'other, and keeps looking for the next thing that should not ' +
-           'still be done by hand.',
+    intro: 'Enterprise Application Services runs the SAP and business ' +
+           'applications behind 23 of Youngone\'s 37 plants in Bangladesh. ' +
+           'We keep them stable, keep them talking to each other, and keep ' +
+           'retiring the work that should no longer be done by hand.',
     pillars: [
       {
         word: 'Run',
@@ -753,8 +753,8 @@ const CONFIG = {
   PARTNERS: {
     vendor: 'Tekvision (BD) Ltd',
     vendorShort: 'TVL',
-    intro: 'All Youngone companies in Bangladesh running SAP S/4HANA, across ' +
-           'three export processing zones.',
+    intro: 'The Youngone companies running SAP S/4HANA across Bangladesh\'s ' +
+           'three export processing zones - and Tekvision itself.',
     zones: [
       {
         code: 'CEPZ',
@@ -764,8 +764,12 @@ const CONFIG = {
       {
         code: 'KEPZ',
         name: 'Karnaphuli Export Processing Zone',
+        // TVL is Tekvision's own plant, in KEPZ, and it runs on the same
+        // S/4HANA that EAS keeps up for the rest of them. Left off this
+        // list, the page said 22 and the team supports 23.
         plants: ['KSI-GMT', 'KSI-Shoe', 'KSI-BP', 'KSI-VXP', 'KSI-SWT',
-                 'KSI-OS', 'KSI-WS', 'KPP1', 'KPP2', 'KPP3', 'KPP4', 'KPL']
+                 'KSI-OS', 'KSI-WS', 'KPP1', 'KPP2', 'KPP3', 'KPP4', 'KPL',
+                 'TVL']
       },
       {
         code: 'DEPZ',
@@ -899,7 +903,7 @@ const CONFIG = {
    * unverified one somebody typed it.
    *
    * So a name is never identification. It is what to call somebody in a reply,
-   * which an employee ID is bad at. The screen shows "Rudra (20536723)" and
+   * which an employee ID is bad at. The screen shows "Rudra (20990025)" and
    * the ID is the half that means anything.
    *
    * Last, because a tab created before this column existed must keep working -

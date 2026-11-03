@@ -6027,6 +6027,26 @@
   }
 
 
+  /**
+   * A blood group, as a pill on the card.
+   *
+   * Everything else on these cards is a way of reaching somebody. This is
+   * the one fact on them that is read ABOUT somebody, and read exactly once:
+   * when there has been an accident and a colleague is on the phone to a
+   * hospital. So it is marked rather than listed - a red pill the eye finds
+   * without reading the card - and it says what it is to a screen reader,
+   * because "B+" alone is not a sentence.
+   */
+  function bloodPill(person) {
+    const group = String((person && person.blood) || '').trim();
+    if (!group) return '';
+    return '<span class="team-blood" title="Blood group">' +
+             '<span class="sr-only">Blood group </span>' +
+             escapeHtml(group) +
+           '</span>';
+  }
+
+
   function teamCard(person, roleOverride) {
     // A photograph when the Photo column has one, initials when it does not.
     // Initials rather than a silhouette: a page of identical grey outlines
@@ -6049,6 +6069,7 @@
             : '') +
           '<span class="team-role">' + escapeHtml(roleLine(person)) + '</span>' +
         '</div>' +
+        bloodPill(person) +
       '</div>' +
       '<div class="team-lines">' +
         teamLink('mail', person.email, 'Email') +
@@ -6075,9 +6096,13 @@
       : '<span class="team-face is-initials">' +
         escapeHtml(head ? initials(head.name) : '?') + '</span>';
 
-    const role = !head ? 'No head marked'
-               : section.interim ? 'Section Head, Interim'
-               : 'Section Head';
+    // SECTION HEAD, full stop. It used to read "Section Head, Interim" when
+    // the person heading a section sits outside it - which is true of the
+    // department head covering Supply Chain, and which nobody on this chart
+    // needed told. The word read as a caveat on the one card that carries
+    // the most authority. The arrangement it described has not changed; the
+    // page has simply stopped editorialising about it.
+    const role = head ? 'Section Head' : 'No head marked';
 
     return '<div class="team-sec" data-section="' + index + '">' +
       '<button class="team-sec-card" type="button" aria-expanded="false" ' +
@@ -6432,7 +6457,7 @@
     const data = window.__EAS_PARTNERS__;
     if (!data || !data.zones || !data.zones.length) {
       body.innerHTML =
-        '<h1 class="portal-page-title">Partners</h1>' +
+        '<h1 class="portal-page-title">Customers</h1>' +
         '<div class="portal-empty"><h2>Nothing to show yet</h2>' +
         '<p>CONFIG.PARTNERS in Config.gs is empty.</p></div>';
       return;
@@ -6460,7 +6485,7 @@
     }).join('');
 
     body.innerHTML =
-      pageHead('Partners', 'The plants', 'we keep running', data.intro || '') +
+      pageHead('Customers', 'The plants', 'we keep running', data.intro || '') +
       '<div class="vendor-strip">' +
         '<span class="vendor-mark">' + escapeHtml(data.vendorShort || '') + '</span>' +
         '<span class="vendor-name">' + escapeHtml(data.vendor || '') + '</span>' +
@@ -6623,6 +6648,7 @@
                   escapeHtml(team.lead.title || '\u2014') +
                   ' \u00b7 Enterprise Application Services</span>' +
               '</div>' +
+              bloodPill(team.lead) +
             '</div>' +
             '<div class="team-lines">' +
               teamLink('mail', team.lead.email, 'Email') +
@@ -7499,7 +7525,7 @@
     const rows = state.master.log || [];
     if (!rows.length) return emptyTable('#masterLog tbody', 6, 'Nothing logged yet.');
 
-    // WHO 20536723 IS, from the accounts table rather than from the log.
+    // WHO 20990025 IS, from the accounts table rather than from the log.
     // The log stores the login and nothing else, which is right: a name
     // written into it at the time would still say that after somebody
     // fixed their spelling, and a row for a removed account would carry a
@@ -8287,7 +8313,7 @@
    * what somebody's own panel is built on: a person with three running
    * questions wants three threads, each with its own subject and its own
    * answer. Read from the other side it fell apart. Three cards all headed
-   * "Rudra Das (20536723)" inside a list of seven told the team nothing about
+   * "Rudra Das (20990025)" inside a list of seven told the team nothing about
    * who was waiting - only that a name turned up more than once - and
    * answering one of them meant hunting for the rest.
    *

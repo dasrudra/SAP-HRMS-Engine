@@ -1649,7 +1649,7 @@ const AUTH_LOG_TAB = 'AUTH_LOG';
 //
 // WHAT EACH OF THE TWO IS FOR
 // Name is what a person is called on a query or a reply, so a message reads
-// "Rudra Das (20536723)" rather than a bare number. The ID comes from the
+// "Rudra Das (20990025)" rather than a bare number. The ID comes from the
 // signed token and cannot be typed; the name is typed and carries no
 // authority at all - which is the right way round, because a name is a
 // courtesy and an ID is an identity.

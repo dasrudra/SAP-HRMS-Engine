@@ -75,6 +75,18 @@
   */
   [hidden] { display: none !important; }
 
+  /*
+    Text for a screen reader and nobody else. Not `display: none` and not
+    `visibility: hidden`: both of those take it out of the accessibility
+    tree as well, which is the one place it was written for. Clipped to a
+    single pixel instead, which leaves it readable and off the screen.
+  */
+  .sr-only {
+    position: absolute; width: 1px; height: 1px;
+    margin: -1px; padding: 0; overflow: hidden;
+    clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap;
+  }
+
   html, body {
     margin: 0; padding: 0; height: 100%;
     background: var(--page);
