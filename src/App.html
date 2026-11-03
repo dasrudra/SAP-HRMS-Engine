@@ -6697,7 +6697,12 @@
                   escapeHtml(team.lead.title || '\u2014') +
                   ' \u00b7 Enterprise Application Services</span>' +
               '</div>' +
-              bloodPill(team.lead) +
+              // NO BLOOD GROUP ON THIS CARD. It carries one person and it
+              // sits alone at the top of the chart, where a red pill is not
+              // a detail on a card in a grid of thirty-six - it is the
+              // second thing on the page. His group is on his card inside
+              // Supply Chain, with everybody else's, which is where
+              // somebody looking for one would look.
             '</div>' +
             '<div class="team-lines">' +
               teamLink('mail', team.lead.email, 'Email') +

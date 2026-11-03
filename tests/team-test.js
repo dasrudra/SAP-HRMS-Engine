@@ -623,6 +623,70 @@ check('a filename that answers to two rows is refused, not guessed',
   JSON.stringify(ctx.photoRowFor('Rudra Das.jpg', twins)));
 
 // ---------------------------------------------------------------------------
+// READING A SIZE OUT OF IMAGE BYTES
+// ---------------------------------------------------------------------------
+// checkTeamPhotos exists because the faces kept coming back soft and every
+// fix for it was a guess: the addresses are built here, the images are
+// fetched by a browser on somebody's desk, and in between sits a CDN whose
+// sizing rules are documented loosely. It asks instead of assuming.
+//
+// Which makes this parser the one part that must not be confidently wrong.
+// A header read at the wrong offset does not fail - it returns a number,
+// and a diagnostic that reports a made-up size is worse than no diagnostic
+// at all, because it is believed.
+const png = (w, h) => {
+  const b = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
+             0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52];
+  [w, h].forEach((n) => b.push((n >> 24) & 255, (n >> 16) & 255,
+                               (n >> 8) & 255, n & 255));
+  return b.concat([8, 2, 0, 0, 0, 0, 0, 0, 0]);
+};
+// A JPEG with a Huffman table BEFORE the frame header, which is how they
+// usually come, and whose marker (0xC4) sits inside the 0xC0-0xCF range the
+// frame markers live in. A parser that takes the first 0xCn it sees reads
+// two bytes of a Huffman table and calls them a height.
+const jpeg = (w, h) => {
+  const b = [0xFF, 0xD8];
+  b.push(0xFF, 0xC4, 0x00, 0x08, 1, 2, 3, 4, 5, 6);        // DHT, skipped
+  b.push(0xFF, 0xE0, 0x00, 0x06, 1, 2, 3, 4);              // APP0, skipped
+  b.push(0xFF, 0xC0, 0x00, 0x11, 8);                       // SOF0
+  b.push((h >> 8) & 255, h & 255, (w >> 8) & 255, w & 255);
+  return b.concat([3, 1, 0x22, 0, 2, 0x11, 1, 3, 0x11, 1]);
+};
+
+// Compared field by field, not as JSON: the two branches build their
+// object in different key orders, so stringifying compares the parser's
+// spelling rather than its answer - which is how this assertion failed
+// first time round on a result that was entirely correct.
+const sized = (bytes) => {
+  const r = ctx.imageSizeFromBytes(bytes);
+  return r ? r.w + 'x' + r.h : String(r);
+};
+
+check('a PNG gives up its real dimensions',
+  sized(png(600, 900)) === '600x900', sized(png(600, 900)));
+
+check('and one wider than 255 pixels is not read a byte at a time',
+  sized(png(1920, 1080)) === '1920x1080', sized(png(1920, 1080)));
+
+check('a JPEG gives up its real dimensions, past the markers in front',
+  sized(jpeg(800, 1200)) === '800x1200',
+  sized(jpeg(800, 1200)) +
+  ' - the Huffman table ahead of it wears a 0xCn marker too');
+
+check('and width and height are not the other way round',
+  ctx.imageSizeFromBytes(jpeg(400, 1000)).w === 400 &&
+  ctx.imageSizeFromBytes(jpeg(400, 1000)).h === 1000,
+  JSON.stringify(ctx.imageSizeFromBytes(jpeg(400, 1000))) +
+  ' - JPEG writes height first, PNG writes width first');
+
+check('anything that is not an image it can read comes back null, not a guess',
+  ctx.imageSizeFromBytes([]) === null &&
+  ctx.imageSizeFromBytes([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]) === null &&
+  ctx.imageSizeFromBytes(null) === null,
+  'a diagnostic that invents a number is worse than one that says it cannot tell');
+
+// ---------------------------------------------------------------------------
 // THE RUN BUTTON CANNOT PASS AN ARGUMENT
 // ---------------------------------------------------------------------------
 // importTeamPhotos originally took the folder link as its only parameter,

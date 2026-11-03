@@ -408,17 +408,45 @@ const FILE = 'file://' + PAGE;
              summary: one('.team-sec-card .team-face'),
              lead: one('.team-lead .team-face') };
   });
-  // Three sizes, and the order between them is the design: the lead card is
-  // the hero and has the page to itself, the person card is the one being
-  // looked at, and the summary card carries a section name, a role, a
-  // designation and a count besides the face.
+  // TWO SIZES, NOT THREE. The card at the top of the chart used to be the
+  // biggest thing on the page - 380px wide over four cards of 268, with an
+  // 88px face over their 58 - which read as a different kind of card
+  // rather than as the top of the same chart. It matches them now. The
+  // person card inside an opened section is the only one that is larger,
+  // because it is the one being read rather than scanned past.
   check('the photo slot is big enough to recognise somebody by',
-    faces.card >= 64 && faces.summary >= 52 && faces.lead >= 72,
+    faces.card >= 64 && faces.summary >= 52 && faces.lead >= 52,
     faces.lead + 'px lead, ' + faces.card + 'px card, ' +
     faces.summary + 'px summary');
-  check('and the three sizes run in the order the cards matter',
-    faces.lead > faces.card && faces.card > faces.summary,
-    faces.lead + ' > ' + faces.card + ' > ' + faces.summary);
+  check('and the head card\'s face matches the section cards it sits over',
+    faces.lead === faces.summary && faces.card > faces.summary,
+    faces.lead + ' lead vs ' + faces.summary + ' summary, person card ' +
+    faces.card);
+
+  // AND THE CARD ITSELF, which is the half of that anybody actually sees.
+  // Within a pixel, because both are worked out from the same column
+  // geometry and a rounding difference is not a fault.
+  const headWidth = await t.evaluate(() => {
+    const lead = document.querySelector('.team-lead');
+    const sec = document.querySelector('.team-sec-card');
+    if (!lead || !sec) return null;
+    return { lead: Math.round(lead.getBoundingClientRect().width),
+             section: Math.round(sec.getBoundingClientRect().width) };
+  });
+  check('and the head card is one column wide, like the cards under it',
+    headWidth && Math.abs(headWidth.lead - headWidth.section) <= 1,
+    headWidth ? headWidth.lead + 'px over ' + headWidth.section + 'px'
+              : '(not found)');
+
+  // NO BLOOD GROUP ON THE HEAD CARD. One person, alone at the top of the
+  // page, where a red pill is not a detail on a card in a grid of
+  // thirty-six - it is the second thing on the page. His group is on his
+  // card inside Supply Chain, with everybody else's.
+  const leadPill = await t.$$eval('.team-lead .team-blood', (ns) => ns.length);
+  const anyPill = await t.$$eval('.team-blood', (ns) => ns.length);
+  check('the head card carries no blood group, though the cards below do',
+    leadPill === 0 && anyPill > 0,
+    leadPill + ' on the head card, ' + anyPill + ' on the page');
 
   // A PHOTOGRAPH IS DRAWN WHEN THERE IS ONE, AND CHANGES NOTHING ELSE.
   // Every card in every suite rendered initials until the real photographs
@@ -440,6 +468,7 @@ const FILE = 'file://' + PAGE;
       // The rendered box, not the source: object-fit has to crop a portrait
       // to the circle rather than squash it into one.
       fit: getComputedStyle(img).objectFit,
+      position: getComputedStyle(img).objectPosition,
       round: getComputedStyle(img).borderRadius,
       // Did it actually decode? A broken src still has a layout box.
       loaded: img.complete && img.naturalWidth > 0
@@ -456,6 +485,20 @@ const FILE = 'file://' + PAGE;
   check('cropped to it rather than squashed into it',
     shot && shot.fit === 'cover' && /50%|9999px/.test(shot.round),
     shot ? shot.fit + ', radius ' + shot.round : '(not found)');
+
+  // AND CROPPED TOWARDS THE HEAD. These are standing portraits - most show
+  // somebody from the chest up - and a square taken from the centre of one
+  // is mostly shirt, so a 76px avatar was showing a 25px face and no amount
+  // of resolution was ever going to fix it.
+  //
+  // Asserted as the CSS value, which is what this is: a decision about
+  // which band of the photograph the circle shows. Below 50% is above the
+  // middle; the bound at 15% is there because a crop pinned to the very top
+  // takes the chin off a photograph that was already framed on the face.
+  const crop = shot ? /(-?[\d.]+)%\s*$/.exec(shot.position) : null;
+  check('and cropped towards the head rather than the middle of the picture',
+    crop !== null && Number(crop[1]) < 50 && Number(crop[1]) >= 15,
+    shot ? shot.position + ' - 50% is the middle, which is a tie' : '(not found)');
 
 
   // WHAT A BIGGER CARD IS FOR, stated as the thing it fixes rather than as

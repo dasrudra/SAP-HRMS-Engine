@@ -457,6 +457,172 @@ function importTeamPhotos(folderLink, overwrite) {
 
 
 /**
+ * Re-reads every photograph, replacing the ones already linked.
+ *
+ * importTeamPhotos leaves a filled Photo cell alone, which is right for a
+ * second run over a folder somebody has added two faces to - and wrong for
+ * the case that actually came up. Somebody replaced one person's photograph
+ * in Drive. The new file has a new id; the cell still held the old one; the
+ * import skipped the row as already filled and said so in the log, and the
+ * page went on drawing the old picture.
+ *
+ * The overwrite was always possible - importTeamPhotos takes it as a second
+ * argument - and that was no use to anybody, because the editor's Run
+ * button cannot pass one. A separate function with no arguments is the
+ * version that can actually be run.
+ *
+ * Separate rather than the default, because it is the destructive one: a
+ * row pointed by hand at a photograph that is not in this folder loses that
+ * pointer here, and nothing remembers what it was.
+ */
+function reimportTeamPhotos() {
+  Logger.log('Replacing every linked photograph, including the ones already ' +
+             'set. Use importTeamPhotos to fill only the empty ones.');
+  importTeamPhotos('', true);
+}
+
+
+/**
+ * What size image the page is actually being served, per person.
+ *
+ * WRITTEN BECAUSE THE FACES KEPT COMING BACK SOFT AND EVERY FIX WAS A
+ * GUESS. The addresses are built here, the images are fetched by a browser
+ * on somebody's desk, and in between sits a Google CDN whose sizing rules
+ * are documented loosely and behave differently per file. From outside that
+ * loop the only honest statement is "it should be 600 pixels wide". This
+ * asks.
+ *
+ * It fetches each photograph exactly as the page would, reads the width and
+ * height out of the first few bytes - a PNG says so at byte 16, a JPEG in
+ * its first SOFn marker - and prints what came back beside what the card
+ * needs. Anything under about 230 pixels is being upscaled on a 76px avatar
+ * at 3x, and that is what soft looks like.
+ *
+ * Run it from the dropdown like the other two. It is read-only: it changes
+ * no cell and no sharing.
+ */
+function checkTeamPhotos() {
+  const sheet = teamTab();
+  const wide = Math.max(sheet.getLastColumn(), TEAM_COLUMNS.length);
+  const headers = sheet.getRange(1, 1, 1, wide).getValues()[0];
+  const at = teamColumnIndex(headers);
+  const last = sheet.getLastRow();
+  if (at.photo === -1 || last < 2) {
+    Logger.log('No Photo column, or nobody in the tab yet.');
+    return;
+  }
+
+  const rows = sheet.getRange(2, 1, last - 1, wide).getValues();
+  let checked = 0, small = 0, missing = 0;
+
+  Logger.log('What the page is actually served. The largest avatar is 76px,');
+  Logger.log('so anything under ~230 is an upscale on a high-resolution screen.');
+  Logger.log('--');
+
+  rows.forEach(function (row) {
+    const name = String(row[at.name] || '').trim();
+    const cell = String(row[at.photo] || '').trim();
+    if (!name) return;
+    if (!cell) { missing++; return; }
+
+    checked++;
+    const size = photoPixelSize(teamPhotoUrl(cell));
+    if (!size) {
+      Logger.log('  %s - could not be read (not shared, or not an image)', name);
+      return;
+    }
+    const soft = Math.min(size.w, size.h) < 230;
+    if (soft) small++;
+    Logger.log('  %s - %sx%s%s', name, size.w, size.h, soft ? '   <-- small' : '');
+  });
+
+  Logger.log('--');
+  Logger.log('%s checked, %s smaller than the cards want, %s with no photograph.',
+             checked, small, missing);
+  if (small) {
+    Logger.log('A small one means the CDN is not honouring the size asked for, ' +
+               'or the file in Drive is small to begin with. Open one in Drive ' +
+               'and look at its dimensions: if the original is large and this ' +
+               'says otherwise, the address is the problem and not the photo.');
+  }
+}
+
+
+/**
+ * The pixel dimensions of an image, from its header.
+ *
+ * Only the two formats that come out of a phone or a scanner. Returns null
+ * rather than throwing for anything it cannot read - a fetch that failed, a
+ * file that is not an image, a format nobody here uses - because this is a
+ * diagnostic and a diagnostic that dies halfway through tells you less than
+ * one that says "could not read this one" and carries on.
+ */
+function photoPixelSize(url) {
+  if (!url) return null;
+  let bytes;
+  try {
+    const response = UrlFetchApp.fetch(url, { muteHttpExceptions: true,
+                                              followRedirects: true });
+    if (response.getResponseCode() !== 200) return null;
+    bytes = response.getBlob().getBytes();
+  } catch (e) {
+    return null;
+  }
+  return imageSizeFromBytes(bytes);
+}
+
+
+/**
+ * Width and height out of PNG and JPEG bytes. Pure, so it can be tested.
+ *
+ * PNG: an 8-byte signature, then an IHDR chunk whose width and height are
+ * big-endian 32-bit at offsets 16 and 20. Fixed, always.
+ *
+ * JPEG: a chain of markers, and the size lives in whichever SOFn comes
+ * first. SOF0 through SOF15, skipping SOF4, SOF8 and SOF12, which are not
+ * frame headers at all - DHT, reserved and DAC wear those numbers. Walking
+ * past them is the difference between reading a height and reading two
+ * bytes of a Huffman table as one.
+ */
+function imageSizeFromBytes(bytes) {
+  const b = bytes || [];
+  const at = function (i) { return b[i] < 0 ? b[i] + 256 : b[i]; };
+
+  // ---- PNG ----
+  if (b.length > 24 && at(0) === 0x89 && at(1) === 0x50 &&
+      at(2) === 0x4E && at(3) === 0x47) {
+    const read = function (i) {
+      return (at(i) << 24) + (at(i + 1) << 16) + (at(i + 2) << 8) + at(i + 3);
+    };
+    return { w: read(16), h: read(20) };
+  }
+
+  // ---- JPEG ----
+  if (b.length > 4 && at(0) === 0xFF && at(1) === 0xD8) {
+    let i = 2;
+    while (i + 9 < b.length) {
+      if (at(i) !== 0xFF) { i++; continue; }
+      const marker = at(i + 1);
+      if (marker === 0xFF) { i++; continue; }
+      // Markers that carry no length: padding, RSTn, SOI, EOI.
+      if (marker === 0x01 || (marker >= 0xD0 && marker <= 0xD9)) { i += 2; continue; }
+      const length = (at(i + 2) << 8) + at(i + 3);
+      const isFrame = marker >= 0xC0 && marker <= 0xCF &&
+                      marker !== 0xC4 && marker !== 0xC8 && marker !== 0xCC;
+      if (isFrame) {
+        return { h: (at(i + 5) << 8) + at(i + 6),
+                 w: (at(i + 7) << 8) + at(i + 8) };
+      }
+      if (length < 2) return null;
+      i += 2 + length;
+    }
+  }
+
+  return null;
+}
+
+
+/**
  * Opens a folder of team photographs to anyone holding the link.
  *
  * SEPARATE FROM THE IMPORT, AND DELIBERATELY SO. This is the step that

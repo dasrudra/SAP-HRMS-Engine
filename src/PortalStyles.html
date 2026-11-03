@@ -860,9 +860,17 @@
     margin-bottom: 0;
   }
 
+  /*
+    ONE COLUMN WIDE, LIKE THE CARDS UNDER IT. It was 380px over four cards
+    of about 268, which read as a different kind of card rather than as the
+    top of the same chart - and the extra width bought nothing: the longest
+    line on it is an email address that fits either way. The face matches
+    the section cards' for the same reason.
+  */
   .team-lead {
     position: relative;
-    width: min(380px, 100%);
+    width: calc((100% - (var(--team-cols) - 1) * var(--team-gap)) / var(--team-cols));
+    min-width: 248px;
     display: flex; flex-direction: column; gap: 11px;
     padding: 18px 20px 16px;
     border-radius: 18px;
@@ -924,10 +932,18 @@
   /* =========================================================
      THE FOUR SECTIONS
      ========================================================= */
+  /*
+    The column geometry, declared once. The head card above sizes itself to
+    one of these columns, and a gap changed here and not there would leave
+    it a few pixels wider than the card it is supposed to match - the kind
+    of difference nobody can name and everybody can see.
+  */
+  #teamBody { --team-cols: 4; --team-gap: 16px; }
+
   .team-sections {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 16px;
+    grid-template-columns: repeat(var(--team-cols), 1fr);
+    gap: var(--team-gap);
     align-items: start;
   }
 
@@ -1135,6 +1151,21 @@
     width: 76px; height: 76px;
     border-radius: 50%;
     object-fit: cover;
+    /*
+      CROPPED TOWARDS THE HEAD, NOT THE MIDDLE.
+
+      These are standing portraits - most of them show somebody from the
+      waist or chest up - and a square crop taken from the centre of one of
+      those is mostly shirt. The face ends up occupying perhaps a third of
+      the circle, so a 76px avatar was showing a 25px face, and no amount
+      of resolution fixes that: the pixels were being spent on a tie.
+
+      30% rather than the top, because a photograph already framed tight on
+      the head would lose its chin to an aggressive crop. 30 is far enough
+      to lift a full-length portrait onto the face and near enough the
+      middle to leave a headshot alone.
+    */
+    object-position: center 30%;
     background: var(--blue-050);
   }
   .team-face.is-initials {
@@ -1143,9 +1174,9 @@
     color: var(--blue-600);
     border: 1px solid #d8e5f8;
   }
-  /* The card above the chart, where there is room and only one of them. */
-  .team-lead .team-face { width: 88px; height: 88px; }
-  .team-lead .team-face.is-initials { font-size: 24px; }
+  /* The card above the chart now matches the four below it. */
+  .team-lead .team-face { width: 58px; height: 58px; }
+  .team-lead .team-face.is-initials { font-size: 16px; }
 
   .team-who { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
   .team-who strong {
