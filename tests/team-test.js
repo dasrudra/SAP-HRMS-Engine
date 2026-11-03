@@ -447,7 +447,7 @@ check('an empty tab returns an empty directory rather than throwing',
 // into an <img> it is a broken icon.
 check('a Drive sharing link becomes something an img can actually load',
   ctx.teamPhotoUrl('https://drive.google.com/file/d/1aB2cD3eF4gH5iJ6kL7mN8oP9qR0sT1u/view?usp=sharing') ===
-  'https://drive.google.com/thumbnail?id=1aB2cD3eF4gH5iJ6kL7mN8oP9qR0sT1u&sz=w320',
+  'https://drive.google.com/thumbnail?id=1aB2cD3eF4gH5iJ6kL7mN8oP9qR0sT1u&sz=w512',
   ctx.teamPhotoUrl('https://drive.google.com/file/d/1aB2cD3eF4gH5iJ6kL7mN8oP9qR0sT1u/view'));
 
 check('a bare Drive id works too, and anything else is left alone',

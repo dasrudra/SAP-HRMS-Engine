@@ -405,11 +405,57 @@ const FILE = 'file://' + PAGE;
       return el ? Math.round(el.getBoundingClientRect().width) : 0;
     };
     return { card: one('#teamSecBody0 .team-card .team-face'),
-             summary: one('.team-sec-card .team-face') };
+             summary: one('.team-sec-card .team-face'),
+             lead: one('.team-lead .team-face') };
   });
-  check('the photo slot is big enough to be a face, and biggest on the card',
-    faces.card >= 52 && faces.summary >= 44 && faces.card > faces.summary,
-    faces.card + 'px on the person card, ' + faces.summary + 'px on the summary');
+  // Three sizes, and the order between them is the design: the lead card is
+  // the hero and has the page to itself, the person card is the one being
+  // looked at, and the summary card carries a section name, a role, a
+  // designation and a count besides the face.
+  check('the photo slot is big enough to recognise somebody by',
+    faces.card >= 64 && faces.summary >= 52 && faces.lead >= 72,
+    faces.lead + 'px lead, ' + faces.card + 'px card, ' +
+    faces.summary + 'px summary');
+  check('and the three sizes run in the order the cards matter',
+    faces.lead > faces.card && faces.card > faces.summary,
+    faces.lead + ' > ' + faces.card + ' > ' + faces.summary);
+
+  // A PHOTOGRAPH IS DRAWN WHEN THERE IS ONE, AND CHANGES NOTHING ELSE.
+  // Every card in every suite rendered initials until the real photographs
+  // arrived, so the <img> branch of teamCard() - the half that is on screen
+  // now - had never been drawn in a browser. One fixture person has one.
+  const shot = await t.evaluate(() => {
+    const cards = Array.from(document.querySelectorAll('#teamSecBody0 .team-card'));
+    const withImg = cards.filter((c) => c.querySelector('img.team-face'))[0];
+    const withInitials = cards.filter((c) => c.querySelector('.team-face.is-initials'))[0];
+    const box = (el) => {
+      const r = el.querySelector('.team-face').getBoundingClientRect();
+      return { w: Math.round(r.width), h: Math.round(r.height) };
+    };
+    if (!withImg || !withInitials) return null;
+    const img = withImg.querySelector('img.team-face');
+    return {
+      who: withImg.querySelector('strong').textContent.trim(),
+      photo: box(withImg), initials: box(withInitials),
+      // The rendered box, not the source: object-fit has to crop a portrait
+      // to the circle rather than squash it into one.
+      fit: getComputedStyle(img).objectFit,
+      round: getComputedStyle(img).borderRadius,
+      // Did it actually decode? A broken src still has a layout box.
+      loaded: img.complete && img.naturalWidth > 0
+    };
+  });
+  check('a card with a photograph draws the photograph',
+    shot && shot.loaded === true,
+    shot ? shot.who + ', decoded ' + shot.loaded : '(no card had an img)');
+  check('and it fills the same circle the initials would have',
+    shot && shot.photo.w === shot.initials.w && shot.photo.h === shot.initials.h &&
+    shot.photo.w === shot.photo.h,
+    shot ? JSON.stringify(shot.photo) + ' vs ' + JSON.stringify(shot.initials)
+         : '(not found)');
+  check('cropped to it rather than squashed into it',
+    shot && shot.fit === 'cover' && /50%|9999px/.test(shot.round),
+    shot ? shot.fit + ', radius ' + shot.round : '(not found)');
 
   // WHAT A BIGGER CARD IS FOR, stated as the thing it fixes rather than as
   // a width. The email address is the only line long enough to matter, and

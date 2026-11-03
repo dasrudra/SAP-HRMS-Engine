@@ -817,7 +817,20 @@ const stub = `
                 phone: '01700000003',
                 email: 'bilal.hossain@tekvision.example.test',
                 blood: 'O+',
-                photo: '', note: '', leads: '' }
+                // A PHOTOGRAPH, and the only one in this fixture. Until the
+                // real ones arrived every card in every suite rendered
+                // initials, so the <img> half of teamCard() - the half that
+                // is actually on screen now - had never been drawn in a
+                // browser once. Portrait-shaped and with its subject in the
+                // upper third, like a real one, so that a crop which lost
+                // the face would be visible rather than merely passing.
+                photo: 'data:image/svg+xml;charset=UTF-8,%3Csvg%20xmlns%3D%22' +
+                       'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D' +
+                       '%220%200%20200%20300%22%3E%3Crect%20width%3D%22200%22' +
+                       '%20height%3D%22300%22%20fill%3D%22%23cfe0f7%22%2F%3E' +
+                       '%3Ccircle%20cx%3D%22100%22%20cy%3D%22110%22%20r%3D' +
+                       '%2255%22%20fill%3D%22%232563eb%22%2F%3E%3C%2Fsvg%3E',
+                note: '', leads: '' }
             ] },
           { name: 'Sales Applications', count: 2, head: ayesha, interim: false,
             members: [

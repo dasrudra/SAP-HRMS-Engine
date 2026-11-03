@@ -116,16 +116,24 @@ function teamColumnIndex(headers) {
  * <img> yields a broken icon. The id inside it is what matters, so both the
  * sharing link and a bare id are accepted and rewritten to the thumbnail
  * endpoint. Anything already http(s) and not Drive is passed through.
+ *
+ * ASK DRIVE FOR MORE PIXELS THAN THE BOX NEEDS. sz=w320 means "320 pixels
+ * wide", and that is the WHOLE picture - a landscape photograph comes back
+ * 320x213, of which the circular crop uses 213. Against an 88px avatar on a
+ * phone at three device pixels per CSS pixel, 264 are needed and 213 is an
+ * upscale: soft faces, and nothing in the page to explain why. 512 covers
+ * the largest avatar here at 3x with room over, and it is a thumbnail of a
+ * head either way - the cost is a few kilobytes each, once, from a cache.
  */
 function teamPhotoUrl(raw) {
   const value = String(raw || '').trim();
   if (!value) return '';
 
   const drive = /drive\.google\.com\/(?:file\/d\/|open\?id=|uc\?id=|thumbnail\?id=)([A-Za-z0-9_-]{20,})/.exec(value);
-  if (drive) return 'https://drive.google.com/thumbnail?id=' + drive[1] + '&sz=w320';
+  if (drive) return 'https://drive.google.com/thumbnail?id=' + drive[1] + '&sz=w512';
 
   if (/^[A-Za-z0-9_-]{25,}$/.test(value)) {
-    return 'https://drive.google.com/thumbnail?id=' + value + '&sz=w320';
+    return 'https://drive.google.com/thumbnail?id=' + value + '&sz=w512';
   }
   return /^https?:\/\//.test(value) ? value : '';
 }

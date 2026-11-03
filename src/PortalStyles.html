@@ -1021,10 +1021,10 @@
     carry a section name, a role, a designation and a count as well, so the
     face here is an identifier rather than the subject.
   */
-  .team-sec-card .team-face { width: 48px; height: 48px; }
+  .team-sec-card .team-face { width: 58px; height: 58px; }
   .team-sec-card .team-face.is-initials {
     background: rgba(255, 255, 255, .92); color: var(--blue-600);
-    border-color: transparent; font-size: 14px;
+    border-color: transparent; font-size: 16px;
   }
 
   .team-sec-open {
@@ -1079,27 +1079,36 @@
   .team-card-top { display: flex; align-items: center; gap: 13px; }
 
   /*
-    THE PHOTOGRAPH. 56px rather than 42: these are faces, and at 42 a face
-    is a thumbnail you squint at rather than somebody you recognise - which
-    is the entire reason for putting photographs on a directory. The
-    initials that stand in until a photograph is there grow with it.
+    THE PHOTOGRAPH. 76px, up from 56 and before that 42 - and the reason to
+    keep going is that the real photographs arrived and settled the
+    argument. At 56 these are passport stamps: the face is there, you can
+    tell it is a person, you cannot tell WHICH person without reading the
+    name underneath. That is the one job a photograph on a directory has.
 
-    The size lives here and the summary card below overrides it downwards,
-    not the other way round: the person card is the one being looked at.
+    A circle makes it smaller than it looks, too. A 76px circle shows the
+    area of a 60px square, so the box has to run ahead of the face you want
+    to see inside it.
+
+    The size lives here and the two cards below override it, one up and one
+    down: the person card is the one being looked at, the summary card
+    carries four other things besides, and the lead card is the hero.
   */
   .team-face {
     flex: 0 0 auto;
-    width: 56px; height: 56px;
+    width: 76px; height: 76px;
     border-radius: 50%;
     object-fit: cover;
     background: var(--blue-050);
   }
   .team-face.is-initials {
     display: flex; align-items: center; justify-content: center;
-    font-size: 16px; font-weight: 700; letter-spacing: .02em;
+    font-size: 21px; font-weight: 700; letter-spacing: .02em;
     color: var(--blue-600);
     border: 1px solid #d8e5f8;
   }
+  /* The card above the chart, where there is room and only one of them. */
+  .team-lead .team-face { width: 88px; height: 88px; }
+  .team-lead .team-face.is-initials { font-size: 24px; }
 
   .team-who { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
   .team-who strong {
