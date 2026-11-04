@@ -1010,7 +1010,31 @@
     font-size: 12.5px; font-weight: 700; color: #fff;
     line-height: 1.25; letter-spacing: .006em;
   }
-  .og-title { font-size: 11px; color: rgba(255, 255, 255, .64); }
+  /*
+    The designation, and the presence dot with it. A flex row rather than
+    the dot trailing the text, so a long designation wraps around the dot
+    rather than carrying it onto a line of its own.
+  */
+  .og-title {
+    display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+    font-size: 11px; color: rgba(255, 255, 255, .64);
+  }
+
+  /*
+    THE EMPLOYEE ID, quietest thing on the card. It is what somebody types
+    into SAP, so it has to be legible and exact - which is the one argument
+    for a tabular figure here, where a 1 beside a 7 is read rather than
+    skimmed - and it is not what anybody is scanning the chart for, so it
+    sits under everything else at the lowest contrast that is still plainly
+    readable.
+  */
+  .og-id {
+    margin-top: 2px;
+    font-size: 10px; font-weight: 600; letter-spacing: .055em;
+    font-variant-numeric: tabular-nums;
+    color: rgba(255, 255, 255, .42);
+  }
+  .og-lead .og-id { font-size: 10.5px; color: rgba(255, 255, 255, .50); }
   .og-flag {
     font-size: 9px; font-weight: 800; letter-spacing: .07em;
     text-transform: uppercase; color: var(--accent);

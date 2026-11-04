@@ -805,6 +805,60 @@ const FILE = 'file://' + PAGE;
   check('and the chart carries no contact details, which is the other view',
     og.lines === 0, og.lines + ' contact lines');
 
+  // THE EMPLOYEE ID, under the designation. It is what somebody types into
+  // SAP, and the chart is where they are looking at the person.
+  const ids = await t.$$eval('#teamChart .og-col .og-person', (ns) => ns.map((c) => ({
+    who: c.querySelector('strong').textContent.trim(),
+    id: (c.querySelector('.og-id') || {}).textContent || ''
+  })));
+  check('every card on the chart carries an employee ID',
+    ids.length > 0 && ids.every((p) => /^\d{6,}$/.test(p.id)),
+    ids.filter((p) => !/^\d{6,}$/.test(p.id)).map((p) => p.who).join(', ') ||
+    ids.length + ' cards, all with one');
+
+  // And it is THEIR id, not the one above or below. Checked against the
+  // directory, which prints the same people from the same rows - an
+  // off-by-one here would put somebody else's employee number under a
+  // face, and nothing on the page would look wrong.
+  // Built from the DIRECTORY, not from the chart. Both are drawn from the
+  // same rows but by different code, so this compares one against the
+  // other - where reading the chart's own dot would compare the chart
+  // against itself and could not disagree, whatever either of them did.
+  // The directory is hidden while the chart is up; its markup is still
+  // there, which is the point.
+  const fromList = await t.evaluate(() => {
+    const out = {};
+    document.querySelectorAll('#teamBody .pres-dot[data-pres]').forEach(function (dot) {
+      const card = dot.closest('.team-card, .team-sec-card');
+      const name = card && card.querySelector('strong');
+      if (name) out[name.textContent.trim()] = dot.getAttribute('data-pres');
+    });
+    return out;
+  });
+  check('(fixture check) the directory has ids to compare the chart against',
+    Object.keys(fromList).length >= 3,
+    Object.keys(fromList).length + ' people found in the directory');
+  const mismatched = ids.filter(function (p) {
+    return fromList[p.who] && fromList[p.who] !== p.id;
+  });
+  check('and it is their own, not the row above or below',
+    mismatched.length === 0,
+    mismatched.length ? mismatched.map((p) => p.who + ' shows ' + p.id).join('; ')
+                      : 'each id matches the person it sits under');
+
+  // THE PRESENCE DOT SITS WITH THE DESIGNATION, NOT THE NAME. These cards
+  // are a quarter of the row wide and some of these names are four words:
+  // a name that wraps leaves a dot that will not fit on the second line
+  // taking a third line of its own, and one card in a column of eleven
+  // stands taller than the rest for no reason anybody can see.
+  const dots = await t.evaluate(() => ({
+    inName: document.querySelectorAll('#teamChart .og-person strong .pres-dot').length,
+    inTitle: document.querySelectorAll('#teamChart .og-person .og-title .pres-dot').length
+  }));
+  check('the presence dot sits beside the designation, not the name',
+    dots.inName === 0 && dots.inTitle > 0,
+    dots.inTitle + ' with the designation, ' + dots.inName + ' stuck to a name');
+
   // NOT CREAM. The person cards started as the directory's cream card
   // reused, and thirty-six of them on a navy chart read as thirty-six
   // sticky notes - the eye went to the paper rather than to the faces.

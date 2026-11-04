@@ -6210,13 +6210,28 @@
   }
 
 
+  /**
+   * THE DOT GOES BESIDE THE DESIGNATION, NOT THE NAME.
+   *
+   * It followed the name, which is where it belongs on a card wide enough
+   * to hold both. These are a quarter of the row wide and some of these
+   * names are four words: "Md. Abul Masum Siddique" wraps, and a dot that
+   * will not fit on the second line takes a third line of its own for
+   * itself. One card in a column of eleven standing taller than the rest
+   * for no reason anybody can see.
+   *
+   * The designation is one short word on every card here, so it has the
+   * room, and the dot means the same thing beside either.
+   */
   function chartPerson(person, isHead) {
     return '<article class="og-person' + (isHead ? ' is-head' : '') + '">' +
       faceFor(person) +
       '<span class="og-person-who">' +
-        '<strong>' + escapeHtml(person.name) + presenceDot(person) + '</strong>' +
+        '<strong>' + escapeHtml(person.name) + '</strong>' +
         (isHead ? '<span class="og-flag">Section Head</span>' : '') +
-        '<span class="og-title">' + escapeHtml(person.title || '\u2014') + '</span>' +
+        '<span class="og-title">' + escapeHtml(person.title || '\u2014') +
+          presenceDot(person) + '</span>' +
+        (person.id ? '<span class="og-id">' + escapeHtml(person.id) + '</span>' : '') +
       '</span>' +
     '</article>';
   }
@@ -6287,11 +6302,14 @@
             ? '<article class="og-person og-lead">' +
                 faceFor(team.lead) +
                 '<span class="og-person-who">' +
-                  '<strong>' + escapeHtml(team.lead.name) +
-                    presenceDot(team.lead) + '</strong>' +
+                  '<strong>' + escapeHtml(team.lead.name) + '</strong>' +
                   '<span class="og-flag">Department Head</span>' +
                   '<span class="og-title">' +
-                    escapeHtml(team.lead.title || '\u2014') + '</span>' +
+                    escapeHtml(team.lead.title || '\u2014') +
+                    presenceDot(team.lead) + '</span>' +
+                  (team.lead.id
+                    ? '<span class="og-id">' + escapeHtml(team.lead.id) + '</span>'
+                    : '') +
                 '</span>' +
               '</article>'
             : '') +
