@@ -858,6 +858,259 @@
   }
 
   /* =========================================================
+     THE SWITCH: directory or chart
+     =========================================================
+     Two buttons on the blue, so they are glass like everything else up
+     here. The pressed one is solid white - not a border, not a tint: on a
+     photographic background the only state that reads at a glance is the
+     one that stops being transparent.
+  */
+  .team-switch {
+    display: inline-flex; gap: 6px;
+    margin: 0 0 22px;
+    padding: 5px;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, .22);
+    background: rgba(255, 255, 255, .10);
+    -webkit-backdrop-filter: blur(16px) saturate(160%);
+    backdrop-filter: blur(16px) saturate(160%);
+    box-shadow:
+      0 10px 28px rgba(2, 10, 32, .34),
+      inset 0 1px 0 rgba(255, 255, 255, .26);
+  }
+
+  .team-switch-btn {
+    position: relative;
+    display: inline-flex; align-items: center; gap: 7px;
+    padding: 9px 18px;
+    border: 1px solid transparent; border-radius: 999px;
+    background: none; color: rgba(255, 255, 255, .80);
+    font-family: inherit; font-size: 13px; line-height: 1; font-weight: 700;
+    letter-spacing: .012em; cursor: pointer;
+    transition: color .18s ease, background .18s ease,
+                box-shadow .18s ease, transform .18s ease;
+  }
+  .team-switch-btn svg { opacity: .9; }
+
+  /*
+    THE GLOW IS ON HOVER AND ON THE PRESSED ONE, and it is a shadow rather
+    than a filter: a filter on a button inside a backdrop-filtered bar
+    makes the browser rasterise the lot, and the bar behind it stops
+    blurring the sky.
+  */
+  .team-switch-btn:hover {
+    color: #fff;
+    background: rgba(255, 255, 255, .14);
+    box-shadow: 0 0 20px rgba(150, 200, 255, .36);
+    transform: translateY(-1px);
+  }
+  .team-switch-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+  .team-switch-btn.is-on {
+    background: #fff; color: var(--blue-600);
+    border-color: rgba(255, 255, 255, .9);
+    box-shadow:
+      0 8px 20px rgba(2, 10, 32, .30),
+      0 0 26px rgba(150, 200, 255, .50),
+      inset 0 1px 0 rgba(255, 255, 255, .9);
+    transform: translateY(-1px);
+  }
+  .team-switch-btn.is-on svg { opacity: 1; }
+
+
+  /* =========================================================
+     THE ORGANOGRAM
+     =========================================================
+     Everybody at once: a face, a name and a title, arranged the way the
+     department is. Nothing opens and nothing is hidden, because a shape
+     cannot be read a quarter at a time.
+
+     The connectors are drawn with pseudo-elements rather than an SVG. An
+     SVG would have to be told where every box ended up, which means
+     measuring the layout in JavaScript and redrawing it on every resize;
+     a border that hangs off the element it belongs to simply follows it.
+  */
+  .og { display: flex; flex-direction: column; align-items: center; }
+
+  .og-root { display: flex; flex-direction: column; align-items: center; }
+
+  .og-crown {
+    padding: 7px 16px; border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, .26);
+    background: rgba(255, 255, 255, .12);
+    -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
+    color: #fff;
+    font-size: 11px; font-weight: 700; letter-spacing: .08em;
+    text-transform: uppercase;
+  }
+
+  /* The line between one rung and the next. */
+  .og-drop {
+    display: block; width: 2px; height: 22px;
+    background: linear-gradient(180deg,
+      rgba(255, 255, 255, .42), rgba(255, 255, 255, .16));
+  }
+
+  /* =======================
+     a person, anywhere on the chart
+     ======================= */
+  .og-person {
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 12px;
+    border-radius: 12px;
+    background: var(--portal-card);
+    border: 1px solid var(--portal-card-edge);
+    box-shadow: 0 2px 10px rgba(8, 26, 66, .09);
+    transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease;
+  }
+  .og-person:hover {
+    transform: translateY(-2px);
+    border-color: #ddcfb8;
+    box-shadow: 0 12px 28px rgba(8, 26, 66, .18);
+  }
+  .og-person .team-face { width: 44px; height: 44px; }
+  .og-person .team-face.is-initials { font-size: 13px; }
+
+  .og-person-who { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+  .og-person-who strong {
+    font-size: 12.5px; font-weight: 700; color: var(--navy-900);
+    line-height: 1.25;
+  }
+  .og-title { font-size: 11px; color: var(--text-dim); }
+  .og-flag {
+    font-size: 9px; font-weight: 800; letter-spacing: .07em;
+    text-transform: uppercase; color: var(--blue-600);
+  }
+
+  /* The head of the department, on the blue and larger. */
+  .og-lead {
+    gap: 13px; padding: 13px 20px 13px 14px;
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, .19) 0%, rgba(255, 255, 255, .075) 100%);
+    border-color: rgba(255, 255, 255, .26);
+    -webkit-backdrop-filter: blur(20px) saturate(160%);
+    backdrop-filter: blur(20px) saturate(160%);
+    box-shadow:
+      0 18px 44px rgba(2, 10, 32, .40),
+      inset 0 1px 0 rgba(255, 255, 255, .32);
+  }
+  .og-lead .team-face { width: 64px; height: 64px; }
+  .og-lead .team-face.is-initials { font-size: 19px; }
+  .og-lead .og-person-who strong { font-size: 15px; color: #fff; }
+  .og-lead .og-title { font-size: 12px; color: rgba(255, 255, 255, .76); }
+  .og-lead .og-flag { color: rgba(255, 255, 255, .86); }
+  .og-lead:hover { transform: none; border-color: rgba(255, 255, 255, .38); }
+
+  /* =======================
+     the four sections
+     ======================= */
+  .og-cols {
+    position: relative;
+    display: grid; grid-template-columns: repeat(var(--og-cols, 4), 1fr);
+    gap: 16px; width: 100%;
+    padding-top: 22px;
+  }
+  /*
+    The bar the columns hang from. Inset by HALF A COLUMN at each end, so it
+    runs from the first drop to the last rather than out past them into
+    space - which is what it did when the inset was written as a flat
+    12.5%: right for four columns, and the chart has as many columns as
+    the department has sections. renderOrganogram sets --og-cols.
+  */
+  .og-cols::before {
+    content: ''; position: absolute; top: 0; height: 2px;
+    left: calc(50% / var(--og-cols, 4));
+    right: calc(50% / var(--og-cols, 4));
+    background: rgba(255, 255, 255, .28);
+  }
+  .og-col { position: relative; display: flex; flex-direction: column; gap: 12px; }
+  /* Each column's own drop, from the bar down to its heading. */
+  .og-col::before {
+    content: ''; position: absolute; top: -22px; left: 50%;
+    width: 2px; height: 22px; margin-left: -1px;
+    background: rgba(255, 255, 255, .28);
+  }
+
+  .og-section {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    padding: 11px 14px;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, .22);
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, .17) 0%, rgba(255, 255, 255, .07) 100%);
+    -webkit-backdrop-filter: blur(16px) saturate(160%);
+    backdrop-filter: blur(16px) saturate(160%);
+    box-shadow:
+      0 10px 26px rgba(2, 10, 32, .32),
+      inset 0 1px 0 rgba(255, 255, 255, .28);
+  }
+  .og-section-name {
+    font-size: 10.5px; font-weight: 800; letter-spacing: .07em;
+    text-transform: uppercase; color: #fff; line-height: 1.3;
+  }
+  .og-section-count {
+    flex: none; min-width: 22px; padding: 2px 7px; border-radius: 999px;
+    background: rgba(255, 255, 255, .18);
+    font-size: 10.5px; font-weight: 700; color: #fff; text-align: center;
+  }
+
+  /* The accent each column carries, the same four as the directory. */
+  .og-col[data-accent="0"] { --accent: #4cc9f0; }
+  .og-col[data-accent="1"] { --accent: #5b9cf8; }
+  .og-col[data-accent="2"] { --accent: #7b86f0; }
+  .og-col[data-accent="3"] { --accent: #9d7bef; }
+  .og-section { border-top: 2px solid var(--accent); }
+
+  /* =======================
+     the modules under a section
+     ======================= */
+  .og-modules { display: flex; flex-direction: column; gap: 10px; }
+
+  .og-module {
+    display: flex; flex-direction: column; gap: 7px;
+    padding: 9px 9px 10px;
+    border-radius: 12px;
+    background: rgba(255, 255, 255, .055);
+    border: 1px solid rgba(255, 255, 255, .13);
+  }
+  .og-module-head {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 8px; padding: 0 3px;
+  }
+  .og-module-name {
+    font-size: 10.5px; font-weight: 800; letter-spacing: .06em;
+    text-transform: uppercase; color: var(--accent);
+  }
+  .og-module-count {
+    font-size: 10px; font-weight: 700; color: rgba(255, 255, 255, .55);
+  }
+  .og-people { display: flex; flex-direction: column; gap: 7px; }
+
+  /* The head of a section, marked where they sit rather than drawn twice. */
+  .og-person.is-head {
+    border-color: var(--accent);
+    box-shadow: 0 2px 10px rgba(8, 26, 66, .09), 0 0 0 1px var(--accent) inset;
+  }
+
+  /*
+    NARROWER THAN A DESKTOP and the four columns stop being four. Two, then
+    one - the chart still reads top to bottom, it just folds.
+  */
+  @media (max-width: 1080px) {
+    .og-cols { grid-template-columns: repeat(2, 1fr); row-gap: 26px; }
+    .og-cols::before { left: 25%; right: 25%; }
+    .og-col:nth-child(n+3)::before { display: none; }
+  }
+  /* The chart's own bottom margin, so the blue finishes below it rather
+     than against it. */
+  .og { padding-bottom: 8px; }
+  @media (max-width: 680px) {
+    .og-cols { grid-template-columns: 1fr; }
+    .og-cols::before { display: none; }
+    .og-col::before { display: none; }
+  }
+
+
+  /* =========================================================
      THE DEPARTMENT HEAD
      =========================================================
      Above the sections and in the middle, which is where the organogram has

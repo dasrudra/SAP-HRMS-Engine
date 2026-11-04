@@ -6164,10 +6164,190 @@
    * reader to Home and sit there. The rule that reads it is scoped to the
    * team page, so leaving it set costs nothing.
    */
+  /**
+   * The team as a chart: everybody at once, a face and a title each.
+   *
+   * THE OTHER VIEW ANSWERS A DIFFERENT QUESTION. The directory is for
+   * "how do I reach this person" - four cards you open one at a time, with
+   * every contact detail inside. This is for "how is this team arranged",
+   * and the answer to that is useless one quarter at a time: you cannot see
+   * a shape by looking at a quarter of it. So nothing here opens, nothing
+   * here is hidden, and nothing here carries a telephone number.
+   *
+   *   EAS
+   *    |
+   *   the head of the department
+   *    |
+   *   four sections
+   *    |
+   *   the modules each section owns
+   *    |
+   *   the people in each module
+   *
+   * THE HEAD IS AT THE TOP AND NOWHERE ELSE. He covers Supply Chain as well
+   * as the department, and drawing him in both places would put the same
+   * face twice on a chart whose whole job is to show where people sit once.
+   * A section head appears under their own module with a flag on the card,
+   * for the same reason: one person, one place, and the fact marked where
+   * they are rather than repeated where they are not.
+   */
+  function moduleGroups(people) {
+    // Grouped by the label the cards print, in the order the people are
+    // already in - which is the roster's order, which is the order the
+    // printed chart uses. Sorting by size would reshuffle the chart every
+    // time somebody joined.
+    const order = [];
+    const byName = {};
+    people.forEach(function (person) {
+      const key = String(person.moduleLabel || person.module || '').trim() ||
+                  'No module';
+      if (!byName[key]) { byName[key] = []; order.push(key); }
+      byName[key].push(person);
+    });
+    return order.map(function (key) {
+      return { name: key, people: byName[key] };
+    });
+  }
+
+
+  function chartPerson(person, isHead) {
+    return '<article class="og-person' + (isHead ? ' is-head' : '') + '">' +
+      faceFor(person) +
+      '<span class="og-person-who">' +
+        '<strong>' + escapeHtml(person.name) + presenceDot(person) + '</strong>' +
+        (isHead ? '<span class="og-flag">Section Head</span>' : '') +
+        '<span class="og-title">' + escapeHtml(person.title || '\u2014') + '</span>' +
+      '</span>' +
+    '</article>';
+  }
+
+
+  function renderOrganogram(team) {
+    const chart = document.getElementById('teamChart');
+    if (!chart) return;
+
+    if (!team || !team.filled || !team.count) {
+      chart.innerHTML = '<div class="portal-empty"><h2>The TEAM tab is empty</h2>' +
+        '<p>There is nothing to draw a chart from yet.</p></div>';
+      return;
+    }
+
+    const columns = team.sections.map(function (section, index) {
+      // The head belongs to one of these modules like everybody else - the
+      // flag on their card says which of them leads the section, and that
+      // is the whole of the difference.
+      const inSection = (section.head &&
+                         section.head.section === section.name)
+        ? [section.head].concat(section.members)
+        : section.members.slice();
+
+      const groups = moduleGroups(inSection).map(function (group) {
+        return '<div class="og-module">' +
+          '<div class="og-module-head">' +
+            '<span class="og-module-name">' + escapeHtml(group.name) + '</span>' +
+            '<span class="og-module-count">' + group.people.length + '</span>' +
+          '</div>' +
+          '<div class="og-people">' +
+            group.people.map(function (p) {
+              return chartPerson(p, section.head && p.name === section.head.name);
+            }).join('') +
+          '</div>' +
+        '</div>';
+      }).join('');
+
+      return '<div class="og-col" data-accent="' + (index % 4) + '">' +
+        '<div class="og-section">' +
+          '<span class="og-section-name">' + escapeHtml(section.name) + '</span>' +
+          '<span class="og-section-count">' + inSection.length + '</span>' +
+        '</div>' +
+        '<div class="og-modules">' + groups + '</div>' +
+      '</div>';
+    }).join('');
+
+    // HOW MANY COLUMNS THERE ACTUALLY ARE. The grid and the bar the columns
+    // hang from both need it, and both had it written in as four - which
+    // drew four tracks for three sections and ran the bar out past the
+    // last one into empty space.
+    chart.style.setProperty('--og-cols', String(team.sections.length || 1));
+
+    chart.innerHTML =
+      '<div class="og">' +
+        '<div class="og-root">' +
+          '<span class="og-crown">Enterprise Application Services</span>' +
+          '<span class="og-drop" aria-hidden="true"></span>' +
+          (team.lead
+            ? '<article class="og-person og-lead">' +
+                faceFor(team.lead) +
+                '<span class="og-person-who">' +
+                  '<strong>' + escapeHtml(team.lead.name) +
+                    presenceDot(team.lead) + '</strong>' +
+                  '<span class="og-flag">Department Head</span>' +
+                  '<span class="og-title">' +
+                    escapeHtml(team.lead.title || '\u2014') + '</span>' +
+                '</span>' +
+              '</article>'
+            : '') +
+          '<span class="og-drop" aria-hidden="true"></span>' +
+        '</div>' +
+        '<div class="og-cols">' + columns + '</div>' +
+      '</div>';
+
+    wireTeamFaces(chart);
+  }
+
+
+  /**
+   * The switch between the directory and the chart.
+   *
+   * Both are drawn when the team arrives and one is hidden, rather than
+   * drawn on demand: the whole of this screen is already in hand by then,
+   * so building the second costs a few milliseconds once and saves a blank
+   * pause every time somebody presses the other button.
+   *
+   * The blue band is re-measured on every switch. It is sized to the
+   * bottom of whatever is on screen, and the two views are nothing like
+   * the same height.
+   */
+  function wireTeamSwitch() {
+    const list = document.getElementById('teamViewList');
+    const chartBtn = document.getElementById('teamViewChart');
+    const body = document.getElementById('teamBody');
+    const chart = document.getElementById('teamChart');
+    if (!list || !chartBtn || !body || !chart) return;
+
+    const show = function (wantChart) {
+      body.hidden = wantChart;
+      chart.hidden = !wantChart;
+      list.classList.toggle('is-on', !wantChart);
+      chartBtn.classList.toggle('is-on', wantChart);
+      list.setAttribute('aria-selected', wantChart ? 'false' : 'true');
+      chartBtn.setAttribute('aria-selected', wantChart ? 'true' : 'false');
+      sizeTeamSky();
+    };
+
+    // Replaced rather than added to: renderTeam runs again whenever the
+    // team is reloaded, and a second listener on the same button would
+    // switch the view twice and land back where it started.
+    list.onclick = function () { show(false); };
+    chartBtn.onclick = function () { show(true); };
+  }
+
+
   function sizeTeamSky() {
     const portal = document.getElementById('portalRoot');
     const sky = document.querySelector('.portal-sky');
-    const cards = document.querySelectorAll('#teamBody .team-sec-card');
+    // Whichever view is up. The directory's blue has to finish under the
+    // row of glass section cards; the chart's has to finish under the
+    // head's card, because everything below that is on the light surface.
+    const chart = document.getElementById('teamChart');
+    const onChart = chart && !chart.hidden;
+    // THE WHOLE CHART, not the head's card. Everything on the organogram
+    // below that card is glass too - the section headings and the module
+    // panels - and glass over the white page is a grey box. The directory
+    // is the other way round: only its top row is glass, and the people
+    // underneath are solid cards that want the light surface.
+    const cards = document.querySelectorAll(
+      onChart ? '#teamChart .og' : '#teamBody .team-sec-card');
     if (!portal || !sky || !cards.length) return;
 
     const top = sky.getBoundingClientRect().top;
@@ -6808,6 +6988,8 @@
     // has run, and an error listener attached later than the error is no
     // listener at all.
     wireTeamFaces(body);
+    renderOrganogram(team);
+    wireTeamSwitch();
     sizeTeamSky();
 
     // ---- opening a section ----

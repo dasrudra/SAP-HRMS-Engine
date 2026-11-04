@@ -674,6 +674,146 @@ const FILE = 'file://' + PAGE;
   await t.click('.team-sec[data-section="0"] .team-sec-open');
   await t.waitForTimeout(400);
 
+  // =========================================================================
+  // THE ORGANOGRAM
+  // =========================================================================
+  // The second view of the same thirty-six people, and a different
+  // question: the directory answers "how do I reach this person", this
+  // answers "how is this team arranged". A shape cannot be read a quarter
+  // at a time, so nothing here opens and nothing is hidden.
+  // Counted off the line the SERVER writes - "36 people in 4 sections" -
+  // rather than off the chart, so this compares what was drawn against
+  // what readTeam found rather than the chart against itself.
+  const teamCount = Number(
+    (/(\d+)\s+people/.exec(await t.$eval('#teamSub', (n) => n.textContent)) ||
+     [0, 0])[1]);
+  check('(fixture check) the page says how many people there are',
+    teamCount >= 3, teamCount + ' people');
+
+  const switchState = await t.evaluate(() => {
+    const list = document.getElementById('teamViewList');
+    const chart = document.getElementById('teamViewChart');
+    if (!list || !chart) return null;
+    return {
+      labels: [list.textContent.trim(), chart.textContent.trim()],
+      on: list.classList.contains('is-on'),
+      chartOn: chart.classList.contains('is-on'),
+      bodyShown: !document.getElementById('teamBody').hidden,
+      chartShown: !document.getElementById('teamChart').hidden
+    };
+  });
+  check('the team screen offers both views, and opens on the directory',
+    switchState && switchState.labels[0] === 'EAS Team' &&
+    switchState.labels[1] === 'Organogram' &&
+    switchState.on === true && switchState.chartOn === false &&
+    switchState.bodyShown === true && switchState.chartShown === false,
+    switchState ? JSON.stringify(switchState) : '(no switch)');
+
+  await t.click('#teamViewChart');
+  await t.waitForTimeout(500);
+
+  const og = await t.evaluate(() => {
+    const names = Array.from(document.querySelectorAll('#teamChart .og-person strong'))
+      .map((n) => n.textContent.trim());
+    return {
+      bodyShown: !document.getElementById('teamBody').hidden,
+      chartShown: !document.getElementById('teamChart').hidden,
+      selected: document.getElementById('teamViewChart').getAttribute('aria-selected'),
+      cols: document.querySelectorAll('#teamChart .og-col').length,
+      sections: Array.from(document.querySelectorAll('#teamChart .og-section-name'))
+        .map((n) => n.textContent.trim()),
+      modules: Array.from(document.querySelectorAll('#teamChart .og-module-name'))
+        .map((n) => n.textContent.trim()),
+      names: names,
+      heads: Array.from(document.querySelectorAll('#teamChart .og-person.is-head strong'))
+        .map((n) => n.textContent.trim()),
+      lead: (document.querySelector('#teamChart .og-lead strong') || {}).textContent || '',
+      // Nothing on this view is a contact detail: it is a shape, not a
+      // directory, and a telephone number on every node is forty numbers
+      // nobody came here for.
+      lines: document.querySelectorAll('#teamChart .team-line').length
+    };
+  });
+
+  check('pressing Organogram swaps the views over',
+    og.chartShown === true && og.bodyShown === false && og.selected === 'true',
+    JSON.stringify({ chart: og.chartShown, list: og.bodyShown }));
+
+  check('one column per section, in the order the chart has them',
+    og.cols === og.sections.length && og.sections.length >= 3,
+    og.sections.join(' | '));
+
+  // AND THE COLUMNS FILL THE ROW. The grid was written as repeat(4, 1fr),
+  // which draws four tracks whatever the department has: with three
+  // sections that is three narrow columns and a column of nothing, and
+  // the bar they hang from running out past the last of them into it.
+  // renderOrganogram sets --og-cols from the sections it was given.
+  const span = await t.evaluate(() => {
+    const row = document.querySelector('#teamChart .og-cols');
+    const cols = Array.from(document.querySelectorAll('#teamChart .og-col'));
+    if (!row || !cols.length) return null;
+    const r = row.getBoundingClientRect();
+    const last = cols[cols.length - 1].getBoundingClientRect();
+    const first = cols[0].getBoundingClientRect();
+    return { rowLeft: Math.round(r.left), rowRight: Math.round(r.right),
+             left: Math.round(first.left), right: Math.round(last.right) };
+  });
+  check('and they fill the row, leaving no empty track on the end',
+    span && Math.abs(span.right - span.rowRight) <= 1 &&
+    Math.abs(span.left - span.rowLeft) <= 1,
+    span ? 'columns ' + span.left + '-' + span.right +
+           ' in a row ' + span.rowLeft + '-' + span.rowRight : '(not found)');
+
+  // THE ONE THAT MATTERS ON A CHART: everybody drawn, and drawn once. A
+  // person missing is somebody the chart says does not work here; a person
+  // twice is somebody it says sits in two places.
+  const seen = {};
+  const twice = og.names.filter(function (n) {
+    seen[n] = (seen[n] || 0) + 1;
+    return seen[n] === 2;
+  });
+  check('every single person is on the chart',
+    og.names.length === teamCount,
+    og.names.length + ' of ' + teamCount);
+  check('and nobody is on it twice',
+    twice.length === 0,
+    twice.length ? twice.join(', ') + ' drawn more than once' : 'one place each');
+
+  // The department head covers a section as well as the department, and
+  // drawing him in both places would put the same face twice on a chart
+  // whose whole job is to show where people sit once.
+  check('the department head is at the top and nowhere else',
+    /Utpal/.test(og.lead) &&
+    og.names.filter((n) => /Utpal/.test(n)).length === 1,
+    og.lead + ', appearing ' + og.names.filter((n) => /Utpal/.test(n)).length + ' time(s)');
+
+  check('a section head sits under their own module, marked rather than moved',
+    og.heads.length >= 1 && og.heads.every((h) => og.names.indexOf(h) !== -1),
+    og.heads.join(', ') || '(none flagged)');
+
+  check('and the chart carries no contact details, which is the other view',
+    og.lines === 0, og.lines + ' contact lines');
+
+  // Glass again: the section headings and module panels are translucent,
+  // and over the white page below they are grey boxes.
+  const ogSky = await t.evaluate(() => {
+    const band = document.querySelector('.portal-sky');
+    const tree = document.querySelector('#teamChart .og');
+    if (!band || !tree) return null;
+    return { bottom: Math.round(band.getBoundingClientRect().bottom),
+             tree: Math.round(tree.getBoundingClientRect().bottom) };
+  });
+  check('the blue reaches the bottom of the chart, which is glass all the way',
+    ogSky && ogSky.bottom >= ogSky.tree,
+    ogSky ? 'band ' + ogSky.bottom + ', chart ' + ogSky.tree : '(not found)');
+
+  await t.click('#teamViewList');
+  await t.waitForTimeout(400);
+  check('and pressing EAS Team brings the directory back',
+    (await t.evaluate(() => !document.getElementById('teamBody').hidden &&
+                            document.getElementById('teamChart').hidden)) === true,
+    'the switch goes both ways');
+
   // ---- closed until pressed ----
   check('every section starts closed, so the page opens readable',
     (await visibleCards(t)) === 0 &&

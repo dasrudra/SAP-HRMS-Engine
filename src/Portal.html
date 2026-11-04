@@ -514,7 +514,48 @@
         <h1 class="portal-page-title">EAS Team</h1>
         <p class="portal-page-sub" id="teamSub">Loading the team&#x2026;</p>
       </div>
+
+      <!--
+        TWO VIEWS OF THE SAME THIRTY-SIX PEOPLE, and the switch between
+        them. The directory answers "how do I reach this person" - four
+        cards you open one at a time, every contact detail inside. The
+        organogram answers "how is this team arranged" - everybody at once,
+        a face and a title each, no detail and nothing to open.
+
+        Neither is a better version of the other, which is why this is a
+        switch and not a setting: the question you arrived with decides it.
+
+        Drawn here rather than by App.html because it is the one part of
+        this screen that exists before the team data does - pressing it
+        while the directory is still loading should still work.
+      -->
+      <div class="team-switch" role="tablist" aria-label="How to view the team">
+        <button class="team-switch-btn is-on" type="button" role="tab"
+                id="teamViewList" aria-selected="true" aria-controls="teamBody">
+          <svg viewBox="0 0 16 16" width="14" height="14" fill="none"
+               stroke="currentColor" stroke-width="1.7" stroke-linecap="round"
+               stroke-linejoin="round" aria-hidden="true">
+            <rect x="1.8" y="2.4" width="12.4" height="4.2" rx="1.2"/>
+            <rect x="1.8" y="9.4" width="12.4" height="4.2" rx="1.2"/>
+          </svg>
+          EAS Team
+        </button>
+        <button class="team-switch-btn" type="button" role="tab"
+                id="teamViewChart" aria-selected="false" aria-controls="teamChart">
+          <svg viewBox="0 0 16 16" width="14" height="14" fill="none"
+               stroke="currentColor" stroke-width="1.7" stroke-linecap="round"
+               stroke-linejoin="round" aria-hidden="true">
+            <rect x="5.6" y="1.4" width="4.8" height="3.4" rx="1"/>
+            <rect x="1" y="11.2" width="4.4" height="3.4" rx="1"/>
+            <rect x="10.6" y="11.2" width="4.4" height="3.4" rx="1"/>
+            <path d="M8 4.8v3M3.2 11.2V7.8h9.6v3.4"/>
+          </svg>
+          Organogram
+        </button>
+      </div>
+
       <div id="teamBody"></div>
+      <div id="teamChart" hidden></div>
     </section>
 
     <!-- ---- PARTNERS ---- Drawn by renderPartners() from CONFIG.PARTNERS. -->
