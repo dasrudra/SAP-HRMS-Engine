@@ -358,7 +358,7 @@ const FILE = 'file://' + PAGE;
     heads[0].sub + ' - the old override would put EAS here');
 
   // Member cards carry it too.
-  await t.click('.team-sec[data-section="0"] .team-sec-card');
+  await t.click('.team-sec[data-section="0"] .team-sec-open');
   await t.waitForTimeout(500);
   const member = await t.$$eval('#teamSecBody0 .team-card', (ns) => ns.map((c) => ({
     name: c.querySelector('strong').textContent.trim(),
@@ -370,11 +370,42 @@ const FILE = 'file://' + PAGE;
     bilal && bilal.role === 'Deputy Manager \u00b7 MM' && bilal.flag === '',
     bilal ? bilal.role : '(not found)');
 
+  // ONE CARD PER HEAD, NOT TWO. The head used to appear twice: on the card
+  // above the section, and again as the first card inside it the moment you
+  // opened it. The duplicate existed because the card above was a BUTTON -
+  // the whole card was the control - and an email address inside a button
+  // is not a link anybody can press, so the contact details lived on the
+  // copy. The card is a plain div now, only its footer row opens the
+  // section, and the details are where the name already was.
   const inSection = member.filter((m) => m.name.indexOf('Utpal') === 0)[0];
-  check('and the head inside the section keeps both as well',
-    inSection && inSection.flag === 'Section Head' &&
-    inSection.role === 'Senior Manager \u00b7 MM',
-    inSection ? inSection.flag + ' / ' + inSection.role : '(not found)');
+  check('the head is not repeated inside their own section',
+    inSection === undefined,
+    inSection ? 'still there: ' + inSection.name
+              : member.length + ' cards inside, none of them the head');
+
+  const headCard = await t.evaluate(() => {
+    const card = document.querySelector('.team-sec[data-section="0"] .team-sec-card');
+    if (!card) return null;
+    const lines = Array.from(card.querySelectorAll('.team-line'));
+    return {
+      who: (card.querySelector('.team-sec-who strong') || {}).textContent || '',
+      role: (card.querySelector('.team-sec-sub') || {}).textContent || '',
+      lines: lines.map((l) => l.textContent.trim()),
+      // The links have to be real links, which is the whole reason the
+      // card stopped being a button.
+      mailto: lines.filter((l) => /^mailto:/.test(l.getAttribute('href') || '')).length,
+      tel: lines.filter((l) => /^tel:/.test(l.getAttribute('href') || '')).length,
+      blood: (card.querySelector('.team-blood') || {}).textContent || ''
+    };
+  });
+  check('and their card carries the details the duplicate used to',
+    headCard && /Utpal/.test(headCard.who) &&
+    headCard.role === 'Senior Manager \u00b7 MM' && headCard.lines.length === 3 &&
+    /Blood group/.test(headCard.blood),
+    headCard ? headCard.lines.join(' | ') : '(no card)');
+  check('with the email and the mobile pressable, not text in a button',
+    headCard && headCard.mailto === 1 && headCard.tel === 1,
+    headCard ? headCard.mailto + ' mailto, ' + headCard.tel + ' tel' : '(none)');
 
   // ---- blood group ----
   // Everything else on these cards is a way of reaching somebody. This is
@@ -433,11 +464,53 @@ const FILE = 'file://' + PAGE;
   // misreading cannot come back quietly.
   const headWidth = await t.evaluate(() => {
     const lead = document.querySelector('.team-lead');
-    const sec = document.querySelector('.team-sec-card');
+    const sec = document.querySelector('.team-sec-open');
     if (!lead || !sec) return null;
     return { lead: Math.round(lead.getBoundingClientRect().width),
              section: Math.round(sec.getBoundingClientRect().width) };
   });
+  // EQUAL HEIGHTS. The four cards hold different numbers of contact rows -
+  // not everybody has an extension - so at natural height they came out as
+  // a row of cards of three different lengths, which reads as a layout
+  // that has slipped rather than as a chart.
+  const secHeights = await t.$$eval('.team-sec-card',
+    (ns) => ns.map((n) => Math.round(n.getBoundingClientRect().height)));
+  check('the section cards all end on the same line',
+    secHeights.length >= 3 &&
+    Math.max.apply(null, secHeights) === Math.min.apply(null, secHeights),
+    secHeights.join(', ') + 'px');
+
+  // And the chevrons with them, which is what makes the row read as one
+  // control repeated rather than three placed by hand.
+  const chevrons = await t.$$eval('.team-sec-open',
+    (ns) => ns.map((n) => Math.round(n.getBoundingClientRect().top)));
+  check('and their footers line up, so the chevrons sit on one line',
+    chevrons.length >= 3 &&
+    Math.max.apply(null, chevrons) === Math.min.apply(null, chevrons),
+    chevrons.join(', '));
+
+  // AND THE BLUE REACHES PAST THEM. These cards are real backdrop-filter
+  // glass, and glass over the white page below is a grey box - so the band
+  // has to finish under them, not through them. Its height was a
+  // hard-coded 700px, which was right for the cards as they were and wrong
+  // the day the heads' details moved onto them: the blue stopped halfway
+  // down their footers and the bottom of each card sat on white.
+  const sky = await t.evaluate(() => {
+    const band = document.querySelector('.portal-sky');
+    const cards = Array.from(document.querySelectorAll('.team-sec-card'));
+    if (!band || !cards.length) return null;
+    return {
+      bottom: Math.round(band.getBoundingClientRect().bottom),
+      cards: Math.round(Math.max.apply(null,
+        cards.map((c) => c.getBoundingClientRect().bottom)))
+    };
+  });
+  check('and the blue band finishes below the cards, not through them',
+    sky && sky.bottom >= sky.cards,
+    sky ? 'band ends at ' + sky.bottom + ', cards at ' + sky.cards +
+          (sky.bottom >= sky.cards ? '' : ' - cut by ' + (sky.cards - sky.bottom))
+        : '(not found)');
+
   check('while the head card stays wider than one section column',
     headWidth && headWidth.lead > headWidth.section + 40,
     headWidth ? headWidth.lead + 'px over a ' + headWidth.section + 'px column'
@@ -457,19 +530,25 @@ const FILE = 'file://' + PAGE;
   // Every card in every suite rendered initials until the real photographs
   // arrived, so the <img> branch of teamCard() - the half that is on screen
   // now - had never been drawn in a browser. One fixture person has one.
+  // Across the whole chart, not one open section: the head's duplicate card
+  // went when the details moved onto the section card, so the open section
+  // may hold a single person - and this needs one face of each kind to
+  // compare. Every face on the page is the same size by design, which is
+  // the thing being checked.
   const shot = await t.evaluate(() => {
-    const cards = Array.from(document.querySelectorAll('#teamSecBody0 .team-card'));
-    const withImg = cards.filter((c) => c.querySelector('img.team-face'))[0];
-    const withInitials = cards.filter((c) => c.querySelector('.team-face.is-initials'))[0];
+    const faces = Array.from(document.querySelectorAll('#teamBody .team-face'));
+    const imgFace = faces.filter((f) => f.tagName === 'IMG')[0];
+    const initialsFace = faces.filter((f) => f.classList.contains('is-initials'))[0];
     const box = (el) => {
-      const r = el.querySelector('.team-face').getBoundingClientRect();
+      const r = el.getBoundingClientRect();
       return { w: Math.round(r.width), h: Math.round(r.height) };
     };
-    if (!withImg || !withInitials) return null;
-    const img = withImg.querySelector('img.team-face');
+    if (!imgFace || !initialsFace) return null;
+    const withImg = imgFace.closest('.team-card, .team-sec-card, .team-lead');
+    const img = imgFace;
     return {
       who: withImg.querySelector('strong').textContent.trim(),
-      photo: box(withImg), initials: box(withInitials),
+      photo: box(imgFace), initials: box(initialsFace),
       // The rendered box, not the source: object-fit has to crop a portrait
       // to the circle rather than squash it into one.
       fit: getComputedStyle(img).objectFit,
@@ -538,7 +617,7 @@ const FILE = 'file://' + PAGE;
   // one file will not come from it, every face on this page becomes a
   // broken icon at the same moment. The fixture's Sales section has
   // somebody whose first address cannot load and whose second can.
-  await t.click('.team-sec[data-section="1"] .team-sec-card');
+  await t.click('.team-sec[data-section="1"] .team-sec-open');
   await t.waitForTimeout(700);
   const swapped = await t.evaluate(() => {
     const card = Array.from(document.querySelectorAll('#teamSecBody1 .team-card'))
@@ -554,13 +633,13 @@ const FILE = 'file://' + PAGE;
     swapped && swapped.img === true && swapped.loaded === true &&
     swapped.tried === '1' && swapped.src.indexOf('image/svg') !== -1,
     swapped ? JSON.stringify(swapped) : '(card not found)');
-  await t.click('.team-sec[data-section="1"] .team-sec-card');
+  await t.click('.team-sec[data-section="1"] .team-sec-open');
   await t.waitForTimeout(400);
 
   // NOBODY'S CELL IS EMPTY BY ACCIDENT, so an empty one has to draw nothing
   // at all. An empty red pill reads as a blood group that failed to load,
   // and on this of all fields that is worse than silence.
-  await t.click('.team-sec[data-section="2"] .team-sec-card');
+  await t.click('.team-sec[data-section="2"] .team-sec-open');
   await t.waitForTimeout(500);
   const blank = await t.$$eval('#teamSecBody2 .team-card', (ns) => ns.map((c) => ({
     name: c.querySelector('strong').textContent.trim(),
@@ -589,25 +668,25 @@ const FILE = 'file://' + PAGE;
   // below - so this does not close section 2, it reopens section 0 and
   // closes section 2 on the way. Section 0 has to be back open for the line
   // under it, whose job is to close it.
-  await t.click('.team-sec[data-section="0"] .team-sec-card');
+  await t.click('.team-sec[data-section="0"] .team-sec-open');
   await t.waitForTimeout(400);
 
-  await t.click('.team-sec[data-section="0"] .team-sec-card');
+  await t.click('.team-sec[data-section="0"] .team-sec-open');
   await t.waitForTimeout(400);
 
   // ---- closed until pressed ----
   check('every section starts closed, so the page opens readable',
     (await visibleCards(t)) === 0 &&
-    (await t.$$eval('.team-sec-card[aria-expanded="true"]', (n) => n.length)) === 0,
+    (await t.$$eval('.team-sec-open[aria-expanded="true"]', (n) => n.length)) === 0,
     'thirty-seven cards at once is a page you scroll rather than read');
 
-  await t.click('.team-sec:nth-child(1) .team-sec-card');
+  await t.click('.team-sec:nth-child(1) .team-sec-open');
   await t.waitForTimeout(400);
 
   const opened = await t.evaluate(() => {
     const sec = document.querySelectorAll('.team-sec')[0];
     return {
-      expanded: sec.querySelector('.team-sec-card').getAttribute('aria-expanded'),
+      expanded: sec.querySelector('.team-sec-open').getAttribute('aria-expanded'),
       marked: sec.classList.contains('is-open'),
       cards: Array.from(sec.querySelectorAll('.team-card strong')).map((n) => n.textContent.trim())
     };
@@ -624,12 +703,12 @@ const FILE = 'file://' + PAGE;
 
   // The head appears inside their own section as well. The card you pressed
   // is a control; losing his extension by opening him would be odd.
-  check('and it lists the head and the people under them',
-    opened.cards.join(' | ') === 'Utpal Biswas | Bilal Hossain',
+  check('and it lists the people under the head, who is on the card above',
+    opened.cards.join(' | ') === 'Bilal Hossain',
     opened.cards.join(' | '));
 
   check('while the other sections stay shut',
-    (await t.$$eval('.team-sec-card[aria-expanded="true"]', (n) => n.length)) === 1);
+    (await t.$$eval('.team-sec-open[aria-expanded="true"]', (n) => n.length)) === 1);
 
   // ONE AT A TIME, AND WHY IT IS NOT A PREFERENCE.
   //
@@ -638,11 +717,11 @@ const FILE = 'file://' + PAGE;
   // last wins. The reported symptom was three sections showing an open
   // chevron above a single list of people: the other two were not hidden,
   // they were underneath.
-  await t.click('.team-sec:nth-child(2) .team-sec-card');
+  await t.click('.team-sec:nth-child(2) .team-sec-open');
   await t.waitForTimeout(400);
 
   const afterSecond = await t.evaluate(() => ({
-    open: Array.from(document.querySelectorAll('.team-sec-card'))
+    open: Array.from(document.querySelectorAll('.team-sec-open'))
       .map((b, i) => (b.getAttribute('aria-expanded') === 'true' ? i : -1))
       .filter((i) => i !== -1),
     panels: Array.from(document.querySelectorAll('.team-sec-body'))
@@ -654,18 +733,21 @@ const FILE = 'file://' + PAGE;
     'open: [' + afterSecond.open.join(',') + '], panels showing: ' + afterSecond.panels);
 
   // The chevron has been pointing up; pressing it has to do what that says.
-  await t.click('.team-sec:nth-child(2) .team-sec-card');
+  await t.click('.team-sec:nth-child(2) .team-sec-open');
   await t.waitForTimeout(400);
   check('and pressing the open one shuts it',
-    (await t.$$eval('.team-sec-card[aria-expanded="true"]', (n) => n.length)) === 0 &&
+    (await t.$$eval('.team-sec-open[aria-expanded="true"]', (n) => n.length)) === 0 &&
     (await visibleCards(t)) === 0);
 
-  await t.click('.team-sec:nth-child(1) .team-sec-card');
+  await t.click('.team-sec:nth-child(1) .team-sec-open');
   await t.waitForTimeout(400);
 
   // ---- the contact details, which are the reason this page exists ----
+  // .team-card OR .team-sec-card: the head's details moved onto the
+  // section card when the duplicate went, and these lines are the same
+  // lines wherever they are drawn.
   const utpal = await t.evaluate(() => {
-    const card = Array.from(document.querySelectorAll('.team-card'))
+    const card = Array.from(document.querySelectorAll('.team-card, .team-sec-card'))
       .filter((c) => /Utpal Biswas/.test(c.textContent))[0];
     return card ? {
       hrefs: Array.from(card.querySelectorAll('a.team-line')).map((a) => a.getAttribute('href')),
@@ -679,11 +761,11 @@ const FILE = 'file://' + PAGE;
 
   // An empty cell leaves its line out rather than printing a blank one.
   // Ayesha has no extension in the fixture; Carim has one.
-  await t.click('.team-sec:nth-child(2) .team-sec-card');
+  await t.click('.team-sec:nth-child(2) .team-sec-open');
   await t.waitForTimeout(400);
   const lineCounts = await t.evaluate(() => {
     const of = (name) => {
-      const c = Array.from(document.querySelectorAll('.team-card'))
+      const c = Array.from(document.querySelectorAll('.team-card, .team-sec-card'))
         .filter((x) => new RegExp(name).test(x.textContent))[0];
       return c ? c.querySelectorAll('.team-line').length : -1;
     };

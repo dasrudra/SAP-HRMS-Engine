@@ -112,8 +112,16 @@
     because those cards ARE glass - a glass card over a white page is a grey
     card. Everything below them, once a section is opened, is on the light
     surface and is solid white.
+
+    MEASURED, NOT GUESSED. This was 700px, which was right for the cards as
+    they were and wrong the day the heads' contact details moved onto them:
+    the cards grew about fifty pixels and the blue stopped halfway down
+    their footers. A number here has to be kept in step with content it
+    cannot see, which it will not be. renderTeam() measures the bottom of
+    the card row and sets --team-sky; the figure below is the fallback for
+    the instant before it does.
   */
-  .portal[data-page="team"] .portal-sky { height: 700px; }
+  .portal[data-page="team"] .portal-sky { height: var(--team-sky, 760px); }
 
   /*
     The Links page is blue all the way down, not for effect but because every
@@ -937,11 +945,18 @@
   */
   #teamBody { --team-cols: 4; --team-gap: 16px; }
 
+  /*
+    STRETCH, so the four cards end on the same line. They hold different
+    numbers of contact rows - not everybody has an extension - and at
+    natural height that came out as four cards of three different lengths
+    sitting in a row, which reads as a layout that has slipped. The footer
+    is pushed down by margin-top: auto, so the chevrons line up too.
+  */
   .team-sections {
     display: grid;
     grid-template-columns: repeat(var(--team-cols), 1fr);
     gap: var(--team-gap);
-    align-items: start;
+    align-items: stretch;
   }
 
   /*
@@ -988,7 +1003,10 @@
     box-shadow:
       0 12px 34px rgba(2, 10, 32, .38),
       inset 0 1px 0 rgba(255, 255, 255, .30);
-    font: inherit; cursor: pointer;
+    /* Not a button any more - see teamSectionCard(). The head's email and
+       extension live on this card now, and a link inside a button is not a
+       link anybody can press. The footer row is the control. */
+    font: inherit;
     transition: transform .2s cubic-bezier(.3, 0, .2, 1),
                 background .2s ease, border-color .2s ease, box-shadow .2s ease;
   }
@@ -1027,7 +1045,7 @@
       inset 0 1px 0 rgba(255, 255, 255, .44);
   }
   .team-sec-card:hover::before { opacity: 1; }
-  .team-sec-card:focus-visible { outline: 2px solid #fff; outline-offset: 3px; }
+  .team-sec-open:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 
   /* Open: a solid card, because what is under it is solid too. */
   .team-sec.is-open .team-sec-card {
@@ -1045,8 +1063,16 @@
   }
   .team-sec.is-open .team-sec-name { color: var(--blue-600); }
 
-  .team-sec-person { display: flex; align-items: center; gap: 10px; }
-  .team-sec-who { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .team-sec-person { display: flex; align-items: center; gap: 11px; }
+  /* Room for the pill in the corner, so a long section name does not run
+     under it. */
+  .team-sec-name { padding-right: 44px; }
+  /* flex: 1 so the name takes whatever the face leaves, rather than
+     shrinking to its longest unbreakable word and wrapping the rest. */
+  .team-sec-who {
+    display: flex; flex-direction: column; gap: 2px;
+    flex: 1; min-width: 0;
+  }
   .team-sec-who strong {
     font-size: 13.5px; font-weight: 700; color: #fff; line-height: 1.25;
   }
@@ -1067,17 +1093,68 @@
 
   /* The summary card's face is the same size as every other one; only its
      colours differ, because it sits on the blue rather than on a card. */
+  /*
+    THE HEAD'S CONTACT LINES, on the glass. .team-lines is written for the
+    cream person cards below, where the ink is dark; up here it sits on the
+    blue and has to be light until the section is opened and the card turns
+    cream like the rest.
+  */
+  .team-sec-card .team-lines {
+    margin-top: 0; padding-top: 10px;
+    border-top-color: rgba(255, 255, 255, .22);
+  }
+  .team-sec-card .team-line { color: rgba(255, 255, 255, .80); }
+  .team-sec-card .team-line svg { color: rgba(255, 255, 255, .55); }
+  .team-sec-card a.team-line:hover { color: #fff; }
+  .team-sec-card a.team-line:hover svg { color: #fff; }
+  .team-sec.is-open .team-sec-card .team-lines {
+    border-top-color: var(--portal-card-rule);
+  }
+  .team-sec.is-open .team-sec-card .team-line { color: var(--text-dim); }
+  .team-sec.is-open .team-sec-card .team-line svg { color: var(--text-mut); }
+  .team-sec.is-open .team-sec-card a.team-line:hover { color: var(--blue-600); }
+
+  /*
+    The blood pill on the glass, where the cream card's red is invisible -
+    and OUT OF THE NAME ROW. These cards are a quarter of the row wide; an
+    88px face and a 45px pill either side of the name left ninety pixels
+    for "Senior Manager - MM", which wrapped onto three lines. Lifted to
+    the corner it costs the name nothing, and it is the same corner it
+    occupies on the person cards below.
+  */
+  .team-sec-card .team-blood {
+    position: absolute; top: 14px; right: 14px; margin: 0;
+    background: rgba(255, 255, 255, .16);
+    border-color: rgba(255, 255, 255, .34);
+    color: #ffd9d9;
+  }
+  .team-sec.is-open .team-sec-card .team-blood {
+    background: var(--red-bg); border-color: #f3cfcf; color: var(--red-ink);
+  }
+
   .team-sec-card .team-face.is-initials {
     background: rgba(255, 255, 255, .92); color: var(--blue-600);
     border-color: transparent;
   }
 
+  /*
+    THE CONTROL. It was the whole card; it is this row. A button carrying a
+    section name, a face, a designation and three contact links is a button
+    with links inside it, which is neither valid nor pressable - so the card
+    went back to being a card and the row that already said "9 members" and
+    carried the chevron took the job it was always describing.
+  */
   .team-sec-open {
     display: flex; align-items: center; justify-content: space-between; gap: 8px;
-    padding-top: 10px;
-    border-top: 1px solid rgba(255, 255, 255, .22);
-    font-size: 11px; color: rgba(255, 255, 255, .78);
+    width: 100%; margin-top: auto;
+    padding: 10px 0 0;
+    border: 0; border-top: 1px solid rgba(255, 255, 255, .22);
+    background: none; text-align: left;
+    font: inherit; font-size: 11px; color: rgba(255, 255, 255, .78);
+    cursor: pointer;
   }
+  .team-sec-open:hover { color: #fff; }
+  .team-sec.is-open .team-sec-open:hover { color: var(--navy-900); }
   .team-sec.is-open .team-sec-open {
     border-top-color: var(--portal-card-rule); color: var(--text-dim);
   }

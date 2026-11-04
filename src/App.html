@@ -6144,9 +6144,45 @@
    * usually asked - who runs Manufacturing - is answered without opening
    * anything.
    */
+  /**
+   * Stretches the blue band to the bottom of the section cards.
+   *
+   * The band is a painted element rather than a background, because the
+   * cards on it are real backdrop-filter glass and glass needs something
+   * behind it to blur. That means its height is a number, and the number
+   * was 700px: right for the cards as they were, wrong the day the heads'
+   * contact details moved onto them and the cards grew past it. The blue
+   * stopped halfway down their footers.
+   *
+   * So it is measured. The row of cards is grid row 1 and an opened
+   * section lands in row 2, below the band on the light surface, so this
+   * figure does not move when somebody opens one - which is why it can be
+   * set once per paint rather than on every click.
+   *
+   * Written as a custom property rather than an inline height: the band is
+   * shared with every other page, and an inline height would follow the
+   * reader to Home and sit there. The rule that reads it is scoped to the
+   * team page, so leaving it set costs nothing.
+   */
+  function sizeTeamSky() {
+    const portal = document.getElementById('portalRoot');
+    const sky = document.querySelector('.portal-sky');
+    const cards = document.querySelectorAll('#teamBody .team-sec-card');
+    if (!portal || !sky || !cards.length) return;
+
+    const top = sky.getBoundingClientRect().top;
+    let lowest = 0;
+    cards.forEach(function (card) {
+      lowest = Math.max(lowest, card.getBoundingClientRect().bottom);
+    });
+    // A little under the cards, so the blue finishes as a margin rather
+    // than as a line ruled against their edge.
+    portal.style.setProperty('--team-sky', Math.round(lowest - top + 34) + 'px');
+  }
+
+
   function teamSectionCard(section, index) {
     const head = section.head;
-    const face = faceFor(head);
 
     // SECTION HEAD, full stop. It used to read "Section Head, Interim" when
     // the person heading a section sits outside it - which is true of the
@@ -6156,12 +6192,24 @@
     // page has simply stopped editorialising about it.
     const role = head ? 'Section Head' : 'No head marked';
 
+    // ONE CARD PER HEAD, NOT TWO.
+    //
+    // The head appeared twice: once on the card above the section, and
+    // again as the first card inside it the moment you opened it. The
+    // second one existed because the first was a BUTTON - the whole card
+    // was the control that opened the section - and an email address
+    // inside a button is not a link anybody can press. So the contact
+    // details lived on the duplicate.
+    //
+    // The card is a plain div now and only the footer row opens the
+    // section, which leaves the contact lines free to be real links. The
+    // head's details are here, where their name already was, and the
+    // section behind it holds the people under them.
     return '<div class="team-sec" data-section="' + index + '">' +
-      '<button class="team-sec-card" type="button" aria-expanded="false" ' +
-              'aria-controls="teamSecBody' + index + '">' +
+      '<div class="team-sec-card">' +
         '<span class="team-sec-name">' + escapeHtml(section.name) + '</span>' +
         '<span class="team-sec-person">' +
-          face +
+          faceFor(head) +
           '<span class="team-sec-who">' +
             // No head marked: the role line carries the whole message, so a
             // name line here would be an em dash sitting where a person
@@ -6172,28 +6220,39 @@
             (head ? '<span class="team-sec-sub">' + escapeHtml(roleLine(head)) +
                     '</span>' : '') +
           '</span>' +
+          (head ? bloodPill(head) : '') +
         '</span>' +
-        '<span class="team-sec-open">' +
-          '<span class="team-sec-count">' + section.count + ' member' +
-            (section.count === 1 ? '' : 's') + '</span>' +
+
+        (head
+          ? '<div class="team-lines">' +
+              teamLink('mail', head.email, 'Email') +
+              teamLink('phone', head.phone, 'Mobile') +
+              teamLink('ext', head.ext ? 'Ext ' + head.ext : '', 'Extension') +
+            '</div>'
+          : '') +
+
+        // WHAT OPENING IT WILL SHOW, which is no longer the whole section.
+        // The head is on this card, so the panel behind it holds everybody
+        // else - and "9 members" over a list of eight is the kind of small
+        // wrongness that makes somebody stop trusting the figures on the
+        // rest of the site. A section with no head marked still says
+        // members, because then the panel really does hold all of them.
+        '<button class="team-sec-open" type="button" aria-expanded="false" ' +
+                'aria-controls="teamSecBody' + index + '">' +
+          '<span class="team-sec-count">' +
+            (head ? section.members.length + ' more'
+                  : section.count + ' member' + (section.count === 1 ? '' : 's')) +
+          '</span>' +
           '<svg viewBox="0 0 16 16" width="13" height="13" fill="none" ' +
                'stroke="currentColor" stroke-width="2" stroke-linecap="round" ' +
                'stroke-linejoin="round" aria-hidden="true"><path d="M4 6l4 4 4-4"/></svg>' +
-        '</span>' +
-      '</button>' +
+        '</button>' +
+      '</div>' +
 
       '<div class="team-sec-body" id="teamSecBody' + index + '" hidden>' +
-        (head ? '<div class="team-grid">' +
-                  // The head again, at the top of their own section - the
-                  // card above is a control, and losing their extension the
-                  // moment you open the section would be a strange reward
-                  // for pressing it.
-                  teamCard(head, role) +
-                  section.members.map(function (p) { return teamCard(p); }).join('') +
-                '</div>'
-              : '<div class="team-grid">' +
-                  section.members.map(function (p) { return teamCard(p); }).join('') +
-                '</div>') +
+        '<div class="team-grid">' +
+          section.members.map(function (p) { return teamCard(p); }).join('') +
+        '</div>' +
       '</div>' +
     '</div>';
   }
@@ -6749,6 +6808,7 @@
     // has run, and an error listener attached later than the error is no
     // listener at all.
     wireTeamFaces(body);
+    sizeTeamSky();
 
     // ---- opening a section ----
     // Bound here rather than with an onclick attribute, and after the HTML is
@@ -6764,8 +6824,11 @@
     //
     // Closing the others is therefore the fix and not a nicety; the layout
     // has exactly one place to put a list.
+    // The toggle is the footer row now, not the whole card: the card holds
+    // the head's email and extension, and a link inside a button is not a
+    // link anybody can press.
     const closeAll = function () {
-      body.querySelectorAll('.team-sec-card').forEach(function (other) {
+      body.querySelectorAll('.team-sec-open').forEach(function (other) {
         other.setAttribute('aria-expanded', 'false');
         other.closest('.team-sec').classList.remove('is-open');
         const panel = document.getElementById(other.getAttribute('aria-controls'));
@@ -6773,7 +6836,7 @@
       });
     };
 
-    body.querySelectorAll('.team-sec-card').forEach(function (button) {
+    body.querySelectorAll('.team-sec-open').forEach(function (button) {
       button.addEventListener('click', function () {
         const wasOpen = button.getAttribute('aria-expanded') === 'true';
         closeAll();

@@ -988,33 +988,37 @@ function runKpiSelfTest() {
       Logger.log('scored from: %s  (%s of %s tickets)',
                  k.basis.source, k.basis.scored, k.basis.total);
     }
-    Logger.log('%-32s %7s %7s %7s %9s %9s %8s %6s',
-               'Scope', 'Recvd', 'Compl', 'Delay', 'Rate%', 'Ach%', 'Band', 'Head');
+    // One row shape, used four times below. Apps Script's Logger only
+    // substitutes a bare %s, so the columns are padded here - see padTo().
+    const kpiRow = function (name, a, b, c, d, e, f, g) {
+      Logger.log('%s %s %s %s %s %s %s %s',
+                 padTo(name, 32, true), padTo(a, 7), padTo(b, 7), padTo(c, 7),
+                 padTo(d, 9), padTo(e, 9), padTo(f, 8), padTo(g, 6));
+    };
+    kpiRow('Scope', 'Recvd', 'Compl', 'Delay', 'Rate%', 'Ach%', 'Band', 'Head');
 
     const t = k.total;
-    Logger.log('%-32s %7s %7s %7s %9s %9s %8s %6s',
-               t.name, t.received, t.completed, t.delayed,
-               t.rate, t.achievement, t.band, t.headroom);
+    kpiRow(t.name, t.received, t.completed, t.delayed,
+           t.rate, t.achievement, t.band, t.headroom);
 
     k.departments.forEach(function (d) {
-      Logger.log('%-32s %7s %7s %7s %9s %9s %8s %6s',
-                 '  ' + d.name, d.received, d.completed, d.delayed,
-                 d.rate, d.achievement, d.band, d.headroom);
+      kpiRow('  ' + d.name, d.received, d.completed, d.delayed,
+             d.rate, d.achievement, d.band, d.headroom);
     });
 
     Logger.log('  by service / part:');
     k.parts.forEach(function (p) {
-      Logger.log('%-32s %7s %7s %7s %9s %9s %8s %6s',
-                 '    ' + p.name, p.received, p.completed, p.delayed,
-                 p.rate, p.achievement, p.band, p.headroom);
+      kpiRow('    ' + p.name, p.received, p.completed, p.delayed,
+             p.rate, p.achievement, p.band, p.headroom);
     });
 
     Logger.log('  engineers below target:');
     let flagged = 0;
     k.people.forEach(function (p) {
       if (p.delayed > 0 || p.band !== 'GREEN') {
-        Logger.log('    %-30s %5s tickets  %3s delayed  %8s%%  %s',
-                   p.name, p.received, p.delayed, p.rate, p.band);
+        Logger.log('    %s %s tickets  %s delayed  %s%%  %s',
+                   padTo(p.name, 30, true), padTo(p.received, 5),
+                   padTo(p.delayed, 3), padTo(p.rate, 8), p.band);
         flagged++;
       }
     });
@@ -1022,7 +1026,7 @@ function runKpiSelfTest() {
 
     Logger.log('  source reconciliation:');
     k.sources.forEach(function (s) {
-      Logger.log('    %-30s %s', s.name, s.count);
+      Logger.log('    %s %s', padTo(s.name, 30, true), s.count);
     });
   });
 }
@@ -1126,15 +1130,19 @@ function listPersonModules(month) {
   Logger.log(' Where each person\u0027s work falls');
   Logger.log(' %s', month || 'every month');
   Logger.log('=========================================================');
-  Logger.log(' %-30s %-13s %6s %7s %-26s %s',
-             'PERSON', 'MOSTLY', 'SHARE', 'TICKETS', 'SECTION', 'THE SPREAD');
+  Logger.log(' %s %s %s %s %s %s',
+             padTo('PERSON', 30, true), padTo('MOSTLY', 13, true),
+             padTo('SHARE', 6), padTo('TICKETS', 7),
+             padTo('SECTION', 26, true), 'THE SPREAD');
 
   let split = 0;
   out.forEach(function (p) {
     if (p.share < 80) split++;
-    Logger.log(' %-30s %-13s %5s%% %7s %-26s %s',
-               p.name, p.mostly + (p.listed ? '*' : ''),
-               p.share, p.tickets, p.section || '(none)', p.spread);
+    Logger.log(' %s %s %s%% %s %s %s',
+               padTo(p.name, 30, true),
+               padTo(p.mostly + (p.listed ? '*' : ''), 13, true),
+               padTo(p.share, 5), padTo(p.tickets, 7),
+               padTo(p.section || '(none)', 26, true), p.spread);
   });
 
   Logger.log('');
@@ -1334,16 +1342,17 @@ function explainModule(moduleName, month) {
   Object.keys(reasons)
     .sort(function (a, b) { return reasons[b] - reasons[a]; })
     .forEach(function (label) {
-      Logger.log('   %6s  %s', reasons[label], label);
+      Logger.log('   %s  %s', padTo(reasons[label], 6), label);
     });
 
   Logger.log('');
   Logger.log(' BY PERSON  (section is where they sit, not what the ticket was about)');
   people.forEach(function (p) {
-    Logger.log('   %-32s %6s   %s', p.name, p.count, p.section || '(no section)');
+    Logger.log('   %s %s   %s', padTo(p.name, 32, true), padTo(p.count, 6),
+               p.section || '(no section)');
     Object.keys(p.reasons).forEach(function (label) {
       const eg = (p.examples[label] || []).map(function (t) { return '"' + t + '"'; });
-      Logger.log('       %6s  %s%s', p.reasons[label], label,
+      Logger.log('       %s  %s%s', padTo(p.reasons[label], 6), label,
                  eg.length ? '   e.g. ' + eg.join(', ') : '');
     });
   });

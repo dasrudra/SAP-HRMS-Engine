@@ -340,7 +340,8 @@ function verifySetup() {
     const tabName = CONFIG.SHEETS[key];
     const sheet = ss.getSheetByName(tabName);
     if (sheet) {
-      Logger.log('  OK      %-12s  %s data rows', tabName, Math.max(0, sheet.getLastRow() - 1));
+      Logger.log('  OK      %s  %s data rows', padTo(tabName, 12, true),
+                 Math.max(0, sheet.getLastRow() - 1));
     } else {
       Logger.log('  MISSING %s', tabName);
       allPresent = false;

@@ -243,7 +243,7 @@ const FILE = 'file://' + PAGE;
   // ---------------------------------------------------------------------------
   // The one that matters. Open a section, force a repaint, and the section
   // has to still be open - a dot refresh is not a re-render.
-  await p.click('.team-sec[data-section="1"] .team-sec-card');
+  await p.click('.team-sec[data-section="1"] .team-sec-open');
   await p.waitForTimeout(500);
 
   const openedBefore = await p.$eval('#teamSecBody1', (n) => !n.hidden);

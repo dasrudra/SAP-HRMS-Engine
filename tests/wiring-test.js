@@ -710,6 +710,38 @@ EDITOR_TOOLS.forEach(function (name) {
   ).test(body.slice(0, 1400));
   if (!copes) unrunnable.push(name + '(' + params + ')');
 });
+// ---------------------------------------------------------------------------
+// NO WIDTH SPECIFIER IN A Logger FORMAT STRING
+// ---------------------------------------------------------------------------
+// Apps Script's documentation points Logger.log at Java's String.format,
+// which understands %-32s and %7s. In practice only a bare %s is
+// substituted, and the difference is not a cosmetic one: the specifier
+// prints LITERALLY and the arguments shift along behind it, so every column
+// lands under the wrong heading. The whole of explainModule came out as
+//
+//     %-32s %6s   Utpal Biswas
+//         %6s  1.0nothing - unassigned
+//
+// which is how a diagnostic written to answer a question ends up being the
+// question. Thirteen call sites were written this way - the module summary,
+// the per-person breakdown, the account list, the setup check - and every
+// one of them had been printing nonsense for as long as it had existed,
+// because nobody compares a log against what it was meant to say.
+//
+// padTo() does the padding now and the format strings carry plain %s.
+const padded = [];
+fs.readdirSync(SRC).filter((f) => /\.gs$/.test(f)).forEach(function (f) {
+  fs.readFileSync(path.join(SRC, f), 'utf8').split('\n').forEach(function (line, i) {
+    if (!/Logger\.log\s*\(/.test(line)) return;
+    if (!/%-?\d+[sdf]/.test(line)) return;
+    padded.push(f + ':' + (i + 1) + ' ' + line.trim().slice(0, 44));
+  });
+});
+check('no Logger format string uses a width the Logger cannot apply',
+  padded.length === 0,
+  padded.length ? padded.join(' | ')
+                : 'every column is padded by padTo, which the Logger cannot ignore');
+
 check('every editor tool can be run from the Run button, which passes nothing',
   unrunnable.length === 0 && absent.length === 0,
   absent.length ? 'missing: ' + absent.join(', ')

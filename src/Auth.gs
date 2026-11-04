@@ -649,7 +649,7 @@ function removeAccount(username) {
 function listAccounts() {
   const accounts = readAccounts();
   Object.keys(accounts).sort().forEach(function (name) {
-    Logger.log('  %-20s %s', name, accounts[name].role);
+    Logger.log('  %s %s', padTo(name, 20, true), accounts[name].role);
   });
   if (!Object.keys(accounts).length) {
     Logger.log('No accounts yet. Run seedCredentials().');

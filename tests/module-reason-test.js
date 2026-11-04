@@ -211,6 +211,37 @@ check('explainModule exists and is owner-only, like the other maintenance functi
 check('and it reports the Part text, which is what tells cover from a misfile',
   /examples\[label\]/.test(KPI) && /e\.g\. /.test(KPI));
 
+// ---------------------------------------------------------------------------
+// NOBODY ON THE CHART FALLS THROUGH BOTH RULES
+// ---------------------------------------------------------------------------
+// A ticket lands in '(unassigned)' when the Part column names no module EAS
+// reports on AND the person who handled it cannot be placed. That second
+// half is meant to be impossible for anybody currently on the chart - and
+// it was not. The head of EAS sits in no section: his Sub-Department is
+// ALL, SECTION_MODULES has no entry for ALL, correctly, because it is not a
+// section - so one of his tickets whose Part said nothing useful had
+// nothing to fall back on. One row, on a table of nine modules, with
+// nothing on the page to say whose it was.
+//
+// Checked for EVERYONE rather than for him, because the hole was structural
+// and the next person to sit outside a section would fall into it in
+// exactly the same silence.
+const ROSTER = CONFIG.ROSTER;
+const unplaceable = [];
+Object.keys(ROSTER).forEach(function (section) {
+  ROSTER[section].forEach(function (person) {
+    // A Part value that names no module, which is the case this is about.
+    if (moduleForTicket('Groupware', person, '2026-09') === '(unassigned)') {
+      unplaceable.push(person + ' (' + section + ')');
+    }
+  });
+});
+check('every person on the chart can be placed when the Part column cannot',
+  unplaceable.length === 0,
+  unplaceable.length ? unplaceable.join('; ') + ' - their ticket would go to ' +
+                       '(unassigned), which names nobody'
+                     : 'including the head of EAS, who sits in no section');
+
 const failed = out.filter((r) => !r).length;
 console.log('\n' + (out.length - failed) + '/' + out.length + ' passed');
 process.exit(failed ? 1 : 0);

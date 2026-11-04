@@ -1188,6 +1188,13 @@ const CONFIG = {
    * '(unassigned)' on the By module table rather than being guessed at.
    */
   PERSON_MODULES: {
+    // THE HEAD OF EAS SITS IN NO SECTION, which is the whole reason this
+    // list exists. His Sub-Department is ALL, SECTION_MODULES has no entry
+    // for ALL - correctly, it is not a section - and so a ticket of his
+    // that the Part column could not place had nothing left to fall back
+    // on and landed in '(unassigned)'. One ticket, on a table of nine
+    // modules, with no way to tell from the page whose it was.
+    'Utpal Biswas':           'MM',   // heads EAS, covers Supply Chain (MM)
     'Md. Nasir Uddin':        'MM',   // Sales section, MM/MD module role
     'Sanjib Guha':            'MM',   // Sales section, MM/MD module role
     'Nazma Begum':            'SD',   // Sales section, SD - also trains E-Accounting
@@ -1629,6 +1636,43 @@ function slaLayerDrift() {
   });
 
   return notes;
+}
+
+
+/**
+ * Pads a value for a column in the execution log.
+ *
+ * APPS SCRIPT'S Logger DOES NOT UNDERSTAND WIDTH SPECIFIERS. Its
+ * documentation points at Java's String.format, which does, and that is
+ * misleading: in practice only a bare %s is substituted. Everything in this
+ * project that printed a table - the module summary, the per-person
+ * breakdown, the account list, the setup check - was written with %-32s and
+ * %7s and came out like this:
+ *
+ *     %-32s %6s   Utpal Biswas
+ *         %6s  1.0nothing - unassigned
+ *
+ * The specifier printed literally AND the arguments shifted behind it, so
+ * every column landed under the wrong heading. A diagnostic nobody can read
+ * is a diagnostic nobody runs twice.
+ *
+ * So the padding is done here and the format strings carry plain %s.
+ *
+ * @param {*}       value  printed through String()
+ * @param {number}  width  the column
+ * @param {boolean} left   true to pad on the right, for text columns
+ */
+function padTo(value, width, left) {
+  let text = String(value === null || value === undefined ? '' : value);
+  // A number that arrived as 1.0 reads as a version, not a count. Apps
+  // Script hands back whole numbers from a sheet as floats, and this is the
+  // one place they are read by eye.
+  if (typeof value === 'number' && isFinite(value) && value === Math.round(value)) {
+    text = String(Math.round(value));
+  }
+  if (text.length >= width) return text;
+  const fill = new Array(width - text.length + 1).join(' ');
+  return left ? text + fill : fill + text;
 }
 
 

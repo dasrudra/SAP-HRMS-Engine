@@ -187,9 +187,41 @@ check('nothing passes a null token to a guarded endpoint',
 // ---------------------------------------------------------------------------
 // the output is worth reading
 // ---------------------------------------------------------------------------
-const text = logged.map(function (args) {
-  return args.map(String).join(' ');
-}).join('\n');
+// RENDERED THE WAY APPS SCRIPT RENDERS IT, not by joining the arguments
+// with spaces - which is what this did, and which is why it never noticed
+// that every table in the project was printing nonsense.
+//
+// The real Logger substitutes a BARE %s and nothing else. Its documentation
+// points at Java's String.format, which understands %-32s and %7s; the
+// implementation does not. A width specifier is left exactly as written and
+// the arguments march on past it, so the columns land under the wrong
+// headings:
+//
+//     %-32s %6s   Utpal Biswas
+//
+// Arguments left over when the %s run out are dropped, not appended.
+const render = function (args) {
+  const format = String(args[0]);
+  let i = 1;
+  return format.replace(/%s/g, function (hit) {
+    return i < args.length ? String(args[i++]) : hit;
+  });
+};
+const text = logged.map(render).join('\n');
+
+// THE GUARD ON THE RENDERER ITSELF. Without this the helper above could
+// quietly start behaving like the old join and every assertion under it
+// would go back to passing against unrendered text.
+// The first real %s takes the FIRST argument, not the second - the width
+// specifier is skipped over, it does not consume anything. That is exactly
+// the symptom in the log that started this: "%-32s %6s   Utpal Biswas",
+// where the name landed in the third column because the first two were
+// never placeholders at all.
+check('(harness check) a width specifier is skipped and consumes no argument',
+  render(['%-9s|%s', 'Ayesha', 'Spanner']) === '%-9s|Ayesha',
+  render(['%-9s|%s', 'Ayesha', 'Spanner']));
+check('(harness check) and substitutes a bare %s in order',
+  render(['%s / %s', 'a', 'b']) === 'a / b', render(['%s / %s', 'a', 'b']));
 check('listPersonModules prints each person, where their work mostly falls, and the spread',
   /Ayesha Spanner/.test(text) && /MOSTLY/.test(text) && /THE SPREAD/.test(text),
   (text.match(/Ayesha Spanner.*/) || [''])[0].trim());
