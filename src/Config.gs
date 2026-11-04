@@ -1507,7 +1507,22 @@ function portalLinks() {
     // without becoming a menu.
     { name: 'YO PABX', url: 'https://www.youngonectg.com/' },
 
-    { name: 'Tekvision', url: 'https://www.tekvision.com.bd/home' }
+    { name: 'Tekvision', url: 'https://www.tekvision.com.bd/home' },
+
+    // The Microsoft tenancy and the rest, in the order they were asked
+    // for. Nothing sorts this list, so the order written here is the order
+    // on the page - which is why a new one goes where it belongs rather
+    // than on the end for convenience.
+    { name: 'Microsoft Office account',
+      url: 'https://myaccount.microsoft.com/?ref=MeControl' },
+
+    { name: 'YO OneDrive / SharePoint',
+      url: 'https://youngone0-my.sharepoint.com/' },
+
+    { name: 'Microsoft Forms',
+      url: 'https://forms.cloud.microsoft/Pages/DesignPagev2.aspx' },
+
+    { name: 'LinkedIn', url: 'https://www.linkedin.com/' }
 
   ].filter(function (link) { return link && link.url; });
 }

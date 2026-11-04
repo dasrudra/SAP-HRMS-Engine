@@ -764,28 +764,39 @@ const FILE = 'file://' + PAGE;
     span ? 'columns ' + span.left + '-' + span.right +
            ' in a row ' + span.rowLeft + '-' + span.rowRight : '(not found)');
 
-  // THE ONE THAT MATTERS ON A CHART: everybody drawn, and drawn once. A
-  // person missing is somebody the chart says does not work here; a person
-  // twice is somebody it says sits in two places.
-  const seen = {};
-  const twice = og.names.filter(function (n) {
-    seen[n] = (seen[n] || 0) + 1;
-    return seen[n] === 2;
-  });
+  // THE ONE THAT MATTERS ON A CHART: everybody drawn. A person missing is
+  // somebody the chart says does not work here.
+  const distinct = og.names.filter((n, i) => og.names.indexOf(n) === i);
   check('every single person is on the chart',
-    og.names.length === teamCount,
-    og.names.length + ' of ' + teamCount);
-  check('and nobody is on it twice',
-    twice.length === 0,
-    twice.length ? twice.join(', ') + ' drawn more than once' : 'one place each');
+    distinct.length === teamCount,
+    distinct.length + ' of ' + teamCount);
 
-  // The department head covers a section as well as the department, and
-  // drawing him in both places would put the same face twice on a chart
-  // whose whole job is to show where people sit once.
-  check('the department head is at the top and nowhere else',
-    /Utpal/.test(og.lead) &&
-    og.names.filter((n) => /Utpal/.test(n)).length === 1,
-    og.lead + ', appearing ' + og.names.filter((n) => /Utpal/.test(n)).length + ' time(s)');
+  // AND NOBODY IS ON IT TWICE WITHOUT A REASON. The first version drew
+  // each person exactly once, which is tidy and answers the wrong
+  // question: the head of the department covers a section from outside
+  // it, and a column whose head is missing does not say who runs it. So a
+  // name may appear twice - once at the top or in their own module, once
+  // as the head of a section - and only for that reason. Anyone else
+  // repeated is a person the chart says sits in two places.
+  const counted = {};
+  og.names.forEach(function (n) { counted[n] = (counted[n] || 0) + 1; });
+  const unexplained = Object.keys(counted).filter(function (n) {
+    return counted[n] > 1 && og.heads.indexOf(n) === -1;
+  });
+  check('and nobody is repeated who does not run a section',
+    unexplained.length === 0,
+    unexplained.length ? unexplained.join(', ') + ' drawn twice for no reason'
+                       : 'repeats are section heads, which is what a repeat means here');
+
+  // The department head holds two jobs and the chart says both: he runs
+  // the department, and he covers a section. Two facts about one person,
+  // which is not the same as one fact said twice.
+  const utpalAt = og.names.filter((n) => /Utpal/.test(n)).length;
+  check('the department head is at the top AND over the section he covers',
+    /Utpal/.test(og.lead) && utpalAt >= 1 &&
+    og.heads.filter((h) => /Utpal/.test(h)).length >= 1,
+    og.lead + ', in ' + utpalAt + ' section column(s), flagged as head in ' +
+    og.heads.filter((h) => /Utpal/.test(h)).length);
 
   check('a section head sits under their own module, marked rather than moved',
     og.heads.length >= 1 && og.heads.every((h) => og.names.indexOf(h) !== -1),
@@ -793,6 +804,42 @@ const FILE = 'file://' + PAGE;
 
   check('and the chart carries no contact details, which is the other view',
     og.lines === 0, og.lines + ' contact lines');
+
+  // NOT CREAM. The person cards started as the directory's cream card
+  // reused, and thirty-six of them on a navy chart read as thirty-six
+  // sticky notes - the eye went to the paper rather than to the faces.
+  // They are translucent panes cut out of the same dark now, which is a
+  // decision about what this view IS and not a preference about colour.
+  //
+  // Read as a pair: a pane has no opaque background colour of its own and
+  // paints a gradient; a card has the reverse. Either half alone would
+  // pass against the other kind of card.
+  // AN ORDINARY PERSON IN A COLUMN, named precisely. ".og-person" alone
+  // matches the lead card first - it wears the same class and carries its
+  // own background and its own white - so the first version of this
+  // measured the one card the mutants did not touch and passed against
+  // both of them.
+  const pane = await t.evaluate(() => {
+    const card = document.querySelector(
+      '#teamChart .og-col .og-person:not(.is-head)');
+    const name = card && card.querySelector('strong');
+    if (!card || !name) return null;
+    const c = getComputedStyle(card);
+    const light = getComputedStyle(name).color;
+    const rgb = (/rgba?\(([^)]+)\)/.exec(light) || [0, '0,0,0'])[1]
+      .split(',').map(Number);
+    return {
+      fill: c.backgroundColor,
+      gradient: /gradient/.test(c.backgroundImage),
+      // The name has to be light, because the pane is dark.
+      ink: Math.round((rgb[0] + rgb[1] + rgb[2]) / 3)
+    };
+  });
+  check('the cards on the chart are dark panes, not cream cards',
+    pane && pane.gradient === true &&
+    /rgba\(0, 0, 0, 0\)|transparent/.test(pane.fill) && pane.ink > 200,
+    pane ? 'fill ' + pane.fill + ', gradient ' + pane.gradient +
+           ', name brightness ' + pane.ink : '(no card)');
 
   // Glass again: the section headings and module panels are translucent,
   // and over the white page below they are grey boxes.
@@ -1275,6 +1322,38 @@ const FILE = 'file://' + PAGE;
         c.target === '_blank' && /noopener/.test(c.rel || '') &&
         /noreferrer/.test(c.rel || '')),
       cards.filter((c) => c.target !== '_blank').length + ' without target');
+
+    // NAMED, NOT DERIVED. Everything above reads its expectation out of
+    // the same list the page was drawn from, which proves the page draws
+    // the list and nothing about whether the list is right: drop a link
+    // from Config.gs and both sides move together, in silence. These are
+    // the ones somebody asked for, so these are written down.
+    const ON = cards.map((c) => c.name + ' ' + c.href).join(' | ');
+    const WANTED = [
+      ['Microsoft Office account', 'myaccount.microsoft.com'],
+      ['YO OneDrive / SharePoint', 'youngone0-my.sharepoint.com'],
+      ['Microsoft Forms', 'forms.cloud.microsoft'],
+      ['LinkedIn', 'linkedin.com']
+    ];
+    const absent = WANTED.filter(function (pair) {
+      return cards.filter(function (c) {
+        return c.name === pair[0] && (c.href || '').indexOf(pair[1]) !== -1;
+      }).length === 0;
+    });
+    check('and the Microsoft tenancy and LinkedIn are among them',
+      absent.length === 0,
+      absent.length ? 'missing: ' + absent.map((p) => p[0]).join(', ') : ON.slice(-90));
+
+    // IN THE ORDER THEY WERE ASKED FOR. Nothing sorts this list, so the
+    // order in Config.gs is the order on the page - which makes an
+    // accidental reshuffle invisible without this.
+    const at = (name) => cards.map((c) => c.name).indexOf(name);
+    check('in the order they were given, after the ones already there',
+      at('Microsoft Office account') > at('Tekvision') &&
+      at('YO OneDrive / SharePoint') === at('Microsoft Office account') + 1 &&
+      at('Microsoft Forms') === at('YO OneDrive / SharePoint') + 1 &&
+      at('LinkedIn') === at('Microsoft Forms') + 1,
+      cards.map((c) => c.name).join(' > '));
 
     await q.close();
   }

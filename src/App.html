@@ -6233,11 +6233,19 @@
     }
 
     const columns = team.sections.map(function (section, index) {
-      // The head belongs to one of these modules like everybody else - the
-      // flag on their card says which of them leads the section, and that
-      // is the whole of the difference.
-      const inSection = (section.head &&
-                         section.head.section === section.name)
+      // THE HEAD IS DRAWN IN THE SECTION THEY LEAD, whether or not they
+      // sit in it. The department head covers Supply Chain from outside
+      // it, and the first version of this left him off that column on the
+      // reasoning that one person should appear once - which is tidy, and
+      // wrong: the question this chart answers is who runs what, and a
+      // column whose head is missing does not answer it. He is at the top
+      // as the department head and here as the person who runs this
+      // section, which is two facts about one person rather than one fact
+      // said twice.
+      //
+      // Which module he lands in is his Module cell, like everybody
+      // else's. Nothing here decides it.
+      const inSection = section.head
         ? [section.head].concat(section.members)
         : section.members.slice();
 

@@ -952,33 +952,68 @@
 
   /* =======================
      a person, anywhere on the chart
-     ======================= */
+     =======================
+     DARK, NOT CREAM. The person cards were the directory's cream card
+     reused, and thirty-six of them on a navy chart read as thirty-six
+     sticky notes - the eye went to the paper rather than to the faces.
+     Here they are cut out of the same dark the chart is made of: a lifted
+     pane rather than a card laid on top, with a lit top edge and a hair of
+     the column's accent down the left so the shape says which branch it
+     belongs to without a line being drawn to it.
+  */
   .og-person {
-    display: flex; align-items: center; gap: 10px;
-    padding: 9px 12px;
-    border-radius: 12px;
-    background: var(--portal-card);
-    border: 1px solid var(--portal-card-edge);
-    box-shadow: 0 2px 10px rgba(8, 26, 66, .09);
-    transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease;
+    position: relative; overflow: hidden;
+    display: flex; align-items: center; gap: 11px;
+    padding: 9px 13px 9px 12px;
+    border-radius: 13px;
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, .115) 0%,
+                              rgba(255, 255, 255, .045) 100%);
+    border: 1px solid rgba(255, 255, 255, .14);
+    -webkit-backdrop-filter: blur(14px) saturate(150%);
+    backdrop-filter: blur(14px) saturate(150%);
+    box-shadow:
+      0 6px 18px rgba(2, 10, 32, .30),
+      inset 0 1px 0 rgba(255, 255, 255, .22);
+    transition: transform .18s cubic-bezier(.3, 0, .2, 1),
+                box-shadow .18s ease, border-color .18s ease, background .18s ease;
+  }
+  /* The accent, as a hairline down the leading edge. */
+  .og-person::before {
+    content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 2px;
+    background: var(--accent);
+    opacity: .55;
+    transition: opacity .18s ease;
   }
   .og-person:hover {
     transform: translateY(-2px);
-    border-color: #ddcfb8;
-    box-shadow: 0 12px 28px rgba(8, 26, 66, .18);
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, .17) 0%,
+                              rgba(255, 255, 255, .075) 100%);
+    border-color: rgba(255, 255, 255, .26);
+    box-shadow:
+      0 16px 34px rgba(2, 10, 32, .42),
+      0 0 24px -6px var(--accent),
+      inset 0 1px 0 rgba(255, 255, 255, .34);
   }
-  .og-person .team-face { width: 44px; height: 44px; }
-  .og-person .team-face.is-initials { font-size: 13px; }
+  .og-person:hover::before { opacity: 1; }
+
+  .og-person .team-face { width: 46px; height: 46px; }
+  .og-person .team-face.is-initials {
+    font-size: 13px;
+    background: rgba(255, 255, 255, .92); color: var(--blue-600);
+    border-color: transparent;
+  }
 
   .og-person-who { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
   .og-person-who strong {
-    font-size: 12.5px; font-weight: 700; color: var(--navy-900);
-    line-height: 1.25;
+    font-size: 12.5px; font-weight: 700; color: #fff;
+    line-height: 1.25; letter-spacing: .006em;
   }
-  .og-title { font-size: 11px; color: var(--text-dim); }
+  .og-title { font-size: 11px; color: rgba(255, 255, 255, .64); }
   .og-flag {
     font-size: 9px; font-weight: 800; letter-spacing: .07em;
-    text-transform: uppercase; color: var(--blue-600);
+    text-transform: uppercase; color: var(--accent);
   }
 
   /* The head of the department, on the blue and larger. */
@@ -1065,12 +1100,20 @@
      ======================= */
   .og-modules { display: flex; flex-direction: column; gap: 10px; }
 
+  /*
+    The module a group of people work in. Barely there on purpose: it is a
+    label with a boundary, and the cards inside it are the content. Made
+    any heavier it competes with them and the column reads as panels
+    rather than as people.
+  */
   .og-module {
     display: flex; flex-direction: column; gap: 7px;
     padding: 9px 9px 10px;
-    border-radius: 12px;
-    background: rgba(255, 255, 255, .055);
-    border: 1px solid rgba(255, 255, 255, .13);
+    border-radius: 14px;
+    background:
+      linear-gradient(180deg, rgba(8, 20, 54, .30) 0%, rgba(8, 20, 54, .14) 100%);
+    border: 1px solid rgba(255, 255, 255, .10);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .07);
   }
   .og-module-head {
     display: flex; align-items: center; justify-content: space-between;
@@ -1085,11 +1128,22 @@
   }
   .og-people { display: flex; flex-direction: column; gap: 7px; }
 
-  /* The head of a section, marked where they sit rather than drawn twice. */
+  /*
+    The head of a section. A brighter pane and a full-strength accent edge
+    rather than a ring: on a column of eleven cards the eye finds the one
+    that is lit before it finds the one that is outlined.
+  */
   .og-person.is-head {
-    border-color: var(--accent);
-    box-shadow: 0 2px 10px rgba(8, 26, 66, .09), 0 0 0 1px var(--accent) inset;
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, .20) 0%,
+                              rgba(255, 255, 255, .085) 100%);
+    border-color: rgba(255, 255, 255, .30);
+    box-shadow:
+      0 10px 26px rgba(2, 10, 32, .40),
+      inset 0 1px 0 rgba(255, 255, 255, .34);
   }
+  .og-person.is-head::before { opacity: 1; width: 3px; }
+  .og-person.is-head .og-person-who strong { font-size: 13px; }
 
   /*
     NARROWER THAN A DESKTOP and the four columns stop being four. Two, then
