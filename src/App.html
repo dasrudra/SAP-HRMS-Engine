@@ -117,6 +117,7 @@
     wireSignupSwitch();
     wireMessenger();
     wireLearn();
+    wireKnowledge();
     watchActivity();
 
     // Find the token before anything is asked of the server, since every call
@@ -1441,7 +1442,12 @@
     // selector rather than three handlers, so a control added to any of them
     // works without being wired up separately - and so none of them can end
     // up navigating in a subtly different way from the others.
-    document.querySelectorAll('.nav-item, .portal-tab, .portal-brand, .portal-cta')
+    // .kn-portal is the bar on Learnings that opens Knowledge Share, and
+    // .kn-back is the way out of it. Added to the list rather than
+    // switching it to a bare [data-view], which would also pick up any
+    // element that happens to carry one for a reason other than navigating.
+    document.querySelectorAll('.nav-item, .portal-tab, .portal-brand, ' +
+                              '.portal-cta, .kn-portal, .kn-back')
       .forEach(function (button) {
         // An external link wears .portal-cta for the look and carries no
         // data-view. Without this guard showView(undefined) falls back to
@@ -1647,6 +1653,11 @@
     // nothing - and so the document somebody had open is still open when
     // they come back to it.
     if (name === 'learnings') loadLearning();
+
+    // Re-read on every visit, not once. See loadKnowledge: this is a feed
+    // colleagues post to, and the whole point of it is that what somebody
+    // shared this morning is there this afternoon.
+    if (name === 'knowledge') loadKnowledge();
 
     // The dots are only drawn on one page, so only one page pays for keeping
     // them current. stopTeamPresence() is idempotent, which is what lets this
@@ -7529,14 +7540,23 @@
         const group = chip.getAttribute('data-group');
         const value = chip.getAttribute('data-value') || '';
 
-        if (group === 'all') {
-          LEARN.type = ''; LEARN.module = ''; LEARN.biz = '';
-        } else {
-          // Pressing the chip that is already on turns it off. Without
-          // that the only way back to everything is the All chip, and a
-          // row of chips where one is stuck on reads as broken.
-          LEARN[group] = LEARN[group] === value ? '' : value;
-        }
+        // ONE CHIP AT A TIME, ACROSS ALL THREE GROUPS.
+        //
+        // They used to narrow together - press SOP, then press MM, and you
+        // had the SOPs that are also MM. That is more powerful and it is
+        // not what anybody expected: the SOP chip stayed lit at the far
+        // left of a long row while the eye was on MM, so the four results
+        // read as a broken MM filter rather than as an intersection
+        // nobody asked for. At 250 documents the row is long enough that
+        // the chip still on is off the side of where you are looking.
+        //
+        // So choosing any chip clears the other two. Pressing the lit one
+        // turns it off and goes back to everything, which is the same
+        // thing All does and is worth keeping as well - All is the one you
+        // reach for when you have lost track of what is on.
+        const was = LEARN[group];
+        LEARN.type = ''; LEARN.module = ''; LEARN.biz = '';
+        if (group !== 'all' && was !== value) LEARN[group] = value;
 
         renderLearnChips(LEARN.lib);
         renderLearnGrid();
@@ -7589,6 +7609,531 @@
         renderLearnFiles();
       });
     }
+  }
+
+
+  // =========================================================================
+  // KNOWLEDGE SHARE
+  // =========================================================================
+  //
+  // The other half of Learnings. Same three panes, nothing else alike: the
+  // left is a feed rather than a folder tree, anybody signed in can post,
+  // and the whole screen wears its own colour so that a colleague's note is
+  // never mistaken for an approved document.
+
+  const KN = { data: null, openId: '', picked: [], busy: false };
+
+
+  function loadKnowledge() {
+    const list = document.getElementById('knList');
+    // RE-FETCHED EVERY VISIT, unlike the Learnings library. That one mirrors
+    // a Drive folder that changes a few times a month. This changes the
+    // moment a colleague posts, and a feed that is stale for as long as a
+    // tab stays open is a feed people stop believing.
+    if (list && !KN.data) list.innerHTML = '<div class="kn-wait">Loading...</div>';
+
+    callServer('getKnowledge')
+      .then(function (data) { KN.data = data; renderKn(data); })
+      .catch(function (err) {
+        if (list) {
+          list.innerHTML = '<div class="kn-empty"><strong>Could not load</strong>' +
+            '<span>' + escapeHtml(String(err && err.message || err)) + '</span></div>';
+        }
+        onError(err);
+      });
+  }
+
+
+  function renderKn(data) {
+    renderKnStats(data);
+    renderKnList();
+
+    const limit = document.getElementById('knFLimit');
+    if (limit) {
+      limit.textContent = 'up to ' + data.maxFiles + ' files, ' +
+        Math.round(data.maxFile / (1024 * 1024)) + ' MB each';
+    }
+
+    // Whatever was open stays open across a refresh, if it still exists.
+    const open = knShareById(KN.openId);
+    if (open) { renderKnShare(open); } else { renderKnShare(null); }
+  }
+
+
+  function renderKnStats(data) {
+    const box = document.getElementById('knStats');
+    if (!box) return;
+
+    const people = {};
+    let files = 0;
+    (data.shares || []).forEach(function (s) {
+      if (s.author) people[s.author] = true;
+      files += (s.files || []).length;
+    });
+
+    const tiles = [
+      { n: data.count, label: 'Shares' },
+      { n: Object.keys(people).length, label: 'Contributors' },
+      { n: files, label: 'Attachments' }
+    ];
+    box.innerHTML = tiles.map(function (t) {
+      return '<span class="lrn-stat"><strong>' + t.n + '</strong>' +
+        '<span>' + escapeHtml(t.label) + '</span></span>';
+    }).join('');
+  }
+
+
+  /** Two letters from a name, for the little round author mark. */
+  function knInitials(name) {
+    const parts = String(name || '?').trim().split(/\s+/).filter(Boolean);
+    if (!parts.length) return '?';
+    const first = parts[0].charAt(0);
+    const last = parts.length > 1 ? parts[parts.length - 1].charAt(0) : '';
+    return (first + last).toUpperCase();
+  }
+
+
+  function knShareById(id) {
+    const all = (KN.data && KN.data.shares) || [];
+    for (let i = 0; i < all.length; i++) if (all[i].id === id) return all[i];
+    return null;
+  }
+
+
+  function renderKnList() {
+    const box = document.getElementById('knList');
+    if (!box || !KN.data) return;
+
+    const shares = KN.data.shares || [];
+    if (!shares.length) {
+      box.innerHTML = '<div class="kn-empty"><strong>Nothing shared yet</strong>' +
+        '<span>Be the first. Press New Share and write down the thing you ' +
+        'had to work out.</span></div>';
+      return;
+    }
+
+    box.innerHTML = shares.map(function (s) {
+      const on = KN.openId === s.id;
+      return '<button class="kn-item' + (on ? ' is-on' : '') + '" type="button" ' +
+          'data-id="' + escapeHtml(s.id) + '" ' +
+          'aria-pressed="' + (on ? 'true' : 'false') + '">' +
+        '<span class="kn-item-top">' +
+          '<span class="kn-dot" aria-hidden="true">' +
+            escapeHtml(knInitials(s.author)) + '</span>' +
+          '<strong>' + escapeHtml(s.title) + '</strong>' +
+        '</span>' +
+        '<span class="kn-item-foot">' +
+          escapeHtml(s.author) +
+          (s.created ? ' \u00B7 ' + escapeHtml(s.created) : '') +
+          ((s.files || []).length
+            ? ' \u00B7 ' + s.files.length +
+              (s.files.length === 1 ? ' file' : ' files')
+            : '') +
+        '</span>' +
+      '</button>';
+    }).join('');
+  }
+
+
+  /**
+   * One share, in the middle pane.
+   *
+   * THE BODY IS ESCAPED AND THEN GIVEN ITS LINE BREAKS BACK. Everything in
+   * it was typed by a colleague into a textarea, so it is text and not
+   * markup - but text typed into a textarea has paragraphs in it, and
+   * rendering it with those collapsed turns a numbered list of steps into
+   * one unreadable run. escapeHtml first, \n to <br> second: that order is
+   * the whole of the safety, because doing it the other way round would let
+   * somebody write their own tags.
+   */
+  function renderKnShare(share) {
+    const view = document.getElementById('knView');
+    const title = document.getElementById('knTitle');
+    const meta = document.getElementById('knMeta');
+    const avatar = document.getElementById('knAvatar');
+    const del = document.getElementById('knDelete');
+
+    KN.openId = share ? share.id : '';
+
+    if (del) {
+      // Yours, or an admin's. Decided by the server and sent down in the
+      // payload - a page that works out its own permissions is a page that
+      // can be told it has different ones from a console.
+      const mine = share && KN.data &&
+        (KN.data.admin || (share.authorId && share.authorId === KN.data.me));
+      del.hidden = !mine;
+      del.classList.toggle('is-off', !mine);
+    }
+
+    if (!share) {
+      if (avatar) { avatar.textContent = ''; avatar.hidden = true; }
+      if (title) title.textContent = 'Nothing open yet';
+      if (meta) meta.textContent = 'Pick something on the left, or share what you know.';
+      if (view) {
+        view.innerHTML = '<div class="kn-blank">' +
+          '<span class="kn-blank-mark" aria-hidden="true"></span>' +
+          '<strong>Nothing open</strong>' +
+          '<span>Choose a share on the left to read it here.</span></div>';
+      }
+      renderKnAttachments(null);
+      return;
+    }
+
+    if (avatar) {
+      avatar.hidden = false;
+      avatar.textContent = knInitials(share.author);
+    }
+    if (title) title.textContent = share.title;
+    if (meta) {
+      meta.textContent = [
+        share.author, share.created,
+        share.edited ? 'edited' : '',
+        (share.files || []).length
+          ? share.files.length + (share.files.length === 1 ? ' attachment' : ' attachments')
+          : ''
+      ].filter(Boolean).join(' \u00B7 ');
+    }
+
+    if (view) {
+      const words = share.body
+        ? '<div class="kn-body">' +
+            escapeHtml(share.body).replace(/\n/g, '<br>') +
+          '</div>'
+        : '<div class="kn-body is-empty">No words with this one - see the ' +
+          'attachments beside it.</div>';
+
+      const tags = (share.tags || []).length
+        ? '<div class="kn-tags">' + share.tags.map(function (t) {
+            return '<span class="lrn-tag">' + escapeHtml(t) + '</span>';
+          }).join('') + '</div>'
+        : '';
+
+      // THE FIRST PREVIEWABLE ATTACHMENT, under the words. A share is often
+      // a sentence and a screenshot, and making somebody press the
+      // screenshot to see it is making them press a thing to see the point
+      // of the share.
+      const shown = (share.files || []).filter(function (f) {
+        return f.kind === 'pdf' || f.kind === 'image' || f.kind === 'video';
+      })[0];
+
+      const frame = shown
+        ? '<div class="kn-frame-wrap">' +
+            '<iframe class="kn-frame" title="' + escapeHtml(shown.name) + '" ' +
+              'src="' + escapeHtml(shown.preview) + '" ' +
+              'referrerpolicy="no-referrer" allow="autoplay"></iframe>' +
+          '</div>'
+        : '';
+
+      view.innerHTML = tags + words + frame;
+    }
+
+    renderKnAttachments(share);
+    renderKnList();
+  }
+
+
+  function renderKnAttachments(share) {
+    const box = document.getElementById('knAttachments');
+    if (!box) return;
+
+    const files = (share && share.files) || [];
+
+    const list = files.length
+      ? files.map(function (f) {
+          return '<a class="lrn-file kn-file" href="' + escapeHtml(f.open) + '" ' +
+              'target="_blank" rel="noopener noreferrer">' +
+            learnIcon(f.kind) +
+            '<span class="lrn-file-who">' +
+              '<strong>' + escapeHtml(f.name) + '</strong>' +
+              '<span>' + escapeHtml(f.sizeText || '') + '</span>' +
+            '</span>' +
+          '</a>';
+        }).join('')
+      : '<span class="lrn-files-none">' +
+        (share ? 'No attachments on this one.' : 'Nothing open.') + '</span>';
+
+    box.innerHTML =
+      '<div class="lrn-files-head">' +
+        '<span>Attachments</span>' +
+        '<span class="lrn-n">' + files.length + '</span>' +
+      '</div>' +
+      '<div class="lrn-files-list">' + list + '</div>';
+  }
+
+
+  // ---- the composer -----------------------------------------------------
+
+  function knSheet(open) {
+    const sheet = document.getElementById('knSheet');
+    if (!sheet) return;
+    sheet.hidden = !open;
+    if (open) {
+      const t = document.getElementById('knFTitle');
+      if (t) { t.value = ''; t.focus(); }
+      setValue('knFBody', '');
+      setValue('knFTags', '');
+      const files = document.getElementById('knFFiles');
+      if (files) files.value = '';
+      KN.picked = [];
+      renderKnPicked();
+      knNote('');
+      knProgress(-1);
+    }
+  }
+
+
+  function knNote(text, bad) {
+    const note = document.getElementById('knNote');
+    if (!note) return;
+    note.textContent = text || '';
+    note.hidden = !text;
+    note.classList.toggle('is-bad', Boolean(bad));
+  }
+
+
+  /** -1 hides the bar; 0..1 fills it. */
+  function knProgress(fraction) {
+    const bar = document.getElementById('knBar');
+    if (!bar) return;
+    if (fraction < 0) { bar.hidden = true; return; }
+    bar.hidden = false;
+    bar.firstElementChild.style.width =
+      Math.round(Math.max(0, Math.min(1, fraction)) * 100) + '%';
+  }
+
+
+  function renderKnPicked() {
+    const box = document.getElementById('knPicked');
+    if (!box) return;
+    if (!KN.picked.length) { box.innerHTML = ''; return; }
+
+    box.innerHTML = KN.picked.map(function (f, i) {
+      return '<span class="kn-chip">' +
+        '<span>' + escapeHtml(f.name) + '</span>' +
+        '<span class="kn-chip-n">' + escapeHtml(learnSizeText(f.size)) + '</span>' +
+        '<button type="button" class="kn-chip-x" data-at="' + i +
+          '" aria-label="Remove ' + escapeHtml(f.name) + '">&#xD7;</button>' +
+      '</span>';
+    }).join('');
+  }
+
+
+  /** learnSize(), in the browser. The server has its own copy for the logs. */
+  function learnSizeText(bytes) {
+    const n = Number(bytes) || 0;
+    if (n <= 0) return '';
+    if (n < 1024) return n + ' B';
+    const units = ['KB', 'MB', 'GB'];
+    let v = n / 1024, u = 0;
+    while (v >= 1024 && u < units.length - 1) { v /= 1024; u++; }
+    return (v >= 100 ? Math.round(v) : Math.round(v * 10) / 10) + ' ' + units[u];
+  }
+
+
+  /**
+   * Bytes to base64, in blocks.
+   *
+   * String.fromCharCode.apply with a four-megabyte array throws "Maximum
+   * call stack size exceeded" - every byte becomes an ARGUMENT, and no
+   * engine takes four million of those. 0x8000 at a time is well inside
+   * every browser's limit and costs nothing measurable.
+   */
+  function knBase64(bytes) {
+    let binary = '';
+    const block = 0x8000;
+    for (let i = 0; i < bytes.length; i += block) {
+      binary += String.fromCharCode.apply(
+        null, bytes.subarray(i, Math.min(i + block, bytes.length)));
+    }
+    return btoa(binary);
+  }
+
+
+  function knReadFile(file) {
+    return new Promise(function (resolve, reject) {
+      const reader = new FileReader();
+      reader.onload = function () { resolve(new Uint8Array(reader.result)); };
+      reader.onerror = function () { reject(new Error('Could not read ' + file.name)); };
+      reader.readAsArrayBuffer(file);
+    });
+  }
+
+
+  /**
+   * One attachment, in pieces, in order.
+   *
+   * Strictly sequential - await inside the loop - and not Promise.all.
+   * Apps Script serialises calls from one session anyway, so firing five
+   * chunks at once buys nothing, and it would mean five four-megabyte
+   * payloads alive in memory at the same moment on a machine that may be
+   * a eight-year-old office desktop.
+   */
+  async function knUpload(shareId, file, onStep) {
+    const size = KN.data.chunk || (4 * 1024 * 1024);
+    const bytes = await knReadFile(file);
+    const total = Math.max(1, Math.ceil(bytes.length / size));
+    const uploadId = 'U' + Date.now().toString(36) +
+      Math.random().toString(36).slice(2, 7);
+
+    let made = null;
+    for (let i = 0; i < total; i++) {
+      const slice = bytes.subarray(i * size, Math.min((i + 1) * size, bytes.length));
+      made = await callServer('addKnowledgeChunk', shareId, {
+        uploadId: uploadId,
+        name: file.name,
+        mime: file.type || 'application/octet-stream',
+        size: bytes.length,
+        index: i,
+        total: total,
+        data: knBase64(slice)
+      });
+      if (onStep) onStep((i + 1) / total);
+    }
+    return made;
+  }
+
+
+  async function knPost() {
+    if (KN.busy) return;
+
+    const title = (document.getElementById('knFTitle') || {}).value || '';
+    const body = (document.getElementById('knFBody') || {}).value || '';
+    const tags = (document.getElementById('knFTags') || {}).value || '';
+
+    if (!title.trim()) {
+      knNote('Give it a title - that is what people see in the list.', true);
+      const t = document.getElementById('knFTitle');
+      if (t) t.focus();
+      return;
+    }
+    if (!body.trim() && !KN.picked.length) {
+      knNote('Write something, or attach something. An empty share helps nobody.', true);
+      return;
+    }
+
+    KN.busy = true;
+    const post = document.getElementById('knPost');
+    if (post) { post.disabled = true; post.textContent = 'Sharing...'; }
+    knNote('');
+
+    try {
+      const share = await callServer('createKnowledge',
+        { title: title, body: body, tags: tags });
+
+      // THE WORDS ARE SAVED BEFORE THE FILES GO UP, and that order matters.
+      // An upload that fails halfway then loses an attachment rather than
+      // losing what somebody spent ten minutes typing.
+      const done = [];
+      for (let i = 0; i < KN.picked.length; i++) {
+        const file = KN.picked[i];
+        if (post) {
+          post.textContent = 'Attaching ' + (i + 1) + ' of ' + KN.picked.length +
+            '...';
+        }
+        try {
+          const made = await knUpload(share.id, file, function (f) {
+            knProgress((i + f) / KN.picked.length);
+          });
+          if (made) done.push(made);
+        } catch (e) {
+          knNote('"' + file.name + '" did not attach: ' +
+                 String(e && e.message || e) + ' The rest was shared.', true);
+        }
+      }
+      share.files = done;
+
+      knSheet(false);
+      KN.openId = share.id;
+      // Re-read rather than splicing the new share into the list by hand:
+      // the server decided the id, the timestamp and the author, and a
+      // local copy that differs from the stored one in any of those is a
+      // page that disagrees with itself after the next refresh.
+      loadKnowledge();
+    } catch (err) {
+      knNote(String(err && err.message || err), true);
+      knProgress(-1);
+    } finally {
+      KN.busy = false;
+      if (post) { post.disabled = false; post.textContent = 'Share it'; }
+    }
+  }
+
+
+  function wireKnowledge() {
+    bind('knNew', 'click', function () { knSheet(true); });
+    bind('knCancel', 'click', function () { knSheet(false); });
+    bind('knCancel2', 'click', function () { knSheet(false); });
+    bind('knPost', 'click', knPost);
+
+    // Pressing the backdrop closes it; pressing the card inside does not.
+    const sheet = document.getElementById('knSheet');
+    if (sheet) {
+      sheet.addEventListener('click', function (event) {
+        if (event.target === sheet && !KN.busy) knSheet(false);
+      });
+    }
+    document.addEventListener('keydown', function (event) {
+      if (event.key !== 'Escape') return;
+      const open = document.getElementById('knSheet');
+      if (open && !open.hidden && !KN.busy) knSheet(false);
+    });
+
+    const picker = document.getElementById('knFFiles');
+    if (picker) {
+      picker.addEventListener('change', function () {
+        const max = (KN.data && KN.data.maxFile) || (20 * 1024 * 1024);
+        const cap = (KN.data && KN.data.maxFiles) || 10;
+        const tooBig = [];
+
+        Array.prototype.forEach.call(picker.files || [], function (f) {
+          if (f.size > max) { tooBig.push(f.name); return; }
+          if (KN.picked.length >= cap) return;
+          KN.picked.push(f);
+        });
+        // Cleared so that picking the same file twice in a row still
+        // fires change - the input keeps its value otherwise and the
+        // second attempt looks like nothing happened.
+        picker.value = '';
+
+        knNote(tooBig.length
+          ? tooBig.join(', ') + ' ' + (tooBig.length === 1 ? 'is' : 'are') +
+            ' over the ' + learnSizeText(max) + ' limit and ' +
+            (tooBig.length === 1 ? 'was' : 'were') + ' left out.'
+          : '', true);
+        renderKnPicked();
+      });
+    }
+
+    const picked = document.getElementById('knPicked');
+    if (picked) {
+      picked.addEventListener('click', function (event) {
+        const x = event.target.closest('.kn-chip-x');
+        if (!x) return;
+        KN.picked.splice(Number(x.getAttribute('data-at')), 1);
+        renderKnPicked();
+      });
+    }
+
+    const list = document.getElementById('knList');
+    if (list) {
+      list.addEventListener('click', function (event) {
+        const item = event.target.closest('.kn-item');
+        if (!item) return;
+        const share = knShareById(item.getAttribute('data-id'));
+        if (share) renderKnShare(share);
+      });
+    }
+
+    bind('knDelete', 'click', function () {
+      const share = knShareById(KN.openId);
+      if (!share) return;
+      if (!window.confirm('Remove "' + share.title + '"? Its attachments go to ' +
+                          'the Drive bin.')) return;
+
+      callServer('deleteKnowledge', share.id)
+        .then(function () { KN.openId = ''; loadKnowledge(); })
+        .catch(onError);
+    });
   }
 
 

@@ -189,6 +189,20 @@ const stub = `
 <script>
 (function () {
   var FIXTURE = ${jsonA(FIXTURE)};
+  // The Knowledge Share store, which is a real one: see getKnowledge below.
+  // Starts with one share so the page has something to draw before anybody
+  // posts, and so "the feed is empty" is a state a test has to create
+  // rather than the one it happens to start in.
+  var KN_SEQ = 0;
+  var KN_PARTS = {};
+  var KN_STORE = [{
+    id: 'K0', title: 'GRN posts but the material document is missing',
+    body: 'Happens when the movement type is set before the plant.\\n\\n' +
+          '1. Clear the line\\n2. Set the plant first\\n3. Then the movement type',
+    tags: ['MM', 'GRN'], author: 'Bilal Hossain', authorId: '20000003',
+    created: '2 Nov 2026', stamp: 1, edited: false, files: []
+  }];
+
   var EMPTY = Object.assign({}, FIXTURE, {
     hasData: false, people: [], peopleByModule: [], modules: []
   });
@@ -853,6 +867,91 @@ const stub = `
       };
     },
 
+    /*
+      KNOWLEDGE SHARE, with a store that actually stores.
+
+      Not a canned list: this page POSTS, and a fixture that answers a
+      create with a fixed object tests the drawing and nothing about the
+      round trip. The three calls below keep a real array, so a share made
+      in a test is in the next getKnowledge, an attachment lands on the
+      share it was sent to, and a delete removes it.
+
+      Chunked uploads are assembled here the way the server assembles them,
+      so the suite can prove the browser sends every piece in order rather
+      than merely that it sends something.
+    */
+    getKnowledge: function (token) {
+      return {
+        shares: KN_STORE.slice().sort(function (a, b) { return b.stamp - a.stamp; }),
+        count: KN_STORE.length, filled: true,
+        me: '20000000', admin: ROLE === 'ADMIN' || ROLE === 'MASTER',
+        // 64KB rather than the server's 4MB, so the suite's fixture
+        // file arrives in several pieces without being four megabytes -
+        // and big enough that base64'ing a chunk in ONE
+        // String.fromCharCode.apply would overflow the stack, which is
+        // the bug the blocked helper exists to avoid. At 64 bytes a
+        // chunk the mutation that removes the blocking passed happily.
+        maxFile: 20 * 1024 * 1024, maxFiles: 10, chunk: 65536
+      };
+    },
+    createKnowledge: function (token, draft) {
+      var d = draft || {};
+      if (!String(d.title || '').trim()) throw new Error('A share needs a title.');
+      var share = {
+        id: 'K' + (++KN_SEQ), title: String(d.title).trim(),
+        body: String(d.body || ''),
+        tags: String(d.tags || '').split(',').map(function (t) { return t.trim(); })
+                .filter(Boolean),
+        author: 'Utpal Biswas', authorId: '20000000',
+        created: '5 Nov 2026', stamp: Date.now() + KN_SEQ,
+        edited: false, files: []
+      };
+      KN_STORE.push(share);
+      return share;
+    },
+    addKnowledgeChunk: function (token, shareId, part) {
+      var p = part || {};
+      var share = KN_STORE.filter(function (s) { return s.id === shareId; })[0];
+      if (!share) throw new Error('That share no longer exists.');
+
+      KN_PARTS[p.uploadId] = KN_PARTS[p.uploadId] || {};
+      KN_PARTS[p.uploadId][p.index] = p.data;
+      if (p.index < p.total - 1) return null;
+
+      // Every piece, by index, exactly as the server reassembles them.
+      var joined = '';
+      for (var i = 0; i < p.total; i++) {
+        if (KN_PARTS[p.uploadId][i] === undefined) {
+          throw new Error('That upload lost piece ' + i + '.');
+        }
+        joined += atob(KN_PARTS[p.uploadId][i]);
+      }
+      delete KN_PARTS[p.uploadId];
+
+      var file = {
+        id: 'F' + (++KN_SEQ), name: p.name, mime: p.mime,
+        size: joined.length, kind: (/pdf$/i.test(p.name) ? 'pdf'
+          : /\.(png|jpe?g|gif|webp)$/i.test(p.name) ? 'image'
+          : /\.(pptx?)$/i.test(p.name) ? 'slide' : 'file'),
+        sizeText: joined.length + ' B',
+        preview: 'about:blank#a' + KN_SEQ + '/preview',
+        open: 'about:blank#a' + KN_SEQ + '/view',
+        download: 'about:blank#a' + KN_SEQ + '/download',
+        // Not sent by the real server. Here so the suite can prove the
+        // bytes arrived whole and in order rather than merely counting them.
+        __text: joined
+      };
+      share.files.push(file);
+      return file;
+    },
+    deleteKnowledge: function (token, id) {
+      var at = -1;
+      KN_STORE.forEach(function (s, i) { if (s.id === id) at = i; });
+      if (at === -1) throw new Error('That share no longer exists.');
+      KN_STORE.splice(at, 1);
+      return { ok: true };
+    },
+
     getTeam: function () {
       var utpal = { name: 'Utpal Biswas', id: '20000000', title: 'Senior Manager',
                     // The department head reads like every other head:
@@ -1013,7 +1112,8 @@ const stub = `
     masterAuditLog: 120,
     getTeam: 80,
     getUploads: 80,
-    getLearning: 60
+    getLearning: 60,
+    getKnowledge: 50
   };
 
   // google.script.run, as Apps Script presents it: chainable handlers, then a

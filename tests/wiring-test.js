@@ -273,7 +273,11 @@ const PROVIDED = new Set([
   'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'alert',
   'confirm', 'prompt', 'fetch', 'Blob', 'URL', 'FileReader', 'FormData',
   'Image', 'Intl', 'URLSearchParams', 'requestAnimationFrame', 'google',
-  'window', 'document', 'console', 'localStorage', 'sessionStorage', 'Chart'
+  'window', 'document', 'console', 'localStorage', 'sessionStorage', 'Chart',
+  // Base64 both ways. btoa is how an attachment's bytes become something
+  // google.script.run will carry; atob is in the harness stub that puts
+  // the pieces back together.
+  'btoa', 'atob', 'Uint8Array'
 ]);
 
 const called = new Set();
@@ -690,7 +694,9 @@ const EDITOR_TOOLS = [
   'checkTeamPhotos', 'installPhotoSync', 'removePhotoSync',
   'listPersonModules', 'explainUnassigned',
   'setupLearnTab', 'scanLearnFolder', 'shareLearnFiles',
-  'checkLearnFolder', 'installLearnSync', 'removeLearnSync'
+  'checkLearnFolder', 'installLearnSync', 'removeLearnSync',
+  'setupKnowledgeTab', 'shareKnowledgeFolder', 'checkKnowledgeFolder',
+  'cleanKnowledgeParts'
 ];
 const unrunnable = [], absent = [];
 const gsText = fs.readdirSync(SRC).filter((f) => /\.gs$/.test(f))

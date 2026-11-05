@@ -95,12 +95,28 @@
     height: 232px;
     z-index: 0;
     pointer-events: none;
+    /*
+      DEEPER THAN IT WAS, EVERY LAYER.
+
+      Each of the five was taken down roughly a quarter: the blue
+      highlight from #27508f to #1d3d70, the teal from #0d6076 to #0a4a5c,
+      the violet from #271a6e to #1d1355, and the base gradient's three
+      stops with them. The hue of each is unchanged - this is the same
+      sky with the lamp turned down, not a different one.
+
+      It matters more than it did. Three screens now put translucent glass
+      over this (the team chart, Learnings and Knowledge Share), and the
+      lighter the sky the less a pane can lift off it. The panes were
+      raised to clear the old sky by measurement; taking the sky down
+      widens the gap rather than closing it, so those measurements still
+      hold and learn-ui-test re-checks them against whatever this is.
+    */
     background:
-      radial-gradient(90% 120% at 12% 8%,   #27508f 0%, rgba(39, 80, 143, 0) 60%),
-      radial-gradient(70% 110% at 88% 0%,   #0d6076 0%, rgba(13, 96, 118, 0) 55%),
-      radial-gradient(80% 130% at 72% 100%, #271a6e 0%, rgba(39, 26, 110, 0) 62%),
-      radial-gradient(120% 140% at 30% 110%, #071a4c 0%, rgba(7, 26, 76, 0) 70%),
-      linear-gradient(135deg, #04112c 0%, #0a2558 48%, #113b7c 100%);
+      radial-gradient(90% 120% at 12% 8%,   #1d3d70 0%, rgba(29, 61, 112, 0) 60%),
+      radial-gradient(70% 110% at 88% 0%,   #0a4a5c 0%, rgba(10, 74, 92, 0) 55%),
+      radial-gradient(80% 130% at 72% 100%, #1d1355 0%, rgba(29, 19, 85, 0) 62%),
+      radial-gradient(120% 140% at 30% 110%, #040f30 0%, rgba(4, 15, 48, 0) 70%),
+      linear-gradient(135deg, #020a1e 0%, #061a40 48%, #0b2a5e 100%);
     /* Only the bottom corners, so it meets the window squarely at the top. */
     border-radius: 0 0 26px 26px;
     transition: height .32s cubic-bezier(.4, 0, .2, 1);
@@ -1904,7 +1920,8 @@
     want the light surface; here there is nothing below the glass to want
     anything, so there is no measurement to get wrong.
   */
-  .portal[data-page="learnings"] .portal-sky { height: 100%; border-radius: 0; }
+  .portal[data-page="learnings"] .portal-sky,
+  .portal[data-page="knowledge"] .portal-sky { height: 100%; border-radius: 0; }
 
   /* ---------- the shared head ---------- */
   .pcontent-head { padding: 26px 0 34px; }
@@ -2321,27 +2338,80 @@
   }
 
   /* ---------- the search box ---------- */
+  /*
+    THE SEARCH BAR, WHICH IS THE CONTROL THIS PAGE IS BUILT AROUND.
+
+    At 250 documents it is how anybody finds anything, and it was the
+    flattest thing on the screen - a rectangle the same weight as the
+    cards under it. It now has three states that each say something:
+
+      at rest   a lit top edge and a soft halo, so it reads as the raised
+                control on the page rather than another pane
+      hover     the halo widens and the glass brightens, before the
+                pointer has committed to anything
+      focus     a cyan ring. The one state that has to be unmistakable,
+                because it is the only one where typing does something.
+
+    ::before is the glow and it sits BEHIND the bar with a negative inset,
+    so the halo spreads outside the border instead of being clipped to it.
+    A box-shadow would have done one colour; this one is a gradient, which
+    is what makes it read as light rather than as a grey edge.
+  */
   .lrn-search {
-    display: flex; align-items: center; gap: 11px;
-    padding: 0 16px; height: 54px; margin-bottom: 14px;
-    border-radius: 15px;
-    border: 1px solid var(--lrn-edge);
-    background: var(--lrn-pane);
-    -webkit-backdrop-filter: blur(18px) saturate(155%);
-    backdrop-filter: blur(18px) saturate(155%);
+    position: relative; isolation: isolate;
+    display: flex; align-items: center; gap: 12px;
+    padding: 0 18px; height: 58px; margin-bottom: 16px;
+    border-radius: 16px;
+    border: 1px solid var(--lrn-edge-lit);
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, .08) 0%,
+                              rgba(255, 255, 255, .03) 100%),
+      var(--lrn-pane-lit);
+    -webkit-backdrop-filter: blur(22px) saturate(170%);
+    backdrop-filter: blur(22px) saturate(170%);
     box-shadow:
-      0 14px 34px rgba(2, 10, 32, .3),
-      inset 0 1px 0 rgba(255, 255, 255, .12);
-    transition: border-color .18s ease, box-shadow .18s ease;
+      0 18px 44px rgba(2, 8, 26, .42),
+      inset 0 1px 0 rgba(255, 255, 255, .26);
+    transition: border-color .2s ease, box-shadow .2s ease,
+                transform .2s ease;
   }
+  .lrn-search::before {
+    content: ''; position: absolute; inset: -1.5px; z-index: -1;
+    border-radius: 17.5px;
+    background: linear-gradient(110deg,
+      rgba(76, 201, 240, .5) 0%, rgba(91, 156, 248, .34) 34%,
+      rgba(157, 123, 239, .34) 68%, rgba(76, 201, 240, .42) 100%);
+    /*
+      Low at rest and high on hover, rather than bright all the time. A
+      halo that never changes is a haze - it makes the bar look slightly
+      out of focus and says nothing, because a signal that is always on
+      is not a signal.
+    */
+    opacity: .26; filter: blur(8px);
+    transition: opacity .22s ease, filter .22s ease;
+  }
+  .lrn-search:hover {
+    transform: translateY(-1px);
+    border-color: rgba(255, 255, 255, .42);
+    box-shadow:
+      0 22px 52px rgba(2, 8, 26, .5),
+      inset 0 1px 0 rgba(255, 255, 255, .32);
+  }
+  .lrn-search:hover::before { opacity: .62; filter: blur(10px); }
   .lrn-search:focus-within {
-    border-color: rgba(76, 201, 240, .5);
+    transform: none;
+    border-color: rgba(76, 201, 240, .72);
     box-shadow:
-      0 14px 34px rgba(2, 10, 32, .3),
-      0 0 0 3px rgba(76, 201, 240, .16),
-      inset 0 1px 0 rgba(255, 255, 255, .12);
+      0 18px 44px rgba(2, 8, 26, .42),
+      0 0 0 3px rgba(76, 201, 240, .22),
+      inset 0 1px 0 rgba(255, 255, 255, .3);
   }
-  .lrn-search > svg { flex: none; color: var(--lrn-faint); }
+  .lrn-search:focus-within::before { opacity: .9; filter: blur(12px); }
+  .lrn-search > svg {
+    flex: none; color: var(--lrn-dim);
+    transition: color .18s ease;
+  }
+  .lrn-search:focus-within > svg { color: #7fdcff; }
   /*
     EVERY ONE OF THESE LONGHANDS IS LOAD-BEARING. An input does not inherit
     the page's font, its colour, or its background - it takes the browser's,
@@ -2878,6 +2948,431 @@
     .lrn-grid { grid-template-columns: minmax(0, 1fr); }
   }
 
+  /* ==========================================================================
+     KNOWLEDGE SHARE
+     ==========================================================================
+
+     ITS OWN COLOUR, AND THAT IS THE WHOLE POINT OF IT.
+
+     Everything on Learnings is approved: signed off, named to a
+     convention, owned by whoever owns the process. Nothing here is - it
+     is what a colleague worked out on Tuesday. Two pages built from the
+     same three panes and painted the same way would invite somebody to
+     quote a screenshot from this one as policy, and that is a mistake
+     worth a colour to prevent.
+
+     #788daa, the lighter of the two that were put to me. The darker
+     #415a78 was the other, and it loses against the sky - which has just
+     been taken a quarter deeper, so a muted dark blue on it reads as a
+     smudge rather than as a signal. The lighter one holds at every point
+     of the gradient and still sits well away from the four bright accents
+     the rest of the portal uses.
+  */
+  /*
+    ONE DEFINITION, AND THE CHANNELS SEPARATELY.
+
+    Nearly every use of this colour is at some opacity - a border at 46%,
+    a tile at 32%, a hover at 36% - and CSS cannot put an alpha onto a hex
+    custom property without color-mix, which is younger than some of the
+    browsers in this building. So the channels are a variable of their own
+    and the uses are rgba(var(--kn-rgb), x).
+
+    Written out as hardcoded rgba() first, which was wrong in a way a test
+    found: changing --kn did nothing, because nothing read it. A colour
+    that is "defined" in a variable nothing uses is a colour defined in
+    nine places.
+  */
+  #view-knowledge, .kn-portal {
+    --kn-rgb: 120, 141, 170;
+    --kn-lit-rgb: 157, 176, 204;
+    --kn: rgb(var(--kn-rgb));
+    --kn-lit: rgb(var(--kn-lit-rgb));
+    --kn-pale-rgb: 185, 202, 226;
+    --kn-deep: #415a78;
+  }
+  #view-knowledge {
+    --lrn-pane: rgba(42, 58, 86, .44);
+    --lrn-pane-lit: rgba(56, 76, 108, .56);
+    --lrn-edge: rgba(185, 202, 226, .2);
+    --lrn-edge-lit: rgba(185, 202, 226, .38);
+    --lrn-raise: rgba(185, 202, 226, .08);
+    --lrn-dim: rgba(255, 255, 255, .80);
+    --lrn-faint: rgba(255, 255, 255, .65);
+    --lrn-accent: var(--kn);
+    max-width: 1340px;
+  }
+
+  /* ---------- the way in, from the Learnings page ---------- */
+  .kn-portal {
+    display: flex; align-items: center; gap: 14px; width: 100%;
+    margin-bottom: 14px; padding: 13px 16px;
+    border-radius: 15px;
+    border: 1px solid rgba(var(--kn-rgb), .46);
+    background:
+      linear-gradient(100deg, rgba(var(--kn-rgb), .26) 0%,
+                              rgba(var(--kn-rgb), .10) 62%,
+                              rgba(var(--kn-rgb), .18) 100%);
+    -webkit-backdrop-filter: blur(18px) saturate(150%);
+    backdrop-filter: blur(18px) saturate(150%);
+    box-shadow:
+      0 12px 30px rgba(2, 8, 26, .3),
+      inset 0 1px 0 rgba(var(--kn-pale-rgb), .22);
+    font-family: inherit; text-align: left; cursor: pointer;
+    transition: transform .2s ease, border-color .2s ease,
+                box-shadow .2s ease, background .2s ease;
+  }
+  .kn-portal:hover {
+    transform: translateY(-2px);
+    border-color: rgba(var(--kn-lit-rgb), .8);
+    background:
+      linear-gradient(100deg, rgba(var(--kn-rgb), .36) 0%,
+                              rgba(var(--kn-rgb), .16) 62%,
+                              rgba(var(--kn-rgb), .26) 100%);
+    box-shadow:
+      0 18px 40px rgba(2, 8, 26, .42),
+      0 0 0 1px rgba(var(--kn-lit-rgb), .2),
+      inset 0 1px 0 rgba(var(--kn-pale-rgb), .3);
+  }
+  .kn-portal:focus-visible { outline: 2px solid var(--kn-lit); outline-offset: 3px; }
+  .kn-portal-mark {
+    display: grid; place-items: center; flex: none;
+    width: 38px; height: 38px; border-radius: 11px;
+    background: rgba(var(--kn-rgb), .32);
+    border: 1px solid rgba(var(--kn-lit-rgb), .4);
+    color: #dbe6f5;
+  }
+  .kn-portal-who {
+    display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0;
+  }
+  .kn-portal-who strong {
+    font-size: 14px; font-weight: 700; letter-spacing: -.005em; color: #fff;
+  }
+  .kn-portal-who > span {
+    font-size: 11.5px; font-weight: 500; color: rgba(255, 255, 255, .72);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .kn-portal-go {
+    display: grid; place-items: center; flex: none;
+    width: 26px; height: 26px; border-radius: 50%;
+    background: rgba(var(--kn-pale-rgb), .18); color: #dbe6f5;
+    transition: transform .2s ease, background .2s ease;
+  }
+  .kn-portal:hover .kn-portal-go {
+    transform: translateX(3px); background: rgba(var(--kn-pale-rgb), .3);
+  }
+
+  /* ---------- the way out ---------- */
+  .kn-back {
+    display: inline-flex; align-items: center; gap: 7px;
+    margin: 4px 0 16px; padding: 8px 15px 8px 11px;
+    border-radius: 999px;
+    border: 1px solid rgba(var(--kn-pale-rgb), .24);
+    background: rgba(var(--kn-pale-rgb), .09);
+    font-family: inherit; font-size: 12.5px; font-weight: 650;
+    line-height: 1; color: rgba(255, 255, 255, .84); cursor: pointer;
+    transition: background .16s ease, border-color .16s ease, color .16s ease;
+  }
+  .kn-back:hover {
+    background: rgba(var(--kn-pale-rgb), .18);
+    border-color: rgba(var(--kn-pale-rgb), .46); color: #fff;
+  }
+
+  /* ---------- the head ---------- */
+  .kn-head {
+    display: flex; align-items: flex-end; justify-content: space-between;
+    gap: 28px; margin: 0 0 20px;
+  }
+  .kn-eyebrow {
+    display: inline-block; margin-bottom: 10px;
+    padding: 4px 11px; border-radius: 999px;
+    border: 1px solid rgba(var(--kn-lit-rgb), .5);
+    background: rgba(var(--kn-rgb), .24);
+    font-size: 10px; font-weight: 800; letter-spacing: .14em;
+    text-transform: uppercase; color: #dbe6f5;
+  }
+  .kn-title {
+    margin: 0 0 7px;
+    font-size: 38px; font-weight: 700; letter-spacing: -.03em;
+    line-height: 1.05; color: #fff;
+    text-shadow: 0 1px 16px rgba(4, 14, 40, .4);
+  }
+  .kn-sub {
+    margin: 0; font-size: 14.5px; line-height: 1.5;
+    color: rgba(255, 255, 255, .7); max-width: 58ch;
+  }
+  .kn-stats { display: flex; gap: 10px; flex: none; }
+
+  /* ---------- the Library, which is a feed ---------- */
+  .kn-tree { gap: 5px; }
+  .kn-new {
+    display: flex; align-items: center; justify-content: center; gap: 7px;
+    width: 100%; margin-bottom: 8px; padding: 11px 14px;
+    border-radius: 11px; border: 1px solid rgba(var(--kn-lit-rgb), .5);
+    background: linear-gradient(180deg, rgba(var(--kn-rgb), .4) 0%,
+                                        rgba(var(--kn-rgb), .22) 100%);
+    font-family: inherit; font-size: 13px; font-weight: 700;
+    line-height: 1; color: #fff; cursor: pointer;
+    transition: background .16s ease, border-color .16s ease,
+                transform .16s ease, box-shadow .16s ease;
+  }
+  .kn-new span { font-size: 16px; font-weight: 400; line-height: 1; }
+  .kn-new:hover {
+    transform: translateY(-1px);
+    border-color: var(--kn-lit);
+    background: linear-gradient(180deg, rgba(141, 162, 192, .54) 0%,
+                                        rgba(var(--kn-rgb), .34) 100%);
+    box-shadow: 0 10px 24px rgba(2, 8, 26, .36);
+  }
+
+  .kn-list { display: flex; flex-direction: column; gap: 4px; }
+  .kn-item {
+    display: flex; flex-direction: column; gap: 5px; width: 100%;
+    padding: 10px; border-radius: 11px;
+    border: 1px solid transparent; background: transparent;
+    font-family: inherit; text-align: left; cursor: pointer;
+    transition: background .14s ease, border-color .14s ease;
+  }
+  .kn-item-top { display: flex; align-items: flex-start; gap: 9px; }
+  .kn-item-top strong {
+    font-size: 12.8px; font-weight: 650; line-height: 1.32;
+    color: rgba(255, 255, 255, .94);
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .kn-dot, .kn-avatar {
+    display: grid; place-items: center; flex: none;
+    width: 24px; height: 24px; border-radius: 50%;
+    background: rgba(var(--kn-rgb), .4);
+    border: 1px solid rgba(var(--kn-lit-rgb), .42);
+    font-size: 9px; font-weight: 800; letter-spacing: .02em; color: #e3ecf8;
+  }
+  .kn-avatar { width: 40px; height: 40px; border-radius: 12px; font-size: 13px; }
+  .kn-item-foot {
+    font-size: 10.5px; font-weight: 600; color: var(--lrn-faint);
+    padding-left: 33px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .kn-item:hover { background: rgba(var(--kn-pale-rgb), .09); }
+  .kn-item.is-on {
+    background: rgba(var(--kn-pale-rgb), .15);
+    border-color: var(--kn);
+  }
+
+  .kn-wait, .kn-empty {
+    display: flex; flex-direction: column; gap: 5px;
+    padding: 26px 14px; text-align: center;
+    font-size: 12.5px; color: var(--lrn-faint);
+  }
+  .kn-empty strong { font-size: 13.5px; color: rgba(255, 255, 255, .86); }
+
+  /* ---------- the middle pane ---------- */
+  .kn-view {
+    position: relative; overflow-y: auto; max-height: 620px;
+    padding: 20px 22px; background: rgba(2, 8, 24, .16);
+  }
+  .kn-tags { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 13px; }
+  .kn-body {
+    font-size: 14px; line-height: 1.66; color: rgba(255, 255, 255, .9);
+    /* Typed by a person into a textarea, so long words and pasted paths
+       have to break rather than push the pane wide. */
+    overflow-wrap: anywhere;
+  }
+  .kn-body.is-empty { color: var(--lrn-faint); font-style: italic; }
+  .kn-frame-wrap {
+    margin-top: 18px; border-radius: 12px; overflow: hidden;
+    border: 1px solid var(--lrn-edge);
+  }
+  .kn-frame { display: block; width: 100%; height: 420px; border: 0; background: #fff; }
+
+  .kn-blank {
+    display: flex; flex-direction: column; align-items: center;
+    justify-content: center; gap: 7px; min-height: 420px;
+    padding: 30px; text-align: center; color: var(--lrn-dim);
+  }
+  .kn-blank strong { font-size: 15px; font-weight: 700; color: rgba(255, 255, 255, .85); }
+  .kn-blank span { font-size: 12.5px; }
+  .kn-blank-mark {
+    width: 54px; height: 54px; margin-bottom: 6px; border-radius: 14px;
+    border: 2px dashed rgba(var(--kn-pale-rgb), .3);
+  }
+
+  .kn-file { text-decoration: none; }
+  .kn-del {
+    border-color: rgba(229, 72, 77, .42); background: rgba(229, 72, 77, .14);
+    color: #ffc2bf;
+  }
+  .kn-del:hover {
+    border-color: rgba(229, 72, 77, .7); background: rgba(229, 72, 77, .24);
+    color: #fff;
+  }
+
+  /* ---------- the composer ---------- */
+  .kn-sheet {
+    position: fixed; inset: 0; z-index: 90;
+    display: grid; place-items: center; padding: 24px;
+    background: rgba(2, 8, 24, .66);
+    -webkit-backdrop-filter: blur(5px); backdrop-filter: blur(5px);
+  }
+  .kn-sheet-box {
+    width: min(680px, 100%); max-height: calc(100vh - 48px);
+    display: flex; flex-direction: column;
+    border-radius: 18px;
+    border: 1px solid rgba(var(--kn-pale-rgb), .28);
+    background: linear-gradient(180deg, #27354f 0%, #1a2740 100%);
+    box-shadow: 0 30px 80px rgba(0, 0, 0, .55);
+    overflow: hidden;
+  }
+  .kn-sheet-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 16px 18px; border-bottom: 1px solid rgba(var(--kn-pale-rgb), .16);
+  }
+  .kn-sheet-head strong {
+    font-size: 16px; font-weight: 700; letter-spacing: -.015em; color: #fff;
+  }
+  .kn-sheet-x {
+    display: grid; place-items: center; width: 30px; height: 30px;
+    border-radius: 9px; border: 1px solid rgba(var(--kn-pale-rgb), .22);
+    background: rgba(var(--kn-pale-rgb), .08);
+    font-family: inherit; font-size: 17px; line-height: 1;
+    color: rgba(255, 255, 255, .78); cursor: pointer;
+    transition: background .14s ease, color .14s ease;
+  }
+  .kn-sheet-x:hover { background: rgba(var(--kn-pale-rgb), .2); color: #fff; }
+
+  .kn-sheet-body {
+    display: flex; flex-direction: column; gap: 15px;
+    padding: 18px; overflow-y: auto;
+  }
+  .kn-field { display: flex; flex-direction: column; gap: 6px; }
+  .kn-field > span {
+    font-size: 11px; font-weight: 800; letter-spacing: .09em;
+    text-transform: uppercase; color: rgba(255, 255, 255, .62);
+  }
+  .kn-field > span i {
+    font-style: normal; font-weight: 600; letter-spacing: .02em;
+    text-transform: none; color: rgba(255, 255, 255, .42);
+  }
+  /*
+    LONGHANDS, NOT THE font SHORTHAND. An input and a textarea take the
+    browser's 13.3px Arial on a white box unless every one of these is
+    given, and `font: 400 14px/1.5 inherit` is invalid CSS that silently
+    drops the lot - which is how .portal-cta spent months in the wrong
+    typeface.
+  */
+  .kn-field input, .kn-field textarea {
+    width: 100%; padding: 11px 13px;
+    border-radius: 11px;
+    border: 1px solid rgba(var(--kn-pale-rgb), .24);
+    background: rgba(8, 16, 34, .5);
+    font-family: inherit; font-size: 14px; font-weight: 500;
+    line-height: 1.55; color: #fff;
+    -webkit-appearance: none; appearance: none;
+    transition: border-color .16s ease, box-shadow .16s ease;
+  }
+  .kn-field textarea { resize: vertical; min-height: 120px; }
+  .kn-field input::placeholder, .kn-field textarea::placeholder {
+    color: rgba(255, 255, 255, .34); font-weight: 400;
+  }
+  .kn-field input:focus, .kn-field textarea:focus {
+    outline: 0; border-color: var(--kn-lit);
+    box-shadow: 0 0 0 3px rgba(var(--kn-rgb), .26);
+  }
+  .kn-field input[type="file"] {
+    padding: 9px 11px; font-size: 12.5px; cursor: pointer;
+    color: rgba(255, 255, 255, .72);
+  }
+  .kn-field input[type="file"]::file-selector-button {
+    margin-right: 11px; padding: 7px 13px;
+    border-radius: 8px; border: 1px solid rgba(var(--kn-pale-rgb), .3);
+    background: rgba(var(--kn-pale-rgb), .14);
+    font-family: inherit; font-size: 12px; font-weight: 700;
+    color: #fff; cursor: pointer;
+  }
+
+  .kn-picked { display: flex; flex-wrap: wrap; gap: 6px; }
+  .kn-picked:not(:empty) { margin-top: 2px; }
+  .kn-chip {
+    display: inline-flex; align-items: center; gap: 7px;
+    padding: 5px 5px 5px 11px; border-radius: 999px;
+    border: 1px solid rgba(var(--kn-pale-rgb), .26);
+    background: rgba(var(--kn-pale-rgb), .11);
+    font-size: 11.5px; font-weight: 600; color: rgba(255, 255, 255, .88);
+    max-width: 100%;
+  }
+  .kn-chip > span:first-child {
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    max-width: 230px;
+  }
+  .kn-chip-n { font-size: 10.5px; color: rgba(255, 255, 255, .5); }
+  .kn-chip-x {
+    display: grid; place-items: center; width: 19px; height: 19px;
+    border-radius: 50%; border: 0; background: rgba(255, 255, 255, .12);
+    font-family: inherit; font-size: 13px; line-height: 1;
+    color: rgba(255, 255, 255, .8); cursor: pointer;
+  }
+  .kn-chip-x:hover { background: rgba(229, 72, 77, .5); color: #fff; }
+
+  .kn-sheet-note {
+    padding: 10px 13px; border-radius: 10px;
+    border: 1px solid rgba(var(--kn-pale-rgb), .24);
+    background: rgba(var(--kn-pale-rgb), .1);
+    font-size: 12.5px; line-height: 1.5; color: rgba(255, 255, 255, .84);
+  }
+  .kn-sheet-note.is-bad {
+    border-color: rgba(229, 72, 77, .46); background: rgba(229, 72, 77, .14);
+    color: #ffd3d0;
+  }
+
+  .kn-sheet-foot {
+    display: flex; align-items: center; gap: 10px;
+    padding: 14px 18px; border-top: 1px solid rgba(var(--kn-pale-rgb), .16);
+    background: rgba(8, 16, 34, .3);
+  }
+  .kn-bar {
+    flex: 1; height: 5px; border-radius: 999px; overflow: hidden;
+    background: rgba(255, 255, 255, .12);
+  }
+  .kn-bar span {
+    display: block; height: 100%; width: 0;
+    background: linear-gradient(90deg, var(--kn), var(--kn-lit));
+    transition: width .2s ease;
+  }
+  /* Pushes the two buttons right whenever the bar is not taking the room. */
+  .kn-bar[hidden] + .lrn-btn { margin-left: auto; }
+
+  #view-knowledge .lrn-btn.is-primary {
+    background: linear-gradient(180deg, #8b9fbd 0%, #637b9c 100%);
+    border-color: rgba(var(--kn-pale-rgb), .6);
+    box-shadow: 0 8px 20px rgba(65, 90, 120, .4);
+  }
+  #view-knowledge .lrn-btn.is-primary:hover {
+    background: linear-gradient(180deg, #9db0cc 0%, #7288a9 100%);
+    box-shadow: 0 12px 26px rgba(65, 90, 120, .5);
+  }
+  .kn-sheet .lrn-btn.is-primary {
+    background: linear-gradient(180deg, #8b9fbd 0%, #637b9c 100%);
+    border-color: rgba(var(--kn-pale-rgb), .6);
+  }
+  .kn-sheet .lrn-btn.is-primary:hover {
+    background: linear-gradient(180deg, #9db0cc 0%, #7288a9 100%);
+  }
+  .lrn-btn:disabled { opacity: .5; pointer-events: none; }
+
+  @media (max-width: 980px) {
+    .kn-tree { flex-direction: column; }
+    .kn-new, .kn-item { width: 100%; }
+    .kn-frame { height: 320px; }
+    .kn-view { max-height: none; }
+  }
+  @media (max-width: 760px) {
+    .kn-head { flex-direction: column; align-items: stretch; gap: 16px; }
+    .kn-title { font-size: 30px; }
+    .kn-stats { justify-content: space-between; }
+    .kn-stats .lrn-stat { flex: 1; min-width: 0; }
+    .kn-portal-who > span { white-space: normal; }
+    .kn-sheet { padding: 12px; }
+  }
+
   /*
     Somebody who has asked their system not to animate things gets the height
     change without the slide.
@@ -2892,8 +3387,10 @@
     .pillar, .zone, .plant { transition: box-shadow .2s ease, background .2s ease; }
     .pillar:hover, .zone:hover, .plant:hover { transform: none; }
 
-    /* The same bargain on the Learnings screen. */
-    .lrn-card:hover, .lrn-chip:hover, .lrn-btn:hover { transform: none; }
+    /* The same bargain on Learnings and Knowledge Share. */
+    .lrn-card:hover, .lrn-chip:hover, .lrn-btn:hover,
+    .lrn-search:hover, .kn-portal:hover, .kn-new:hover { transform: none; }
+    .kn-portal:hover .kn-portal-go { transform: none; }
   }
 
 </style>

@@ -634,6 +634,46 @@
         </div>
 
         <!--
+          ---- THE WAY ACROSS TO KNOWLEDGE SHARE ----
+
+          Above the search box, because it is the other answer to the same
+          question. Somebody arriving here is looking for how to do
+          something; the library has it if it has been written up, and if
+          it has not then a colleague's note is the next best thing. The
+          bar says so before the search that will come back empty.
+
+          IN ITS OWN COLOUR, and that is the point of it rather than
+          decoration: everything on the Learnings page is approved, signed
+          off and named to a convention, and nothing on the other page is.
+          Two pages that look the same would invite somebody to quote a
+          colleague's screenshot as policy.
+        -->
+        <button class="kn-portal" type="button" data-view="knowledge">
+          <span class="kn-portal-mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="17" height="17" fill="none"
+                 stroke="currentColor" stroke-width="1.7" stroke-linecap="round"
+                 stroke-linejoin="round">
+              <path d="M12 7.5c0-1.9-1.8-3-4.5-3S3 5.3 3 5.3v12s1.8-1.3 4.5-1.3
+                       S12 17.1 12 19"/>
+              <path d="M12 7.5c0-1.9 1.8-3 4.5-3S21 5.3 21 5.3v12s-1.8-1.3-4.5-1.3
+                       S12 17.1 12 19"/>
+            </svg>
+          </span>
+          <span class="kn-portal-who">
+            <strong>Knowledge Share portal</strong>
+            <span>What the team has worked out - notes, screenshots and
+                  walkthroughs from colleagues</span>
+          </span>
+          <span class="kn-portal-go" aria-hidden="true">
+            <svg viewBox="0 0 16 16" width="14" height="14" fill="none"
+                 stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                 stroke-linejoin="round">
+              <path d="M6 3.5L10.5 8 6 12.5"/>
+            </svg>
+          </span>
+        </button>
+
+        <!--
           type="search" and not type="text": it gets the clear cross for
           free, and on a phone the keyboard's return key says Search.
         -->
@@ -699,6 +739,142 @@
               <div class="lrn-view" id="lrnView"></div>
               <div class="lrn-files" id="lrnFiles"></div>
             </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!--
+      ---- KNOWLEDGE SHARE ----
+
+      The same three panes as the Learnings reader - the list on the left,
+      the thing itself in the middle, its attachments on the right - and
+      deliberately so: somebody who has used one page knows this one.
+
+      Everything else about it is different. The list is a feed in date
+      order rather than a folder tree, anybody signed in can add to it, and
+      the whole screen wears its own colour so that a colleague's note is
+      never mistaken for an approved document.
+
+      Drawn by the renderKn* functions in App.html.
+    -->
+    <section class="view portal-page kn" id="view-knowledge" hidden>
+
+      <button class="kn-back" type="button" data-view="learnings">
+        <svg viewBox="0 0 16 16" width="13" height="13" fill="none"
+             stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
+             stroke-linejoin="round" aria-hidden="true">
+          <path d="M9.5 3.5L5 8l4.5 4.5"/>
+        </svg>
+        Learnings
+      </button>
+
+      <div class="kn-head">
+        <div class="kn-head-words">
+          <span class="kn-eyebrow">Knowledge Share</span>
+          <h1 class="kn-title">What we worked out</h1>
+          <p class="kn-sub">
+            Notes, screenshots and walkthroughs from the team. Not approved
+            documents - those are in Learnings. Anybody signed in can add
+            to this.
+          </p>
+        </div>
+        <div class="kn-stats" id="knStats"></div>
+      </div>
+
+      <div class="lrn-desk">
+        <!--
+          The Library. A feed, and the New Share button above it, because
+          the thing somebody most often wants on this page is to add to it.
+        -->
+        <aside class="lrn-tree kn-tree" aria-label="Shared knowledge">
+          <button class="kn-new" id="knNew" type="button">
+            <span aria-hidden="true">+</span> New Share
+          </button>
+          <div class="kn-list" id="knList"></div>
+        </aside>
+
+        <div class="lrn-pane">
+          <div class="lrn-pane-head">
+            <span class="kn-avatar" id="knAvatar" aria-hidden="true"></span>
+            <span class="lrn-pane-who">
+              <strong id="knTitle">Nothing open yet</strong>
+              <span class="lrn-pane-meta" id="knMeta">
+                Pick something on the left, or share what you know.
+              </span>
+            </span>
+            <span class="lrn-pane-acts">
+              <button class="lrn-btn kn-del is-off" id="knDelete" type="button"
+                      hidden>Remove</button>
+            </span>
+          </div>
+
+          <div class="lrn-pane-body">
+            <div class="kn-view" id="knView"></div>
+            <div class="lrn-files kn-files" id="knAttachments"></div>
+          </div>
+        </div>
+      </div>
+
+      <!--
+        ---- THE COMPOSER ----
+
+        An overlay rather than a page of its own: what somebody is writing
+        is usually prompted by what they were just reading, and sending
+        them to a different screen to type it loses that.
+
+        inert is not used - it is young enough that one of the browsers in
+        this building may not have it - so the overlay is simply hidden,
+        which takes its controls out of the tab order the same way.
+      -->
+      <div class="kn-sheet" id="knSheet" hidden>
+        <div class="kn-sheet-box" role="dialog" aria-modal="true"
+             aria-labelledby="knSheetTitle">
+          <div class="kn-sheet-head">
+            <strong id="knSheetTitle">Share what you know</strong>
+            <button class="kn-sheet-x" id="knCancel" type="button"
+                    aria-label="Close">&#xD7;</button>
+          </div>
+
+          <div class="kn-sheet-body">
+            <label class="kn-field">
+              <span>Title</span>
+              <input type="text" id="knFTitle" maxlength="200" autocomplete="off"
+                     placeholder="What is this about?">
+            </label>
+
+            <label class="kn-field">
+              <span>What you want to say</span>
+              <textarea id="knFBody" rows="8" maxlength="20000"
+                        placeholder="Type it out - the steps, the gotcha, what you tried first."></textarea>
+            </label>
+
+            <label class="kn-field">
+              <span>Tags <i>optional, comma separated</i></span>
+              <input type="text" id="knFTags" maxlength="160" autocomplete="off"
+                     placeholder="MM, GRN, S4HANA">
+            </label>
+
+            <div class="kn-field">
+              <span>Attachments <i id="knFLimit"></i></span>
+              <!--
+                No accept list. A photograph of a whiteboard, a PowerPoint,
+                a PDF, a spreadsheet, a scan of something handwritten - the
+                point is that anything somebody has is worth attaching, and
+                an accept list is a list of the things somebody did not
+                think of.
+              -->
+              <input type="file" id="knFFiles" multiple>
+              <div class="kn-picked" id="knPicked"></div>
+            </div>
+
+            <div class="kn-sheet-note" id="knNote" hidden></div>
+          </div>
+
+          <div class="kn-sheet-foot">
+            <div class="kn-bar" id="knBar" hidden><span></span></div>
+            <button class="lrn-btn" id="knCancel2" type="button">Cancel</button>
+            <button class="lrn-btn is-primary" id="knPost" type="button">Share it</button>
           </div>
         </div>
       </div>

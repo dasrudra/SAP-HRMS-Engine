@@ -203,22 +203,32 @@ const FILE = 'file://' + PAGE;
   check('and the count says how much of the library is showing',
     tally === '3 of 7', tally);
 
-  // Two chips from different groups narrow together rather than replacing.
+  // ONE CHIP AT A TIME. These two used to assert the opposite - that a
+  // second chip narrowed inside the first - and the behaviour was changed
+  // deliberately: at 250 documents the chip still lit is off the side of
+  // where the eye is, so four results read as a broken filter rather than
+  // as an intersection nobody asked for. The depth of it is covered in
+  // knowledge-ui-test, which drives the same row; this is the shape of it
+  // where the row actually lives.
   await p.click('#lrnChips .lrn-chip[data-group="biz"][data-value="MG"]');
   await p.waitForTimeout(200);
   const both = await cards();
-  check('a second chip from another group narrows rather than replaces',
-    both.length === 1 && both[0] === 'Stock Transfer', both.join(' | '));
+  check('a chip from another group replaces the first rather than narrowing it',
+    both.length === 1 && both[0] === 'Stock Transfer' &&
+    (await p.$$eval('#lrnChips .lrn-chip.is-on', (n) => n.length)) === 1,
+    both.join(' | '));
 
-  // Pressing the chip that is on turns it off again.
+  // Pressing the chip that is on turns it off, back to everything.
   await p.click('#lrnChips .lrn-chip[data-group="biz"][data-value="MG"]');
   await p.waitForTimeout(200);
-  check('pressing a chip that is already on turns it off',
-    (await cards()).length === 3, (await cards()).join(' | '));
+  check('pressing a chip that is already on clears it',
+    (await cards()).length === 7, (await cards()).length + ' cards');
 
+  await p.click('#lrnChips .lrn-chip[data-group="type"][data-value="SOP"]');
+  await p.waitForTimeout(150);
   await p.click('#lrnChips .lrn-chip[data-group="all"]');
   await p.waitForTimeout(200);
-  check('All clears every chip at once',
+  check('All clears the chip that is on',
     (await cards()).length === 7 &&
     (await p.$eval('#lrnCount', (n) => n.hidden)) === true);
 
@@ -636,27 +646,44 @@ const FILE = 'file://' + PAGE;
     Measured on both screens, because they are different heights and the
     rule that fixes it is one line that could be written for either.
   */
-  const skyOver = async (what) => await p.evaluate(() => {
-    const sky = document.querySelector('.portal-sky');
-    const page = document.getElementById('view-learnings');
-    if (!sky || !page) return null;
-    const s = sky.getBoundingClientRect(), g = page.getBoundingClientRect();
-    return { sky: Math.round(s.bottom), content: Math.round(g.bottom) };
+  const skyCovers = async () => await p.evaluate(() => {
+    const s = document.querySelector('.portal-sky').getBoundingClientRect();
+    return { top: Math.round(s.top), bottom: Math.round(s.bottom),
+             fold: window.innerHeight };
   });
 
-  const libSky = await skyOver();
-  check('the navy reaches past the bottom of the library, not just the title',
-    libSky && libSky.sky >= libSky.content,
-    libSky ? 'sky ends ' + libSky.sky + ', content ends ' + libSky.content
-           : '(not found)');
+  // MEASURED AGAINST THE WINDOW, NOT AGAINST THE CONTENT'S HEIGHT. .portal
+  // is position:fixed at viewport height and the content scrolls inside
+  // it, so the sky is a backdrop that stays put rather than a band as long
+  // as the page. The first version of this compared the sky's bottom with
+  // the content's and passed only because this page happens to be shorter
+  // than one screen - it would have gone on passing with the backdrop
+  // broken, and it reported a failure on the Knowledge page, which is
+  // taller and renders correctly.
+  const libSky = await skyCovers();
+  check('the navy covers the whole window behind the library',
+    libSky.top <= 0 && libSky.bottom >= libSky.fold,
+    libSky.top + ' to ' + libSky.bottom + ' of ' + libSky.fold);
 
   await p.click('#lrnGrid .lrn-card');
   await p.waitForTimeout(400);
-  const readSky = await skyOver();
-  check('and past the bottom of the reader too',
-    readSky && readSky.sky >= readSky.content,
-    readSky ? 'sky ends ' + readSky.sky + ', content ends ' + readSky.content
-            : '(not found)');
+
+  // Scrolled to the bottom of the reader, which is where a backdrop only
+  // as tall as its first paint would come apart.
+  await p.evaluate(() => {
+    const all = Array.from(document.querySelectorAll('#portalRoot *'));
+    const scroller = all.filter(function (n) {
+      return n.scrollHeight > n.clientHeight + 40;
+    })[0] || document.scrollingElement;
+    scroller.scrollTop = scroller.scrollHeight;
+  });
+  await p.waitForTimeout(250);
+
+  const readSky = await skyCovers();
+  check('and still does in the reader, scrolled to the bottom',
+    readSky.top <= 0 && readSky.bottom >= readSky.fold,
+    readSky.top + ' to ' + readSky.bottom + ' of ' + readSky.fold);
+
   await p.click('#lrnBack');
   await p.waitForTimeout(250);
 

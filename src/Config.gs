@@ -541,7 +541,13 @@ const CONFIG = {
     // documents stay in Drive, and this tab is a list of what is in there,
     // rewritten from the folder by scanLearnFolder() in Learn.gs. Nothing
     // is typed into it by hand; see the header of that file.
-    LEARN:     'LEARN'
+    LEARN:     'LEARN',
+
+    // The Knowledge Share feed - what colleagues post, as opposed to what
+    // the team has approved. Written by the page and not by hand; the
+    // attachments are in Drive and this holds a JSON index of them. See
+    // the header of Knowledge.gs for why the two are kept apart.
+    KNOWLEDGE: 'KNOWLEDGE'
   },
 
   /**
