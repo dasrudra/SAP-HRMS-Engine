@@ -443,7 +443,20 @@ const stub = `
         role: ROLE, username: '20000000', mode: 'EXEC',
         departments: ${jsonA(CONFIG.DEPARTMENTS)},
         kpiList: ${jsonA(CONFIG.KPI_ORDER.map((k) => CONFIG.KPI[k]))},
-        kpiPolicy: ${jsonA(CONFIG.POLICY)},
+        // ?nopolicy=1 empties the approved policy's address, which is what
+        // a fresh installation looks like before anybody has pointed
+        // KPI_CONFIG at the PDF. The Summary screen has to leave the
+        // document button out entirely in that state rather than drawing
+        // one that opens nothing, and there is no other way to reach it
+        // from a page whose code is inside a closure. Same arrangement as
+        // ?drop= above, and for the same reason.
+        kpiPolicy: (function () {
+          var p = ${jsonA(CONFIG.POLICY)};
+          if (new URLSearchParams(location.search).has('nopolicy')) {
+            p = Object.assign({}, p, { url: '' });
+          }
+          return p;
+        })(),
         kpi1Standards: STANDARDS,
         teamSize: ${CONFIG.TEAM_SIZE},
         kpiLinks: {},

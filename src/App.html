@@ -119,13 +119,6 @@
     wireLearn();
     watchActivity();
 
-    // The group mailboxes on the front page. Drawn at boot rather than on
-    // the home view, because the markup they go into is in the page from
-    // the start and the list is a constant on window - there is nothing to
-    // wait for, and drawing it per visit means the front page is briefly
-    // missing a block somebody is already looking at.
-    renderMails();
-
     // Find the token before anything is asked of the server, since every call
     // carries it. Reading it is asynchronous, so the session check waits.
     loadToken(function () {
@@ -6972,12 +6965,96 @@
   }
 
 
-  /** The little square on a card, lettered by what the file is. */
-  function learnIcon(kind) {
-    const label = { pdf: 'PDF', video: 'MP4', slide: 'PPT', sheet: 'XLS',
-                    doc: 'DOC', image: 'IMG' }[kind] || 'FILE';
+  /**
+   * A drawn mark per kind of file, in place of three letters.
+   *
+   * WHY NOT THE REAL LOGOS. Acrobat's and PowerPoint's marks are
+   * trademarks, and a portal that reproduces them is making a claim about
+   * whose software this is. These are our own glyphs in the colours people
+   * already associate with each format - red for a PDF, orange for a deck,
+   * green for a sheet - which is the half of the recognition that is doing
+   * the work anyway.
+   *
+   * EACH SHAPE IS GENUINELY DIFFERENT and not one page outline with a
+   * different letter in it. The whole point of an icon over a label is
+   * that it reads before it is read; a row of identical pages tinted four
+   * ways does not, and is worse than the letters it replaced.
+   */
+  const LEARN_GLYPH = {
+    // A page with a folded corner and a text block in it.
+    pdf: '<path d="M6 2.5h7l5 5v12a1.5 1.5 0 0 1-1.5 1.5h-10A1.5 1.5 0 0 1 5 19.5v-15A1.5 1.5 0 0 1 6.5 3z" ' +
+         'fill="currentColor" opacity=".18"/>' +
+         '<path d="M6.5 2.5h7l5 5v12a1.5 1.5 0 0 1-1.5 1.5h-10A1.5 1.5 0 0 1 5.5 19.5v-15.5A1.5 1.5 0 0 1 7 2.5z"/>' +
+         '<path d="M13.5 2.5v5h5"/>' +
+         '<path d="M8.5 13h7M8.5 16h4.5"/>',
+
+    // A slide on a stand - a deck, not a document.
+    slide: '<rect x="3.5" y="4" width="17" height="11.5" rx="1.5"/>' +
+           '<path d="M12 15.5v4M8.5 19.5h7"/>' +
+           '<path d="M7 11.5l3-3 2.5 2.5L17 7" fill="none"/>',
+
+    // A grid. Nothing else on this page is a grid.
+    sheet: '<rect x="3.5" y="4.5" width="17" height="15" rx="1.5"/>' +
+           '<path d="M3.5 9.5h17M3.5 14.5h17M9.5 4.5v15M15 4.5v15"/>',
+
+    // A page with lines, and no fold - so it is not the PDF at a glance.
+    doc: '<rect x="5" y="2.5" width="14" height="19" rx="1.5"/>' +
+         '<path d="M8.5 7.5h7M8.5 11.5h7M8.5 15.5h4"/>',
+
+    // A play triangle. The one shape nobody has to be taught.
+    video: '<rect x="2.5" y="4.5" width="19" height="15" rx="2.5"/>' +
+           '<path d="M10 9.5l5 2.5-5 2.5z" fill="currentColor"/>',
+
+    // A framed picture.
+    image: '<rect x="3" y="4.5" width="18" height="15" rx="2"/>' +
+           '<circle cx="8.5" cy="9.5" r="1.6"/>' +
+           '<path d="M3.5 16.5l5-4.5 4 3.5 3-2.5 5 4"/>',
+
+    file: '<path d="M6.5 2.5h7l5 5v12a1.5 1.5 0 0 1-1.5 1.5h-10A1.5 1.5 0 0 1 5.5 19.5v-15.5A1.5 1.5 0 0 1 7 2.5z"/>' +
+          '<path d="M13.5 2.5v5h5"/>'
+  };
+
+
+  /**
+   * The tile on a card, drawn rather than lettered.
+   *
+   * `big` is the reading pane's 40px tile; the cards and the file list use
+   * the small one. One function, because a second would drift.
+   */
+  function learnIcon(kind, big) {
     return '<span class="lrn-mark" data-kind="' + escapeHtml(kind) + '">' +
-      escapeHtml(label) + '</span>';
+      learnGlyph(kind, big) + '</span>';
+  }
+
+
+  /**
+   * The drawing alone, with no tile around it.
+   *
+   * Split out because the reading pane's tile is in the markup already -
+   * renderLearnDoc() fills it rather than replacing it, so it needs the
+   * contents and not the wrapper. The first version of this called
+   * learnIcon() and cut the wrapper back off with two regular expressions,
+   * which worked and was a thing nobody should have to read twice.
+   */
+  function learnGlyph(kind, big) {
+    const size = big ? 22 : 19;
+    return '<svg viewBox="0 0 24 24" width="' + size + '" height="' + size + '" ' +
+        'fill="none" stroke="currentColor" stroke-width="1.6" ' +
+        'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+        (LEARN_GLYPH[kind] || LEARN_GLYPH.file) +
+      '</svg>' +
+      // Named for anybody who cannot see the glyph. Not a title attribute:
+      // the whole card is already a control with its own label, and a
+      // tooltip on a decorative tile inside it fights with that one.
+      '<span class="sr-only">' + escapeHtml(learnKindName(kind)) + '</span>';
+  }
+
+
+  /** What a kind is called, for a screen reader and for the reading pane. */
+  function learnKindName(kind) {
+    return { pdf: 'PDF', video: 'Video', slide: 'Presentation',
+             sheet: 'Spreadsheet', doc: 'Document', image: 'Image' }[kind] ||
+           'File';
   }
 
 
@@ -7337,8 +7414,7 @@
     }
 
     if (!doc) {
-      if (icon) icon.setAttribute('data-kind', 'none');
-      if (icon) icon.textContent = '';
+      if (icon) { icon.setAttribute('data-kind', 'none'); icon.innerHTML = ''; }
       if (title) title.textContent = 'Nothing open yet';
       if (meta) meta.textContent = 'Pick a document on the right to read it here.';
       if (view) {
@@ -7353,8 +7429,9 @@
     if (icon) {
       icon.setAttribute('data-kind', doc.kind);
       icon.setAttribute('data-accent', String(learnAccent(doc.type)));
-      icon.textContent = { pdf: 'PDF', video: 'MP4', slide: 'PPT',
-                           sheet: 'XLS', doc: 'DOC', image: 'IMG' }[doc.kind] || 'FILE';
+      // The same glyph the cards use, at the reading pane's size. The tile
+      // is in the markup already, so only the drawing goes in.
+      icon.innerHTML = learnGlyph(doc.kind, true);
     }
     if (title) title.textContent = doc.title;
     if (meta) {
@@ -7544,44 +7621,6 @@
       'fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">' +
       '<rect x="1.5" y="3.5" width="13" height="9" rx="1.5"/>' +
       '<path d="M2 4.5l6 4 6-4"/></svg>';
-  }
-
-
-  /**
-   * The strip of group mailboxes under the headline on the front page.
-   *
-   * THE NAME IS THE LABEL AND THE ADDRESS IS UNDER IT, rather than the
-   * other way round. Four aliases that all read sca / scua / ma / fa are
-   * four strings nobody can tell apart at a glance; "Manufacturing
-   * Applications" is what somebody is actually looking for, and the address
-   * is what they need once they have found it. Both are on the chip, so it
-   * can be read either way and copied from.
-   *
-   * Hidden entirely when the list is empty rather than drawn as a heading
-   * with nothing under it.
-   */
-  function renderMails() {
-    const strip = document.getElementById('portalMails');
-    if (!strip) return;
-
-    const mails = (window.__EAS_MAILS__ || []).filter(function (m) {
-      return m && m.address;
-    });
-
-    if (!mails.length) { strip.hidden = true; return; }
-
-    strip.innerHTML = mails.map(function (mail) {
-      return '<a class="portal-mailchip' + (mail.all ? ' is-all' : '') + '" ' +
-        'href="mailto:' + escapeHtml(mail.address) + '">' +
-        '<span class="portal-mailchip-mark">' + mailIcon(13) + '</span>' +
-        '<span class="portal-mailchip-who">' +
-          '<strong>' + escapeHtml(mail.name) + '</strong>' +
-          '<span>' + escapeHtml(mail.address) + '</span>' +
-        '</span>' +
-      '</a>';
-    }).join('');
-
-    strip.hidden = false;
   }
 
 
@@ -7817,39 +7856,70 @@
     });
 
     const live = list.filter(function (k) { return k.active; }).length;
+
+    // THE COUNT, AND NOTHING ELSE. The document code used to be appended
+    // here - "4 indicators, 2 live, 2 awaiting a pipeline, TVL-KPI-001
+    // v1.0" - which put the one string nobody can read at the end of a
+    // line of plain facts. The document is a button beside the heading now;
+    // see below.
     const note = document.getElementById('kpiTableNote');
     if (note) {
-      // The count, and the document the three policy indicators come from.
-      // The policy PDF had no home on any screen - it was only ever a fallback
-      // behind a Definition button - so the one document that explains the
-      // whole table was the one document nobody could open from it.
-      const p = (state.boot && state.boot.kpiPolicy) || {};
-      const links = (state.boot && state.boot.kpiLinks) || {};
-      const url = [links.POLICY, p.url].filter(function (u) {
-        return /^https?:\/\//i.test(String(u || '').trim());
-      })[0];
-      const named = p.id ? p.id + (p.version ? ' v' + p.version : '') : '';
-
       note.textContent = list.length + ' indicators \u00b7 ' + live + ' live \u00b7 ' +
-        (list.length - live) + ' awaiting a pipeline' + (named ? ' \u00b7 ' : '');
-      if (named) {
-        if (url) {
-          const a = document.createElement('a');
-          a.className = 'head-doc';
-          a.href = String(url).trim();
-          a.target = '_blank';
-          a.rel = 'noopener noreferrer';
-          a.textContent = named;
-          a.title = 'Open ' + [p.title, named].filter(Boolean).join(', ') +
-                    (p.effective ? ', effective ' + p.effective : '');
-          note.appendChild(a);
-        } else {
-          // Named either way. Which document the targets come from is worth
-          // saying even when nobody has linked it yet.
-          note.appendChild(document.createTextNode(named));
-        }
-      }
+        (list.length - live) + ' awaiting a pipeline';
     }
+
+    renderKpiPolicyDoc();
+  }
+
+
+  /**
+   * The approved policy, as a button beside the thresholds heading.
+   *
+   * CALLED WITH THE DOCUMENT'S TITLE ON IT, not its reference number. The
+   * table is a list of targets, and the question a reader has is "who
+   * decided these" - which "Key Performance Indicator (KPI) Policy"
+   * answers and "TVL-KPI-001 v1.0" does not. The reference and the version
+   * go on the hover, where somebody checking which revision they are
+   * looking at will find them.
+   *
+   * THE ADDRESS COMES FROM THE SPREADSHEET FIRST. kpiLinks.POLICY is the
+   * KPI_CONFIG tab's cell, which takes effect on the next page load;
+   * CONFIG.POLICY.url is what a fresh installation starts with and needs a
+   * deployment to change. Same order of preference the Definition buttons
+   * use, so one edit moves all of them.
+   */
+  function renderKpiPolicyDoc() {
+    const el = document.getElementById('kpiPolicyDoc');
+    if (!el) return;
+
+    const p = (state.boot && state.boot.kpiPolicy) || {};
+    const links = (state.boot && state.boot.kpiLinks) || {};
+    const url = [links.POLICY, p.url].filter(function (u) {
+      return /^https?:\/\//i.test(String(u || '').trim());
+    })[0];
+
+    // No address, no button. A document control that opens nothing is
+    // worse than no control: it is a thing people press once.
+    if (!url || !p.title) { el.hidden = true; return; }
+
+    el.href = String(url).trim();
+    el.innerHTML =
+      '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" ' +
+        'stroke="currentColor" stroke-width="1.7" stroke-linecap="round" ' +
+        'stroke-linejoin="round" aria-hidden="true">' +
+        '<path d="M6.5 2.5h7l5 5v12a1.5 1.5 0 0 1-1.5 1.5h-10A1.5 1.5 0 0 1 ' +
+          '5.5 19.5v-15.5A1.5 1.5 0 0 1 7 2.5z"/>' +
+        '<path d="M13.5 2.5v5h5"/><path d="M8.5 13h7M8.5 16h4.5"/>' +
+      '</svg>' +
+      '<span>' + escapeHtml(p.title) + '</span>';
+
+    el.title = [
+      p.title,
+      p.id ? p.id + (p.version ? ' v' + p.version : '') : '',
+      p.effective ? 'effective ' + p.effective : ''
+    ].filter(Boolean).join(' \u00b7 ');
+
+    el.hidden = false;
   }
 
 

@@ -15,11 +15,25 @@
 //
 // HOW TO RUN
 //   node tests/harness/build.js && node tests/portal-test.js
-const path = require('path'), fs = require('fs');
+const path = require('path'), fs = require('fs'), vm = require('vm');
 
 const PAGE = process.env.EAS_PAGE ||
              path.join(__dirname, 'harness', 'page.html');
 const BROWSER = process.env.CHROMIUM_PATH || '/opt/pw-browsers/chromium';
+
+// The real Config.gs, read the same way the harness reads it into the page.
+// The policy assertions near the end compare against CONFIG.POLICY rather
+// than against a copy of the title written out here - a copy would go on
+// passing after somebody corrected the document's name in Config.
+const SRC = process.env.EAS_SRC || path.join(__dirname, '..', 'src');
+const cfgBox = {
+  console, Object, String, Number, Array, Math, JSON, RegExp, Date,
+  isFinite, Boolean, Error, parseInt, parseFloat
+};
+cfgBox.globalThis = cfgBox;
+vm.createContext(cfgBox);
+vm.runInContext(fs.readFileSync(path.join(SRC, 'Config.gs'), 'utf8'), cfgBox);
+const CONFIG = vm.runInContext('CONFIG', cfgBox);
 
 let chromium = null;
 try { chromium = require('playwright-core').chromium; } catch (e) { /* below */ }
@@ -1061,7 +1075,92 @@ const FILE = 'file://' + PAGE;
   check('and Summary still works without it',
     (await sum.$$eval('#settingsTable tbody tr', (n) => n.length)) > 0,
     'the thresholds table is still drawn');
+
+  // ---------------------------------------------------------------------------
+  // THE APPROVED POLICY, beside the heading of the table it defines
+  // ---------------------------------------------------------------------------
+  // It used to be a document CODE at the far right of the bar - "TVL-KPI-001
+  // v1.0" - which is the one string on that screen that means nothing to
+  // anybody who has not already read the document it names. None of this was
+  // covered by anything, which is how it sat there unread.
+  const doc = await sum.evaluate(() => {
+    const a = document.getElementById('kpiPolicyDoc');
+    const note = document.getElementById('kpiTableNote');
+    const head = a ? a.closest('.card-head') : null;
+    if (!a || !head) return null;
+    const t = head.getBoundingClientRect(), r = a.getBoundingClientRect();
+    return {
+      hidden: a.hidden, href: a.getAttribute('href'),
+      text: a.textContent.trim(), title: a.getAttribute('title') || '',
+      note: note ? note.textContent.trim() : '',
+      // Where it sits in the bar: beside the heading, or off at the end.
+      fromLeft: Math.round(r.left - t.left), barWidth: Math.round(t.width),
+      // A long title set in the head's uppercase wide tracking is
+      // unreadable, so the button has to opt out of both.
+      caps: getComputedStyle(a).textTransform,
+      glyph: a.querySelectorAll('svg').length
+    };
+  });
+
+  check('the policy document is named on the Summary thresholds bar',
+    doc && !doc.hidden && /^https?:\/\//.test(doc.href || ''),
+    doc ? (doc.hidden ? 'hidden' : doc.href) : '(no element)');
+
+  // THE TITLE, not the reference. This is the whole point of the change.
+  check('and it is named by its title, not by its document code',
+    doc && doc.text === CONFIG.POLICY.title && !/TVL-KPI-\d/.test(doc.text),
+    doc ? '"' + doc.text + '"' : '(none)');
+
+  check('the code and the version are still on the hover, for anybody checking',
+    doc && doc.title.indexOf(CONFIG.POLICY.id) !== -1 &&
+    doc.title.indexOf('v' + CONFIG.POLICY.version) !== -1,
+    doc ? doc.title : '(none)');
+
+  check('the code has gone from the count at the end of the bar',
+    doc && !/TVL-KPI-\d/.test(doc.note) && /indicators/.test(doc.note),
+    doc ? doc.note : '(none)');
+
+  // Beside the heading is where it was asked for. "Beside" is a measured
+  // position in the rendered bar, not an order in the markup.
+  check('it sits beside the heading rather than at the far end of the bar',
+    doc && doc.fromLeft < doc.barWidth / 2,
+    doc ? doc.fromLeft + 'px into a ' + doc.barWidth + 'px bar' : '(none)');
+
+  check('it is not set in the heading uppercase, which a title cannot survive',
+    doc && doc.caps === 'none' && doc.glyph === 1,
+    doc ? doc.caps + ', ' + doc.glyph + ' glyph' : '(none)');
+
+  // A DOCUMENT BUTTON THAT OPENS NOTHING is worse than no button: it is a
+  // thing people press once and then stop trusting. The address is a cell
+  // in KPI_CONFIG and a constant in Config, and on a fresh installation
+  // both can be empty - so this is a real state and not a hypothetical.
+  //
+  // ?nopolicy=1 empties the address in the harness bootstrap. Reaching the
+  // state from outside was the only option: the page's code is inside a
+  // closure, so there is no render function to call again from a test. The
+  // first version of this assertion tried, found no window.state, and
+  // reported itself as a PASS with the word SKIP in the detail - which is
+  // the kind of green that is worse than a red.
   await sum.close();
+  const bare = await open('?view=settings&nopolicy=1');
+  await bare.waitForTimeout(900);
+
+  const off = await bare.evaluate(() => {
+    const a = document.getElementById('kpiPolicyDoc');
+    return a ? { hidden: a.hidden, href: a.getAttribute('href'),
+                 text: a.textContent.trim() } : null;
+  });
+
+  check('with no address configured the button is not drawn at all',
+    off && off.hidden === true && !off.href,
+    off ? 'hidden=' + off.hidden + ' href=' + off.href + ' text="' +
+          off.text + '"' : '(element missing)');
+
+  check('and the table beside it is unaffected',
+    (await bare.$$eval('#settingsTable tbody tr', (n) => n.length)) === 4,
+    'the thresholds still list every indicator');
+
+  await bare.close();
 
   // ---------------------------------------------------------------------------
   // Back, which is not the browser's Back

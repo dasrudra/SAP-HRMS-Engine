@@ -71,76 +71,7 @@ const FILE = 'file://' + PAGE;
   await p.waitForTimeout(1500);
 
   // =========================================================================
-  // 1. THE GROUP MAILBOXES ON THE FRONT PAGE
-  // =========================================================================
-  const mails = await p.$$eval('#portalMails .portal-mailchip', (ns) =>
-    ns.map((n) => ({
-      name: n.querySelector('strong').textContent.trim(),
-      shown: n.querySelector('.portal-mailchip-who span').textContent.trim(),
-      href: n.getAttribute('href'),
-      all: n.classList.contains('is-all'),
-      w: Math.round(n.getBoundingClientRect().width)
-    })));
-
-  check('the front page carries all five mailboxes',
-    mails.length === 5, mails.length + ' chips');
-
-  check('the department address leads and is the one marked',
-    mails[0] && mails[0].href === 'mailto:eas@tekvision.com.bd' &&
-    mails[0].all === true && mails.slice(1).every((m) => !m.all),
-    mails.map((m) => (m.all ? '*' : '') + m.href).join(' '));
-
-  check('the four section aliases follow, in the order of the announcement',
-    mails.slice(1).map((m) => m.href).join(' ') ===
-      'mailto:sca.eas@tekvision.com.bd mailto:scua.eas@tekvision.com.bd ' +
-      'mailto:ma.eas@tekvision.com.bd mailto:fa.eas@tekvision.com.bd',
-    mails.slice(1).map((m) => m.href).join(' '));
-
-  // The display name is the label; the address under it has to be the one
-  // the link actually goes to, or the chip is showing one address and
-  // sending to another.
-  check('every chip shows the address it links to',
-    mails.every((m) => m.href === 'mailto:' + m.shown),
-    mails.filter((m) => m.href !== 'mailto:' + m.shown)
-         .map((m) => m.shown + ' -> ' + m.href).join(', ') || 'all five agree');
-
-  check('and names the section, not just the alias',
-    mails[1] && mails[1].name === 'Supply Chain Applications',
-    mails.map((m) => m.name).join(' | '));
-
-  // A chip that has collapsed to nothing is a chip nobody can press.
-  check('no mailbox chip has collapsed',
-    mails.length > 0 && mails.every((m) => m.w > 120),
-    mails.map((m) => m.w).join(' '));
-
-  // THE HOME PAGE STILL HAS TO FIT IN ONE SCREEN. That was asked for
-  // explicitly, and the mailbox strip is 63px of new weight in the hero.
-  //
-  // AT THREE HEIGHTS, not one, because the first version of this strip
-  // passed at 1000 and failed at 950 and 880 - the compressing media query
-  // started at 899, so every laptop between those two numbers ran the
-  // bottom row of cards off the screen and the suite said nothing. 950 is
-  // roughly what a 1080 screen leaves after the browser's chrome, which is
-  // the machine this is actually read on.
-  const folds = [];
-  for (const h of [1000, 950, 880]) {
-    await p.setViewportSize({ width: 1500, height: h });
-    await p.waitForTimeout(250);
-    folds.push(Object.assign({ asked: h }, await p.evaluate(() => ({
-      bottom: Math.round(
-        document.getElementById('portalTiles').getBoundingClientRect().bottom),
-      fold: window.innerHeight
-    }))));
-  }
-  check('the home page fits one screen on every laptop height, strip and all',
-    folds.every((f) => f.bottom <= f.fold),
-    folds.map((f) => f.asked + ': cards end ' + f.bottom + '/' + f.fold).join('  '));
-
-  await p.setViewportSize({ width: 1500, height: 1000 });
-  await p.waitForTimeout(250);
-
-  // =========================================================================
-  // 2. THE SECTION MAILBOXES ON THE ORGANOGRAM
+  // 1. THE SECTION MAILBOXES ON THE ORGANOGRAM
   // =========================================================================
   await p.click('.portal-tab[data-view="team"]');
   await p.waitForTimeout(700);
@@ -199,7 +130,7 @@ const FILE = 'file://' + PAGE;
     bars.filter((s) => s.clipped).length + ' clipped');
 
   // =========================================================================
-  // 3. THE LIBRARY
+  // 2. THE LIBRARY
   // =========================================================================
   await p.click('.portal-tab[data-view="learnings"]');
   await p.waitForTimeout(700);
@@ -315,7 +246,7 @@ const FILE = 'file://' + PAGE;
   await p.waitForTimeout(250);
 
   // =========================================================================
-  // 4. FROM A CARD INTO THE READER
+  // 3. FROM A CARD INTO THE READER
   // =========================================================================
   await p.click('#lrnGrid .lrn-card:nth-child(3)');
   await p.waitForTimeout(400);
@@ -339,6 +270,24 @@ const FILE = 'file://' + PAGE;
 
   check('and its preview in the frame, by the /preview address',
     /d3\/preview$/.test(reader.src), reader.src || '(no frame)');
+
+  // EVERY KIND DRAWS A DIFFERENT SHAPE. The tiles used to carry three
+  // letters, so "is a video marked as a video" was a string comparison.
+  // They are glyphs now, and the one way they can be wrong that matters is
+  // being the SAME glyph in a different colour - which is what a row of
+  // tinted page outlines would have been, and is no better than the letters
+  // it replaced. The signature is every shape's geometry in the tile.
+  const glyphOf = (sel) => p.evaluate((s) => {
+    const svg = document.querySelector(s + ' svg');
+    if (!svg) return '';
+    return Array.from(svg.children).map((n) =>
+      n.tagName + ':' + (n.getAttribute('d') || n.getAttribute('width') ||
+                         n.getAttribute('r') || '')).join('|');
+  }, sel);
+
+  const pdfGlyph = await glyphOf('#lrnDocIcon');
+  const pdfTint = await p.$eval('#lrnDocIcon',
+    (n) => getComputedStyle(n).backgroundColor);
 
   check('the meta line says where the document sits and how big it is',
     /MM/.test(reader.meta) && /RMG/.test(reader.meta) &&
@@ -376,7 +325,7 @@ const FILE = 'file://' + PAGE;
     /download$/.test(acts.dHref), acts.dHref);
 
   // =========================================================================
-  // 5. THE TREE, AND THE LIST BESIDE THE DOCUMENT
+  // 4. THE TREE, AND THE LIST BESIDE THE DOCUMENT
   // =========================================================================
   const tree = await p.$$eval('#lrnTree .lrn-folder, #lrnTree .lrn-sub', (ns) =>
     ns.map((n) => ({
@@ -450,7 +399,9 @@ const FILE = 'file://' + PAGE;
   const vid = await p.evaluate(() => ({
     title: document.getElementById('lrnDocTitle').textContent.trim(),
     kind: document.getElementById('lrnDocIcon').getAttribute('data-kind'),
+    // The accessible name, which is what somebody not seeing the glyph gets.
     mark: document.getElementById('lrnDocIcon').textContent.trim(),
+    tint: getComputedStyle(document.getElementById('lrnDocIcon')).backgroundColor,
     src: (document.querySelector('.lrn-frame') || {}).src || '',
     on: document.querySelectorAll('#lrnFiles .lrn-file.is-on').length,
     live: !document.getElementById('lrnOpen').classList.contains('is-off')
@@ -459,8 +410,49 @@ const FILE = 'file://' + PAGE;
   check('picking a file from the list opens it',
     vid.title === 'S4HANA Sales Overview' && vid.live, vid.title);
 
+  const vidGlyph = await glyphOf('#lrnDocIcon');
   check('a video is marked as a video, not drawn as another PDF',
-    vid.kind === 'video' && vid.mark === 'MP4', vid.kind + ' / ' + vid.mark);
+    vid.kind === 'video' && vid.mark === 'Video' &&
+    vidGlyph && pdfGlyph && vidGlyph !== pdfGlyph,
+    vid.kind + ' / "' + vid.mark + '" / glyph ' +
+      (vidGlyph === pdfGlyph ? 'IDENTICAL to the PDF' : 'its own'));
+
+  // A COLOUR PER FORMAT, AND NOT THE SAME ONE TWICE. Asserting only that
+  // the tile has SOME background passes on the plain white-ish default
+  // every .lrn-mark carries - so deleting the per-kind rules went through
+  // untouched. What matters is that two formats do not look alike.
+  const tints = await p.evaluate(() => {
+    const seen = {};
+    document.querySelectorAll('#lrnFiles .lrn-mark, #lrnDocIcon').forEach(function (n) {
+      const k = n.getAttribute('data-kind');
+      if (k && k !== 'none') seen[k] = getComputedStyle(n).backgroundColor;
+    });
+    return seen;
+  });
+  const vidTint = tints.video || vid.tint;
+  check('and wears its own colour, not the PDF red',
+    vidTint && vidTint !== pdfTint && vidTint !== 'rgba(0, 0, 0, 0)',
+    'video ' + vidTint + ' vs pdf ' + pdfTint);
+
+  // THE CARD AND THE READER HAVE TO AGREE ABOUT A FORMAT'S COLOUR. They
+  // were two separate sets of rules, and when the card palette was redrawn
+  // the reader's was left behind - so the same PDF was one red on a card
+  // and a different red in the pane, for two kinds out of seven. Nothing
+  // noticed, because every assertion looked at one surface or the other.
+  const sameTint = await p.evaluate(() => {
+    const out = {};
+    document.querySelectorAll('#lrnFiles .lrn-mark').forEach(function (n) {
+      const k = n.getAttribute('data-kind');
+      if (k) out[k] = getComputedStyle(n).backgroundColor;
+    });
+    const pane = document.getElementById('lrnDocIcon');
+    const kind = pane.getAttribute('data-kind');
+    return { kind: kind, card: out[kind] || '(no card of that kind)',
+             pane: getComputedStyle(pane).backgroundColor };
+  });
+  check('a format looks the same on a card as it does in the reader',
+    sameTint.card === sameTint.pane,
+    sameTint.kind + ': card ' + sameTint.card + ', pane ' + sameTint.pane);
 
   check('and exactly one row in the list is marked as the open one',
     vid.on === 1, vid.on + ' marked');
@@ -474,7 +466,7 @@ const FILE = 'file://' + PAGE;
     (await files()).join(' | '));
 
   // =========================================================================
-  // 6. BACK, AND WHAT SURVIVES IT
+  // 5. BACK, AND WHAT SURVIVES IT
   // =========================================================================
   await p.click('#lrnBack');
   await p.waitForTimeout(300);
@@ -494,7 +486,7 @@ const FILE = 'file://' + PAGE;
     (await cards()).length === 7, (await cards()).length + ' cards');
 
   // =========================================================================
-  // 7. IT LOOKS RIGHT, AND IT IS NOT CREAM
+  // 6. IT LOOKS RIGHT, AND IT IS NOT CREAM
   // =========================================================================
   const paint = await p.evaluate(() => {
     const card = document.querySelector('#lrnGrid .lrn-card');
@@ -520,8 +512,84 @@ const FILE = 'file://' + PAGE;
   check('the document cards are not the cream the team cards use',
     !(rgb[0] > 230 && rgb[1] > 230 && rgb[2] > 225), paint.bg);
 
-  check('they are a dark pane, so the white of a document reads against them',
-    rgb[0] < 90 && rgb[1] < 90 && rgb[2] < 110, paint.bg);
+  /*
+    THE TEXT ON A CARD HAS TO BE READABLE ON IT.
+
+    This replaced an assertion that the pane was simply DARK, which was
+    the wrong property twice over. It passed on the first build, where the
+    panes were so dark that a full library read as a grid of holes punched
+    in the page; and when they were lightened to fix that, the assertion
+    FAILED - on a change that made the page better. A test that fires on
+    an improvement is worse than no test.
+
+    What actually went wrong on that first build is that the module and
+    business tags - the thing the eye scans at 250 documents - were the
+    faintest marks on the card. So contrast is what is measured, by the
+    standard definition, against the worst backdrop the card can sit on.
+
+    WORST CASE IS THE LIGHTEST PART OF THE SKY, because the text is white:
+    light text loses contrast over a light backdrop, not a dark one. The
+    sky is a stack of radial gradients, so its stops are read out of the
+    computed background-image and the lightest is used.
+  */
+  const contrast = await p.evaluate(() => {
+    const num = (c) => (String(c).match(/[\d.]+/g) || []).map(Number);
+    const rgba = (c) => { const v = num(c);
+      return [v[0] || 0, v[1] || 0, v[2] || 0, v.length > 3 ? v[3] : 1]; };
+    // Painting a translucent colour onto an opaque one.
+    const over = (top, bot) => [0, 1, 2].map((i) =>
+      top[i] * top[3] + bot[i] * (1 - top[3]));
+    // WCAG relative luminance - sRGB has to be linearised first, which is
+    // why this is not an average of the three channels.
+    const lum = (c) => {
+      const f = (v) => { const x = v / 255;
+        return x <= 0.03928 ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4); };
+      return 0.2126 * f(c[0]) + 0.7152 * f(c[1]) + 0.0722 * f(c[2]);
+    };
+    const ratio = (a, b) => {
+      const [hi, lo] = lum(a) >= lum(b) ? [a, b] : [b, a];
+      return (lum(hi) + 0.05) / (lum(lo) + 0.05);
+    };
+
+    // Every colour stop in the sky, lightest first.
+    const sky = getComputedStyle(document.querySelector('.portal-sky'));
+    // OPAQUE STOPS ONLY, and the page surface is NOT a candidate. The
+    // sky's bottom layer is a solid gradient and it covers the whole page
+    // here, so the light surface under it is never behind a card. Including
+    // it put rgb(242,245,249) forward as the worst case and reported every
+    // piece of white text on the page as unreadable against a backdrop it
+    // never touches.
+    const stops = (sky.backgroundImage.match(/rgba?\([^)]+\)/g) || [])
+      .map(rgba).filter((c) => c[3] > 0.9);
+    const worst = stops.slice().sort((a, b) => lum(b) - lum(a))[0];
+
+    const card = document.querySelector('#lrnGrid .lrn-card');
+    const tag = card.querySelector('.lrn-tag:not(.is-type)');
+    const title = card.querySelector('.lrn-card-title');
+    const foot = card.querySelector('.lrn-card-foot span');
+
+    const surface = over(rgba(getComputedStyle(card).backgroundColor), worst);
+    const on = (el) => {
+      const cs = getComputedStyle(el);
+      const bg = rgba(cs.backgroundColor);
+      const under = bg[3] > 0 ? over(bg, surface) : surface;
+      return Math.round(ratio(over(rgba(cs.color), under), under) * 100) / 100;
+    };
+
+    return { tag: on(tag), title: on(title), foot: on(foot),
+             worst: worst.map(Math.round).join(',') };
+  });
+
+  // 4.5 is the standard threshold for ordinary text; the title is large
+  // and bold, where 3 is the usual allowance, but it should clear 4.5
+  // comfortably and there is no reason to let it off.
+  check('the module and business tags are readable on a card',
+    contrast.tag >= 4.5, contrast.tag + ':1 over the lightest sky (' +
+      contrast.worst + ')');
+
+  check('and so are the title and the size and date under it',
+    contrast.title >= 4.5 && contrast.foot >= 4.5,
+    'title ' + contrast.title + ':1, footer ' + contrast.foot + ':1');
 
   // A type tag with no colour means the accent system is not wired up -
   // which is invisible unless something measures it.
@@ -593,7 +661,7 @@ const FILE = 'file://' + PAGE;
   await p.waitForTimeout(250);
 
   // =========================================================================
-  // 8. NOTHING THREW
+  // 7. NOTHING THREW
   // =========================================================================
   check('no uncaught error anywhere in the run',
     errors.length === 0, errors.slice(0, 3).join(' | ') || 'clean');

@@ -676,16 +676,6 @@ const CONFIG = {
     MAX_DEPTH: 4
   },
 
-  /**
-   * The address for all of EAS, and the one the header already carries.
-   *
-   * Written here as well so the front page strip can lead with it without
-   * Portal.html and App.html each holding their own copy of the string.
-   */
-  DEPARTMENT_MAIL: {
-    name: 'All of EAS',
-    address: 'eas@tekvision.com.bd'
-  },
 
   /**
    * THE ABOUT US PAGE - the team's portfolio, off the EAS slide deck.
@@ -1619,40 +1609,6 @@ function getSpreadsheetId() {
  *
  * @return {Array<{name: string, url: string, hero: string, row: number}>}
  */
-/**
- * The group mailboxes, each one once, for the strip on the front page.
- *
- * DEDUPED BY ADDRESS, because CONFIG.SECTION_MAIL is a match table and not
- * a list: Sales & Customer Applications is in it twice so that either word
- * finds it, and printing the entries straight out would put that mailbox on
- * the page twice under the same name.
- *
- * The department address leads, because it is the one that reaches
- * everybody and the four below it are narrowings of it.
- *
- * @return {Array<{name: string, address: string, all: boolean}>}
- */
-function sectionMails() {
-  const all = CONFIG.DEPARTMENT_MAIL || null;
-  const out = all
-    ? [{ name: all.name, address: all.address, all: true }]
-    : [];
-
-  const seen = {};
-  if (all) seen[String(all.address).toLowerCase()] = true;
-
-  (CONFIG.SECTION_MAIL || []).forEach(function (entry) {
-    if (!entry || !entry.address) return;
-    const key = String(entry.address).toLowerCase();
-    if (seen[key]) return;
-    seen[key] = true;
-    out.push({ name: entry.name, address: entry.address, all: false });
-  });
-
-  return out;
-}
-
-
 /**
  * The mailbox for one section, found by what the section is called.
  *

@@ -1118,6 +1118,23 @@
         <div class="card card-blue">
           <div class="card-head" data-report="settingsTable">
             KPI thresholds
+            <!--
+              THE POLICY ITSELF, beside the heading of the table it defines.
+
+              It used to be a document CODE at the far right of this bar -
+              "TVL-KPI-001 v1.0" - which is the one string on the screen
+              that means nothing to anybody who has not read the document
+              it names. The document's own title does, so that is what the
+              button says now, and it sits beside the heading because the
+              answer to "where do these targets come from" belongs next to
+              the targets rather than at the opposite end of the bar.
+
+              Filled in by renderKpiTable(). Hidden until there is an
+              address to open, because a document button that opens
+              nothing teaches people not to press document buttons.
+            -->
+            <a class="head-doc-main" id="kpiPolicyDoc"
+               target="_blank" rel="noopener noreferrer" hidden></a>
             <span class="head-note" id="kpiTableNote"></span>
           </div>
           <div class="table-wrap">
@@ -1655,16 +1672,12 @@
   window.__EAS_SERVICE_LEVELS__ = <?!= jsonAscii(CONFIG.SERVICE_LEVELS) ?>;
   window.__EAS_SLA__ = <?!= jsonAscii(CONFIG.SLA) ?>;
 
-  // The section group mailboxes, twice over, because the two screens that
-  // show them need different things.
-  //
-  // The FIRST is the finished list for the strip on the front page: each
-  // mailbox once, department first. The SECOND is the match table behind
-  // it, because the organogram's columns come from the TEAM tab and their
-  // names are not known until that sheet has been read - so the browser has
-  // to do the same substring walk the server would have done. See
-  // sectionMailFor() in both Config.gs and App.html.
-  window.__EAS_MAILS__ = <?!= jsonAscii(sectionMails()) ?>;
+  // The section group mailboxes, as a MATCH TABLE rather than a finished
+  // list. The organogram is the one screen that shows them, and its columns
+  // come from the TEAM tab - so the section names needing an address are
+  // not known until that sheet has been read, and the browser has to do the
+  // same substring walk the server would have done. See sectionMailFor() in
+  // both Config.gs and App.html.
   window.__EAS_MAIL_TABLE__ = <?!= jsonAscii(sectionMailTable()) ?>;
 </script>
 

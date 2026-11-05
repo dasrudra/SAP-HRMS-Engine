@@ -469,89 +469,6 @@
   */
   .portal-hero-actions.is-more { margin-top: 12px; }
 
-  /* =======================
-     the group mailboxes, under the buttons on the front page
-     =======================
-
-     FIVE CHIPS IN ONE CENTRED ROW, the department first and the four
-     sections after it. A grid of five equal columns was the first try and
-     it was wrong: the five names are 10 to 31 characters long, so equal
-     columns means three chips with a hole in them and two that are tight.
-     Flex with wrap lets each chip be as wide as its contents and lets the
-     row break where it naturally should on a narrow screen.
-
-     The department chip carries the accent border, the others do not. One
-     of the five reaches everybody and four of them do not, and that is the
-     only difference worth drawing; giving each section its own colour here
-     would set up a colour code that nothing else on the front page uses.
-  */
-  .portal-mails {
-    display: flex; flex-wrap: wrap; justify-content: center;
-    gap: 8px; margin-top: 18px;
-  }
-  .portal-mailchip {
-    display: flex; align-items: center; gap: 9px;
-    padding: 7px 13px 7px 10px;
-    border-radius: 11px;
-    border: 1px solid rgba(255, 255, 255, .17);
-    background: rgba(255, 255, 255, .07);
-    -webkit-backdrop-filter: blur(14px) saturate(150%);
-    backdrop-filter: blur(14px) saturate(150%);
-    text-decoration: none; color: #fff;
-    transition: transform .18s ease, background .18s ease,
-                border-color .18s ease, box-shadow .18s ease;
-  }
-  .portal-mailchip-mark {
-    display: grid; place-items: center;
-    width: 26px; height: 26px; flex: none;
-    border-radius: 8px;
-    background: rgba(255, 255, 255, .12);
-    color: rgba(255, 255, 255, .85);
-  }
-  .portal-mailchip-who {
-    display: flex; flex-direction: column; align-items: flex-start; gap: 1px;
-    min-width: 0;
-  }
-  /*
-    The NAME is the label and the address is the detail under it. Four
-    aliases reading sca / scua / ma / fa are four strings nobody can tell
-    apart at a glance; the section's name is what somebody is actually
-    looking for.
-  */
-  .portal-mailchip-who strong {
-    font-size: 11.5px; font-weight: 700; line-height: 1.25;
-    letter-spacing: .005em; color: #fff; white-space: nowrap;
-  }
-  .portal-mailchip-who span {
-    font-size: 10.5px; font-weight: 500; line-height: 1.25;
-    color: rgba(255, 255, 255, .62); white-space: nowrap;
-  }
-  .portal-mailchip:hover {
-    transform: translateY(-2px);
-    background: rgba(255, 255, 255, .12);
-    border-color: rgba(255, 255, 255, .3);
-    box-shadow: 0 10px 24px rgba(2, 10, 32, .34);
-  }
-  .portal-mailchip:hover .portal-mailchip-who span { color: rgba(255, 255, 255, .8); }
-
-  .portal-mailchip.is-all {
-    border-color: rgba(76, 201, 240, .46);
-    background: rgba(76, 201, 240, .11);
-  }
-  .portal-mailchip.is-all .portal-mailchip-mark {
-    background: rgba(76, 201, 240, .22); color: #bdeaff;
-  }
-  .portal-mailchip.is-all:hover {
-    border-color: rgba(76, 201, 240, .7);
-    background: rgba(76, 201, 240, .17);
-    box-shadow: 0 10px 26px rgba(76, 201, 240, .22);
-  }
-
-  @media (max-width: 760px) {
-    .portal-mails { gap: 7px; margin-top: 14px; }
-    .portal-mailchip { padding: 6px 11px 6px 8px; }
-  }
-
   /*
     Both hero buttons wear this, and one of them is an anchor because it
     leaves the app.
@@ -658,58 +575,13 @@
     on this page that can be given up without the page looking squeezed,
     because at 50px it is already shouting.
   */
-  /*
-    899px WAS THE WRONG CEILING ONCE THE MAILBOX STRIP WENT IN.
-
-    The strip is 45px tall plus its margin - about 63px of new weight in the
-    hero - and the page had roughly 27px of room to spare at 900. So every
-    screen between 900 and about 1050 ran the bottom row of cards off the
-    fold, which is most laptops: a 1080-tall screen gives a browser about
-    950 of viewport once its chrome is taken off.
-
-    Raised to 1049 and the strip compressed inside it, rather than making
-    the strip smaller everywhere - on a tall screen there is room for it at
-    full size and no reason to shrink it.
-  */
-  @media (min-width: 1100px) and (max-height: 1049px) {
-    .portal-hero { padding-top: 6px; }
+  @media (min-width: 1100px) and (max-height: 899px) {
+    .portal-hero { padding-top: 10px; }
     .portal-hero-title { font-size: 37px; margin-bottom: 8px; }
     .portal-hero-sub { margin-bottom: 10px; font-size: 15px; line-height: 1.55; }
     .portal-hero-actions.is-more { margin-top: 10px; }
-    .portal-tiles { margin-top: 13px; }
-    .ptile { padding: 9px 15px 9px; }
-
-    .portal-mails { margin-top: 10px; gap: 7px; }
-    .portal-mailchip { padding: 5px 11px 5px 7px; }
-    .portal-mailchip-mark { width: 22px; height: 22px; border-radius: 7px; }
-    .portal-mailchip-who strong { font-size: 11px; }
-    .portal-mailchip-who span { font-size: 10px; }
-  }
-
-  /*
-    A SECOND, TIGHTER TIER for the genuinely short screens - a 1366x768
-    laptop, or a 900-tall screen with a bookmarks bar. The tier above gets
-    a 1080 screen to fit; this one gets the rest, and it is the last of the
-    room there is. Below this the page scrolls, which is the right answer:
-    squeezing the headline any further would make the front page look
-    cramped rather than composed.
-  */
-  @media (min-width: 1100px) and (max-height: 899px) {
-    .portal-hero { padding-top: 2px; }
-    .portal-hero-title { font-size: 31px; margin-bottom: 6px; }
-    .portal-hero-sub { margin-bottom: 8px; font-size: 14.5px; line-height: 1.5; }
-    .portal-mails { margin-top: 5px; gap: 6px; }
-    .portal-mailchip { padding: 4px 10px 4px 7px; }
-    .portal-tiles { margin-top: 7px; }
-    /*
-      Two pixels off each end of the buttons. Worth saying why rather than
-      leaving it as a magic number: at 1440x860 the page cleared the fold
-      by ONE pixel without this, and one pixel is not a margin - it is the
-      difference between two machines rendering the same font slightly
-      differently. These two lines buy about nine.
-    */
-    .portal-cta { padding: 11px 24px; }
-    .portal-hero-sub { margin-bottom: 6px; }
+    .portal-tiles { margin-top: 16px; }
+    .ptile { padding: 10px 15px 10px; }
   }
 
   .ptile-compare { grid-column: 1; grid-row: 1 / span 2; }
@@ -2351,13 +2223,44 @@
      thing on every screen.
   */
   #view-learnings {
-    --lrn-pane: rgba(8, 19, 46, .52);
-    --lrn-edge: rgba(255, 255, 255, .12);
-    --lrn-edge-lit: rgba(255, 255, 255, .26);
-    --lrn-raise: rgba(255, 255, 255, .055);
-    --lrn-text: rgba(255, 255, 255, .92);
-    --lrn-dim: rgba(255, 255, 255, .58);
-    --lrn-faint: rgba(255, 255, 255, .4);
+    /*
+      LIFTED OFF THE SKY, not sunk into it.
+
+      The first pass set the panes at 52% of a near-black navy, which on a
+      screenshot of a full library read as a grid of holes: the cards were
+      DARKER than the background they sat on, so the page looked like
+      punched card stock rather than like paper on a desk. A surface that
+      holds something should catch more light than the thing behind it.
+
+      So the pane is now a lighter blue at lower opacity, which lifts it
+      clear of the sky at every point of the gradient, and the three text
+      levels below it were all raised a notch with it - at 250 documents
+      the module and business tags are what the eye actually scans, and at
+      58% white on a dark pane they were the faintest thing on the card.
+    */
+    --lrn-pane: rgba(32, 58, 112, .42);
+    --lrn-pane-lit: rgba(44, 74, 134, .54);
+    --lrn-edge: rgba(255, 255, 255, .17);
+    --lrn-edge-lit: rgba(255, 255, 255, .34);
+    --lrn-raise: rgba(255, 255, 255, .07);
+    /*
+      THESE THREE ARE SET BY MEASUREMENT, not by eye.
+
+      Every one of them is white at some opacity over a translucent pane
+      over the sky, and the sky is a stack of radial gradients - so what a
+      reader actually sees depends on where on the page the card happens to
+      sit. Picking these by looking at one screenshot is picking them for
+      one spot.
+
+      So they are chosen to clear a 4.5:1 contrast ratio against the
+      LIGHTEST point of the sky, which for white text is the worst case,
+      and learn-ui-test measures exactly that. .72 and .55 were the first
+      guesses and came out at 4.30 and 4.05 - close enough to look fine in
+      the middle of the page and not fine at the top left.
+    */
+    --lrn-text: rgba(255, 255, 255, .95);
+    --lrn-dim: rgba(255, 255, 255, .80);
+    --lrn-faint: rgba(255, 255, 255, .65);
     max-width: 1340px;
   }
 
@@ -2583,18 +2486,35 @@
   */
   .lrn-mark {
     display: grid; place-items: center; flex: none;
-    width: 38px; height: 38px; border-radius: 10px;
-    background: rgba(255, 255, 255, .1);
-    border: 1px solid rgba(255, 255, 255, .13);
-    font-size: 9.5px; font-weight: 800; letter-spacing: .06em;
-    color: rgba(255, 255, 255, .82);
+    width: 38px; height: 38px; border-radius: 11px;
+    background: rgba(255, 255, 255, .11);
+    border: 1px solid rgba(255, 255, 255, .16);
+    color: rgba(255, 255, 255, .88);
     grid-row: span 2;
   }
-  .lrn-mark[data-kind="pdf"]   { background: rgba(240, 90, 80, .22);  color: #ffc7c2; border-color: rgba(240, 90, 80, .32); }
-  .lrn-mark[data-kind="video"] { background: rgba(240, 160, 76, .22); color: #ffdcb0; border-color: rgba(240, 160, 76, .32); }
-  .lrn-mark[data-kind="slide"] { background: rgba(240, 130, 76, .2);  color: #ffd2b4; border-color: rgba(240, 130, 76, .3); }
-  .lrn-mark[data-kind="sheet"] { background: rgba(54, 211, 153, .2);  color: #b4f0d8; border-color: rgba(54, 211, 153, .3); }
-  .lrn-mark[data-kind="doc"]   { background: rgba(91, 156, 248, .2);  color: #c6ddff; border-color: rgba(91, 156, 248, .3); }
+  /*
+    A COLOUR PER FORMAT, at the strength the format is recognised by. Red
+    for a PDF and orange for a deck are not decoration - they are the half
+    of the recognition that happens before anybody reads anything, which
+    is the whole reason these are drawings now and not the letters PDF and
+    PPT. The tint is carried by the tile and the stroke colour together,
+    so the glyph reads at 19px without a fill.
+  */
+  .lrn-mark[data-kind="pdf"], .lrn-pane-icon[data-kind="pdf"]   { background: rgba(229, 72, 77, .26);   color: #ffb3ae; border-color: rgba(229, 72, 77, .42); }
+  .lrn-mark[data-kind="slide"], .lrn-pane-icon[data-kind="slide"] { background: rgba(242, 116, 13, .26);  color: #ffc48a; border-color: rgba(242, 116, 13, .42); }
+  .lrn-mark[data-kind="sheet"], .lrn-pane-icon[data-kind="sheet"] { background: rgba(34, 183, 120, .24);  color: #87e9bc; border-color: rgba(34, 183, 120, .4); }
+  .lrn-mark[data-kind="doc"], .lrn-pane-icon[data-kind="doc"]   { background: rgba(72, 140, 248, .26);  color: #a8caff; border-color: rgba(72, 140, 248, .42); }
+  .lrn-mark[data-kind="video"], .lrn-pane-icon[data-kind="video"] { background: rgba(245, 170, 20, .26);  color: #ffd681; border-color: rgba(245, 170, 20, .42); }
+  .lrn-mark[data-kind="image"], .lrn-pane-icon[data-kind="image"] { background: rgba(167, 123, 248, .26); color: #d3bcff; border-color: rgba(167, 123, 248, .42); }
+
+  /*
+    Named for a screen reader and for nobody else. Not display:none, which
+    takes it out of the accessibility tree along with everything else.
+  */
+  .sr-only {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+  }
 
   .lrn-card-body { min-width: 0; }
   .lrn-card-title {
@@ -2613,8 +2533,8 @@
   .lrn-card-tags { display: flex; flex-wrap: wrap; gap: 5px; }
   .lrn-tag {
     padding: 2.5px 8px; border-radius: 6px;
-    background: rgba(255, 255, 255, .085);
-    border: 1px solid rgba(255, 255, 255, .1);
+    background: rgba(255, 255, 255, .13);
+    border: 1px solid rgba(255, 255, 255, .17);
     font-size: 10px; font-weight: 700; letter-spacing: .03em;
     color: var(--lrn-dim); white-space: nowrap;
   }
@@ -2776,9 +2696,22 @@
     font-size: 10px; font-weight: 800; letter-spacing: .06em;
     color: rgba(255, 255, 255, .8);
   }
-  .lrn-pane-icon[data-kind="pdf"]   { background: rgba(240, 90, 80, .22);  color: #ffc7c2; }
-  .lrn-pane-icon[data-kind="video"] { background: rgba(240, 160, 76, .22); color: #ffdcb0; }
-  .lrn-pane-icon[data-kind="none"]  { background: rgba(255, 255, 255, .05); }
+  /*
+    THE PANE'S TILE TAKES ITS COLOUR FROM THE SAME PLACE THE CARDS DO.
+
+    It used to carry its own pair of rules for pdf and video, written when
+    the tiles were lettered, and they were quietly left behind when the
+    card palette was redrawn - so the same PDF was one red on a card and a
+    different red in the reader, and only for two of the seven kinds. The
+    per-kind colours are declared once now, on both selectors together;
+    see the .lrn-mark block above.
+
+    `none` is the pane's alone: a card always has a file, and only the
+    reader has a tile with nothing open in it.
+  */
+  .lrn-pane-icon[data-kind="none"] {
+    background: rgba(255, 255, 255, .05); border-color: rgba(255, 255, 255, .1);
+  }
   .lrn-pane-who {
     display: flex; flex-direction: column; gap: 3px; flex: 1; min-width: 0;
   }
@@ -2959,9 +2892,8 @@
     .pillar, .zone, .plant { transition: box-shadow .2s ease, background .2s ease; }
     .pillar:hover, .zone:hover, .plant:hover { transform: none; }
 
-    /* The same bargain on the Learnings screen and the mailbox chips. */
-    .lrn-card:hover, .lrn-chip:hover, .lrn-btn:hover,
-    .portal-mailchip:hover { transform: none; }
+    /* The same bargain on the Learnings screen. */
+    .lrn-card:hover, .lrn-chip:hover, .lrn-btn:hover { transform: none; }
   }
 
 </style>

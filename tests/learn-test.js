@@ -763,30 +763,28 @@ check('shareLearnFiles says in plain words who can then read the documents',
 // ===========================================================================
 // 14. the section mailboxes
 // ===========================================================================
-const mails = ctx.sectionMails();
+// THE ORGANOGRAM IS THE ONLY PLACE THESE ARE SHOWN. There was a strip of
+// five on the front page as well and it has gone, so the browser is handed
+// the match table and nothing else - see sectionMailTable().
+const table = ctx.sectionMailTable();
 
-check('the strip leads with the department address',
-  mails[0].address === 'eas@tekvision.com.bd' && mails[0].all === true,
-  mails[0].address);
+check('the four aliases are all in the table',
+  ['sca.eas@tekvision.com.bd', 'scua.eas@tekvision.com.bd',
+   'ma.eas@tekvision.com.bd', 'fa.eas@tekvision.com.bd']
+    .every((a) => table.some((e) => e.address === a)),
+  table.map((e) => e.address).join(' '));
 
-check('and carries the four section aliases after it',
-  mails.length === 5 &&
-  mails.slice(1).map((m) => m.address).join(' ') ===
-    'sca.eas@tekvision.com.bd scua.eas@tekvision.com.bd ' +
-    'ma.eas@tekvision.com.bd fa.eas@tekvision.com.bd',
-  mails.map((m) => m.address).join(' '));
+check('each carries the display name from the announcement',
+  table.filter((e) => e.address === 'scua.eas@tekvision.com.bd')
+       .every((e) => e.name === 'Sales & Customer Applications'),
+  table.map((e) => e.name).filter((v, i, a) => a.indexOf(v) === i).join(' | '));
 
-// Sales & Customer Applications is in the table twice so that either word
-// finds it. The strip must not print it twice.
-check('no mailbox appears twice, although the match table lists one twice',
-  mails.length === new Set(mails.map((m) => m.address)).size,
-  mails.length + ' entries, ' + new Set(mails.map((m) => m.address)).size + ' distinct');
-
-check('every chip carries the display name from the announcement',
-  mails.slice(1).map((m) => m.name).join(' | ') ===
-    'Supply Chain Applications | Sales & Customer Applications | ' +
-    'Manufacturing Applications | Financial Applications',
-  mails.slice(1).map((m) => m.name).join(' | '));
+// Four sections, five rows: Sales & Customer Applications is listed twice
+// so that either 'sales' or 'customer' finds it.
+check('no section resolves to a mailbox belonging to another section',
+  new Set(table.map((e) => e.address)).size === 4,
+  new Set(table.map((e) => e.address)).size + ' distinct addresses in ' +
+    table.length + ' rows');
 
 // The organogram's section names come from the TEAM tab, which spells two of
 // them differently from CONFIG.ROSTER and differently again from CONFIG.ORG.
