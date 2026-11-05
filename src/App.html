@@ -116,7 +116,15 @@
     wireSetup();
     wireSignupSwitch();
     wireMessenger();
+    wireLearn();
     watchActivity();
+
+    // The group mailboxes on the front page. Drawn at boot rather than on
+    // the home view, because the markup they go into is in the page from
+    // the start and the list is a constant on window - there is nothing to
+    // wait for, and drawing it per visit means the front page is briefly
+    // missing a block somebody is already looking at.
+    renderMails();
 
     // Find the token before anything is asked of the server, since every call
     // carries it. Reading it is asynchronous, so the session check waits.
@@ -1640,6 +1648,12 @@
     if (name === 'about') renderAbout();
     if (name === 'partners') renderPartners();
     if (name === 'home') renderServiceLayers();
+
+    // The library, when somebody opens the page that shows it. Guarded on
+    // LEARN.lib inside loadLearning, so tabbing back and forth costs
+    // nothing - and so the document somebody had open is still open when
+    // they come back to it.
+    if (name === 'learnings') loadLearning();
 
     // The dots are only drawn on one page, so only one page pays for keeping
     // them current. stopTeamPresence() is idempotent, which is what lets this
@@ -6278,10 +6292,35 @@
         '</div>';
       }).join('');
 
+      // THE SECTION'S GROUP MAILBOX, under the bar that names it.
+      //
+      // On the bar rather than on a card, because it belongs to the
+      // section and not to the person heading it - the whole point of the
+      // alias is that it keeps working when the head changes. An anchor,
+      // so it opens a message; mailto and not a copy button, because the
+      // thing somebody wants at that moment is a message to that section.
+      //
+      // A section with no alias gets no line at all. Falling back to the
+      // department address would invite people to write to all of EAS
+      // about one section's work, which is what the four aliases were
+      // created to stop.
+      const mail = sectionMailFor(section.name);
+      const mailLine = mail
+        ? '<a class="og-section-mail" href="mailto:' +
+            escapeHtml(mail.address) + '" title="' +
+            escapeHtml(mail.name) + '">' +
+            mailIcon(11) +
+            '<span>' + escapeHtml(mail.address) + '</span>' +
+          '</a>'
+        : '';
+
       return '<div class="og-col" data-accent="' + (index % 4) + '">' +
-        '<div class="og-section">' +
-          '<span class="og-section-name">' + escapeHtml(section.name) + '</span>' +
-          '<span class="og-section-count">' + inSection.length + '</span>' +
+        '<div class="og-section' + (mailLine ? ' has-mail' : '') + '">' +
+          '<span class="og-section-top">' +
+            '<span class="og-section-name">' + escapeHtml(section.name) + '</span>' +
+            '<span class="og-section-count">' + inSection.length + '</span>' +
+          '</span>' +
+          mailLine +
         '</div>' +
         '<div class="og-modules">' + groups + '</div>' +
       '</div>';
@@ -6858,6 +6897,691 @@
              'title="' + escapeHtml(link.name) + ' - opens in a new tab">' +
              escapeHtml(link.hero) + '</a>';
     }).join('');
+  }
+
+
+  // =========================================================================
+  // LEARNINGS
+  // =========================================================================
+  //
+  // Two screens over one list of documents.
+  //
+  //   THE LIBRARY  every document as a card, with a search box and filter
+  //                chips over the top. No folders. Somebody who knows the
+  //                document exists finds it by typing a word from its name.
+  //
+  //   THE READER   the folder tree, the files in the chosen folder, and the
+  //                document itself. Somebody who does not know what exists
+  //                walks the tree, and somebody who arrived from the library
+  //                lands here with their document already open.
+  //
+  // ONE FETCH SERVES BOTH, and the filtering is all done in the browser.
+  // The library is a few hundred rows at the very most - this is a team's
+  // SOPs, not a document management system - so sending it once and
+  // filtering an array is both faster and simpler than a server call per
+  // keystroke.
+  //
+  // NOT A SINGLE BYTE OF ANY DOCUMENT COMES THROUGH THIS PAGE. Drive serves
+  // the file, in an iframe for the preview and in a new tab for the full
+  // thing. The largest document in the library is 27MB; Apps Script would
+  // be a bad way to move that and a worse way to move it twice.
+
+  /** Which document is open, which folder is picked, what is typed. */
+  const LEARN = {
+    lib: null,
+    // The library's chips. '' means the chip is off.
+    type: '', module: '', biz: '', q: '',
+    // The reader's tree. module '' is All documents.
+    pickModule: '', pickBiz: '', pickType: '',
+    docId: ''
+  };
+
+
+  function loadLearning() {
+    if (LEARN.lib) { renderLearn(LEARN.lib); return; }
+
+    const grid = document.getElementById('lrnGrid');
+    if (grid) grid.innerHTML = '<div class="lrn-wait">Reading the library...</div>';
+
+    callServer('getLearning')
+      .then(function (lib) { LEARN.lib = lib; renderLearn(lib); })
+      .catch(function (err) {
+        if (grid) {
+          grid.innerHTML = '<div class="portal-empty"><h2>The library ' +
+            'could not be read</h2><p>' + escapeHtml(String(err && err.message || err)) +
+            '</p></div>';
+        }
+        onError(err);
+      });
+  }
+
+
+  /**
+   * The accent a type is badged with, as a number the stylesheet knows.
+   *
+   * Falls back to 3 rather than 0 for a type the server did not send:
+   * accent 0 is the one SOP uses, and an unknown type wearing SOP's colour
+   * is a worse lie than an unknown type wearing the neutral one.
+   */
+  function learnAccent(typeName) {
+    const types = (LEARN.lib && LEARN.lib.types) || [];
+    for (let i = 0; i < types.length; i++) {
+      if (types[i].name === typeName) return types[i].accent;
+    }
+    return 3;
+  }
+
+
+  /** The little square on a card, lettered by what the file is. */
+  function learnIcon(kind) {
+    const label = { pdf: 'PDF', video: 'MP4', slide: 'PPT', sheet: 'XLS',
+                    doc: 'DOC', image: 'IMG' }[kind] || 'FILE';
+    return '<span class="lrn-mark" data-kind="' + escapeHtml(kind) + '">' +
+      escapeHtml(label) + '</span>';
+  }
+
+
+  /** Every document, or the ones the chips and the search box allow. */
+  function learnVisible() {
+    const docs = (LEARN.lib && LEARN.lib.docs) || [];
+    const q = LEARN.q.trim().toLowerCase();
+
+    return docs.filter(function (d) {
+      if (LEARN.type && d.type !== LEARN.type) return false;
+      if (LEARN.module && d.module !== LEARN.module) return false;
+      if (LEARN.biz && d.business !== LEARN.biz) return false;
+      if (!q) return true;
+
+      // Searched across the title, the type and the folder, not the title
+      // alone. "mm rmg" should find the MM/RMG documents, and typing
+      // "guideline" should narrow to the guidelines - both are things
+      // somebody will try, and both fail against a title-only search.
+      return (d.title + ' ' + d.type + ' ' + d.module + ' ' +
+              d.business + ' ' + d.path).toLowerCase().indexOf(q) !== -1;
+    });
+  }
+
+
+  function renderLearn(lib) {
+    if (!lib || !lib.filled || !lib.count) {
+      renderLearnEmpty(lib);
+      return;
+    }
+    renderLearnStats(lib);
+    renderLearnChips(lib);
+    renderLearnGrid();
+    renderLearnTree();
+  }
+
+
+  /**
+   * What the page says before anybody has run the scan.
+   *
+   * Named steps and not an apology. The person who sees this is the person
+   * who can fix it, and what they need is the two commands in order.
+   */
+  function renderLearnEmpty(lib) {
+    const grid = document.getElementById('lrnGrid');
+    if (!grid) return;
+
+    const stats = document.getElementById('lrnStats');
+    if (stats) stats.innerHTML = '';
+    const chips = document.getElementById('lrnChips');
+    if (chips) chips.innerHTML = '';
+
+    grid.innerHTML =
+      '<div class="portal-empty"><h2>The library has not been scanned yet</h2>' +
+      '<p>The documents live in a Drive folder and the page reads an index ' +
+      'of it. In the Apps Script editor, run <b>scanLearnFolder</b> and then ' +
+      '<b>shareLearnFiles</b>' +
+      (lib && lib.filled ? '' : ', after setting the <b>LEARN_FOLDER</b> ' +
+       'script property to the folder address') +
+      '.</p></div>';
+  }
+
+
+  function renderLearnStats(lib) {
+    const box = document.getElementById('lrnStats');
+    if (!box) return;
+
+    const modules = {};
+    lib.docs.forEach(function (d) { if (d.module) modules[d.module] = true; });
+
+    const tiles = [
+      { n: lib.count, label: 'Documents' },
+      { n: Object.keys(modules).length, label: 'Modules' },
+      { n: lib.quarter, label: 'This quarter' }
+    ];
+
+    box.innerHTML = tiles.map(function (t) {
+      return '<span class="lrn-stat"><strong>' + t.n + '</strong>' +
+        '<span>' + escapeHtml(t.label) + '</span></span>';
+    }).join('');
+  }
+
+
+  /**
+   * The filter chips: All, then the types, then the modules, then MG/RMG.
+   *
+   * COUNTS ARE OVER THE WHOLE LIBRARY and do not move as other chips are
+   * pressed. Counts that recalculate against the current filter are more
+   * clever and much worse: every chip's number changes every time any chip
+   * is pressed, so the row flickers and none of the numbers mean anything
+   * stable. These answer "how many SOPs are there", which is the question
+   * a number on a chip is read as.
+   */
+  function renderLearnChips(lib) {
+    const box = document.getElementById('lrnChips');
+    if (!box) return;
+
+    const count = function (field, value) {
+      return lib.docs.filter(function (d) { return d[field] === value; }).length;
+    };
+
+    const chip = function (group, value, label, n, accent) {
+      const on = LEARN[group] === value;
+      return '<button class="lrn-chip' + (on ? ' is-on' : '') + '" ' +
+        'type="button" data-group="' + group + '" ' +
+        'data-value="' + escapeHtml(value) + '"' +
+        (accent === undefined ? '' : ' data-accent="' + accent + '"') +
+        ' aria-pressed="' + (on ? 'true' : 'false') + '">' +
+        escapeHtml(label) +
+        (n === null ? '' : '<span class="lrn-chip-n">' + n + '</span>') +
+      '</button>';
+    };
+
+    const none = !LEARN.type && !LEARN.module && !LEARN.biz;
+
+    let html = '<button class="lrn-chip is-all' + (none ? ' is-on' : '') +
+      '" type="button" data-group="all" data-value="" aria-pressed="' +
+      (none ? 'true' : 'false') + '">All<span class="lrn-chip-n">' +
+      lib.count + '</span></button>';
+
+    html += '<span class="lrn-chip-gap" aria-hidden="true"></span>';
+    (lib.types || []).forEach(function (t) {
+      const n = count('type', t.name);
+      // A type nothing in the folder uses gets no chip. The vocabulary is
+      // CONFIG's and the library is the folder's; a Training chip reading
+      // 0 says the page is broken rather than that nobody has written one.
+      if (n) html += chip('type', t.name, t.name, n, t.accent);
+    });
+
+    html += '<span class="lrn-chip-gap" aria-hidden="true"></span>';
+    (lib.modules || []).forEach(function (m) {
+      const n = count('module', m.name);
+      if (n) html += chip('module', m.name, m.name, n, m.accent);
+    });
+
+    html += '<span class="lrn-chip-gap" aria-hidden="true"></span>';
+    (lib.businesses || []).forEach(function (b) {
+      const n = count('business', b);
+      if (n) html += chip('biz', b, b, n);
+    });
+
+    box.innerHTML = html;
+  }
+
+
+  function renderLearnGrid() {
+    const grid = document.getElementById('lrnGrid');
+    if (!grid) return;
+
+    const docs = learnVisible();
+    const lib = LEARN.lib;
+
+    // "38 of 48", and only when it is not all of them. A count that always
+    // reads "48 of 48" is a number somebody stops reading.
+    const tally = document.getElementById('lrnCount');
+    if (tally) {
+      if (docs.length === lib.count) {
+        tally.hidden = true;
+      } else {
+        tally.textContent = docs.length + ' of ' + lib.count;
+        tally.hidden = false;
+      }
+    }
+
+    if (!docs.length) {
+      grid.innerHTML = '<div class="lrn-none"><strong>Nothing matches</strong>' +
+        '<span>Try a different word, or clear the filters with <b>All</b>.</span>' +
+        '</div>';
+      return;
+    }
+
+    grid.innerHTML = docs.map(function (d) {
+      return '<button class="lrn-card" type="button" data-id="' +
+          escapeHtml(d.id) + '" data-accent="' + learnAccent(d.type) + '">' +
+        learnIcon(d.kind) +
+        '<span class="lrn-card-body">' +
+          '<strong class="lrn-card-title">' + escapeHtml(d.title) + '</strong>' +
+          '<span class="lrn-card-tags">' +
+            '<span class="lrn-tag is-type">' + escapeHtml(d.type) + '</span>' +
+            (d.module ? '<span class="lrn-tag">' + escapeHtml(d.module) + '</span>' : '') +
+            (d.business ? '<span class="lrn-tag">' + escapeHtml(d.business) + '</span>' : '') +
+          '</span>' +
+        '</span>' +
+        '<span class="lrn-card-foot">' +
+          '<span>' + escapeHtml(d.size || '') + '</span>' +
+          '<span>' + escapeHtml(d.updated || '') + '</span>' +
+        '</span>' +
+      '</button>';
+    }).join('');
+  }
+
+
+  // ---- the reader -------------------------------------------------------
+
+  /** The documents the reader's chosen folder holds. */
+  function learnInFolder() {
+    const docs = (LEARN.lib && LEARN.lib.docs) || [];
+    return docs.filter(function (d) {
+      if (LEARN.pickType) return d.type === LEARN.pickType;
+      if (LEARN.pickModule && d.module !== LEARN.pickModule) return false;
+      if (LEARN.pickBiz && d.business !== LEARN.pickBiz) return false;
+      return true;
+    });
+  }
+
+
+  function renderLearnTree() {
+    const tree = document.getElementById('lrnTree');
+    if (!tree || !LEARN.lib) return;
+
+    const docs = LEARN.lib.docs;
+    const inModule = function (name) {
+      return docs.filter(function (d) { return d.module === name; });
+    };
+
+    const allOn = !LEARN.pickModule && !LEARN.pickType;
+    let html = '<span class="lrn-tree-cap">Library</span>' +
+      '<button class="lrn-folder is-root' + (allOn ? ' is-on' : '') + '" ' +
+      'type="button" data-module="" data-biz="" data-type="" ' +
+      'aria-pressed="' + (allOn ? 'true' : 'false') + '">' +
+      '<span>All documents</span><span class="lrn-n">' + docs.length + '</span>' +
+      '</button>';
+
+    (LEARN.lib.modules || []).forEach(function (m) {
+      const mine = inModule(m.name);
+      // A module with no documents in it yet is not drawn. The five
+      // folders exist in Drive before they have anything in them, and a
+      // tree of empty folders is a tree nobody trusts.
+      if (!mine.length) return;
+
+      const on = LEARN.pickModule === m.name && !LEARN.pickBiz && !LEARN.pickType;
+      html += '<button class="lrn-folder' + (on ? ' is-on' : '') + '" ' +
+        'type="button" data-accent="' + m.accent + '" ' +
+        'data-module="' + escapeHtml(m.name) + '" data-biz="" data-type="" ' +
+        'aria-pressed="' + (on ? 'true' : 'false') + '">' +
+        '<span class="lrn-dot" aria-hidden="true"></span>' +
+        '<span>' + escapeHtml(m.name) + '</span>' +
+        '<span class="lrn-n">' + mine.length + '</span>' +
+      '</button>';
+
+      // MG and RMG under it, but only for the modules that have them and
+      // only once that module is the one being looked at. Every
+      // sub-folder of every module on screen at once is forty rows of
+      // tree for a library of fifty documents.
+      if (!m.split) return;
+      const open = LEARN.pickModule === m.name;
+      if (!open) return;
+
+      const subs = (LEARN.lib.businesses || []).map(function (b) {
+        const n = mine.filter(function (d) { return d.business === b; }).length;
+        if (!n) return '';
+        const sub = LEARN.pickBiz === b && !LEARN.pickType;
+        return '<button class="lrn-sub' + (sub ? ' is-on' : '') + '" ' +
+          'type="button" data-module="' + escapeHtml(m.name) + '" ' +
+          'data-biz="' + escapeHtml(b) + '" data-type="" ' +
+          'aria-pressed="' + (sub ? 'true' : 'false') + '">' +
+          escapeHtml(b) + '<span class="lrn-n">' + n + '</span></button>';
+      }).join('');
+
+      if (subs) html += '<span class="lrn-subs">' + subs + '</span>';
+    });
+
+    // ---- and the same library cut the other way ----
+    // The folders answer "what do we have for MM". This answers "show me
+    // every SOP", which is the other half of how somebody looks for a
+    // document and is not reachable by walking a tree organised by module.
+    const types = (LEARN.lib.types || []).filter(function (t) {
+      return docs.some(function (d) { return d.type === t.name; });
+    });
+
+    if (types.length > 1) {
+      html += '<span class="lrn-tree-cap">By type</span>';
+      types.forEach(function (t) {
+        const n = docs.filter(function (d) { return d.type === t.name; }).length;
+        const on = LEARN.pickType === t.name;
+        html += '<button class="lrn-folder' + (on ? ' is-on' : '') + '" ' +
+          'type="button" data-accent="' + t.accent + '" ' +
+          'data-module="" data-biz="" data-type="' + escapeHtml(t.name) + '" ' +
+          'aria-pressed="' + (on ? 'true' : 'false') + '">' +
+          '<span class="lrn-dot" aria-hidden="true"></span>' +
+          '<span>' + escapeHtml(t.name) + '</span>' +
+          '<span class="lrn-n">' + n + '</span>' +
+        '</button>';
+      });
+    }
+
+    tree.innerHTML = html;
+  }
+
+
+  function renderLearnFiles() {
+    const box = document.getElementById('lrnFiles');
+    if (!box) return;
+
+    const docs = learnInFolder();
+
+    const where = LEARN.pickType
+      ? LEARN.pickType
+      : (LEARN.pickModule
+          ? LEARN.pickModule + (LEARN.pickBiz ? ' \u203A ' + LEARN.pickBiz : '')
+          : 'All documents');
+
+    const list = docs.length
+      ? docs.map(function (d) {
+          const on = LEARN.docId === d.id;
+          return '<button class="lrn-file' + (on ? ' is-on' : '') + '" ' +
+              'type="button" data-id="' + escapeHtml(d.id) + '" ' +
+              'data-accent="' + learnAccent(d.type) + '" ' +
+              'aria-pressed="' + (on ? 'true' : 'false') + '">' +
+            learnIcon(d.kind) +
+            '<span class="lrn-file-who">' +
+              '<strong>' + escapeHtml(d.title) + '</strong>' +
+              '<span>' + escapeHtml(d.type) +
+                (d.size ? ' \u00B7 ' + escapeHtml(d.size) : '') + '</span>' +
+            '</span>' +
+          '</button>';
+        }).join('')
+      : '<span class="lrn-files-none">Nothing in here yet.</span>';
+
+    box.innerHTML =
+      '<div class="lrn-files-head">' +
+        '<span>' + escapeHtml(where) + '</span>' +
+        '<span class="lrn-n">' + docs.length + '</span>' +
+      '</div>' +
+      '<div class="lrn-files-list">' + list + '</div>';
+  }
+
+
+  /**
+   * Puts one document in the middle pane, and makes the two buttons live.
+   *
+   * THE BUTTONS ARE DEAD UNTIL THERE IS SOMETHING TO POINT THEM AT. An
+   * anchor with no href is not clickable and not focusable, so this is the
+   * real state of the control and not a grey coat of paint over a live one.
+   *
+   * Passing nothing puts the pane back to its waiting state, which is what
+   * picking a different folder does - the document that was open is not in
+   * the folder now being looked at, and leaving it up makes the breadcrumb
+   * above it a lie.
+   */
+  function renderLearnDoc(doc) {
+    const view = document.getElementById('lrnView');
+    const icon = document.getElementById('lrnDocIcon');
+    const title = document.getElementById('lrnDocTitle');
+    const meta = document.getElementById('lrnDocMeta');
+    const down = document.getElementById('lrnDownload');
+    const open = document.getElementById('lrnOpen');
+
+    LEARN.docId = doc ? doc.id : '';
+
+    if (down) {
+      down.classList.toggle('is-off', !doc);
+      if (doc) down.href = doc.download; else down.removeAttribute('href');
+    }
+    if (open) {
+      open.classList.toggle('is-off', !doc);
+      if (doc) open.href = doc.open; else open.removeAttribute('href');
+    }
+
+    if (!doc) {
+      if (icon) icon.setAttribute('data-kind', 'none');
+      if (icon) icon.textContent = '';
+      if (title) title.textContent = 'Nothing open yet';
+      if (meta) meta.textContent = 'Pick a document on the right to read it here.';
+      if (view) {
+        view.innerHTML = '<div class="lrn-view-wait">' +
+          '<span class="lrn-view-mark" aria-hidden="true"></span>' +
+          '<strong>No document open</strong>' +
+          '<span>Choose one from the list beside this panel.</span></div>';
+      }
+      return;
+    }
+
+    if (icon) {
+      icon.setAttribute('data-kind', doc.kind);
+      icon.setAttribute('data-accent', String(learnAccent(doc.type)));
+      icon.textContent = { pdf: 'PDF', video: 'MP4', slide: 'PPT',
+                           sheet: 'XLS', doc: 'DOC', image: 'IMG' }[doc.kind] || 'FILE';
+    }
+    if (title) title.textContent = doc.title;
+    if (meta) {
+      meta.textContent = [
+        doc.module, doc.business, doc.type, doc.size,
+        doc.updated ? 'updated ' + doc.updated : ''
+      ].filter(Boolean).join(' \u00B7 ');
+    }
+
+    if (view) {
+      // THE /preview FORM, not /view. Drive refuses to be framed from the
+      // normal file address - X-Frame-Options - and the page renders a
+      // grey rectangle with no error anywhere. /preview is the address
+      // Drive publishes for exactly this.
+      //
+      // The iframe is rebuilt rather than having its src reassigned,
+      // because assigning src pushes an entry onto the browser's history
+      // and reading four documents then takes four presses of Back to
+      // leave the page.
+      view.innerHTML = '<iframe class="lrn-frame" title="' +
+        escapeHtml(doc.title) + '" src="' + escapeHtml(doc.preview) + '" ' +
+        'allow="autoplay" referrerpolicy="no-referrer"></iframe>';
+    }
+  }
+
+
+  /** The library screen. */
+  function showLearnLibrary() {
+    const lib = document.getElementById('lrnLibrary');
+    const reader = document.getElementById('lrnReader');
+    if (lib) lib.hidden = false;
+    if (reader) reader.hidden = true;
+  }
+
+
+  /**
+   * The reader, on one document, with the tree opened at where it lives.
+   *
+   * Called with a document when somebody presses a card in the library. The
+   * tree is moved to that document's folder first - landing in the reader
+   * with "All documents" selected and a document open from somewhere inside
+   * it gives no sense of where the thing actually sits.
+   */
+  function showLearnReader(doc) {
+    const lib = document.getElementById('lrnLibrary');
+    const reader = document.getElementById('lrnReader');
+    if (lib) lib.hidden = true;
+    if (reader) reader.hidden = false;
+
+    if (doc) {
+      LEARN.pickType = '';
+      LEARN.pickModule = doc.module || '';
+      LEARN.pickBiz = doc.business || '';
+    }
+
+    renderLearnTree();
+    renderLearnFiles();
+    renderLearnDoc(doc || null);
+  }
+
+
+  function learnDocById(id) {
+    const docs = (LEARN.lib && LEARN.lib.docs) || [];
+    for (let i = 0; i < docs.length; i++) {
+      if (docs[i].id === id) return docs[i];
+    }
+    return null;
+  }
+
+
+  /**
+   * One listener per container rather than one per card.
+   *
+   * The grid and the file list are rewritten on every keystroke and every
+   * chip press. Listeners bound to the buttons inside them would have to
+   * be rebound each time, and the one that is missed is a card that does
+   * nothing when pressed - the kind of fault that appears only after the
+   * fourth search and is never reproducible on demand.
+   */
+  function wireLearn() {
+    const search = document.getElementById('lrnSearch');
+    if (search) {
+      search.addEventListener('input', function () {
+        LEARN.q = search.value || '';
+        renderLearnGrid();
+      });
+    }
+
+    const chips = document.getElementById('lrnChips');
+    if (chips) {
+      chips.addEventListener('click', function (event) {
+        const chip = event.target.closest('.lrn-chip');
+        if (!chip) return;
+
+        const group = chip.getAttribute('data-group');
+        const value = chip.getAttribute('data-value') || '';
+
+        if (group === 'all') {
+          LEARN.type = ''; LEARN.module = ''; LEARN.biz = '';
+        } else {
+          // Pressing the chip that is already on turns it off. Without
+          // that the only way back to everything is the All chip, and a
+          // row of chips where one is stuck on reads as broken.
+          LEARN[group] = LEARN[group] === value ? '' : value;
+        }
+
+        renderLearnChips(LEARN.lib);
+        renderLearnGrid();
+      });
+    }
+
+    const grid = document.getElementById('lrnGrid');
+    if (grid) {
+      grid.addEventListener('click', function (event) {
+        const card = event.target.closest('.lrn-card');
+        if (!card) return;
+        const doc = learnDocById(card.getAttribute('data-id'));
+        if (doc) showLearnReader(doc);
+      });
+    }
+
+    const back = document.getElementById('lrnBack');
+    if (back) back.addEventListener('click', showLearnLibrary);
+
+    const tree = document.getElementById('lrnTree');
+    if (tree) {
+      tree.addEventListener('click', function (event) {
+        const node = event.target.closest('.lrn-folder, .lrn-sub');
+        if (!node) return;
+
+        LEARN.pickModule = node.getAttribute('data-module') || '';
+        LEARN.pickBiz = node.getAttribute('data-biz') || '';
+        LEARN.pickType = node.getAttribute('data-type') || '';
+
+        renderLearnTree();
+        renderLearnFiles();
+
+        // The open document stays open if it is in the folder just
+        // chosen, and is cleared if it is not. Keeping it would put a
+        // document on screen under a heading that does not contain it.
+        const open = learnDocById(LEARN.docId);
+        const here = learnInFolder().some(function (d) { return d.id === LEARN.docId; });
+        renderLearnDoc(open && here ? open : null);
+      });
+    }
+
+    const files = document.getElementById('lrnFiles');
+    if (files) {
+      files.addEventListener('click', function (event) {
+        const row = event.target.closest('.lrn-file');
+        if (!row) return;
+        const doc = learnDocById(row.getAttribute('data-id'));
+        if (!doc) return;
+        renderLearnDoc(doc);
+        renderLearnFiles();
+      });
+    }
+  }
+
+
+  /**
+   * The mailbox for a section, matched the way Config.gs matches it.
+   *
+   * The same walk as sectionMailFor() on the server and deliberately not a
+   * second rule: it reads the SAME table, handed over on window, so the
+   * two cannot drift. It exists in the browser at all because the
+   * organogram's section names come out of the TEAM tab, which the server
+   * has not read at the moment the page is built.
+   */
+  function sectionMailFor(name) {
+    const flat = String(name || '').toLowerCase();
+    if (!flat) return null;
+
+    const table = window.__EAS_MAIL_TABLE__ || [];
+    for (let i = 0; i < table.length; i++) {
+      if (table[i] && table[i].match && flat.indexOf(table[i].match) !== -1) {
+        return table[i];
+      }
+    }
+    return null;
+  }
+
+
+  /** A small envelope, at whatever size the caller needs. */
+  function mailIcon(size) {
+    return '<svg viewBox="0 0 16 16" width="' + size + '" height="' + size + '" ' +
+      'fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">' +
+      '<rect x="1.5" y="3.5" width="13" height="9" rx="1.5"/>' +
+      '<path d="M2 4.5l6 4 6-4"/></svg>';
+  }
+
+
+  /**
+   * The strip of group mailboxes under the headline on the front page.
+   *
+   * THE NAME IS THE LABEL AND THE ADDRESS IS UNDER IT, rather than the
+   * other way round. Four aliases that all read sca / scua / ma / fa are
+   * four strings nobody can tell apart at a glance; "Manufacturing
+   * Applications" is what somebody is actually looking for, and the address
+   * is what they need once they have found it. Both are on the chip, so it
+   * can be read either way and copied from.
+   *
+   * Hidden entirely when the list is empty rather than drawn as a heading
+   * with nothing under it.
+   */
+  function renderMails() {
+    const strip = document.getElementById('portalMails');
+    if (!strip) return;
+
+    const mails = (window.__EAS_MAILS__ || []).filter(function (m) {
+      return m && m.address;
+    });
+
+    if (!mails.length) { strip.hidden = true; return; }
+
+    strip.innerHTML = mails.map(function (mail) {
+      return '<a class="portal-mailchip' + (mail.all ? ' is-all' : '') + '" ' +
+        'href="mailto:' + escapeHtml(mail.address) + '">' +
+        '<span class="portal-mailchip-mark">' + mailIcon(13) + '</span>' +
+        '<span class="portal-mailchip-who">' +
+          '<strong>' + escapeHtml(mail.name) + '</strong>' +
+          '<span>' + escapeHtml(mail.address) + '</span>' +
+        '</span>' +
+      '</a>';
+    }).join('');
+
+    strip.hidden = false;
   }
 
 

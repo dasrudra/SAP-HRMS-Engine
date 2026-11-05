@@ -212,6 +212,22 @@
           rendering fault.
         -->
         <div class="portal-hero-actions is-more" id="heroMore" hidden></div>
+
+        <!--
+          ---- THE SECTION MAILBOXES ----
+
+          Drawn by renderMails() in App.html from CONFIG.SECTION_MAIL, which
+          the organogram reads as well - so an alias is corrected in one
+          place and both screens follow.
+
+          The department address LEADS and the four sections hang off it,
+          because that is the relationship: writing to a section is
+          narrowing the department, not choosing between five equals. The
+          header carries the department address too, on every page; here it
+          is the first of a set rather than a repeat, which is why it is
+          marked and the other four are not.
+        -->
+        <div class="portal-mails" id="portalMails" hidden></div>
       </div>
 
       <!--
@@ -577,11 +593,117 @@
       list of names, so a tab and its section are the whole of a screen.
     -->
 
+    <!--
+      ---- LEARNINGS ----
+
+      Two screens in one section, and only one of them is ever on show.
+
+        THE LIBRARY is the landing: a search box, a row of filter chips and
+        every document in the folder as a card. No folders, no tree, no
+        grouping - the question it answers is "where is the amortization
+        SOP", and the answer to that is a search box, not a hierarchy to
+        climb.
+
+        THE READER is where a document is actually read. The folder tree on
+        the left, the files in the chosen folder on the right, the document
+        itself in the middle. Opening anything from the library lands here
+        with that document already up.
+
+      Both are empty markup. Everything inside them is drawn by the
+      renderLearn* functions in App.html from what getLearning() returns,
+      because the contents are a Drive folder that changes weekly and this
+      file is a shell that does not.
+    -->
+    <!--
+      Wider than the other content pages, which is set on the id in
+      PortalStyles rather than with a class here: an id beats .portal-page
+      on specificity, so there is nothing to order and no !important.
+    -->
     <section class="view portal-page" id="view-learnings" hidden>
-      <h1 class="portal-page-title">Learnings</h1>
-      <div class="portal-empty">
-        <h2>This page is waiting for its words</h2>
-        <p>Phase 5, from the <b>PORTAL</b> tab.</p>
+
+      <!-- ================= THE LIBRARY ================= -->
+      <div class="lrn-library" id="lrnLibrary">
+
+        <div class="lrn-head">
+          <div class="lrn-head-words">
+            <span class="lrn-eyebrow">Learnings</span>
+            <h1 class="lrn-title">Everything we wrote down</h1>
+            <p class="lrn-sub">
+              SOPs, policies, user guidelines and training, for every module
+              EAS runs.
+            </p>
+          </div>
+          <div class="lrn-stats" id="lrnStats"></div>
+        </div>
+
+        <!--
+          type="search" and not type="text": it gets the clear cross for
+          free, and on a phone the keyboard's return key says Search.
+        -->
+        <div class="lrn-search">
+          <svg viewBox="0 0 16 16" width="16" height="16" fill="none"
+               stroke="currentColor" stroke-width="1.7" stroke-linecap="round"
+               aria-hidden="true">
+            <circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14"/>
+          </svg>
+          <input type="search" id="lrnSearch" autocomplete="off"
+                 aria-label="Search the library"
+                 placeholder="Search SOPs, guidelines, policies">
+          <span class="lrn-search-count" id="lrnCount" hidden></span>
+        </div>
+
+        <div class="lrn-chips" id="lrnChips"></div>
+        <div class="lrn-grid" id="lrnGrid"></div>
+      </div>
+
+      <!-- ================= THE READER ================= -->
+      <div class="lrn-reader" id="lrnReader" hidden>
+
+        <button class="lrn-back" id="lrnBack" type="button">
+          <svg viewBox="0 0 16 16" width="13" height="13" fill="none"
+               stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
+               stroke-linejoin="round" aria-hidden="true">
+            <path d="M9.5 3.5L5 8l4.5 4.5"/>
+          </svg>
+          All documents
+        </button>
+
+        <div class="lrn-desk">
+
+          <!-- the folders, and the sub-folders under them -->
+          <aside class="lrn-tree" id="lrnTree" aria-label="Folders"></aside>
+
+          <div class="lrn-pane">
+            <div class="lrn-pane-head">
+              <span class="lrn-pane-icon" id="lrnDocIcon" data-kind="none"></span>
+              <span class="lrn-pane-who">
+                <strong id="lrnDocTitle">Nothing open yet</strong>
+                <span class="lrn-pane-meta" id="lrnDocMeta">
+                  Pick a document on the right to read it here.
+                </span>
+              </span>
+
+              <!--
+                Anchors, and disabled until something is open. An anchor
+                with no href is not focusable and not clickable, which is
+                exactly the state wanted - a Download button that downloads
+                nothing is worse than one that is visibly not ready yet.
+                renderLearnDoc() fills the href in and drops .is-off.
+              -->
+              <span class="lrn-pane-acts">
+                <a class="lrn-btn is-off" id="lrnDownload"
+                   target="_blank" rel="noopener noreferrer">Download</a>
+                <a class="lrn-btn is-primary is-off" id="lrnOpen"
+                   target="_blank" rel="noopener noreferrer">Open full document</a>
+              </span>
+            </div>
+
+            <div class="lrn-pane-body">
+              <div class="lrn-view" id="lrnView"></div>
+              <div class="lrn-files" id="lrnFiles"></div>
+            </div>
+          </div>
+        </div>
       </div>
     </section>
 

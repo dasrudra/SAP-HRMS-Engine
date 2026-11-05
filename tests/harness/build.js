@@ -779,6 +779,67 @@ const stub = `
       report. A fixture where everything is filled in tests the one case that
       never happens.
     */
+    /*
+      THE LEARNINGS LIBRARY.
+
+      Shaped like readLearn()'s return and NOT produced by it: this suite
+      drives the page, and learn-test.js drives the server. What matters
+      here is that the shape carries every case the page has to draw.
+
+        Common has no business          so a card with two tags has to look
+                                        right beside one with three
+        a video sits beside the PDFs    different icon, and the preview is
+                                        the same iframe
+        one document is a Document      the fallback type, which still has
+                                        to get a chip and a colour
+        two modules, four types         enough for the chips to group and
+                                        for a filter to be provably wrong
+
+      Addresses are about:blank. A real Drive address in a test fixture
+      means every run of this suite reaches out to Google, which is slow,
+      flaky and quietly dependent on somebody's file still being shared.
+      The suite asserts WHICH address the frame was given, not what came
+      back from it.
+    */
+    getLearning: function () {
+      var doc = function (title, type, mod, biz, kind, size, id) {
+        return {
+          title: title, type: type, module: mod, business: biz, kind: kind,
+          size: size, updated: '18 Oct 2026', stamp: 1792000000000,
+          path: mod + (biz ? ' / ' + biz : ''), id: id,
+          preview: 'about:blank#' + id + '/preview',
+          open: 'about:blank#' + id + '/view',
+          download: 'about:blank#' + id + '/download'
+        };
+      };
+      return {
+        filled: true, count: 7, quarter: 3,
+        types: [
+          { name: 'SOP', accent: 0 },
+          { name: 'User Guideline', accent: 1 },
+          { name: 'Policy', accent: 2 },
+          { name: 'Training', accent: 3 },
+          { name: 'Document', accent: 3 }
+        ],
+        modules: [
+          { name: 'Common', accent: 3, split: false },
+          { name: 'MM', accent: 0, split: true },
+          { name: 'SD', accent: 1, split: true }
+        ],
+        businesses: ['RMG', 'MG'],
+        docs: [
+          doc('Password and Access Policy', 'Policy', 'Common', '', 'pdf', '180 KB', 'd1'),
+          doc('EAS Service Catalogue', 'Document', 'Common', '', 'pdf', '420 KB', 'd2'),
+          doc('Basic Principle of Amortization', 'SOP', 'MM', 'RMG', 'pdf', '7.2 MB', 'd3'),
+          doc('Destruction Process in SAP', 'SOP', 'MM', 'RMG', 'pdf', '915 KB', 'd4'),
+          doc('SAP S4HANA MM Purchase Cycle', 'User Guideline', 'MM', 'RMG',
+              'pdf', '27.1 MB', 'd5'),
+          doc('Stock Transfer', 'SOP', 'MM', 'MG', 'pdf', '150 KB', 'd6'),
+          doc('S4HANA Sales Overview', 'Training', 'SD', 'RMG', 'video', '88 MB', 'd7')
+        ]
+      };
+    },
+
     getTeam: function () {
       var utpal = { name: 'Utpal Biswas', id: '20000000', title: 'Senior Manager',
                     // The department head reads like every other head:
@@ -938,7 +999,8 @@ const stub = `
     masterListAccounts: 150,
     masterAuditLog: 120,
     getTeam: 80,
-    getUploads: 80
+    getUploads: 80,
+    getLearning: 60
   };
 
   // google.script.run, as Apps Script presents it: chainable handlers, then a

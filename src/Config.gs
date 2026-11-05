@@ -535,7 +535,13 @@ const CONFIG = {
     // The team directory the EAS Team page is drawn from. Its columns live
     // in Team.gs rather than here, because they are a copy of the team's own
     // spreadsheet headers and are matched loosely - see teamColumnIndex().
-    TEAM:      'TEAM'
+    TEAM:      'TEAM',
+
+    // The index of the Learnings library. NOT the library itself - the
+    // documents stay in Drive, and this tab is a list of what is in there,
+    // rewritten from the folder by scanLearnFolder() in Learn.gs. Nothing
+    // is typed into it by hand; see the header of that file.
+    LEARN:     'LEARN'
   },
 
   /**
@@ -555,6 +561,131 @@ const CONFIG = {
    * remembers to add it here.
    */
   PORTAL_SECTION_ORDER: ['supply chain', 'sales', 'manufacturing', 'financial'],
+
+  /**
+   * The section-wise group mailboxes, announced by the department head.
+   *
+   * One list, read in two places - the strip on the front page and the
+   * section bar on the organogram - so an address is corrected once. Adding
+   * a fifth section here puts its mailbox on both screens and nothing else
+   * has to be touched.
+   *
+   * `match` is matched against the section name AS THE SPREADSHEET SPELLS
+   * IT, lower-cased, by substring. Not an exact key, deliberately: the TEAM
+   * tab says 'Sales and Customer Applications', CONFIG.ROSTER says 'Sales
+   * Applications' and CONFIG.ORG's label says 'Sales & Customer
+   * Applications'. Three spellings of one section, and an exact key would
+   * have to pick one and lose the mailbox on the screens that use the other
+   * two. 'customer' is in all three places that matter and 'sales' is in
+   * every one of them, so the substring holds.
+   *
+   * ORDER IS THE TEST ORDER. The first entry whose `match` appears in the
+   * name wins, so a word that could belong to two sections must be listed
+   * under the more specific one first. None of the current four overlap.
+   *
+   * `name` is the display name from the announcement, not our own wording -
+   * these are what the aliases resolve to in Outlook, and a page that calls
+   * them something else teaches people the wrong name for the mailbox they
+   * are writing to.
+   */
+  SECTION_MAIL: [
+    { match: 'supply',      name: 'Supply Chain Applications',
+      address: 'sca.eas@tekvision.com.bd' },
+    { match: 'customer',    name: 'Sales & Customer Applications',
+      address: 'scua.eas@tekvision.com.bd' },
+    { match: 'sales',       name: 'Sales & Customer Applications',
+      address: 'scua.eas@tekvision.com.bd' },
+    { match: 'manufactur',  name: 'Manufacturing Applications',
+      address: 'ma.eas@tekvision.com.bd' },
+    { match: 'financ',      name: 'Financial Applications',
+      address: 'fa.eas@tekvision.com.bd' }
+  ],
+
+  /**
+   * THE LEARNINGS LIBRARY - what the folder in Drive is allowed to contain.
+   *
+   * The documents themselves are not here and never will be: they are PDFs
+   * and videos in a Drive folder, some of them 27MB, and Apps Script is not
+   * a file server. What is here is the vocabulary - the document types the
+   * page knows how to badge, the modules it knows how to group by, and the
+   * order it puts them in.
+   *
+   * NOTHING IN THIS BLOCK IS TYPED TWICE ANYWHERE ELSE. The classification
+   * of a document is not entered by a person and is not stored in a form:
+   * it is read off the file's own name and the folder it sits in, by
+   * parseLearnName() and learnModule() in Learn.gs. This block is what
+   * those two functions match against.
+   *
+   * TYPES come from the bracket at the front of the filename -
+   * "[SOP] RMG_Destruction Process in SAP.pdf" is an SOP. `match` is
+   * compared against the bracket's contents squashed to letters, so
+   * "[User Guideline]", "[User-Guideline]" and "[userguideline]" are one
+   * type. `accent` is which of the four portal accents badges it.
+   *
+   * A file whose bracket matches nothing here still appears in the library,
+   * typed as Document. It is NOT hidden - a document nobody can find
+   * because it was named wrongly is worse than a document with a dull
+   * badge - and checkLearnFolder() lists every one of them so the name can
+   * be fixed.
+   *
+   * MODULES come from the top-level folder name. 'Common' holds documents
+   * that are not a module's, and it is the only one of the five that is not
+   * split into MG and RMG underneath.
+   */
+  LEARN: {
+    TYPES: [
+      { match: 'sop',           name: 'SOP',            accent: 0 },
+      { match: 'userguideline', name: 'User Guideline', accent: 1 },
+      { match: 'guideline',     name: 'User Guideline', accent: 1 },
+      { match: 'policy',        name: 'Policy',         accent: 2 },
+      { match: 'training',      name: 'Training',       accent: 3 },
+      { match: 'manual',        name: 'User Guideline', accent: 1 },
+      { match: 'presentation',  name: 'Training',       accent: 3 }
+    ],
+
+    // What a file with no recognised bracket is called. It is a real type
+    // on the page - it gets a chip and a count like any other - so that the
+    // total under "All" is always the number of files in the folder.
+    FALLBACK_TYPE: 'Document',
+
+    // The five top-level folders, in the order the page lists them, with
+    // the short name the page prints. `match` is the folder name squashed
+    // to letters and lower-cased, so 'FI-CO Module', 'FICO' and
+    // 'FI CO Module' are one module.
+    //
+    // Common is first because it applies to everybody; the other four are
+    // in the order the organogram puts their sections in.
+    MODULES: [
+      { match: 'common', name: 'Common',  accent: 3 },
+      { match: 'mm',     name: 'MM',      accent: 0 },
+      { match: 'sd',     name: 'SD',      accent: 1 },
+      { match: 'pp',     name: 'PP',      accent: 2 },
+      { match: 'fico',   name: 'FI-CO',   accent: 3 }
+    ],
+
+    // The two businesses, under every module but Common. MG is the knitting
+    // and fabric side, RMG the garment side; a document is usually written
+    // for one of them and occasionally for both, in which case it sits in
+    // Common.
+    BUSINESS: ['RMG', 'MG'],
+
+    // A folder this deep is as far as the scan goes. The tree is
+    // module/business/file and nothing in it is deeper, but a stray
+    // sub-folder somebody makes should not send the scan walking a
+    // thousand folders on a shared drive.
+    MAX_DEPTH: 4
+  },
+
+  /**
+   * The address for all of EAS, and the one the header already carries.
+   *
+   * Written here as well so the front page strip can lead with it without
+   * Portal.html and App.html each holding their own copy of the string.
+   */
+  DEPARTMENT_MAIL: {
+    name: 'All of EAS',
+    address: 'eas@tekvision.com.bd'
+  },
 
   /**
    * THE ABOUT US PAGE - the team's portfolio, off the EAS slide deck.
@@ -1488,6 +1619,87 @@ function getSpreadsheetId() {
  *
  * @return {Array<{name: string, url: string, hero: string, row: number}>}
  */
+/**
+ * The group mailboxes, each one once, for the strip on the front page.
+ *
+ * DEDUPED BY ADDRESS, because CONFIG.SECTION_MAIL is a match table and not
+ * a list: Sales & Customer Applications is in it twice so that either word
+ * finds it, and printing the entries straight out would put that mailbox on
+ * the page twice under the same name.
+ *
+ * The department address leads, because it is the one that reaches
+ * everybody and the four below it are narrowings of it.
+ *
+ * @return {Array<{name: string, address: string, all: boolean}>}
+ */
+function sectionMails() {
+  const all = CONFIG.DEPARTMENT_MAIL || null;
+  const out = all
+    ? [{ name: all.name, address: all.address, all: true }]
+    : [];
+
+  const seen = {};
+  if (all) seen[String(all.address).toLowerCase()] = true;
+
+  (CONFIG.SECTION_MAIL || []).forEach(function (entry) {
+    if (!entry || !entry.address) return;
+    const key = String(entry.address).toLowerCase();
+    if (seen[key]) return;
+    seen[key] = true;
+    out.push({ name: entry.name, address: entry.address, all: false });
+  });
+
+  return out;
+}
+
+
+/**
+ * The mailbox for one section, found by what the section is called.
+ *
+ * Takes the name as whatever screen is asking has it - the TEAM tab's
+ * spelling on the organogram, CONFIG.ORG's label elsewhere - and matches on
+ * a substring, so the three spellings of Sales & Customer Applications all
+ * arrive at one address. See CONFIG.SECTION_MAIL.
+ *
+ * Returns null rather than the department address when nothing matches. A
+ * new section with no mailbox of its own should show no mailbox, not
+ * silently invite people to write to all of EAS about it.
+ *
+ * @param  {string} name
+ * @return {?{name: string, address: string}}
+ */
+function sectionMailFor(name) {
+  const flat = String(name || '').toLowerCase();
+  if (!flat) return null;
+
+  const list = CONFIG.SECTION_MAIL || [];
+  for (let i = 0; i < list.length; i++) {
+    if (list[i] && list[i].match && flat.indexOf(list[i].match) !== -1) {
+      return { name: list[i].name, address: list[i].address };
+    }
+  }
+  return null;
+}
+
+
+/**
+ * Every section mailbox keyed by the section name, for the browser.
+ *
+ * The organogram draws its columns from the TEAM tab, which means the
+ * section names it needs addresses for are not known until the sheet has
+ * been read - so the page cannot be handed a finished list. It is handed
+ * the match table instead and does the same substring walk in JavaScript;
+ * see sectionMailFor() in App.html, which is this function in the browser.
+ *
+ * @return {Array<{match: string, name: string, address: string}>}
+ */
+function sectionMailTable() {
+  return (CONFIG.SECTION_MAIL || []).map(function (entry) {
+    return { match: entry.match, name: entry.name, address: entry.address };
+  });
+}
+
+
 function portalLinks() {
   return [
     { name: 'SAP & HRMS UserHub',

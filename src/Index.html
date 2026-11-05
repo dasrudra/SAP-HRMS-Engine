@@ -1654,6 +1654,18 @@
   // agreement table, both quotations from the EAS deck.
   window.__EAS_SERVICE_LEVELS__ = <?!= jsonAscii(CONFIG.SERVICE_LEVELS) ?>;
   window.__EAS_SLA__ = <?!= jsonAscii(CONFIG.SLA) ?>;
+
+  // The section group mailboxes, twice over, because the two screens that
+  // show them need different things.
+  //
+  // The FIRST is the finished list for the strip on the front page: each
+  // mailbox once, department first. The SECOND is the match table behind
+  // it, because the organogram's columns come from the TEAM tab and their
+  // names are not known until that sheet has been read - so the browser has
+  // to do the same substring walk the server would have done. See
+  // sectionMailFor() in both Config.gs and App.html.
+  window.__EAS_MAILS__ = <?!= jsonAscii(sectionMails()) ?>;
+  window.__EAS_MAIL_TABLE__ = <?!= jsonAscii(sectionMailTable()) ?>;
 </script>
 
 <!--

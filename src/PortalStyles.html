@@ -469,6 +469,89 @@
   */
   .portal-hero-actions.is-more { margin-top: 12px; }
 
+  /* =======================
+     the group mailboxes, under the buttons on the front page
+     =======================
+
+     FIVE CHIPS IN ONE CENTRED ROW, the department first and the four
+     sections after it. A grid of five equal columns was the first try and
+     it was wrong: the five names are 10 to 31 characters long, so equal
+     columns means three chips with a hole in them and two that are tight.
+     Flex with wrap lets each chip be as wide as its contents and lets the
+     row break where it naturally should on a narrow screen.
+
+     The department chip carries the accent border, the others do not. One
+     of the five reaches everybody and four of them do not, and that is the
+     only difference worth drawing; giving each section its own colour here
+     would set up a colour code that nothing else on the front page uses.
+  */
+  .portal-mails {
+    display: flex; flex-wrap: wrap; justify-content: center;
+    gap: 8px; margin-top: 18px;
+  }
+  .portal-mailchip {
+    display: flex; align-items: center; gap: 9px;
+    padding: 7px 13px 7px 10px;
+    border-radius: 11px;
+    border: 1px solid rgba(255, 255, 255, .17);
+    background: rgba(255, 255, 255, .07);
+    -webkit-backdrop-filter: blur(14px) saturate(150%);
+    backdrop-filter: blur(14px) saturate(150%);
+    text-decoration: none; color: #fff;
+    transition: transform .18s ease, background .18s ease,
+                border-color .18s ease, box-shadow .18s ease;
+  }
+  .portal-mailchip-mark {
+    display: grid; place-items: center;
+    width: 26px; height: 26px; flex: none;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, .12);
+    color: rgba(255, 255, 255, .85);
+  }
+  .portal-mailchip-who {
+    display: flex; flex-direction: column; align-items: flex-start; gap: 1px;
+    min-width: 0;
+  }
+  /*
+    The NAME is the label and the address is the detail under it. Four
+    aliases reading sca / scua / ma / fa are four strings nobody can tell
+    apart at a glance; the section's name is what somebody is actually
+    looking for.
+  */
+  .portal-mailchip-who strong {
+    font-size: 11.5px; font-weight: 700; line-height: 1.25;
+    letter-spacing: .005em; color: #fff; white-space: nowrap;
+  }
+  .portal-mailchip-who span {
+    font-size: 10.5px; font-weight: 500; line-height: 1.25;
+    color: rgba(255, 255, 255, .62); white-space: nowrap;
+  }
+  .portal-mailchip:hover {
+    transform: translateY(-2px);
+    background: rgba(255, 255, 255, .12);
+    border-color: rgba(255, 255, 255, .3);
+    box-shadow: 0 10px 24px rgba(2, 10, 32, .34);
+  }
+  .portal-mailchip:hover .portal-mailchip-who span { color: rgba(255, 255, 255, .8); }
+
+  .portal-mailchip.is-all {
+    border-color: rgba(76, 201, 240, .46);
+    background: rgba(76, 201, 240, .11);
+  }
+  .portal-mailchip.is-all .portal-mailchip-mark {
+    background: rgba(76, 201, 240, .22); color: #bdeaff;
+  }
+  .portal-mailchip.is-all:hover {
+    border-color: rgba(76, 201, 240, .7);
+    background: rgba(76, 201, 240, .17);
+    box-shadow: 0 10px 26px rgba(76, 201, 240, .22);
+  }
+
+  @media (max-width: 760px) {
+    .portal-mails { gap: 7px; margin-top: 14px; }
+    .portal-mailchip { padding: 6px 11px 6px 8px; }
+  }
+
   /*
     Both hero buttons wear this, and one of them is an anchor because it
     leaves the app.
@@ -575,13 +658,58 @@
     on this page that can be given up without the page looking squeezed,
     because at 50px it is already shouting.
   */
-  @media (min-width: 1100px) and (max-height: 899px) {
-    .portal-hero { padding-top: 10px; }
+  /*
+    899px WAS THE WRONG CEILING ONCE THE MAILBOX STRIP WENT IN.
+
+    The strip is 45px tall plus its margin - about 63px of new weight in the
+    hero - and the page had roughly 27px of room to spare at 900. So every
+    screen between 900 and about 1050 ran the bottom row of cards off the
+    fold, which is most laptops: a 1080-tall screen gives a browser about
+    950 of viewport once its chrome is taken off.
+
+    Raised to 1049 and the strip compressed inside it, rather than making
+    the strip smaller everywhere - on a tall screen there is room for it at
+    full size and no reason to shrink it.
+  */
+  @media (min-width: 1100px) and (max-height: 1049px) {
+    .portal-hero { padding-top: 6px; }
     .portal-hero-title { font-size: 37px; margin-bottom: 8px; }
     .portal-hero-sub { margin-bottom: 10px; font-size: 15px; line-height: 1.55; }
     .portal-hero-actions.is-more { margin-top: 10px; }
-    .portal-tiles { margin-top: 16px; }
-    .ptile { padding: 10px 15px 10px; }
+    .portal-tiles { margin-top: 13px; }
+    .ptile { padding: 9px 15px 9px; }
+
+    .portal-mails { margin-top: 10px; gap: 7px; }
+    .portal-mailchip { padding: 5px 11px 5px 7px; }
+    .portal-mailchip-mark { width: 22px; height: 22px; border-radius: 7px; }
+    .portal-mailchip-who strong { font-size: 11px; }
+    .portal-mailchip-who span { font-size: 10px; }
+  }
+
+  /*
+    A SECOND, TIGHTER TIER for the genuinely short screens - a 1366x768
+    laptop, or a 900-tall screen with a bookmarks bar. The tier above gets
+    a 1080 screen to fit; this one gets the rest, and it is the last of the
+    room there is. Below this the page scrolls, which is the right answer:
+    squeezing the headline any further would make the front page look
+    cramped rather than composed.
+  */
+  @media (min-width: 1100px) and (max-height: 899px) {
+    .portal-hero { padding-top: 2px; }
+    .portal-hero-title { font-size: 31px; margin-bottom: 6px; }
+    .portal-hero-sub { margin-bottom: 8px; font-size: 14.5px; line-height: 1.5; }
+    .portal-mails { margin-top: 5px; gap: 6px; }
+    .portal-mailchip { padding: 4px 10px 4px 7px; }
+    .portal-tiles { margin-top: 7px; }
+    /*
+      Two pixels off each end of the buttons. Worth saying why rather than
+      leaving it as a magic number: at 1440x860 the page cleared the fold
+      by ONE pixel without this, and one pixel is not a margin - it is the
+      difference between two machines rendering the same font slightly
+      differently. These two lines buy about nine.
+    */
+    .portal-cta { padding: 11px 24px; }
+    .portal-hero-sub { margin-bottom: 6px; }
   }
 
   .ptile-compare { grid-column: 1; grid-row: 1 / span 2; }
@@ -1089,8 +1217,17 @@
     background: rgba(255, 255, 255, .28);
   }
 
+  /*
+    A COLUMN, not a row, since the group mailbox went under the name.
+
+    The name and the count stay on one line together - that is what
+    .og-section-top is - and the address sits beneath them on its own.
+    Putting the address on the same line would have meant four bars whose
+    titles wrap to two lines at the width a column actually gets, which is
+    a worse trade than one extra line that every column pays equally.
+  */
   .og-section {
-    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    display: flex; flex-direction: column; gap: 7px;
     padding: 11px 14px;
     border-radius: 12px;
     border: 1px solid rgba(255, 255, 255, .22);
@@ -1102,6 +1239,9 @@
       0 10px 26px rgba(2, 10, 32, .32),
       inset 0 1px 0 rgba(255, 255, 255, .28);
   }
+  .og-section-top {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  }
   .og-section-name {
     font-size: 10.5px; font-weight: 800; letter-spacing: .07em;
     text-transform: uppercase; color: #fff; line-height: 1.3;
@@ -1111,6 +1251,36 @@
     background: rgba(255, 255, 255, .18);
     font-size: 10.5px; font-weight: 700; color: #fff; text-align: center;
   }
+
+  /*
+    The section's group mailbox.
+
+    Lower-case and not upper, unlike the name above it: an email address
+    IS lower-case, and setting one in capitals makes people doubt whether
+    it is the real address. Separated from the name by a hairline rather
+    than by space alone, so the bar reads as two facts about the section
+    and not as a heading that happens to wrap.
+
+    An address does not shorten gracefully - there is no word to drop - so
+    it is allowed to run to the full width of the bar and is clipped with
+    an ellipsis only if the column is narrower than the address, which at
+    four columns it is not.
+  */
+  .og-section-mail {
+    display: flex; align-items: center; gap: 5px;
+    margin-top: 1px; padding-top: 7px;
+    border-top: 1px solid rgba(255, 255, 255, .16);
+    font-size: 10.5px; font-weight: 600; letter-spacing: .01em;
+    color: rgba(255, 255, 255, .78);
+    text-decoration: none; min-width: 0;
+    transition: color .15s ease;
+  }
+  .og-section-mail svg { flex: none; opacity: .75; }
+  .og-section-mail span {
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .og-section-mail:hover { color: var(--accent, #4cc9f0); }
+  .og-section-mail:hover svg { opacity: 1; }
 
   /* The accent each column carries, the same four as the directory. */
   .og-col[data-accent="0"] { --accent: #4cc9f0; }
@@ -1848,6 +2018,22 @@
   .portal[data-page="about"] .portal-sky,
   .portal[data-page="partners"] .portal-sky { height: 100%; border-radius: 0; }
 
+  /*
+    LEARNINGS IS THE SAME CASE, and it is not optional there.
+
+    Every surface on that page is glass: the search bar, the chips, the
+    document cards, the tree and the reading pane. Glass over the light
+    page surface is not a lighter pane - it is a GREY SLAB, and the first
+    screenshot of the finished page showed exactly that: a row of grey
+    rectangles with chips on them that had all but vanished.
+
+    100% rather than a measured height like the team page uses. There the
+    sky has to stop, because the people underneath are solid cards that
+    want the light surface; here there is nothing below the glass to want
+    anything, so there is no measurement to get wrong.
+  */
+  .portal[data-page="learnings"] .portal-sky { height: 100%; border-radius: 0; }
+
   /* ---------- the shared head ---------- */
   .pcontent-head { padding: 26px 0 34px; }
 
@@ -2144,6 +2330,621 @@
     .portal-foot-dim { display: none; }
   }
 
+  /* ==========================================================================
+     LEARNINGS
+     ==========================================================================
+
+     NOT THE CREAM THE TEAM CARDS USE. That colour was chosen to make a
+     person's card feel like a printed card, and it is right there. It is
+     wrong here: a library of PDFs rendered on cream puts a warm page
+     behind a white page, and the document - which is the thing somebody
+     came to read - ends up looking like a misprint sitting on top of the
+     furniture.
+
+     So the whole screen is INK, and the only white on it is the document
+     itself. The tree, the cards and the file list are deep translucent
+     panes over the portal's own sky; the preview is a white sheet lit
+     against them. A reading desk, with one lamp on it.
+
+     The four accents are the portal's four, in the same order the
+     organogram and the directory use them, so a colour means the same
+     thing on every screen.
+  */
+  #view-learnings {
+    --lrn-pane: rgba(8, 19, 46, .52);
+    --lrn-edge: rgba(255, 255, 255, .12);
+    --lrn-edge-lit: rgba(255, 255, 255, .26);
+    --lrn-raise: rgba(255, 255, 255, .055);
+    --lrn-text: rgba(255, 255, 255, .92);
+    --lrn-dim: rgba(255, 255, 255, .58);
+    --lrn-faint: rgba(255, 255, 255, .4);
+    max-width: 1340px;
+  }
+
+  /*
+    SCOPED TO THIS PAGE. A bare [data-accent="0"] selector would set the
+    variable on the organogram's columns and the Customers tab's zone
+    cards too - they carry the same attribute - and a custom property that
+    leaks onto elements that never asked for it is how a stylesheet
+    becomes impossible to reason about later.
+  */
+  #view-learnings [data-accent="0"] { --lrn-accent: #4cc9f0; }
+  #view-learnings [data-accent="1"] { --lrn-accent: #5b9cf8; }
+  #view-learnings [data-accent="2"] { --lrn-accent: #7b86f0; }
+  #view-learnings [data-accent="3"] { --lrn-accent: #9d7bef; }
+
+  /* ---------- the headline and the three figures ---------- */
+  .lrn-head {
+    display: flex; align-items: flex-end; justify-content: space-between;
+    gap: 28px; margin: 6px 0 20px;
+  }
+  .lrn-eyebrow {
+    display: inline-block; margin-bottom: 10px;
+    padding: 4px 11px; border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, .2);
+    background: rgba(255, 255, 255, .08);
+    font-size: 10px; font-weight: 800; letter-spacing: .14em;
+    text-transform: uppercase; color: rgba(255, 255, 255, .8);
+  }
+  .lrn-title {
+    margin: 0 0 7px;
+    font-size: 38px; font-weight: 700; letter-spacing: -.03em;
+    line-height: 1.05; color: #fff;
+    text-shadow: 0 1px 16px rgba(6, 22, 60, .34);
+  }
+  .lrn-sub {
+    margin: 0; font-size: 14.5px; line-height: 1.5;
+    color: rgba(255, 255, 255, .68); max-width: 52ch;
+  }
+
+  .lrn-stats { display: flex; gap: 10px; flex: none; }
+  .lrn-stat {
+    display: flex; flex-direction: column; align-items: center; gap: 1px;
+    min-width: 86px; padding: 11px 14px;
+    border-radius: 13px;
+    border: 1px solid var(--lrn-edge);
+    background: var(--lrn-pane);
+    -webkit-backdrop-filter: blur(16px) saturate(155%);
+    backdrop-filter: blur(16px) saturate(155%);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .13);
+  }
+  .lrn-stat strong {
+    font-size: 23px; font-weight: 700; line-height: 1.1;
+    letter-spacing: -.02em; color: #fff;
+  }
+  .lrn-stat span {
+    font-size: 9.5px; font-weight: 700; letter-spacing: .1em;
+    text-transform: uppercase; color: var(--lrn-faint); white-space: nowrap;
+  }
+
+  /* ---------- the search box ---------- */
+  .lrn-search {
+    display: flex; align-items: center; gap: 11px;
+    padding: 0 16px; height: 54px; margin-bottom: 14px;
+    border-radius: 15px;
+    border: 1px solid var(--lrn-edge);
+    background: var(--lrn-pane);
+    -webkit-backdrop-filter: blur(18px) saturate(155%);
+    backdrop-filter: blur(18px) saturate(155%);
+    box-shadow:
+      0 14px 34px rgba(2, 10, 32, .3),
+      inset 0 1px 0 rgba(255, 255, 255, .12);
+    transition: border-color .18s ease, box-shadow .18s ease;
+  }
+  .lrn-search:focus-within {
+    border-color: rgba(76, 201, 240, .5);
+    box-shadow:
+      0 14px 34px rgba(2, 10, 32, .3),
+      0 0 0 3px rgba(76, 201, 240, .16),
+      inset 0 1px 0 rgba(255, 255, 255, .12);
+  }
+  .lrn-search > svg { flex: none; color: var(--lrn-faint); }
+  /*
+    EVERY ONE OF THESE LONGHANDS IS LOAD-BEARING. An input does not inherit
+    the page's font, its colour, or its background - it takes the browser's,
+    which is 13.3px Arial on a white box. The `font` shorthand cannot be
+    used to fix that in one line, because `font: 600 15px/1 inherit` is
+    invalid CSS and the whole declaration is dropped. That mistake sat in
+    .portal-cta for months.
+  */
+  .lrn-search input {
+    flex: 1; min-width: 0;
+    border: 0; outline: 0; background: transparent;
+    font-family: inherit; font-size: 15px; font-weight: 500;
+    line-height: 1.3; color: #fff;
+    -webkit-appearance: none; appearance: none;
+  }
+  .lrn-search input::placeholder { color: rgba(255, 255, 255, .38); font-weight: 400; }
+  /* Safari draws its own cross in the corner and it is unreadable on ink. */
+  .lrn-search input::-webkit-search-cancel-button { -webkit-appearance: none; }
+  .lrn-search-count {
+    flex: none; padding: 4px 10px; border-radius: 999px;
+    background: rgba(255, 255, 255, .1);
+    font-size: 11px; font-weight: 700; color: var(--lrn-dim);
+    white-space: nowrap;
+  }
+
+  /* ---------- the filter chips ---------- */
+  .lrn-chips {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 7px;
+    margin-bottom: 20px;
+  }
+  /*
+    A SEPARATOR, NOT A GAP IN THE MARKUP. The chips are three questions in
+    one row - what kind, whose module, which business - and without a
+    break between the groups it reads as one list of fourteen arbitrary
+    words. It collapses to nothing when the row wraps at that point, so it
+    never leaves a floating mark at the start of a line.
+  */
+  .lrn-chip-gap {
+    width: 1px; height: 17px; margin: 0 5px;
+    background: rgba(255, 255, 255, .16);
+  }
+  .lrn-chip {
+    display: inline-flex; align-items: center; gap: 7px;
+    padding: 7px 13px; border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, .15);
+    background: rgba(255, 255, 255, .055);
+    font-family: inherit; font-size: 12.5px; font-weight: 600;
+    line-height: 1; color: rgba(255, 255, 255, .76);
+    cursor: pointer;
+    transition: background .16s ease, border-color .16s ease,
+                color .16s ease, transform .16s ease;
+  }
+  .lrn-chip-n {
+    font-size: 10.5px; font-weight: 700; color: var(--lrn-faint);
+    font-variant-numeric: tabular-nums;
+  }
+  .lrn-chip:hover {
+    transform: translateY(-1px);
+    background: rgba(255, 255, 255, .11);
+    border-color: var(--lrn-edge-lit); color: #fff;
+  }
+  /*
+    THE CHIP THAT IS ON WEARS ITS OWN ACCENT, not one shared highlight.
+    The accent is the same one the type's cards and its dot in the tree
+    use, so pressing "SOP" lights the row in the colour the SOP cards are
+    already wearing and the connection does not have to be explained.
+  */
+  .lrn-chip.is-on {
+    background: color-mix(in srgb, var(--lrn-accent, #4cc9f0) 20%, transparent);
+    border-color: color-mix(in srgb, var(--lrn-accent, #4cc9f0) 62%, transparent);
+    color: #fff;
+    box-shadow: 0 6px 18px color-mix(in srgb, var(--lrn-accent, #4cc9f0) 24%, transparent);
+  }
+  .lrn-chip.is-on .lrn-chip-n { color: rgba(255, 255, 255, .8); }
+  /*
+    color-mix is recent enough that a browser two years old does not have
+    it, and without this the "on" chip would be indistinguishable from the
+    others - the one state the row exists to show. Declared BEFORE the
+    rules above in cascade terms by being in a @supports not block, so a
+    browser that does understand color-mix ignores it entirely.
+  */
+  @supports not (background: color-mix(in srgb, red 20%, transparent)) {
+    .lrn-chip.is-on {
+      background: rgba(76, 201, 240, .22);
+      border-color: rgba(76, 201, 240, .62);
+    }
+  }
+  .lrn-chip.is-all.is-on {
+    background: rgba(255, 255, 255, .92); border-color: #fff; color: #0b1d3f;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, .22);
+  }
+  .lrn-chip.is-all.is-on .lrn-chip-n { color: rgba(11, 29, 63, .6); }
+
+  /* ---------- the grid of documents ---------- */
+  .lrn-grid {
+    display: grid; gap: 13px;
+    grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+  }
+  /*
+    A BUTTON and not a link, because pressing it does not leave the page -
+    it opens the reader, which is the same screen. The browser's button
+    defaults are all undone here: text-align, font and the grey box.
+  */
+  .lrn-card {
+    display: grid; grid-template-columns: auto 1fr; gap: 0 13px;
+    align-content: start; text-align: left;
+    padding: 15px 16px 13px;
+    border-radius: 16px;
+    border: 1px solid var(--lrn-edge);
+    background: var(--lrn-pane);
+    -webkit-backdrop-filter: blur(16px) saturate(155%);
+    backdrop-filter: blur(16px) saturate(155%);
+    box-shadow:
+      0 12px 30px rgba(2, 10, 32, .26),
+      inset 0 1px 0 rgba(255, 255, 255, .11);
+    font-family: inherit; cursor: pointer; position: relative; overflow: hidden;
+    transition: transform .2s ease, box-shadow .2s ease, border-color .2s ease;
+  }
+  /* The accent, as a hairline along the top edge rather than a block of it. */
+  .lrn-card::before {
+    content: ''; position: absolute; inset: 0 0 auto 0; height: 2px;
+    background: linear-gradient(90deg,
+      var(--lrn-accent, #4cc9f0), transparent 78%);
+    opacity: .85;
+  }
+  .lrn-card:hover {
+    transform: translateY(-3px);
+    border-color: var(--lrn-edge-lit);
+    box-shadow:
+      0 20px 42px rgba(2, 10, 32, .4),
+      inset 0 1px 0 rgba(255, 255, 255, .16);
+  }
+  .lrn-card:focus-visible {
+    outline: 2px solid var(--lrn-accent, #4cc9f0); outline-offset: 2px;
+  }
+
+  /*
+    THE FILE'S KIND, AS THREE LETTERS IN A TILE. An icon of a page with a
+    corner folded is the same picture for a 900KB SOP and a 40-minute
+    training video; the three letters say which in the space the picture
+    would have taken.
+  */
+  .lrn-mark {
+    display: grid; place-items: center; flex: none;
+    width: 38px; height: 38px; border-radius: 10px;
+    background: rgba(255, 255, 255, .1);
+    border: 1px solid rgba(255, 255, 255, .13);
+    font-size: 9.5px; font-weight: 800; letter-spacing: .06em;
+    color: rgba(255, 255, 255, .82);
+    grid-row: span 2;
+  }
+  .lrn-mark[data-kind="pdf"]   { background: rgba(240, 90, 80, .22);  color: #ffc7c2; border-color: rgba(240, 90, 80, .32); }
+  .lrn-mark[data-kind="video"] { background: rgba(240, 160, 76, .22); color: #ffdcb0; border-color: rgba(240, 160, 76, .32); }
+  .lrn-mark[data-kind="slide"] { background: rgba(240, 130, 76, .2);  color: #ffd2b4; border-color: rgba(240, 130, 76, .3); }
+  .lrn-mark[data-kind="sheet"] { background: rgba(54, 211, 153, .2);  color: #b4f0d8; border-color: rgba(54, 211, 153, .3); }
+  .lrn-mark[data-kind="doc"]   { background: rgba(91, 156, 248, .2);  color: #c6ddff; border-color: rgba(91, 156, 248, .3); }
+
+  .lrn-card-body { min-width: 0; }
+  .lrn-card-title {
+    display: block; margin-bottom: 7px;
+    font-size: 14.5px; font-weight: 650; line-height: 1.32;
+    letter-spacing: -.005em; color: #fff;
+    /*
+      Two lines and then an ellipsis. Titles run from "Destruction Process
+      in SAP" to "SAP S4HANA Leftover Declaration and Amortization
+      Principle", and a grid whose cards are each as tall as their own
+      title is a grid with holes in it.
+    */
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .lrn-card-tags { display: flex; flex-wrap: wrap; gap: 5px; }
+  .lrn-tag {
+    padding: 2.5px 8px; border-radius: 6px;
+    background: rgba(255, 255, 255, .085);
+    border: 1px solid rgba(255, 255, 255, .1);
+    font-size: 10px; font-weight: 700; letter-spacing: .03em;
+    color: var(--lrn-dim); white-space: nowrap;
+  }
+  .lrn-tag.is-type {
+    background: color-mix(in srgb, var(--lrn-accent, #4cc9f0) 20%, transparent);
+    border-color: color-mix(in srgb, var(--lrn-accent, #4cc9f0) 42%, transparent);
+    color: #fff;
+  }
+  @supports not (background: color-mix(in srgb, red 20%, transparent)) {
+    .lrn-tag.is-type {
+      background: rgba(76, 201, 240, .2); border-color: rgba(76, 201, 240, .42);
+      color: #fff;
+    }
+  }
+  .lrn-card-foot {
+    grid-column: 2; display: flex; justify-content: space-between; gap: 10px;
+    margin-top: 11px; padding-top: 9px;
+    border-top: 1px solid rgba(255, 255, 255, .08);
+    font-size: 10.5px; font-weight: 600; color: var(--lrn-faint);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .lrn-wait, .lrn-none {
+    grid-column: 1 / -1;
+    display: flex; flex-direction: column; align-items: center; gap: 5px;
+    padding: 48px 20px; border-radius: 16px;
+    border: 1px dashed rgba(255, 255, 255, .16);
+    background: rgba(255, 255, 255, .03);
+    color: var(--lrn-dim); font-size: 13.5px;
+  }
+  .lrn-none strong { font-size: 15px; font-weight: 700; color: #fff; }
+
+  /* ==========================
+     THE READER
+     ========================== */
+  .lrn-back {
+    display: inline-flex; align-items: center; gap: 7px;
+    margin: 4px 0 16px; padding: 8px 15px 8px 11px;
+    border-radius: 999px;
+    border: 1px solid var(--lrn-edge);
+    background: rgba(255, 255, 255, .06);
+    font-family: inherit; font-size: 12.5px; font-weight: 650;
+    line-height: 1; color: rgba(255, 255, 255, .82);
+    cursor: pointer;
+    transition: background .16s ease, border-color .16s ease, color .16s ease;
+  }
+  .lrn-back:hover {
+    background: rgba(255, 255, 255, .12);
+    border-color: var(--lrn-edge-lit); color: #fff;
+  }
+
+  /*
+    THE DESK: the tree on the left, everything else on the right.
+
+    A fixed 232px for the tree rather than a fraction. The folder names are
+    short and known - Common, MM, SD, PP, FI-CO - so the column does not
+    need to grow, and a fractional tree steals width from the document,
+    which is the one thing on this screen that benefits from every pixel.
+  */
+  .lrn-desk {
+    display: grid; grid-template-columns: 232px minmax(0, 1fr); gap: 16px;
+    align-items: start;
+  }
+
+  .lrn-tree {
+    display: flex; flex-direction: column; gap: 3px;
+    padding: 14px 12px;
+    border-radius: 16px;
+    border: 1px solid var(--lrn-edge);
+    background: var(--lrn-pane);
+    -webkit-backdrop-filter: blur(18px) saturate(155%);
+    backdrop-filter: blur(18px) saturate(155%);
+    box-shadow:
+      0 14px 34px rgba(2, 10, 32, .28),
+      inset 0 1px 0 rgba(255, 255, 255, .11);
+    /*
+      It follows the page down. The document beside it is tall - a PDF
+      preview is 640px of pane - and a tree that scrolls away means going
+      back to the top of the page to change folder.
+    */
+    position: sticky; top: 16px;
+  }
+  .lrn-tree-cap {
+    padding: 8px 10px 5px;
+    font-size: 9.5px; font-weight: 800; letter-spacing: .12em;
+    text-transform: uppercase; color: var(--lrn-faint);
+  }
+  .lrn-tree-cap:not(:first-child) { margin-top: 9px; }
+
+  .lrn-folder, .lrn-sub {
+    display: flex; align-items: center; gap: 9px;
+    width: 100%; padding: 8px 10px; border-radius: 9px;
+    border: 1px solid transparent; background: transparent;
+    font-family: inherit; font-size: 13px; font-weight: 600;
+    line-height: 1.3; color: rgba(255, 255, 255, .72);
+    text-align: left; cursor: pointer;
+    transition: background .14s ease, color .14s ease, border-color .14s ease;
+  }
+  .lrn-folder > span:not(.lrn-dot):not(.lrn-n) {
+    flex: 1; min-width: 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .lrn-dot {
+    flex: none; width: 7px; height: 7px; border-radius: 50%;
+    background: var(--lrn-accent, #4cc9f0);
+    box-shadow: 0 0 9px color-mix(in srgb, var(--lrn-accent, #4cc9f0) 65%, transparent);
+  }
+  .lrn-n {
+    flex: none; font-size: 10.5px; font-weight: 700;
+    color: var(--lrn-faint); font-variant-numeric: tabular-nums;
+  }
+  .lrn-folder:hover, .lrn-sub:hover {
+    background: rgba(255, 255, 255, .07); color: #fff;
+  }
+  .lrn-folder.is-on, .lrn-sub.is-on {
+    background: rgba(255, 255, 255, .12);
+    border-color: var(--lrn-edge-lit); color: #fff;
+  }
+  .lrn-folder.is-on .lrn-n, .lrn-sub.is-on .lrn-n { color: rgba(255, 255, 255, .8); }
+  .lrn-folder.is-root { font-weight: 700; }
+
+  /*
+    MG and RMG, indented under the module they belong to, with a rail
+    drawn down the gutter so the indent reads as containment rather than
+    as two chips that happen to be further in.
+  */
+  .lrn-subs {
+    display: flex; flex-direction: column; gap: 2px;
+    margin: 2px 0 4px 19px; padding-left: 11px;
+    border-left: 1px solid rgba(255, 255, 255, .14);
+  }
+  .lrn-sub {
+    justify-content: space-between;
+    padding: 6px 9px; font-size: 12px; font-weight: 600;
+  }
+
+  /* ---------- the pane the document is read in ---------- */
+  .lrn-pane {
+    border-radius: 18px;
+    border: 1px solid var(--lrn-edge);
+    background: var(--lrn-pane);
+    -webkit-backdrop-filter: blur(18px) saturate(155%);
+    backdrop-filter: blur(18px) saturate(155%);
+    box-shadow:
+      0 18px 44px rgba(2, 10, 32, .32),
+      inset 0 1px 0 rgba(255, 255, 255, .11);
+    overflow: hidden;
+  }
+  .lrn-pane-head {
+    display: flex; align-items: center; gap: 13px;
+    padding: 14px 16px;
+    border-bottom: 1px solid rgba(255, 255, 255, .09);
+  }
+  .lrn-pane-icon {
+    display: grid; place-items: center; flex: none;
+    width: 40px; height: 40px; border-radius: 11px;
+    background: rgba(255, 255, 255, .09);
+    border: 1px solid rgba(255, 255, 255, .12);
+    font-size: 10px; font-weight: 800; letter-spacing: .06em;
+    color: rgba(255, 255, 255, .8);
+  }
+  .lrn-pane-icon[data-kind="pdf"]   { background: rgba(240, 90, 80, .22);  color: #ffc7c2; }
+  .lrn-pane-icon[data-kind="video"] { background: rgba(240, 160, 76, .22); color: #ffdcb0; }
+  .lrn-pane-icon[data-kind="none"]  { background: rgba(255, 255, 255, .05); }
+  .lrn-pane-who {
+    display: flex; flex-direction: column; gap: 3px; flex: 1; min-width: 0;
+  }
+  .lrn-pane-who strong {
+    font-size: 16px; font-weight: 700; letter-spacing: -.015em; color: #fff;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .lrn-pane-meta {
+    font-size: 11.5px; font-weight: 500; color: var(--lrn-dim);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .lrn-pane-acts { display: flex; gap: 8px; flex: none; }
+
+  .lrn-btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    padding: 9px 16px; border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, .2);
+    background: rgba(255, 255, 255, .08);
+    font-family: inherit; font-size: 12.5px; font-weight: 700;
+    line-height: 1; color: #fff; text-decoration: none;
+    white-space: nowrap; cursor: pointer;
+    transition: background .16s ease, border-color .16s ease,
+                transform .16s ease, box-shadow .16s ease;
+  }
+  .lrn-btn:hover {
+    background: rgba(255, 255, 255, .15);
+    border-color: var(--lrn-edge-lit); transform: translateY(-1px);
+  }
+  .lrn-btn.is-primary {
+    background: linear-gradient(180deg, #5bb4f8 0%, #3d87ea 100%);
+    border-color: rgba(120, 190, 255, .6); color: #fff;
+    box-shadow: 0 8px 20px rgba(61, 135, 234, .34);
+  }
+  .lrn-btn.is-primary:hover {
+    background: linear-gradient(180deg, #6cbeff 0%, #4a93f2 100%);
+    box-shadow: 0 12px 26px rgba(61, 135, 234, .44);
+  }
+  /*
+    DEAD UNTIL A DOCUMENT IS OPEN, and really dead: renderLearnDoc removes
+    the href as well, so this is the look of a control that cannot be used
+    rather than a grey coat over a live one. pointer-events is belt and
+    braces for the gap between the class landing and the href going.
+  */
+  .lrn-btn.is-off {
+    opacity: .34; pointer-events: none; cursor: default;
+    box-shadow: none; transform: none;
+  }
+
+  /*
+    THE DOCUMENT AND THE LIST BESIDE IT.
+
+    The list is 272px and fixed, like the tree, and for the same reason:
+    everything else goes to the document.
+  */
+  .lrn-pane-body {
+    display: grid; grid-template-columns: minmax(0, 1fr) 272px;
+    min-height: 560px;
+  }
+
+  .lrn-view { position: relative; background: rgba(2, 8, 24, .22); }
+  /*
+    THE ONE WHITE THING ON THE SCREEN. A PDF renders on white whatever the
+    page around it does, so the frame is given white rather than left to
+    show the ink through its margins - which produced a white page inside
+    a dark frame inside a white-ish band, three edges where there should
+    be one.
+  */
+  .lrn-frame {
+    display: block; width: 100%; height: 100%; min-height: 560px;
+    border: 0; background: #fff;
+  }
+  .lrn-view-wait {
+    display: flex; flex-direction: column; align-items: center;
+    justify-content: center; gap: 7px; height: 100%; min-height: 560px;
+    padding: 30px; text-align: center; color: var(--lrn-dim);
+  }
+  .lrn-view-wait strong { font-size: 15px; font-weight: 700; color: rgba(255, 255, 255, .82); }
+  .lrn-view-wait span { font-size: 12.5px; }
+  .lrn-view-mark {
+    width: 52px; height: 64px; margin-bottom: 6px; border-radius: 5px;
+    border: 2px dashed rgba(255, 255, 255, .22);
+  }
+
+  .lrn-files {
+    display: flex; flex-direction: column; min-width: 0;
+    border-left: 1px solid rgba(255, 255, 255, .09);
+    background: var(--lrn-raise);
+  }
+  .lrn-files-head {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    padding: 12px 14px;
+    border-bottom: 1px solid rgba(255, 255, 255, .08);
+    font-size: 11px; font-weight: 800; letter-spacing: .07em;
+    text-transform: uppercase; color: var(--lrn-dim);
+  }
+  .lrn-files-head > span:first-child {
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .lrn-files-list {
+    display: flex; flex-direction: column; gap: 4px;
+    padding: 9px; overflow-y: auto; max-height: 560px;
+  }
+  .lrn-files-none {
+    padding: 22px 14px; font-size: 12.5px; color: var(--lrn-faint);
+    text-align: center;
+  }
+
+  .lrn-file {
+    display: flex; align-items: center; gap: 10px;
+    width: 100%; padding: 9px 10px; border-radius: 11px;
+    border: 1px solid transparent; background: transparent;
+    font-family: inherit; text-align: left; cursor: pointer;
+    transition: background .14s ease, border-color .14s ease;
+  }
+  .lrn-file .lrn-mark { width: 30px; height: 30px; border-radius: 8px; font-size: 8.5px; }
+  .lrn-file-who { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .lrn-file-who strong {
+    font-size: 12.5px; font-weight: 650; line-height: 1.3; color: rgba(255, 255, 255, .92);
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .lrn-file-who span { font-size: 10.5px; font-weight: 600; color: var(--lrn-faint); }
+  .lrn-file:hover { background: rgba(255, 255, 255, .07); }
+  .lrn-file.is-on {
+    background: rgba(255, 255, 255, .12);
+    border-color: var(--lrn-accent, #4cc9f0);
+  }
+  .lrn-file.is-on .lrn-file-who span { color: rgba(255, 255, 255, .68); }
+
+  /* ---------- narrower screens ---------- */
+  @media (max-width: 1180px) {
+    .lrn-pane-body { grid-template-columns: minmax(0, 1fr) 232px; }
+    .lrn-desk { grid-template-columns: 206px minmax(0, 1fr); }
+  }
+  @media (max-width: 980px) {
+    /*
+      The three-column desk becomes one column: tree, then the list, then
+      the document. The document goes LAST because at this width it is
+      the tallest thing on the page by a factor of four, and putting it
+      between the tree and the list would mean scrolling past a whole PDF
+      to get from one to the other.
+    */
+    .lrn-desk { grid-template-columns: minmax(0, 1fr); }
+    .lrn-tree { position: static; flex-direction: row; flex-wrap: wrap; }
+    .lrn-tree-cap { width: 100%; }
+    .lrn-folder, .lrn-sub { width: auto; }
+    .lrn-subs { margin-left: 0; border-left: 0; padding-left: 0; flex-direction: row; }
+    .lrn-pane-body { grid-template-columns: minmax(0, 1fr); min-height: 0; }
+    .lrn-files {
+      border-left: 0; border-bottom: 1px solid rgba(255, 255, 255, .09);
+      order: -1;
+    }
+    .lrn-files-list { max-height: 260px; }
+    .lrn-frame, .lrn-view-wait { min-height: 460px; }
+  }
+  @media (max-width: 760px) {
+    .lrn-head { flex-direction: column; align-items: stretch; gap: 16px; }
+    .lrn-title { font-size: 30px; }
+    .lrn-stats { justify-content: space-between; }
+    .lrn-stat { flex: 1; min-width: 0; }
+    .lrn-pane-head { flex-wrap: wrap; }
+    .lrn-pane-acts { width: 100%; }
+    .lrn-btn { flex: 1; }
+    .lrn-grid { grid-template-columns: minmax(0, 1fr); }
+  }
+
   /*
     Somebody who has asked their system not to animate things gets the height
     change without the slide.
@@ -2157,6 +2958,10 @@
     */
     .pillar, .zone, .plant { transition: box-shadow .2s ease, background .2s ease; }
     .pillar:hover, .zone:hover, .plant:hover { transform: none; }
+
+    /* The same bargain on the Learnings screen and the mailbox chips. */
+    .lrn-card:hover, .lrn-chip:hover, .lrn-btn:hover,
+    .portal-mailchip:hover { transform: none; }
   }
 
 </style>

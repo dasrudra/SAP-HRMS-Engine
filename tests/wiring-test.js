@@ -688,7 +688,9 @@ const EDITOR_TOOLS = [
   'setupTeamTab', 'checkTeamTab',
   'importTeamPhotos', 'reimportTeamPhotos', 'shareTeamPhotos',
   'checkTeamPhotos', 'installPhotoSync', 'removePhotoSync',
-  'listPersonModules', 'explainUnassigned'
+  'listPersonModules', 'explainUnassigned',
+  'setupLearnTab', 'scanLearnFolder', 'shareLearnFiles',
+  'checkLearnFolder', 'installLearnSync', 'removeLearnSync'
 ];
 const unrunnable = [], absent = [];
 const gsText = fs.readdirSync(SRC).filter((f) => /\.gs$/.test(f))
@@ -703,8 +705,16 @@ EDITOR_TOOLS.forEach(function (name) {
   // is any that is not read through a default, a fallback or a guard.
   const body = gsText.slice(hit.index);
   const first = params.split(',')[0].trim();
+  //
+  // The first alternative was `teamPhotoFolder(first)` by name, written when
+  // that was the only resolver there was. Learn.gs added learnFolder(), which
+  // does exactly the same job - take the argument if there is one, otherwise
+  // read the script property - and the named test reported scanLearnFolder as
+  // unrunnable although it runs perfectly well from the Run button. The rule
+  // being checked is "the argument is handed to something that supplies a
+  // default", so it matches any ...Folder() resolver rather than one.
   const copes = new RegExp(
-    '(teamPhotoFolder\\(' + first + '\\)|' + first + '\\s*\\|\\||' +
+    '(\\w*Folder\\(' + first + '\\)|' + first + '\\s*\\|\\||' +
     'String\\(' + first + '\\s*\\|\\||if\\s*\\(\\s*!?' + first + '\\b|' +
     first + '\\s*&&|\\b' + first + '\\s*\\?)'
   ).test(body.slice(0, 1400));
