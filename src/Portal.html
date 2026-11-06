@@ -803,8 +803,19 @@
                 Pick something on the left, or share what you know.
               </span>
             </span>
+            <!--
+              DOWNLOAD FOR EVERYBODY, REMOVE FOR THE AUTHOR. Download comes
+              first because almost everybody reading a share is somebody
+              who did not write it, and the button they want should not be
+              the second one. Remove is hidden outright rather than
+              disabled for the rest: a greyed button still says "there is
+              something here you are not allowed to do", which is not the
+              message - it is simply not their share.
+            -->
             <span class="lrn-pane-acts">
-              <button class="lrn-btn kn-del is-off" id="knDelete" type="button"
+              <button class="lrn-btn kn-get is-off" id="knDownload" type="button"
+                      hidden>Download</button>
+              <button class="lrn-btn kn-del" id="knDelete" type="button"
                       hidden>Remove</button>
             </span>
           </div>

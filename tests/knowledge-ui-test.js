@@ -237,13 +237,19 @@ const FILE = 'file://' + PAGE;
   const items = () => p.$$eval('#knList .kn-item', (ns) => ns.map((n) =>
     n.querySelector('strong').textContent.trim()));
 
-  check('the feed is drawn from the server',
-    (await items()).length === 1 &&
-    /GRN posts/.test((await items())[0]),
+  check('the feed is drawn from the server, newest first',
+    (await items()).length === 2 &&
+    /Two screenshots/.test((await items())[0]) &&
+    /GRN posts/.test((await items())[1]),
     (await items()).join(' | '));
 
-  await p.click('#knList .kn-item');
-  await p.waitForTimeout(400);
+  // The GRN one: words, no attachments, and not written by the signed-in
+  // person - which is three of the four cases this pane has to draw.
+  const openAt = async (n) => {
+    await p.click('#knList .kn-item:nth-child(' + n + ')');
+    await p.waitForTimeout(400);
+  };
+  await openAt(2);
 
   const open = await p.evaluate(() => ({
     title: document.getElementById('knTitle').textContent.trim(),
@@ -268,6 +274,135 @@ const FILE = 'file://' + PAGE;
 
   check('and the author gets initials rather than a blank circle',
     open.avatar === 'BH', open.avatar);
+
+  // =========================================================================
+  // 3b. WHOSE SHARE IT IS, AND WHAT EVERYBODY ELSE GETS INSTEAD
+  // =========================================================================
+  // Remove is the author's alone, an admin included. Everybody else gets
+  // Download. Hidden rather than greyed: a disabled button says "there is
+  // something here you may not do", and the truth is that it is simply
+  // not their share.
+  const onTheirs = await p.evaluate(() => ({
+    del: !document.getElementById('knDelete').hidden,
+    get: !document.getElementById('knDownload').hidden,
+    getOff: document.getElementById('knDownload').classList.contains('is-off')
+  }));
+  check('somebody else\'s share offers no Remove at all',
+    onTheirs.del === false, onTheirs.del ? 'Remove was offered' : 'hidden');
+
+  // This one has no attachments, so Download is drawn and dead rather
+  // than absent - the button belongs to the share, its state to the files.
+  check('and its Download is shown but dead, because it has nothing attached',
+    onTheirs.get && onTheirs.getOff,
+    'shown=' + onTheirs.get + ' dead=' + onTheirs.getOff);
+
+  // =========================================================================
+  // 3c. TWO ATTACHMENTS, AND A WAY TO THE SECOND
+  // =========================================================================
+  await openAt(1);
+
+  const carousel = async () => await p.evaluate(() => {
+    const bar = document.querySelector('#knView .kn-frame-bar');
+    const frame = document.querySelector('#knView .kn-frame');
+    return {
+      name: bar ? bar.querySelector('.kn-frame-name').textContent.trim() : '',
+      of: bar && bar.querySelector('.kn-frame-of')
+        ? bar.querySelector('.kn-frame-of').textContent.trim() : '',
+      arrows: bar ? bar.querySelectorAll('.kn-arrow').length : 0,
+      src: frame ? frame.getAttribute('src') : '',
+      lit: Array.from(document.querySelectorAll('#knAttachments .kn-file'))
+             .map((n) => n.classList.contains('is-on') ? 1 : 0).join('')
+    };
+  });
+
+  const first = await carousel();
+  check('a share with two attachments previews the first of them',
+    first.name === 'before.png' && /FA1/.test(first.src),
+    first.name + ' / ' + first.src);
+
+  check('and says which of how many, with an arrow each way',
+    first.of === '1 / 2' && first.arrows === 2,
+    '"' + first.of + '", ' + first.arrows + ' arrows');
+
+  check('the attachment list marks the one on show',
+    first.lit === '10', first.lit);
+
+  // THE WHOLE POINT. The second attachment used to be unreachable without
+  // opening Drive in another tab.
+  await p.click('#knView .kn-arrow[data-step="1"]');
+  await p.waitForTimeout(300);
+  const second = await carousel();
+  check('the forward arrow shows the second attachment, in the page',
+    second.name === 'after.png' && /FA2/.test(second.src) &&
+    second.of === '2 / 2' && second.lit === '01',
+    second.name + ' / ' + second.of + ' / lit ' + second.lit);
+
+  // Wrapping, so Next and Back are the same control for a list of two.
+  await p.click('#knView .kn-arrow[data-step="1"]');
+  await p.waitForTimeout(300);
+  check('and wraps round to the first rather than stopping dead',
+    (await carousel()).of === '1 / 2', (await carousel()).of);
+
+  await p.click('#knView .kn-arrow[data-step="-1"]');
+  await p.waitForTimeout(300);
+  check('the back arrow wraps the other way',
+    (await carousel()).of === '2 / 2', (await carousel()).of);
+
+  // Pressing an attachment shows it here rather than opening Drive, which
+  // is what it used to do and is how the second one became unreachable.
+  await p.click('#knAttachments .kn-file:nth-child(1)');
+  await p.waitForTimeout(300);
+  const picked = await carousel();
+  check('pressing an attachment previews it instead of leaving for Drive',
+    picked.name === 'before.png' && picked.of === '1 / 2',
+    picked.name + ' / ' + picked.of);
+
+  check('the attachment rows are buttons, not links out',
+    (await p.$$eval('#knAttachments a', (ns) => ns.length)) === 0,
+    (await p.$$eval('#knAttachments a', (ns) => ns.length)) + ' anchors left');
+
+  // The way to Drive is kept, demoted to one icon on the bar.
+  check('the way out to Drive is still there, once, on the bar',
+    (await p.$$eval('#knView .kn-frame-out', (ns) => ns.length)) === 1 &&
+    /FA1/.test(await p.$eval('#knView .kn-frame-out', (n) => n.href)),
+    await p.$eval('#knView .kn-frame-out', (n) => n.getAttribute('href')));
+
+  // The arrow keys, because somebody comparing two screenshots will try.
+  await p.keyboard.press('ArrowRight');
+  await p.waitForTimeout(300);
+  check('the arrow keys move the preview too',
+    (await carousel()).of === '2 / 2', (await carousel()).of);
+
+  // Download is live here, and says how many it will fetch.
+  const getBtn = await p.evaluate(() => {
+    const n = document.getElementById('knDownload');
+    return { hidden: n.hidden, off: n.classList.contains('is-off'),
+             text: n.textContent.trim() };
+  });
+  check('Download is live on a share that has attachments, and counts them',
+    !getBtn.hidden && !getBtn.off && /2 files/.test(getBtn.text),
+    '"' + getBtn.text + '" off=' + getBtn.off);
+
+  // Pressing it must not navigate the portal away. An <a download> would:
+  // the attribute is ignored across origins, so the browser follows the
+  // link and the page is replaced by Drive.
+  const before = p.url();
+  await p.click('#knDownload');
+  await p.waitForTimeout(900);
+  check('and pressing it does not navigate the page away',
+    p.url() === before &&
+    (await p.evaluate(() => !document.getElementById('view-knowledge').hidden)),
+    p.url() === before ? 'still on the portal' : 'NAVIGATED to ' + p.url());
+
+  check('it fetches one hidden frame per attachment rather than opening tabs',
+    (await p.$$eval('body > iframe', (ns) => ns.length)) === 2,
+    (await p.$$eval('body > iframe', (ns) => ns.length)) + ' frames');
+
+  // Opening a different share starts at its first attachment again.
+  await openAt(2);
+  await openAt(1);
+  check('opening another share and coming back starts at the first again',
+    (await carousel()).of === '1 / 2', (await carousel()).of);
 
   // =========================================================================
   // 4. POSTING - the words, then the file, in pieces
@@ -331,7 +466,7 @@ const FILE = 'file://' + PAGE;
 
   const after = await items();
   check('the new share is at the top of the feed, newest first',
-    after.length === 2 && /Movement type 311/.test(after[0]),
+    after.length === 3 && /Movement type 311/.test(after[0]),
     after.join(' | '));
 
   const posted = await p.evaluate(() => ({
@@ -411,7 +546,7 @@ const FILE = 'file://' + PAGE;
   await p.waitForTimeout(900);
 
   check('removing takes it out of the feed',
-    (await items()).length === 1 &&
+    (await items()).length === 2 &&
     !(await items()).some((t) => /Movement type 311/.test(t)),
     (await items()).join(' | '));
 

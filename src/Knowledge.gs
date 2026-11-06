@@ -284,11 +284,13 @@ function getKnowledge(token) {
   const data = readKnowledge();
   const me = currentSession(token);
 
-  // WHO IS LOOKING, so the page knows which Delete buttons to draw. Decided
+  // WHO IS LOOKING, so the page knows whose Remove button to draw. Decided
   // here and not in the browser: a page that works out its own permissions
   // is a page that can be told it has different ones from a console.
+  //
+  // No admin flag goes with it, and that is deliberate - see
+  // deleteKnowledge. Removing is the author's and nobody else's.
   data.me = me ? String(me.u || '') : '';
-  data.admin = Boolean(me && rankOf(me.r) >= rankOf(ROLE_ADMIN));
   data.maxFile = KNOWLEDGE_MAX_FILE;
   data.maxFiles = KNOWLEDGE_MAX_FILES;
   data.chunk = KNOWLEDGE_CHUNK;
@@ -384,10 +386,11 @@ function addKnowledgeChunk(token, shareId, part) {
   if (row === -1) throw new Error('That share no longer exists.');
 
   // Only the person who posted it, or an admin, may add to it.
+  // THE AUTHOR'S, AND NOBODY ELSE'S - an admin included. See
+  // deleteKnowledge for why the rank is not consulted here either.
   const me = currentSession(token);
   const owner = String(sheet.getRange(row, 6).getValue() || '').trim();
-  const isAdmin = me && rankOf(me.r) >= rankOf(ROLE_ADMIN);
-  if (!isAdmin && owner && owner !== String(me.u || '')) {
+  if (owner && owner !== String(me && me.u || '')) {
     throw new Error('That share belongs to somebody else.');
   }
 
@@ -469,8 +472,17 @@ function knowledgePartName(uploadId, index) {
 /**
  * Removes a share, and the files attached to it.
  *
- * The author or an admin. Not anybody - this is a shared feed, and a note
- * somebody else can delete is a note nobody will post.
+ * THE AUTHOR ONLY. Not an admin, which is unusual in this project and is
+ * the point: everywhere else an admin can do what a viewer cannot, because
+ * everywhere else the data belongs to the department. A share belongs to
+ * the person who wrote it, and a note that somebody senior can quietly take
+ * down is a note people stop writing. That is the whole asset here.
+ *
+ * WHAT THIS COSTS, said plainly because it is a real cost: if something is
+ * posted that must come off and its author has left, there is no button for
+ * it. The row is deleted from the KNOWLEDGE tab in the spreadsheet instead,
+ * which the people who hold that sheet can do. That is a deliberate trade -
+ * the awkward case is rare and the chilling effect would be constant.
  *
  * The attachments go to the Drive bin rather than being destroyed, which is
  * recoverable for thirty days and is the right amount of caution for a
@@ -485,9 +497,8 @@ function deleteKnowledge(token, id) {
 
   const me = currentSession(token);
   const owner = String(sheet.getRange(row, 6).getValue() || '').trim();
-  const isAdmin = me && rankOf(me.r) >= rankOf(ROLE_ADMIN);
-  if (!isAdmin && owner !== String(me.u || '')) {
-    throw new Error('Only the person who shared this, or an admin, can remove it.');
+  if (owner !== String(me && me.u || '')) {
+    throw new Error('Only the person who shared this can remove it.');
   }
 
   parseKnowledgeFiles(sheet.getRange(row, 9).getValue()).forEach(function (f) {

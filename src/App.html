@@ -7621,7 +7621,7 @@
   // and the whole screen wears its own colour so that a colleague's note is
   // never mistaken for an approved document.
 
-  const KN = { data: null, openId: '', picked: [], busy: false };
+  const KN = { data: null, openId: '', fileAt: 0, picked: [], busy: false };
 
 
   function loadKnowledge() {
@@ -7755,14 +7755,22 @@
 
     KN.openId = share ? share.id : '';
 
-    if (del) {
-      // Yours, or an admin's. Decided by the server and sent down in the
-      // payload - a page that works out its own permissions is a page that
-      // can be told it has different ones from a console.
-      const mine = share && KN.data &&
-        (KN.data.admin || (share.authorId && share.authorId === KN.data.me));
-      del.hidden = !mine;
-      del.classList.toggle('is-off', !mine);
+    // REMOVE IS THE AUTHOR'S ALONE, an admin included. Everyone else gets
+    // Download and no Remove at all - hidden rather than disabled, because
+    // a greyed button says "there is something here you may not do" and
+    // the truth is simply that it is not their share. The server enforces
+    // the same rule; this only decides what is worth drawing.
+    const mine = Boolean(share && KN.data && share.authorId &&
+                         share.authorId === KN.data.me);
+    if (del) del.hidden = !mine;
+
+    const get = document.getElementById('knDownload');
+    if (get) {
+      const files = (share && share.files) || [];
+      get.hidden = !share;
+      get.classList.toggle('is-off', !files.length);
+      get.textContent = files.length > 1
+        ? 'Download ' + files.length + ' files' : 'Download';
     }
 
     if (!share) {
@@ -7808,27 +7816,104 @@
           }).join('') + '</div>'
         : '';
 
-      // THE FIRST PREVIEWABLE ATTACHMENT, under the words. A share is often
-      // a sentence and a screenshot, and making somebody press the
-      // screenshot to see it is making them press a thing to see the point
-      // of the share.
-      const shown = (share.files || []).filter(function (f) {
-        return f.kind === 'pdf' || f.kind === 'image' || f.kind === 'video';
-      })[0];
-
-      const frame = shown
-        ? '<div class="kn-frame-wrap">' +
-            '<iframe class="kn-frame" title="' + escapeHtml(shown.name) + '" ' +
-              'src="' + escapeHtml(shown.preview) + '" ' +
-              'referrerpolicy="no-referrer" allow="autoplay"></iframe>' +
-          '</div>'
-        : '';
-
-      view.innerHTML = tags + words + frame;
+      view.innerHTML = tags + words + knFrameHtml(share);
     }
 
     renderKnAttachments(share);
     renderKnList();
+  }
+
+
+  /**
+   * The attachment on show, with a way to the next one.
+   *
+   * EVERY ATTACHMENT, NOT THE FIRST PREVIEWABLE ONE. The first version
+   * picked out the leading image or PDF and drew that; a share with two
+   * screenshots showed one of them and the other was a row in the list
+   * that opened Drive in a new tab. Somebody comparing two screenshots
+   * then has the portal in one tab and Drive in another, which is exactly
+   * the leaving-the-page this screen exists to avoid.
+   *
+   * Drive's /preview renders images, PDFs, video and the Office formats,
+   * so there is no useful line to draw between what can be shown here and
+   * what cannot - everything gets a turn, and anything Drive cannot render
+   * says so inside the frame, which is Drive's message to give.
+   *
+   * The arrows wrap. Two attachments and a Next that stops at the second
+   * means going back is a different button from going on, for a list of
+   * two.
+   */
+  function knFrameHtml(share) {
+    const files = (share && share.files) || [];
+    if (!files.length) return '';
+
+    const at = Math.max(0, Math.min(KN.fileAt, files.length - 1));
+    const file = files[at];
+    const many = files.length > 1;
+
+    const arrow = (dir, path, label) =>
+      '<button class="kn-arrow" type="button" data-step="' + dir + '" ' +
+        'aria-label="' + label + '">' +
+        '<svg viewBox="0 0 16 16" width="15" height="15" fill="none" ' +
+          'stroke="currentColor" stroke-width="2" stroke-linecap="round" ' +
+          'stroke-linejoin="round" aria-hidden="true"><path d="' + path + '"/>' +
+        '</svg></button>';
+
+    return '<div class="kn-frame-wrap">' +
+      '<div class="kn-frame-bar">' +
+        (many ? arrow(-1, 'M10 3.5L5.5 8l4.5 4.5', 'Previous attachment') : '') +
+        '<span class="kn-frame-name">' + escapeHtml(file.name) + '</span>' +
+        (many
+          ? '<span class="kn-frame-of">' + (at + 1) + ' / ' + files.length + '</span>'
+          : '') +
+        (many ? arrow(1, 'M6 3.5L10.5 8 6 12.5', 'Next attachment') : '') +
+        // The way out to Drive, kept but demoted. It used to be what
+        // pressing an attachment did, which is why the second screenshot
+        // was unreachable without leaving.
+        '<a class="kn-frame-out" href="' + escapeHtml(file.open) + '" ' +
+          'target="_blank" rel="noopener noreferrer" title="Open in Drive">' +
+          '<svg viewBox="0 0 16 16" width="13" height="13" fill="none" ' +
+            'stroke="currentColor" stroke-width="1.7" stroke-linecap="round" ' +
+            'stroke-linejoin="round" aria-hidden="true">' +
+            '<path d="M9.5 2.5H13.5V6.5M13.5 2.5L7.5 8.5"/>' +
+            '<path d="M12 10v3.5H2.5V4H6"/></svg>' +
+        '</a>' +
+      '</div>' +
+      '<iframe class="kn-frame" title="' + escapeHtml(file.name) + '" ' +
+        'src="' + escapeHtml(file.preview) + '" ' +
+        'referrerpolicy="no-referrer" allow="autoplay"></iframe>' +
+    '</div>';
+  }
+
+
+  /** Moves the preview on by one, wrapping at either end. */
+  function knStep(by) {
+    const share = knShareById(KN.openId);
+    const files = (share && share.files) || [];
+    if (files.length < 2) return;
+
+    KN.fileAt = (KN.fileAt + by + files.length) % files.length;
+    knRepaintFrame(share);
+  }
+
+
+  /**
+   * Redraws the frame and the list, without rebuilding the words above it.
+   *
+   * The body can be twenty lines long and the pane is scrolled to wherever
+   * the reader had got to. Re-rendering the whole share to change which
+   * image is showing throws that away and jumps them back to the top.
+   */
+  function knRepaintFrame(share) {
+    const wrap = document.querySelector('#knView .kn-frame-wrap');
+    if (!wrap) { renderKnShare(share); return; }
+
+    const next = document.createElement('div');
+    next.innerHTML = knFrameHtml(share);
+    const made = next.firstElementChild;
+    if (made) wrap.replaceWith(made); else wrap.remove();
+
+    renderKnAttachments(share);
   }
 
 
@@ -7838,16 +7923,22 @@
 
     const files = (share && share.files) || [];
 
+    // A BUTTON THAT CHANGES THE PREVIEW, not a link that leaves the page.
+    // These used to be anchors to Drive, which is how a share's second
+    // attachment became unreachable without opening another tab.
+    const at = Math.max(0, Math.min(KN.fileAt, files.length - 1));
     const list = files.length
-      ? files.map(function (f) {
-          return '<a class="lrn-file kn-file" href="' + escapeHtml(f.open) + '" ' +
-              'target="_blank" rel="noopener noreferrer">' +
+      ? files.map(function (f, i) {
+          const on = i === at;
+          return '<button class="lrn-file kn-file' + (on ? ' is-on' : '') + '" ' +
+              'type="button" data-at="' + i + '" ' +
+              'aria-pressed="' + (on ? 'true' : 'false') + '">' +
             learnIcon(f.kind) +
             '<span class="lrn-file-who">' +
               '<strong>' + escapeHtml(f.name) + '</strong>' +
               '<span>' + escapeHtml(f.sizeText || '') + '</span>' +
             '</span>' +
-          '</a>';
+          '</button>';
         }).join('')
       : '<span class="lrn-files-none">' +
         (share ? 'No attachments on this one.' : 'Nothing open.') + '</span>';
@@ -8059,6 +8150,48 @@
   }
 
 
+  /**
+   * Downloads everything attached to the share that is open.
+   *
+   * THROUGH HIDDEN IFRAMES, one per file, staggered.
+   *
+   * An <a download> would be the obvious way and does not work: the
+   * attribute is ignored across origins, so the browser navigates to
+   * Drive instead of saving, and the portal is replaced by a Drive page.
+   * Opening tabs instead means a share with four attachments opens four
+   * tabs, three of which the pop-up blocker eats.
+   *
+   * A frame pointed at Drive's export address downloads without
+   * navigating anything. They are staggered because a browser asked for
+   * four files in the same tick treats three of them as the page doing
+   * something it was not asked to, and removed afterwards so the page is
+   * not left carrying a frame per attachment per press.
+   */
+  function knDownload() {
+    const share = knShareById(KN.openId);
+    const files = (share && share.files) || [];
+    if (!files.length) return;
+
+    files.forEach(function (file, i) {
+      setTimeout(function () {
+        const frame = document.createElement('iframe');
+        frame.style.display = 'none';
+        frame.src = file.download;
+        document.body.appendChild(frame);
+        setTimeout(function () { frame.remove(); }, 60000);
+      }, i * 700);
+    });
+
+    const button = document.getElementById('knDownload');
+    if (!button) return;
+    const was = button.textContent;
+    button.textContent = files.length > 1
+      ? 'Downloading ' + files.length + '...' : 'Downloading...';
+    setTimeout(function () { button.textContent = was; },
+               600 + files.length * 700);
+  }
+
+
   function wireKnowledge() {
     bind('knNew', 'click', function () { knSheet(true); });
     bind('knCancel', 'click', function () { knSheet(false); });
@@ -8120,9 +8253,52 @@
         const item = event.target.closest('.kn-item');
         if (!item) return;
         const share = knShareById(item.getAttribute('data-id'));
-        if (share) renderKnShare(share);
+        // Back to the first attachment. Opening a different share and
+        // landing on its third image, because that is where you were in
+        // the last one, is not something anybody would ask for.
+        if (share) { KN.fileAt = 0; renderKnShare(share); }
       });
     }
+
+    // The arrows either side of the preview.
+    const view = document.getElementById('knView');
+    if (view) {
+      view.addEventListener('click', function (event) {
+        const arrow = event.target.closest('.kn-arrow');
+        if (!arrow) return;
+        knStep(Number(arrow.getAttribute('data-step')) || 1);
+      });
+    }
+
+    // Pressing an attachment shows it, rather than opening Drive.
+    const files = document.getElementById('knAttachments');
+    if (files) {
+      files.addEventListener('click', function (event) {
+        const row = event.target.closest('.kn-file');
+        if (!row) return;
+        const share = knShareById(KN.openId);
+        if (!share) return;
+        KN.fileAt = Number(row.getAttribute('data-at')) || 0;
+        knRepaintFrame(share);
+      });
+    }
+
+    // The arrow keys, once the preview is what somebody is looking at.
+    // Guarded on the composer being shut and on not being in a text box,
+    // or Left and Right stop moving the caret while somebody is typing.
+    document.addEventListener('keydown', function (event) {
+      if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+      const page = document.getElementById('view-knowledge');
+      const sheet = document.getElementById('knSheet');
+      if (!page || page.hidden || (sheet && !sheet.hidden)) return;
+      const on = document.activeElement;
+      if (on && /^(INPUT|TEXTAREA|SELECT)$/.test(on.tagName)) return;
+      if (!document.querySelector('#knView .kn-frame-wrap')) return;
+      event.preventDefault();
+      knStep(event.key === 'ArrowRight' ? 1 : -1);
+    });
+
+    bind('knDownload', 'click', knDownload);
 
     bind('knDelete', 'click', function () {
       const share = knShareById(KN.openId);

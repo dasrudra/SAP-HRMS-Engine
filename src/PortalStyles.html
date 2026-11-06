@@ -3182,6 +3182,50 @@
     margin-top: 18px; border-radius: 12px; overflow: hidden;
     border: 1px solid var(--lrn-edge);
   }
+  /*
+    THE BAR OVER THE PREVIEW: back, the name, which of how many, forward,
+    and the way out to Drive.
+
+    It is above the frame and not floating on top of it, because the thing
+    underneath is somebody's screenshot and a control sitting over it
+    covers part of what they came to look at. Drive puts its own zoom
+    controls inside the frame already; a second set of ours on the same
+    pixels would be two toolbars arguing.
+  */
+  .kn-frame-bar {
+    display: flex; align-items: center; gap: 8px;
+    padding: 7px 9px;
+    background: rgba(var(--kn-pale-rgb), .1);
+    border-bottom: 1px solid var(--lrn-edge);
+  }
+  .kn-frame-name {
+    flex: 1; min-width: 0;
+    font-size: 11.5px; font-weight: 650; color: rgba(255, 255, 255, .86);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .kn-frame-of {
+    flex: none; padding: 2px 8px; border-radius: 999px;
+    background: rgba(var(--kn-pale-rgb), .14);
+    font-size: 10.5px; font-weight: 700; color: rgba(255, 255, 255, .7);
+    font-variant-numeric: tabular-nums;
+  }
+  .kn-arrow, .kn-frame-out {
+    display: grid; place-items: center; flex: none;
+    width: 26px; height: 26px; border-radius: 8px;
+    border: 1px solid rgba(var(--kn-pale-rgb), .24);
+    background: rgba(var(--kn-pale-rgb), .1);
+    font-family: inherit; color: rgba(255, 255, 255, .82);
+    cursor: pointer; text-decoration: none;
+    transition: background .14s ease, border-color .14s ease, color .14s ease;
+  }
+  .kn-arrow:hover, .kn-frame-out:hover {
+    background: rgba(var(--kn-pale-rgb), .24);
+    border-color: rgba(var(--kn-lit-rgb), .6); color: #fff;
+  }
+  .kn-arrow:focus-visible, .kn-frame-out:focus-visible {
+    outline: 2px solid var(--kn-lit); outline-offset: 2px;
+  }
+
   .kn-frame { display: block; width: 100%; height: 420px; border: 0; background: #fff; }
 
   .kn-blank {
@@ -3196,7 +3240,27 @@
     border: 2px dashed rgba(var(--kn-pale-rgb), .3);
   }
 
-  .kn-file { text-decoration: none; }
+  /*
+    An attachment row is a BUTTON now - it changes the preview rather
+    than opening Drive - so it has to have the browser's button defaults
+    undone and has to show which one is on show.
+  */
+  .kn-file {
+    text-decoration: none; font-family: inherit;
+    width: 100%; text-align: left; cursor: pointer;
+  }
+  .kn-file.is-on {
+    background: rgba(var(--kn-pale-rgb), .16);
+    border-color: var(--kn);
+  }
+
+  .kn-get {
+    border-color: rgba(var(--kn-lit-rgb), .5);
+    background: rgba(var(--kn-pale-rgb), .14);
+  }
+  .kn-get:hover {
+    border-color: var(--kn-lit); background: rgba(var(--kn-pale-rgb), .26);
+  }
   .kn-del {
     border-color: rgba(229, 72, 77, .42); background: rgba(229, 72, 77, .14);
     color: #ffc2bf;

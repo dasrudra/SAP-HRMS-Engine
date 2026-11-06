@@ -492,16 +492,46 @@ const bytesOf = (n, seed) => {
   check('and the share is untouched',
     other.readKnowledge().count === 1, String(other.readKnowledge().count));
 
-  // An admin can.
+  // NOR CAN AN ADMIN, which is the unusual part and the point of it.
+  //
+  // Everywhere else in this project an admin can do what a viewer cannot,
+  // because everywhere else the data belongs to the department. A share
+  // belongs to the person who wrote it, and a note somebody senior can
+  // quietly take down is a note people stop writing - which is the whole
+  // asset here.
   const admin = load(Object.assign({}, base,
     { session: { u: '20000099', r: 'ADMIN' } }));
   admin.__sheet.rows.length = 0;
   rows.forEach((r) => admin.__sheet.rows.push(r.slice()));
   let adminThrew = '';
   try { admin.deleteKnowledge('t', share.id); } catch (e) { adminThrew = e.message; }
-  check('an admin can, because somebody has to be able to',
-    !adminThrew && admin.readKnowledge().count === 0,
-    adminThrew || 'removed');
+  check('an admin cannot remove it either, which is deliberate',
+    /Only the person who shared this/.test(adminThrew) &&
+    admin.readKnowledge().count === 1,
+    adminThrew || 'IT WAS REMOVED');
+
+  const master = load(Object.assign({}, base,
+    { session: { u: '20000099', r: 'MASTER' } }));
+  master.__sheet.rows.length = 0;
+  rows.forEach((r) => master.__sheet.rows.push(r.slice()));
+  let masterThrew = '';
+  try { master.deleteKnowledge('t', share.id); } catch (e) { masterThrew = e.message; }
+  check('and neither can a MASTER - the rank is not consulted at all',
+    /Only the person who shared this/.test(masterThrew) &&
+    master.readKnowledge().count === 1,
+    masterThrew || 'IT WAS REMOVED');
+
+  // The same rule on attaching, or somebody could add to a note that goes
+  // out under another person's name.
+  let attachThrew = '';
+  try {
+    admin.addKnowledgeChunk('t', share.id, {
+      uploadId: 'UA', name: 'c.png', mime: 'image/png',
+      size: 3, index: 0, total: 1, data: b64([7])
+    });
+  } catch (e) { attachThrew = e.message; }
+  check('an admin cannot attach to somebody else\'s share either',
+    /belongs to somebody else/.test(attachThrew), attachThrew);
 
   // The author can, and the attachments go with it.
   const author = load(base);
@@ -530,14 +560,15 @@ const bytesOf = (n, seed) => {
   ctx.createKnowledge('t', { title: 'One', body: 'x' });
   const served = ctx.getKnowledge('t');
 
-  check('the page is told who is looking, so it knows which Remove to draw',
-    served.me === '20000003' && served.admin === false,
-    'me=' + served.me + ' admin=' + served.admin);
+  check('the page is told who is looking, so it knows whose Remove to draw',
+    served.me === '20000003', 'me=' + served.me);
 
-  const asAdmin = load(Object.assign({}, base,
-    { session: { u: '20000000', r: 'MASTER' } })).getKnowledge('t');
-  check('and a MASTER counts as an admin, not only an ADMIN',
-    asAdmin.admin === true, String(asAdmin.admin));
+  // NO ADMIN FLAG GOES DOWN AT ALL. It used to, and the page drew Remove
+  // on anything when it was set. Sending a permission the server no
+  // longer honours is how a page comes to offer a button that fails.
+  check('and is told nothing about rank, because rank decides nothing here',
+    !('admin' in served),
+    'admin' in served ? 'still sent: ' + served.admin : 'not sent');
 
   check('the upload limits come from the server, not from a number in the page',
     served.chunk > 0 && served.maxFile > served.chunk && served.maxFiles > 0,

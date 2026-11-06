@@ -196,6 +196,21 @@ const stub = `
   var KN_SEQ = 0;
   var KN_PARTS = {};
   var KN_STORE = [{
+    id: 'KA', title: 'Two screenshots, side by side',
+    body: 'The before and the after.',
+    tags: [], author: 'Ayesha Rahman', authorId: '20000001',
+    created: '4 Nov 2026', stamp: 2, edited: false,
+    files: [
+      { id: 'FA1', name: 'before.png', mime: 'image/png', size: 1024,
+        kind: 'image', sizeText: '1 KB',
+        preview: 'about:blank#FA1/preview', open: 'about:blank#FA1/view',
+        download: 'about:blank#FA1/download' },
+      { id: 'FA2', name: 'after.png', mime: 'image/png', size: 2048,
+        kind: 'image', sizeText: '2 KB',
+        preview: 'about:blank#FA2/preview', open: 'about:blank#FA2/view',
+        download: 'about:blank#FA2/download' }
+    ]
+  }, {
     id: 'K0', title: 'GRN posts but the material document is missing',
     body: 'Happens when the movement type is set before the plant.\\n\\n' +
           '1. Clear the line\\n2. Set the plant first\\n3. Then the movement type',
@@ -884,7 +899,10 @@ const stub = `
       return {
         shares: KN_STORE.slice().sort(function (a, b) { return b.stamp - a.stamp; }),
         count: KN_STORE.length, filled: true,
-        me: '20000000', admin: ROLE === 'ADMIN' || ROLE === 'MASTER',
+        // NO admin FLAG. Removing is the author's alone - see
+        // deleteKnowledge - so the page is told who is looking and
+        // nothing else.
+        me: '20000000',
         // 64KB rather than the server's 4MB, so the suite's fixture
         // file arrives in several pieces without being four megabytes -
         // and big enough that base64'ing a chunk in ONE
@@ -948,6 +966,10 @@ const stub = `
       var at = -1;
       KN_STORE.forEach(function (s, i) { if (s.id === id) at = i; });
       if (at === -1) throw new Error('That share no longer exists.');
+      // The author and nobody else, the way the server has it.
+      if (KN_STORE[at].authorId !== '20000000') {
+        throw new Error('Only the person who shared this can remove it.');
+      }
       KN_STORE.splice(at, 1);
       return { ok: true };
     },
