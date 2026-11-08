@@ -2239,7 +2239,20 @@
      organogram and the directory use them, so a colour means the same
      thing on every screen.
   */
+  /*
+    THE KNOWLEDGE COLOURS ARE DECLARED HERE TOO.
+
+    The search bar borrows them, and custom properties are inherited from
+    the element they are set on - which was #view-knowledge and the portal
+    bar, neither of which is an ancestor of the search box. Without this
+    the bar silently fell back to the literals in its own rules, which is
+    the kind of thing that works until somebody changes the colour in the
+    one place it is supposed to live.
+  */
   #view-learnings {
+    --kn-rgb: 120, 141, 170;
+    --kn-lit-rgb: 157, 176, 204;
+    --kn-pale-rgb: 185, 202, 226;
     /*
       LIFTED OFF THE SKY, not sunk into it.
 
@@ -2362,11 +2375,19 @@
     display: flex; align-items: center; gap: 12px;
     padding: 0 18px; height: 58px; margin-bottom: 16px;
     border-radius: 16px;
-    border: 1px solid var(--lrn-edge-lit);
+    /*
+      LIGHTER THAN THE PANES UNDER IT, by enough to be seen.
+      It was a dark pane among dark panes, which made the control this
+      page is built around the hardest thing on it to find. It is now a
+      tint of the same #788daa the portal bar above it is painted in -
+      related, so the two read as a pair at the top of the page, and
+      lighter rather than filled, because a search box has to be a place
+      to type and the bar above it has to stay the thing you press.
+    */
+    border: 1px solid rgba(var(--kn-pale-rgb, 185, 202, 226), .4);
     background:
-      linear-gradient(180deg, rgba(255, 255, 255, .08) 0%,
-                              rgba(255, 255, 255, .03) 100%),
-      var(--lrn-pane-lit);
+      linear-gradient(180deg, rgba(var(--kn-lit-rgb, 157, 176, 204), .34) 0%,
+                              rgba(var(--kn-rgb, 120, 141, 170), .26) 100%);
     -webkit-backdrop-filter: blur(22px) saturate(170%);
     backdrop-filter: blur(22px) saturate(170%);
     box-shadow:
@@ -2392,7 +2413,10 @@
   }
   .lrn-search:hover {
     transform: translateY(-1px);
-    border-color: rgba(255, 255, 255, .42);
+    border-color: rgba(255, 255, 255, .66);
+    background:
+      linear-gradient(180deg, rgba(var(--kn-lit-rgb, 157, 176, 204), .44) 0%,
+                              rgba(var(--kn-rgb, 120, 141, 170), .34) 100%);
     box-shadow:
       0 22px 52px rgba(2, 8, 26, .5),
       inset 0 1px 0 rgba(255, 255, 255, .32);
@@ -3003,15 +3027,24 @@
   }
 
   /* ---------- the way in, from the Learnings page ---------- */
+  /*
+    FILLED, NOT TINTED.
+
+    The first version painted this at a quarter opacity over the sky, and
+    it was hard to see - the one thing a way-in to another page must not
+    be. The colour chosen for it is #788daa, so the bar is now that
+    colour, with a slight gradient for depth rather than enough
+    transparency to lose it in the background.
+  */
   .kn-portal {
     display: flex; align-items: center; gap: 14px; width: 100%;
     margin-bottom: 14px; padding: 13px 16px;
     border-radius: 15px;
-    border: 1px solid rgba(var(--kn-rgb), .46);
+    border: 1px solid rgba(var(--kn-lit-rgb), .62);
     background:
-      linear-gradient(100deg, rgba(var(--kn-rgb), .26) 0%,
-                              rgba(var(--kn-rgb), .10) 62%,
-                              rgba(var(--kn-rgb), .18) 100%);
+      linear-gradient(100deg, rgba(var(--kn-rgb), .96) 0%,
+                              rgba(var(--kn-rgb), .80) 58%,
+                              rgba(var(--kn-rgb), .9) 100%);
     -webkit-backdrop-filter: blur(18px) saturate(150%);
     backdrop-filter: blur(18px) saturate(150%);
     box-shadow:
@@ -3023,11 +3056,11 @@
   }
   .kn-portal:hover {
     transform: translateY(-2px);
-    border-color: rgba(var(--kn-lit-rgb), .8);
+    border-color: #cdd9ea;
     background:
-      linear-gradient(100deg, rgba(var(--kn-rgb), .36) 0%,
-                              rgba(var(--kn-rgb), .16) 62%,
-                              rgba(var(--kn-rgb), .26) 100%);
+      linear-gradient(100deg, rgba(var(--kn-lit-rgb), 1) 0%,
+                              rgba(var(--kn-rgb), .96) 58%,
+                              rgba(var(--kn-lit-rgb), .96) 100%);
     box-shadow:
       0 18px 40px rgba(2, 8, 26, .42),
       0 0 0 1px rgba(var(--kn-lit-rgb), .2),
@@ -3037,9 +3070,9 @@
   .kn-portal-mark {
     display: grid; place-items: center; flex: none;
     width: 38px; height: 38px; border-radius: 11px;
-    background: rgba(var(--kn-rgb), .32);
-    border: 1px solid rgba(var(--kn-lit-rgb), .4);
-    color: #dbe6f5;
+    background: rgba(255, 255, 255, .22);
+    border: 1px solid rgba(255, 255, 255, .34);
+    color: #fff;
   }
   .kn-portal-who {
     display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0;
@@ -3047,18 +3080,22 @@
   .kn-portal-who strong {
     font-size: 14px; font-weight: 700; letter-spacing: -.005em; color: #fff;
   }
+  /* On the filled bar the sub-line is white at high opacity, not a dim
+     grey: #788daa is a mid tone, and text that was legible on the dark
+     sky is mud on top of it. */
   .kn-portal-who > span {
-    font-size: 11.5px; font-weight: 500; color: rgba(255, 255, 255, .72);
+    font-size: 11.5px; font-weight: 500; color: rgba(255, 255, 255, .88);
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
+  .kn-portal-who strong { text-shadow: 0 1px 2px rgba(20, 32, 54, .3); }
   .kn-portal-go {
     display: grid; place-items: center; flex: none;
     width: 26px; height: 26px; border-radius: 50%;
-    background: rgba(var(--kn-pale-rgb), .18); color: #dbe6f5;
+    background: rgba(255, 255, 255, .24); color: #fff;
     transition: transform .2s ease, background .2s ease;
   }
   .kn-portal:hover .kn-portal-go {
-    transform: translateX(3px); background: rgba(var(--kn-pale-rgb), .3);
+    transform: translateX(3px); background: rgba(255, 255, 255, .38);
   }
 
   /* ---------- the way out ---------- */

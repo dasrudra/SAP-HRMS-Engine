@@ -1339,6 +1339,29 @@ function alertEmailList() {
 }
 
 
+/**
+ * Whether this employee ID has an account at all, today.
+ *
+ * Not whether they are signed in now, and not whether they were signed in
+ * when they did something - just whether the ID is one somebody has
+ * enrolled. Messenger.gs asks because a message sent from the sign-in page
+ * carries an employee ID that was only TYPED, and the warning that goes
+ * with it stops being true the day its sender enrols with that same ID.
+ *
+ * Wrapped, because a question about an account is never worth failing a
+ * page over: unknown reads as not enrolled, which is the cautious answer.
+ */
+function hasAccount(employeeId) {
+  const key = String(employeeId || '').trim().toLowerCase();
+  if (!key) return false;
+  try {
+    return Boolean(readAccounts()[key]);
+  } catch (e) {
+    return false;
+  }
+}
+
+
 /** The name on an account, or '' - what Messenger.gs writes beside an ID. */
 function accountNameOf(employeeId) {
   const name = String(employeeId || '').trim().toLowerCase();

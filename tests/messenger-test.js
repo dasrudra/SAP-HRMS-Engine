@@ -946,6 +946,208 @@ check('running the migration twice adds nothing the second time',
   migrate() === 0 && tabs[T].rows.length === afterFirstRun,
   'the message IDs are derived from the question, so a second run sees them');
 
+
+// ===========================================================================
+// A SIGN-IN-PAGE MESSAGE, AFTER ITS SENDER ENROLS
+// ===========================================================================
+// The box on the sign-in page exists FOR people who cannot get in, so the
+// ordinary ending to one of those messages is that the sender enrols. The
+// red NOT VERIFIED stayed on their card for ever afterwards, and the
+// warning under it went on telling the team not to trust an identity the
+// accounts list had since confirmed.
+//
+// `verified` still records what was true when they wrote. `enrolled` is the
+// separate question the inbox actually needs: does this ID have an account
+// NOW. Two facts, not one.
+{
+  const ANON = '20990001';
+  sendAnon(ANON, 'I cannot sign in, my password is not accepted.');
+
+  const listThreads = vm.runInContext('listThreads', sb);
+  const before = listThreads('ADMIN:20000099')
+    .filter((t) => t.person === ANON)[0];
+
+  check('a sign-in-page message is unverified and its sender has no account',
+    before && before.verified === false && before.enrolled === false,
+    before ? 'verified=' + before.verified + ' enrolled=' + before.enrolled
+           : '(no thread)');
+
+  // They enrol, with the same employee ID they typed.
+  const accounts = vm.runInContext('accountsTab()', sb);
+  accounts.appendRow([ANON, 'USER', 'salt', 'hash', '2026-11-05',
+                      '2026-11-05', '', 0, '', '', 'Asma Akter', '']);
+
+  const after = listThreads('ADMIN:20000099')
+    .filter((t) => t.person === ANON)[0];
+
+  check('once they enrol, the same thread reports them as enrolled',
+    after && after.enrolled === true, String(after && after.enrolled));
+
+  // The stored fact does not move. The thread really did arrive from a page
+  // where nobody was signed in, and rewriting that would be a lie about
+  // what happened rather than an update about who they are.
+  check('but it still records that the message itself was not verified',
+    after && after.verified === false, String(after && after.verified));
+
+  // THE HALF THAT IS NOT FIXED, and is asserted so nobody assumes it is.
+  // The sign-in page is public: anybody can type any employee ID into it.
+  // Showing those messages to whoever later enrols under that ID would let
+  // a stranger put words into a colleague's own panel. So a reply there
+  // still reaches nobody, and the inbox says so on the card.
+  const theirs = myThreads('USER:' + ANON);
+  check('their own panel still does not show it, which is deliberate',
+    theirs.length === 0,
+    theirs.length + ' thread(s) - a stranger could have typed that ID');
+}
+
+// ===========================================================================
+// PRESSING SEND TWICE IS NOT TWO QUESTIONS
+// ===========================================================================
+// Every new query starts its own conversation, which is right. A slow
+// connection and a second press of the button are not a new query, and they
+// used to make two identical threads a minute apart - so answering one left
+// the other sitting in the inbox for ever and the count at the top of the
+// screen went on saying somebody was waiting.
+{
+  const TWIN = '20990002';
+  const tok = 'USER:' + TWIN;
+  const listThreads = vm.runInContext('listThreads', sb);
+  const mineNow = () => listThreads('ADMIN:20000099')
+    .filter((t) => t.person === TWIN);
+
+  const one = send(tok, 'Headline: Connecting Business. Enabling Excellence');
+  const two = send(tok, 'Headline: Connecting Business. Enabling Excellence');
+
+  check('the second press is accepted, so the sender is not left guessing',
+    one.ok && two.ok, 'first=' + one.ok + ' second=' + two.ok);
+
+  check('but it adds no second conversation',
+    mineNow().length === 1, mineNow().length + ' thread(s)');
+
+  check('and no second copy of the line inside the one it has',
+    mineNow()[0].messages.length === 1,
+    mineNow()[0].messages.length + ' message(s)');
+
+  check('both presses point at the same conversation',
+    one.threadId === two.threadId,
+    one.threadId + ' / ' + two.threadId);
+
+  check('so the inbox is waiting on one thing, not two',
+    mineNow().filter((t) => t.waiting > 0).length === 1,
+    mineNow().filter((t) => t.waiting > 0).length + ' waiting');
+
+  // DIFFERENT WORDS ARE A DIFFERENT QUESTION, however fast they arrive.
+  const other = send(tok, 'And a second, different question.');
+  check('a different message still starts its own conversation',
+    other.ok && mineNow().length === 2, mineNow().length + ' thread(s)');
+
+  // SO IS THE SAME QUESTION UNDER A DIFFERENT SUBJECT.
+  const titled = askAbout(tok, 'Branding',
+    'Headline: Connecting Business. Enabling Excellence');
+  check('and so does the same text under a different subject',
+    titled.ok && mineNow().length === 3, mineNow().length + ' thread(s)');
+
+  // ONCE ANSWERED, ASKING AGAIN IS A NUDGE AND DESERVES TO BE SEEN.
+  const replyTo = vm.runInContext('replyToThread', sb);
+  replyTo('ADMIN:20000099', one.threadId, 'Enlisted.');
+  const again = send(tok, 'Headline: Connecting Business. Enabling Excellence');
+  check('asking again after an answer is a new query, not a swallowed one',
+    again.ok && again.threadId !== one.threadId,
+    again.threadId === one.threadId ? 'it was swallowed' : 'new conversation');
+}
+
+// ===========================================================================
+// AND THE DUPLICATES ALREADY IN THE INBOX
+// ===========================================================================
+// The guard above stops new ones. The pairs already stored cannot be merged
+// - two rows, two ids - so a reply to one answers the rest. The same answer
+// does answer the same question, and reading it twice to type the same thing
+// twice is work nobody should be given.
+{
+  const OLD = '20990003';
+  const tok = 'USER:' + OLD;
+  const listThreads = vm.runInContext('listThreads', sb);
+  const mineNow = () => listThreads('ADMIN:20000099')
+    .filter((t) => t.person === OLD);
+
+  // Made the way the old code made them: two separate threads, same words.
+  const a = sendRaw(tok, '', '', 'Please add me to the SAP PP group.');
+  const appendTo = vm.runInContext('appendToThread', sb);
+  appendTo(OLD, 'YES', 'USER', OLD, 'Please add me to the SAP PP group.',
+           null, null, '', '', null, null);
+
+  check('two identical queries exist, the way they used to be made',
+    mineNow().length === 2 &&
+    mineNow().filter((t) => t.waiting > 0).length === 2,
+    mineNow().length + ' threads, ' +
+      mineNow().filter((t) => t.waiting > 0).length + ' waiting');
+
+  const replyTo = vm.runInContext('replyToThread', sb);
+  const said = replyTo('ADMIN:20000099', a.threadId, 'Added you this morning.');
+
+  check('replying to one of them answers the other as well',
+    mineNow().filter((t) => t.waiting > 0).length === 0,
+    mineNow().filter((t) => t.waiting > 0).length + ' still waiting');
+
+  check('and says so, rather than doing it silently',
+    /duplicate/.test(String(said.message || '')), said.message);
+
+  check('the answer is on both, so it is there whichever one they open',
+    mineNow().every((t) => t.messages.some(
+      (m) => /Added you this morning/.test(m.text))),
+    mineNow().map((t) => t.messages.length).join(' / '));
+}
+
+// A QUERY SOMEBODY HAS ADDED TO IS NOT A DUPLICATE OF ANYTHING. It has moved
+// on and deserves its own answer.
+{
+  const CONV = '20990004';
+  const tok = 'USER:' + CONV;
+  const listThreads = vm.runInContext('listThreads', sb);
+  const mineNow = () => listThreads('ADMIN:20000099')
+    .filter((t) => t.person === CONV);
+
+  const first = sendRaw(tok, '', '', 'The report will not open.');
+  replyIn(tok, first.threadId, 'Still not opening.');
+
+  const appendTo = vm.runInContext('appendToThread', sb);
+  appendTo(CONV, 'YES', 'USER', CONV, 'The report will not open.',
+           null, null, '', '', null, null);
+
+  const replyTo = vm.runInContext('replyToThread', sb);
+  replyTo('ADMIN:20000099',
+          mineNow().filter((t) => t.messages.length === 1)[0].id,
+          'Clear your cache.');
+
+  check('a conversation with two lines in it is left for its own reply',
+    mineNow().filter((t) => t.waiting > 0).length === 1,
+    mineNow().map((t) => t.messages.length + ' msg/' + t.waiting + ' wait')
+      .join(', '));
+
+  // AND THE OTHER WAY ROUND, which is the half the first check cannot
+  // make. Replying to the conversation that HAS moved on must not drag a
+  // single-line query along with it just because one of its lines matches:
+  // they are not the same question any more, and answering both with one
+  // reply would bury a real query under an answer to a different one.
+  //
+  // A mutation loosening the "exactly one line" test to "at least one"
+  // went straight through until this was here, because every reply in the
+  // block above happens to be to a single-line thread.
+  // `first` is the one the asker added a second line to; the copy made
+  // with appendTo above has since been answered. A third, fresh single
+  // line goes in now so there is something for a loose rule to catch.
+  const stillOne = sendRaw(tok, '', '', 'The report will not open.');
+
+  check('and replying TO that conversation does not answer a fresh copy',
+    (function () {
+      replyTo('ADMIN:20000099', first.threadId, 'Try the other browser.');
+      const left = mineNow().filter((t) => t.id === stillOne.threadId);
+      return left.length === 1 && left[0].waiting > 0;
+    })(),
+    mineNow().map((t) => t.messages.length + ' msg/' + t.waiting + ' wait')
+      .join(', '));
+}
+
 const failed = out.filter((r) => !r).length;
 console.log('\n' + (out.length - failed) + '/' + out.length + ' passed');
 process.exit(failed ? 1 : 0);

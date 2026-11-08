@@ -111,9 +111,21 @@ function messengerBoot(token) {
  * and let the panel show the right one would be handing the lot to anyone who
  * opened a console.
  *
- * Only VERIFIED threads. A message somebody typed from the sign-in page with
- * this employee ID on it is not this person's to read - see the note at the
- * top of the file about why those live apart.
+ * Only VERIFIED threads, STILL - including when the employee ID on an
+ * unverified one has since been enrolled.
+ *
+ * That exception was written and then taken out again, so the reasoning
+ * is here rather than in a commit nobody will find. The sign-in page is
+ * public: anybody who can load it can type ANY employee ID and write
+ * whatever they like under it. Showing those messages to the person who
+ * owns the ID would let a stranger put words into a colleague's own
+ * message panel, attributed to that colleague, with the team's reply
+ * underneath looking like an answer to something they never asked.
+ *
+ * The cost is real and is the team's to carry, not the reader's: a reply
+ * written into a sign-in-page thread reaches nobody. The inbox says so
+ * on the card, and says it differently once the ID is enrolled, because
+ * then there IS somewhere else to write. See the note in renderInbox.
  */
 function myThreads(token) {
   const session = currentSession(token);
@@ -199,6 +211,37 @@ function sendMessage(token, threadId, topic, text, name) {
       // off the line they are sending.
       const saved = setMyName(token, said);
       myName = (saved && saved.ok && saved.name) || said;
+    }
+  }
+
+  // A DOUBLE-SEND IS NOT A SECOND QUESTION.
+  //
+  // Every new query starts its own thread, which is right - two questions
+  // deserve two conversations. But a slow connection and a second press of
+  // Send are not two questions, and they used to produce two identical
+  // threads with identical subjects a minute apart. Answering one leaves
+  // the other sitting in the inbox as unanswered work, for ever, and the
+  // count at the top of the screen goes on saying somebody is waiting.
+  //
+  // So a new query that matches one this person sent minutes ago, word for
+  // word, and that nobody has answered yet, is DROPPED and the first one
+  // is returned. Not appended to it either - the second press was not a
+  // second sentence, and writing the same line twice into one thread is
+  // the same noise in a tidier shape.
+  //
+  // Deliberately narrow: same person, same words, same subject, still
+  // unanswered, inside the window. Ask the same question again next week
+  // and it is a new query, because by then it is one.
+  //
+  // It answers ok, because from where the sender is sitting it worked -
+  // their question is in the inbox exactly once, which is what they were
+  // trying to achieve by pressing the button again.
+  if (!into) {
+    const twin = recentTwinThread(me, body.text, topic);
+    if (twin) {
+      return { ok: true, id: '', threadId: twin.id, emailed: false,
+               threads: myThreads(token), name: myName,
+               nameOnAccount: Boolean(accountNameOf(me)), message: 'Sent.' };
     }
   }
 
@@ -329,11 +372,34 @@ function markMyMessagesRead(token, threadId) {
 function listThreads(token) {
   requireAdmin(token);
 
-  return readThreads()
+  // WHETHER THE ID HAS AN ACCOUNT NOW, which is a different question from
+  // whether its owner was signed in when they wrote. Somebody writes from
+  // the sign-in page because they cannot get in yet, and then they enrol -
+  // which is the whole point of that box. The red NOT VERIFIED stayed on
+  // their card for ever afterwards, and the warning under it went on
+  // telling the team not to trust an identity the accounts list had since
+  // confirmed.
+  //
+  // Read once for the whole inbox rather than per thread: it is a
+  // spreadsheet read, and a busy inbox has forty of them.
+  const enrolled = {};
+  const idOf = function (p) { return String(p || '').trim().toLowerCase(); };
+
+  const rows = readThreads();
+  rows.forEach(function (t) {
+    const key = idOf(t.person);
+    if (key && !(key in enrolled)) enrolled[key] = hasAccount(key);
+  });
+
+  return rows
     .map(function (t) {
       return {
         id: t.id, person: t.person, name: t.name,
         verified: t.verified === VERIFIED_YES,
+        // Signed in when they wrote it, OR enrolled with that ID since.
+        // The page draws the warning off this; `verified` still says what
+        // was true at the time, which is what the thread itself records.
+        enrolled: Boolean(enrolled[idOf(t.person)]),
         topic: t.topic, startedAt: t.startedAt, lastAt: t.lastAt,
         lastBy: t.lastBy, status: t.status,
         waiting: Number(t.waitingForTeam) || 0,
@@ -344,6 +410,103 @@ function listThreads(token) {
       if ((a.waiting > 0) !== (b.waiting > 0)) return a.waiting > 0 ? -1 : 1;
       return String(b.lastAt).localeCompare(String(a.lastAt));
     });
+}
+
+
+/** How close two sends have to be to count as one double-press, in minutes. */
+const TWIN_WINDOW_MINUTES = 30;
+
+
+/**
+ * A query this person just sent that says exactly this, and is unanswered.
+ *
+ * The test for "they pressed Send twice". Every clause is doing work:
+ *
+ *   same person      obviously
+ *   same subject     two subjects is two questions, whatever the body says
+ *   inside 30 min    the same words next week are a new question
+ *   ONE LINE, and it is this one, word for word
+ *
+ * That last clause is doing three jobs at once, which is why there is no
+ * separate test for "unanswered": a thread the team has replied to has two
+ * lines, and so does one the asker has added to. Both are conversations
+ * now, and a conversation deserves its own answer rather than being
+ * quietly folded into a question somebody asked twice by accident.
+ *
+ * An earlier version also checked waitingForTeam. It was removed, not
+ * because it was wrong but because it could never be the thing that
+ * decided: any thread with one user line and nothing else is waiting by
+ * definition. A condition that cannot change an outcome is a condition
+ * the next reader has to work out the redundancy of.
+ *
+ * @return {?Object} the thread row, or null
+ */
+function recentTwinThread(person, text, topic) {
+  const who = String(person || '').trim();
+  const said = String(text || '').trim();
+  if (!who || !said) return null;
+
+  const want = String(topic || '').trim().toLowerCase();
+  const cutoff = Date.now() - TWIN_WINDOW_MINUTES * 60 * 1000;
+
+  const hits = readThreads().filter(function (t) {
+    // Cheapest first: the person and the subject are on the row, and the
+    // messages are another read. Only this person's threads get one.
+    if (t.person !== who || t.verified !== VERIFIED_YES) return false;
+    if (String(t.topic || '').trim().toLowerCase() !== want) return false;
+
+    const when = Date.parse(String(t.lastAt || ''));
+    if (!when || when < cutoff) return false;
+
+    const lines = threadMessageList(t.id);
+    return lines.length === 1 && String(lines[0].text || '').trim() === said;
+  });
+
+  // The most recent, if somehow there are several - which there should not
+  // be once this is in place, and might be from before it was.
+  hits.sort(function (a, b) { return String(b.lastAt).localeCompare(String(a.lastAt)); });
+  return hits[0] || null;
+}
+
+
+/**
+ * The other copies of a query, for a reply to answer along with it.
+ *
+ * Cleans up what the guard above now prevents. Two identical unanswered
+ * queries already in the inbox cannot be merged - they are two rows with
+ * two ids - so a reply to one answers the rest, which is the honest
+ * outcome: the same answer does answer the same question.
+ *
+ * Matched on the asker's words rather than on the thread, because that is
+ * what makes them the same question. A thread the person has since added
+ * to is left alone: it has moved on and deserves its own reply.
+ */
+function twinThreadsOf(thread) {
+  if (!thread || thread.verified !== VERIFIED_YES) return [];
+
+  const mine = threadMessageList(thread.id);
+  const asked = mine.filter(function (m) { return m.side === SIDE_USER; });
+  if (asked.length !== 1) return [];
+
+  const said = String(asked[0].text || '').trim();
+  const want = String(thread.topic || '').trim().toLowerCase();
+  if (!said) return [];
+
+  const started = Date.parse(String(thread.startedAt || thread.lastAt || ''));
+
+  return readThreads().filter(function (t) {
+    if (t.id === thread.id) return false;
+    if (t.person !== thread.person || t.verified !== VERIFIED_YES) return false;
+    if ((Number(t.waitingForTeam) || 0) <= 0) return false;
+    if (String(t.topic || '').trim().toLowerCase() !== want) return false;
+
+    const when = Date.parse(String(t.startedAt || t.lastAt || ''));
+    if (started && when &&
+        Math.abs(when - started) > TWIN_WINDOW_MINUTES * 60 * 1000) return false;
+
+    const lines = threadMessageList(t.id);
+    return lines.length === 1 && String(lines[0].text || '').trim() === said;
+  });
 }
 
 
@@ -366,7 +529,32 @@ function replyToThread(token, threadId, text) {
                  null, null, null, null, nameOf(String(session.u || '')),
                  thread);
 
-  return { ok: true, message: 'Replied.',
+  // AND THE OTHER COPIES OF THE SAME QUESTION, if there are any.
+  //
+  // Duplicates cannot happen any more - see recentTwinThread - but the
+  // ones already in the inbox have to be answerable, and answering them
+  // one at a time means reading the same question three times and typing
+  // the same answer three times. The same answer does answer the same
+  // question, so it goes to all of them.
+  //
+  // Wrapped: if a copy cannot be written for any reason, the reply the
+  // person actually asked for has already landed and that is what matters.
+  let also = 0;
+  try {
+    twinThreadsOf(thread).forEach(function (twin) {
+      appendToThread(twin.person, twin.verified, SIDE_TEAM,
+                     String(session.u || ''), body.text,
+                     null, null, null, null, nameOf(String(session.u || '')),
+                     twin);
+      also++;
+    });
+  } catch (e) { /* the reply they asked for is sent; the copies can wait */ }
+
+  return { ok: true,
+           message: also
+             ? 'Replied, and to ' + also +
+               (also === 1 ? ' duplicate of it.' : ' duplicates of it.')
+             : 'Replied.',
            messages: threadMessageList(thread.id) };
 }
 

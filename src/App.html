@@ -10168,28 +10168,45 @@
    * one person; the queries inside it keep their subjects, their order and
    * their separate replies.
    *
-   * VERIFIED AND UNVERIFIED NEVER GATHER TOGETHER, whatever employee ID they
-   * carry. An unverified thread came from the message box on the SIGN-IN
-   * page, where nobody is signed in, so the ID on it is only what somebody
-   * typed into a public web page. Folding one into the signed-in person's
-   * card would lend it that person's name and bury the warning halfway down a
-   * conversation that otherwise looks proven - and that is precisely the card
-   * somebody reads just before resetting a password.
+   * VERIFIED AND UNVERIFIED GATHER TOGETHER ONLY ONCE THE ID HAS AN ACCOUNT.
+   *
+   * An unverified thread came from the message box on the SIGN-IN page,
+   * where nobody is signed in, so the ID on it is only what somebody typed
+   * into a public web page. While that is all it is, folding one into the
+   * signed-in person's card would lend it that person's name and bury the
+   * warning halfway down a conversation that otherwise looks proven - and
+   * that is precisely the card somebody reads just before resetting a
+   * password. So they stay apart.
+   *
+   * They stop being apart the day the ID is enrolled. That box exists FOR
+   * people who cannot get in yet; they write, then they sign up, and from
+   * that moment the accounts list confirms the identity the thread only
+   * claimed. Two cards for one colleague, one of them permanently flagged
+   * as suspect, is then just wrong - and the server says which case this
+   * is, in `enrolled`.
    */
   function inboxPeople(rows) {
     const order = [];
     const byKey = {};
 
     rows.forEach(function (t) {
-      const key = (t.verified ? 'V' : 'U') + ':' + t.person;
+      // One card per person once the ID is enrolled; until then the
+      // unverified threads keep a card of their own.
+      const key = (t.enrolled ? 'P' : (t.verified ? 'V' : 'U')) + ':' + t.person;
       let group = byKey[key];
       if (!group) {
         group = byKey[key] = {
           key: key, person: t.person, name: '', verified: Boolean(t.verified),
+          enrolled: Boolean(t.enrolled), signIn: false,
           threads: [], waiting: 0, lastAt: ''
         };
         order.push(group);
       }
+      // A card is proven only if EVERY query on it was sent signed in; it
+      // carries a sign-in-page note if ANY of them was not. On a merged
+      // card both can be true of different queries, which is the point of
+      // keeping the two flags apart.
+      if (!t.verified) { group.verified = false; group.signIn = true; }
       // A NAME BELONGS TO THE PERSON, not to one of their queries, so the
       // first one any of them carries names the card. An empty one never
       // wins: a query sent before they typed a name should not leave the
@@ -10254,7 +10271,13 @@
       const peek = said.length ? said[said.length - 1].text : '';
       const ids = g.threads.map(function (t) { return t.id; }).join(',');
 
-      return '<article class="thread' + (g.verified ? '' : ' is-unverified') +
+      // The amber card is the ALARM treatment - it exists for the moment
+      // somebody is reading a convincing password-reset request from an ID
+      // nobody has proved. Once the ID is enrolled there is no alarm, so
+      // the card goes back to looking like every other one with a quiet
+      // marker on it.
+      return '<article class="thread' +
+               (g.signIn ? (g.enrolled ? ' is-presignin' : ' is-unverified') : '') +
                (open ? ' is-open' : '') + '" data-thread="' + escapeHtml(g.key) + '">' +
 
         '<div class="thread-row" role="button" tabindex="0" ' +
@@ -10268,10 +10291,19 @@
           '<span class="thread-who">' +
             escapeHtml(g.name ? g.name + ' (' + g.person + ')' : g.person) +
           '</span>' +
-          // Only the unverified mark is worth a label. "signed in" was on
-          // every other card, which made it furniture - and a word that is on
-          // everything is a word nobody reads on the one that matters.
-          (g.verified ? '' : '<span class="thread-warn">NOT VERIFIED</span>') +
+          // NOT VERIFIED means "we cannot tell who this is", so it comes
+          // off the day the ID is enrolled - the accounts list can tell
+          // now. What stays is a quiet note that the query arrived from
+          // the sign-in page, which is a fact about the query and not a
+          // doubt about the person.
+          //
+          // "signed in" is on no card at all: it was on every other one,
+          // which made it furniture, and a word that is on everything is a
+          // word nobody reads on the one that matters.
+          (g.enrolled
+            ? (g.signIn
+                ? '<span class="thread-pre">FROM THE SIGN-IN PAGE</span>' : '')
+            : (g.verified ? '' : '<span class="thread-warn">NOT VERIFIED</span>')) +
           // The subject of the query they spoke in last, and - only when
           // there is more than one - how many are inside. The closed row says
           // what this person is waiting on now; the rest is a click away.
@@ -10292,11 +10324,22 @@
         '</div>' +
 
         '<div class="thread-open"' + (open ? '' : ' hidden') + '>' +
-          (g.verified ? '' :
-            '<p class="thread-note">This came from the sign-in page, where nobody ' +
-            'is signed in. That employee ID is only what the sender typed. Do not ' +
-            'reset a password or share anything on the strength of it - ring them ' +
-            'or check in SAP first. They cannot see a reply here either.</p>') +
+          // TWO DIFFERENT WARNINGS, because they are two different
+          // situations and the old single one went on saying the alarming
+          // thing long after it stopped being true.
+          (!g.signIn ? '' : (g.enrolled
+            ? '<p class="thread-note is-soft">Some of this arrived from the ' +
+              'sign-in page, before this person had an account. They have one ' +
+              'now under this employee ID, so who they are is no longer in ' +
+              'doubt - but a reply typed here still reaches nobody, because ' +
+              'sign-in-page messages are not shown to the account that was ' +
+              'opened afterwards. Answer them in one of their own queries ' +
+              'above, or by email.</p>'
+            : '<p class="thread-note">This came from the sign-in page, where nobody ' +
+              'is signed in. That employee ID is only what the sender typed, and ' +
+              'no account has been opened under it. Do not reset a password or ' +
+              'share anything on the strength of it - ring them or check in SAP ' +
+              'first. They cannot see a reply here either.</p>')) +
 
           // ONE RUN OF BUBBLES PER QUERY, oldest query at the top, with a
           // thin rule naming each one. Merging the messages themselves into a
@@ -10342,7 +10385,12 @@
 
           '<div class="q-reply">' +
             '<textarea rows="2" data-reply="' + escapeHtml(g.key) +
-              '" placeholder="Reply' + (g.verified ? '' : ' (they will not see it)') +
+              '" placeholder="Reply' +
+              // A sign-in-page thread is never read by the account that
+              // owns the ID, enrolled or not - see myThreads. So the
+              // warning stays on the box whenever this card holds one,
+              // and the note above it says where to write instead.
+              (g.signIn ? ' (they will not see it)' : '') +
               '\u2026"></textarea>' +
             '<button class="btn btn-primary" data-reply-go="' + escapeHtml(g.key) +
               '">Reply</button>' +

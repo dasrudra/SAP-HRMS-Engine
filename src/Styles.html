@@ -1653,6 +1653,28 @@
     margin: 0 0 10px; font-size: 12px; line-height: 1.6;
     color: var(--amber-ink); font-weight: 600;
   }
+
+  /* ---- the same card, once the employee ID has an account ----
+
+     Somebody writes from the sign-in page BECAUSE they cannot get in, and
+     then they enrol. The alarm above was right until that moment and
+     wrong for ever after: the accounts list can now say who this is.
+
+     So the amber goes, the red NOT VERIFIED goes, and what is left is a
+     grey note recording where the query arrived from - which is a fact
+     about the query, not a doubt about the person. The distinction is
+     worth the two extra rules: an alarm that never clears is an alarm
+     people learn to scroll past, including on the card where it is real. */
+  .thread.is-presignin { border-bottom: 1px solid var(--border); }
+  .thread-pre {
+    background: var(--surface-2); color: var(--text-dim);
+    border: 1px solid var(--border-str);
+    font-size: 9.5px; font-weight: 700; letter-spacing: .06em;
+    padding: 2px 7px; border-radius: 5px; white-space: nowrap;
+  }
+  .thread-note.is-soft {
+    color: var(--text-dim); font-weight: 500;
+  }
   .thread-body { margin-bottom: 10px; }
 
   /* Delete, at the far end of the header row. Quiet until the card is under
