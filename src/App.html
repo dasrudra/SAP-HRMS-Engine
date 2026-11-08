@@ -10197,7 +10197,7 @@
       if (!group) {
         group = byKey[key] = {
           key: key, person: t.person, name: '', verified: Boolean(t.verified),
-          enrolled: Boolean(t.enrolled), signIn: false,
+          enrolled: Boolean(t.enrolled), signIn: false, owed: false,
           threads: [], waiting: 0, lastAt: ''
         };
         order.push(group);
@@ -10213,6 +10213,15 @@
       // card showing a bare employee ID when another of theirs knows it.
       if (!group.name && t.name) group.name = t.name;
       group.threads.push(t);
+      // WAITING IS A FACT ABOUT THE PERSON, not a sum over their queries.
+      //
+      // It used to add up the unanswered lines across every query on the
+      // card, so two questions and one answer left the pill lit and the
+      // badge saying 1 for ever. The server decides it now - see
+      // peopleWaiting - on whether the last thing said between us was
+      // said by them. Answer anything of theirs and the card goes quiet;
+      // write again and it comes back.
+      if (t.owed) group.owed = true;
       group.waiting += Number(t.waiting) || 0;
       if (String(t.lastAt) > String(group.lastAt)) group.lastAt = t.lastAt;
     });
@@ -10265,8 +10274,7 @@
 
     list.innerHTML = people.map(function (g) {
       const open = g.key === wasOpen;
-      const queries = g.threads.length;
-      const many = queries > 1;
+      const many = g.threads.length > 1;
       const said = g.newest.messages || [];
       const peek = said.length ? said[said.length - 1].text : '';
       const ids = g.threads.map(function (t) { return t.id; }).join(',');
@@ -10287,7 +10295,7 @@
             'stroke="currentColor" stroke-width="2.2" stroke-linecap="round" ' +
             'stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>' +
           '</span>' +
-          (g.waiting ? '<span class="pill pill-wait">WAITING</span>' : '') +
+          (g.owed ? '<span class="pill pill-wait">WAITING</span>' : '') +
           '<span class="thread-who">' +
             escapeHtml(g.name ? g.name + ' (' + g.person + ')' : g.person) +
           '</span>' +
@@ -10304,12 +10312,17 @@
             ? (g.signIn
                 ? '<span class="thread-pre">FROM THE SIGN-IN PAGE</span>' : '')
             : (g.verified ? '' : '<span class="thread-warn">NOT VERIFIED</span>')) +
-          // The subject of the query they spoke in last, and - only when
-          // there is more than one - how many are inside. The closed row says
-          // what this person is waiting on now; the rest is a click away.
+          // The subject of the query they spoke in last. The closed row
+          // says what this person is waiting on now; the rest is a click
+          // away.
           (g.newest.topic
             ? '<span class="q-topic">' + escapeHtml(g.newest.topic) + '</span>' : '') +
-          (many ? '<span class="thread-many">' + queries + ' queries</span>' : '') +
+          // The per-person query count was here and is gone. The table
+          // already says "7 people - 11 queries - 1 waiting" at the top
+          // right, which is the number worth having; the same fact
+          // repeated once per row is a row that takes longer to read and
+          // says nothing the heading did not.
+
           '<span class="thread-peek">' + escapeHtml(peek) + '</span>' +
           '<span class="q-when">' + escapeHtml(whenText(g.lastAt)) + '</span>' +
           (canMaster()
@@ -10383,7 +10396,19 @@
             : '<input type="hidden" data-reply-into="' + escapeHtml(g.key) +
               '" value="' + escapeHtml(g.newest.id) + '">') +
 
+          '<div class="msgr-shots" data-shots="' + escapeHtml(g.key) + '"></div>' +
           '<div class="q-reply">' +
+            '<input type="file" accept="image/*" multiple hidden ' +
+              'data-shot-input="' + escapeHtml(g.key) + '">' +
+            '<button type="button" class="msgr-clip" data-shot-clip="' +
+              escapeHtml(g.key) + '" aria-label="Attach a screenshot" ' +
+              'title="Attach a screenshot">' +
+              '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" ' +
+                'stroke="currentColor" stroke-width="2" stroke-linecap="round" ' +
+                'stroke-linejoin="round"><path d="M21.4 11.1l-8.5 8.5a5.5 5.5 0 ' +
+                '0 1-7.8-7.8l8.5-8.5a3.7 3.7 0 0 1 5.2 5.2l-8.5 8.5a1.8 1.8 0 0 ' +
+                '1-2.6-2.6l7.8-7.8"/></svg>' +
+            '</button>' +
             '<textarea rows="2" data-reply="' + escapeHtml(g.key) +
               '" placeholder="Reply' +
               // A sign-in-page thread is never read by the account that
@@ -10402,6 +10427,19 @@
     wireThreadRows();
     wireReplyButtons();
     wireDeleteButtons();
+
+    // One picker per card, and the images already on the conversation.
+    // Re-wired on every redraw because the cards are rebuilt wholesale;
+    // wireShots marks what it has asked for, so a redraw mid-flight does
+    // not fetch the same screenshot twice.
+    people.forEach(function (g) {
+      wireShotPicker(g.key,
+        list.querySelector('[data-shot-clip="' + cssEscape(g.key) + '"]'),
+        list.querySelector('[data-shot-input="' + cssEscape(g.key) + '"]'),
+        list.querySelector('[data-shots="' + cssEscape(g.key) + '"]'));
+      renderShots(g.key, list.querySelector('[data-shots="' + cssEscape(g.key) + '"]'));
+    });
+    wireShots(list);
   }
 
 
@@ -10469,6 +10507,125 @@
    *
    * @param {boolean} mineIsTeam true on the team's inbox, false in the panel
    */
+  /** Images picked but not yet sent, by box: 'panel' or a card's key. */
+  const SHOTS = {};
+
+  /** What a chat image may be, matched to the server's own limits. */
+  const SHOT_MAX = 3 * 1024 * 1024;
+  const SHOT_MAX_N = 3;
+
+
+  /**
+   * Reads picked files into {name, mime, data} and drops what will not do.
+   *
+   * CHECKED HERE AS WELL AS ON THE SERVER, and the server's check is the
+   * one that counts - this one exists so somebody who picks a 12MB photo
+   * is told now, by a box that is still open, rather than after a slow
+   * upload that quietly discards it.
+   */
+  function readShots(files, already) {
+    const room = Math.max(0, SHOT_MAX_N - already);
+    const taking = Array.prototype.slice.call(files || []).slice(0, room);
+    const refused = [];
+
+    return Promise.all(taking.map(function (file) {
+      if (!/^image\//i.test(file.type || '')) {
+        refused.push(file.name + ' is not an image');
+        return null;
+      }
+      if (file.size > SHOT_MAX) {
+        refused.push(file.name + ' is over 3 MB');
+        return null;
+      }
+      return new Promise(function (resolve) {
+        const reader = new FileReader();
+        reader.onload = function () {
+          // readAsDataURL gives "data:image/png;base64,AAAA" and the
+          // server wants the part after the comma. Splitting on the first
+          // comma rather than on ';base64,' because a data URI is allowed
+          // to carry other parameters before it.
+          const text = String(reader.result || '');
+          resolve({ name: file.name, mime: file.type,
+                    data: text.slice(text.indexOf(',') + 1) });
+        };
+        reader.onerror = function () {
+          refused.push(file.name + ' could not be read');
+          resolve(null);
+        };
+        reader.readAsDataURL(file);
+      });
+    })).then(function (made) {
+      return { shots: made.filter(Boolean), refused: refused };
+    });
+  }
+
+
+  /** The row of picked-but-unsent images over a composer. */
+  function renderShots(where, box) {
+    if (!box) return;
+    const picked = SHOTS[where] || [];
+    if (!picked.length) { box.innerHTML = ''; return; }
+
+    box.innerHTML = picked.map(function (shot, i) {
+      return '<span class="shot-chip">' +
+        '<img src="data:' + escapeHtml(shot.mime) + ';base64,' +
+          escapeHtml(shot.data) + '" alt="">' +
+        '<span>' + escapeHtml(shot.name) + '</span>' +
+        '<button type="button" class="shot-x" data-shot="' + i +
+          '" aria-label="Remove ' + escapeHtml(shot.name) + '">&#xD7;</button>' +
+      '</span>';
+    }).join('');
+  }
+
+
+  /**
+   * Fetches the images on a message and puts them in the bubble.
+   *
+   * ONE CALL PER IMAGE, ON DEMAND. The folder they live in is private -
+   * see the note on CHAT_FOLDER_KEY - so there is no address the browser
+   * can load directly; the script hands over the bytes after checking who
+   * is asking. Sending them with the conversation instead would put every
+   * screenshot anybody ever posted into every poll.
+   *
+   * Marked as it goes, so a redraw mid-flight does not ask twice.
+   */
+  function wireShots(root) {
+    (root || document).querySelectorAll('.bubble-shot[data-shot-id]')
+      .forEach(function (slot) {
+        if (slot.dataset.asked) return;
+        slot.dataset.asked = '1';
+
+        callServer('getChatImage', slot.getAttribute('data-shot-msg'),
+                   slot.getAttribute('data-shot-id'))
+          .then(function (got) {
+            if (!got || !got.ok) {
+              slot.textContent = (got && got.message) || 'Image unavailable.';
+              slot.classList.add('is-gone');
+              return;
+            }
+            const img = document.createElement('img');
+            img.src = got.uri;
+            img.alt = got.name || 'Screenshot';
+            img.loading = 'lazy';
+            slot.textContent = '';
+            slot.appendChild(img);
+            // Full size in a new tab. A screenshot of a whole SAP window
+            // shrunk into a chat bubble is a picture of a window, not a
+            // thing anybody can read.
+            slot.classList.add('is-ready');
+            slot.addEventListener('click', function () {
+              const w = window.open();
+              if (w) w.document.write('<img src="' + got.uri + '" alt="">');
+            });
+          })
+          .catch(function () {
+            slot.textContent = 'Image unavailable.';
+            slot.classList.add('is-gone');
+          });
+      });
+  }
+
+
   function bubbles(messages, mineIsTeam) {
     if (!messages.length) return '<p class="empty">No messages.</p>';
     return messages.map(function (m) {
@@ -10482,8 +10639,18 @@
       // also kept the byline out of textContent, where a test could see it.
       const by = m.side === 'TEAM' && m.by
         ? '<span class="bubble-by">' + escapeHtml(m.by) + '</span> \u00b7 ' : '';
+      // An empty slot per image, filled by wireShots once the server has
+      // handed the bytes over. A slot and not a spinner: it is the size
+      // the picture will be, so the bubble does not jump when it lands.
+      const shots = (m.files || []).map(function (f) {
+        return '<span class="bubble-shot" data-shot-msg="' + escapeHtml(m.id) +
+          '" data-shot-id="' + escapeHtml(f.id) + '" title="' +
+          escapeHtml(f.name) + '">' + escapeHtml(f.name) + '</span>';
+      }).join('');
+
       return '<div class="bubble bubble-' + (mine ? 'mine' : 'theirs') + '">' +
                '<p>' + escapeHtml(m.text) + '</p>' +
+               (shots ? '<span class="bubble-shots">' + shots + '</span>' : '') +
                '<time>' + by + escapeHtml(whenText(m.at)) + '</time>' +
              '</div>';
     }).join('');
@@ -10502,18 +10669,22 @@
         const into = document.querySelector('[data-reply-into="' + key + '"]');
         const id = into ? into.value : key;
         const text = box ? box.value.trim() : '';
-        if (!text) { if (box) box.focus(); return; }
+        const shots = SHOTS[key] || [];
+        // A reply that is nothing but a screenshot is a reply - "like
+        // this" with the picture under it answers plenty of questions.
+        if (!text && !shots.length) { if (box) box.focus(); return; }
 
         button.disabled = true;
         const wording = button.textContent;
         button.textContent = 'Sending\u2026';
 
-        callServer('replyToThread', id, text)
+        callServer('replyToThread', id, text, shots)
           .then(function (result) {
             button.disabled = false;
             button.textContent = wording;
             if (result && result.ok) {
               if (box) box.value = '';
+              delete SHOTS[key];
               loadInbox();
               // The panel polls every 45 seconds, which is a long time to sit
               // looking at a reply you just wrote and cannot see. Refresh it
@@ -10666,7 +10837,52 @@
   let openQueryId = '';
 
 
+  /**
+   * The paperclip, the picked row and the cross on each chip.
+   *
+   * One function for both composers, because the only thing that differs
+   * between the panel and a card in the inbox is which key the picked
+   * images are held under.
+   */
+  function wireShotPicker(where, clip, input, strip) {
+    if (!clip || !input || !strip) return;
+
+    clip.addEventListener('click', function () { input.click(); });
+
+    input.addEventListener('change', function () {
+      const already = (SHOTS[where] || []).length;
+      readShots(input.files, already).then(function (got) {
+        SHOTS[where] = (SHOTS[where] || []).concat(got.shots);
+        // Cleared so picking the same file twice in a row still fires
+        // change - the input keeps its value otherwise and the second
+        // attempt looks like nothing happened.
+        input.value = '';
+        renderShots(where, strip);
+
+        const over = already + got.shots.length >= SHOT_MAX_N;
+        const said = got.refused.slice();
+        if (!got.shots.length && !said.length && over) {
+          said.push('Three screenshots to a message is the limit');
+        }
+        if (said.length && where === 'panel') msgrNote(said.join('. ') + '.');
+      });
+    });
+
+    strip.addEventListener('click', function (event) {
+      const x = event.target.closest('.shot-x');
+      if (!x) return;
+      (SHOTS[where] || []).splice(Number(x.getAttribute('data-shot')), 1);
+      renderShots(where, strip);
+    });
+  }
+
+
   function wireMessenger() {
+    wireShotPicker('panel',
+                   document.getElementById('msgrClip'),
+                   document.getElementById('msgrFiles'),
+                   document.getElementById('msgrShots'));
+
     const bar = document.getElementById('msgrBar');
     const close = document.getElementById('msgrClose');
     const form = document.getElementById('msgrCompose');
@@ -10881,6 +11097,7 @@
     if (!box) return;
     msgrSeen = messages.length;
     box.innerHTML = messages.length ? bubbles(messages, false) : '';
+    wireShots(box);
   }
 
 
@@ -10928,9 +11145,16 @@
     if (button) button.disabled = true;
 
     const said = getValue('msgrName').trim();
+    // NO ATTACHMENTS FROM THE SIGN-IN PAGE. That endpoint takes no token
+    // - it cannot, the whole point is to hear from somebody who cannot
+    // get in - so it is the one door on this system anybody on the
+    // internet can push. A rate-limited line of text through it is a
+    // risk worth taking; an open file upload is not.
+    const shots = msgrSignedIn ? (SHOTS.panel || []) : [];
+
     const call = msgrSignedIn
       ? callServer('sendMessage', openQueryId, getValue('msgrSubject').trim(),
-                   body, said)
+                   body, said, shots)
       : callServer('sendUnverifiedMessage', claimed, body, said);
 
     call.then(function (result) {
@@ -10941,6 +11165,8 @@
         return;
       }
       if (text) { text.value = ''; text.style.height = 'auto'; }
+      SHOTS.panel = [];
+      renderShots('panel', document.getElementById('msgrShots'));
       msgrNote(result.message || 'Sent.');
 
       if (!msgrSignedIn) return;

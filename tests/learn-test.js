@@ -265,17 +265,15 @@ function load(opts) {
   vm.runInContext(fs.readFileSync(path.join(SRC, 'Config.gs'), 'utf8'), ctx);
 
   // The four helpers Learn.gs leans on from elsewhere. Stubbed rather than
-  // loaded: sheetWithHeaders would need a real Spreadsheet and driveFolderId
-  // is three lines of regular expression that team-test already covers.
+  // loaded: sheetWithHeaders would need a real Spreadsheet. driveFolderId
+  // is not stubbed at all - it lives in Config.gs, which this suite loads
+  // whole, so the real one runs.
   ctx.sheetWithHeaders = () => sheet;
   ctx.__sheet = sheet;
   ctx.__logs = logs;
   ctx.__cache = cache;
   ctx.requireSignedIn = () => ({ u: '20000000', r: 'ADMIN' });
   ctx.CONFIG_TZ = () => 'Asia/Dhaka';
-  vm.runInContext(
-    fs.readFileSync(path.join(SRC, 'Team.gs'), 'utf8').match(
-      /function driveFolderId[\s\S]*?\n}\n/)[0], ctx);
 
   vm.runInContext(fs.readFileSync(path.join(SRC, 'Learn.gs'), 'utf8'), ctx);
   return ctx;

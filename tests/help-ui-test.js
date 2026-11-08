@@ -91,7 +91,7 @@ const FILE = 'file://' + PAGE;
   const cards = await p.$$eval('#inboxList .thread', (ns) => ns.map((n) => ({
     unverified: n.classList.contains('is-unverified'),
     who: (n.querySelector('.thread-who') || {}).textContent || '',
-    many: (n.querySelector('.thread-many') || {}).textContent || '',
+    subCount: n.querySelectorAll('.thread-sub-topic').length,
     topic: (n.querySelector('.q-topic') || {}).textContent || '',
     peek: (n.querySelector('.thread-peek') || {}).textContent || '',
     subs: Array.from(n.querySelectorAll('.thread-sub-topic'))
@@ -119,7 +119,7 @@ const FILE = 'file://' + PAGE;
     headNote + ' - "3 people" alone reads as a wrong number over 4 questions');
 
   const mine = cards.filter((c) => /Rudra Das/.test(c.who))[0] ||
-               { text: '', subs: [], many: '' };
+               { text: '', subs: [], subCount: 0 };
   check('both of that person\'s queries are inside the one card',
     /September export/.test(mine.text) && /affiliate-wise table/.test(mine.text),
     'gathered on the way to the screen - the stored threads are untouched');
@@ -127,8 +127,14 @@ const FILE = 'file://' + PAGE;
     mine.subs.length === 2 && mine.subs[0] === 'September export' &&
     mine.subs[1] === 'Affiliate table',
     mine.subs.join(' then ') || 'no subjects inside');
-  check('and the closed row says how many are in there',
-    /2 queries/.test(mine.many), mine.many || '(nothing)');
+  // THE "2 QUERIES" CHIP IS GONE, and this asserts its absence rather
+  // than being deleted with it. The table already says "7 people - 11
+  // queries - 1 waiting" at the top right, which is the number worth
+  // having; the same fact repeated once per row made every row longer to
+  // read and said nothing the heading had not.
+  check('the closed row does not repeat a count the heading already gives',
+    (await p.$$eval('#inboxList .thread-many', (ns) => ns.length)) === 0,
+    (await p.$$eval('#inboxList .thread-many', (ns) => ns.length)) + ' chips');
   // WHICH OF THE TWO THE ROW SPEAKS FOR. A gathered card still has to be
   // triageable without opening it, and what somebody needs to see there is
   // the question they are waiting on NOW - not the first one they ever
@@ -136,9 +142,47 @@ const FILE = 'file://' + PAGE;
   check('and speaks for the query they spoke in last, not their first ever',
     mine.topic === 'Affiliate table' && /No rush on it/.test(mine.peek),
     mine.topic + ' - "' + mine.peek + '"');
-  check('while a person with one query gets no such count',
-    cards.filter((c) => c.many).length === 1,
-    'a "1 query" chip on every other row is furniture');
+  check('and the queries inside it are still each their own, with subjects',
+    mine.subCount === 2,
+    mine.subCount + ' subject headings in the gathered card');
+
+  /*
+    THE PILL ON A CARD AGREES WITH THE LAST LINE IN IT.
+
+    WAITING is a fact about the PERSON now, not a sum over their queries:
+    the team owes them a word if the last thing said between them was
+    said by them. Answer anything of theirs and the card goes quiet.
+
+    Asserted against the bubbles rather than against the data, because
+    the first build of this had the stub handing the page a canned flag
+    and every card came out quiet with the asker's line at the bottom of
+    all three. The page was right and the fixture was lying to it, and
+    nothing in this file could tell.
+  */
+  const pills = await p.$$eval('#inboxList .thread', (ns) => ns.map((n) => {
+    const bubbles = n.querySelectorAll('.bubble');
+    const last = bubbles[bubbles.length - 1];
+    return {
+      who: n.querySelector('.thread-who').textContent.trim(),
+      pill: Boolean(n.querySelector('.thread-row .pill-wait')),
+      // On the inbox "mine" is the team, so a bubble that is not mine is
+      // theirs - and theirs last means we owe them a word.
+      theirsLast: last ? !last.classList.contains('bubble-mine') : false
+    };
+  }));
+
+  check('a card says WAITING exactly when the last word in it was theirs',
+    pills.length > 0 && pills.every((c) => c.pill === c.theirsLast),
+    pills.map((c) => c.who.split(' ')[0] + ':' +
+      (c.pill ? 'pill' : 'quiet') + '/' +
+      (c.theirsLast ? 'theirs' : 'ours')).join('  '));
+
+  // And the two facts are allowed to differ, which is the point of
+  // keeping them apart: a card can be quiet while one query inside it
+  // still has no answer under it.
+  check('while a query with no answer under it still says so inside',
+    mine.subs.length === 2,
+    'the per-query pill is a different fact from the per-person one');
 
   // WHERE A REPLY LANDS. One box for one person is the point of the card, but
   // a reply is still a line in one query: it reaches their panel filed under
@@ -218,7 +262,7 @@ const FILE = 'file://' + PAGE;
     'a label on every card is furniture; only the unverified one earns one');
 
   check('a conversation is headed by the name, with the ID in brackets',
-    /Rudra \(20990012\)/.test(cards.map((c) => c.text).join(' ')) &&
+    /Rudra \(20990020\)/.test(cards.map((c) => c.text).join(' ')) &&
     /Ayesha Rahman \(20000042\)/.test(cards.map((c) => c.text).join(' ')),
     'the name is what to call somebody; the ID is the half that means anything');
 
@@ -316,7 +360,7 @@ const FILE = 'file://' + PAGE;
     'there is nothing to undo it with');
   const asked = await p.$eval('#modal', (el) => el.textContent);
   check('and names who the conversation is with',
-    /Rudra \(20990012\)/.test(asked), 'so you can see what you are about to lose');
+    /Rudra \(20990020\)/.test(asked), 'so you can see what you are about to lose');
   check('and says it goes from their panel too',
     /cannot be brought back/.test(asked) && /their message panel/.test(asked),
     'deleting it takes away what they were told, not just your copy');
@@ -569,19 +613,26 @@ const FILE = 'file://' + PAGE;
   await p.close();
   p = await open('?view=help');
 
+  // FOUND BY ITS SUBJECT HEADINGS now that the count chip is gone. A card
+  // with two of them is a card holding two queries, which is the thing
+  // this block is about.
   const multiKey = await p.$$eval('#inboxList .thread', (ns) => {
-    const n = ns.filter((x) => x.querySelector('.thread-many'))[0];
+    const n = ns.filter((x) => x.querySelectorAll('.thread-sub-topic').length > 1)[0];
     return n ? n.getAttribute('data-thread') : '';
   });
   check('the card holding two queries carries one bin, not two',
     Boolean(multiKey) &&
-    (await p.$$eval('#inboxList .thread-many',
-      (ns) => ns[0].closest('.thread').querySelectorAll('[data-del]').length)) === 1,
+    (await p.$$eval('#inboxList .thread', (ns) => {
+      const n = ns.filter((x) => x.querySelectorAll('.thread-sub-topic').length > 1)[0];
+      return n ? n.querySelectorAll('[data-del]').length : -1;
+    })) === 1,
     multiKey || '(no multi-query card)');
 
   const beforeMulti = await p.$$eval('#inboxList .thread', (ns) => ns.length);
-  await p.$eval('#inboxList .thread-many',
-                (el) => el.closest('.thread').querySelector('[data-del]').click());
+  await p.$$eval('#inboxList .thread', (ns) => {
+    ns.filter((x) => x.querySelectorAll('.thread-sub-topic').length > 1)[0]
+      .querySelector('[data-del]').click();
+  });
   await p.waitForTimeout(400);
   const askedMulti = await p.$eval('#modal', (el) => el.textContent);
   check('and it warns that this is all of their queries, not just the top one',

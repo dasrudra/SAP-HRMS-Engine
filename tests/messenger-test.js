@@ -96,7 +96,7 @@ const props = {};
 
 const sb = {
   console, Object, String, Number, Array, Math, JSON, RegExp, Date,
-  isFinite, Boolean, Error, parseInt, parseFloat, Set,
+  isFinite, Boolean, Error, parseInt, parseFloat, Set, Buffer,
   Logger: { log: function () {} },
   SpreadsheetApp: { openById: function () { return book; } },
   PropertiesService: {
@@ -123,7 +123,58 @@ const sb = {
       sent.push(options);
     }
   },
+  // A Drive just real enough for chat screenshots. Files are kept as byte
+  // arrays, because the thing most worth proving is that what goes in is
+  // what comes back - a screenshot that arrives corrupted is worse than
+  // one that never arrived, since nobody can tell.
+  DriveApp: {
+    __files: {},
+    __seq: 0,
+    __private: true,
+    getFolderById: function (id) {
+      if (this.__broken) throw new Error('No item with the given ID could be found');
+      const self = this;
+      return {
+        getName: function () { return 'Chat'; },
+        getSharingAccess: function () {
+          return self.__private ? 'PRIVATE' : 'ANYONE_WITH_LINK';
+        },
+        createFile: function (blob) {
+          const fid = 'img' + (++self.__seq);
+          self.__files[fid] = { name: blob.__name, mime: blob.__mime,
+                                bytes: blob.__bytes.slice() };
+          return { getId: function () { return fid; } };
+        }
+      };
+    },
+    getFileById: function (id) {
+      this.__reads = (this.__reads || 0) + 1;
+      const f = this.__files[id];
+      if (!f) throw new Error('No item with the given ID could be found');
+      return { getBlob: function () {
+        return { getContentType: function () { return f.mime; },
+                 getBytes: function () { return f.bytes.slice(); } };
+      } };
+    }
+  },
+  PropertiesService: {
+    getScriptProperties: function () {
+      const store = this.__store || (this.__store = {});
+      return {
+        getProperty: function (k) { return k in store ? store[k] : null; },
+        setProperty: function (k, v) { store[k] = v; }
+      };
+    }
+  },
   Utilities: {
+    base64Encode: function (bytes) { return Buffer.from(bytes).toString('base64'); },
+    base64Decode: function (text) {
+      return Array.from(Buffer.from(String(text), 'base64'));
+    },
+    newBlob: function (bytes, mime, name) {
+      return { __bytes: Array.isArray(bytes) ? bytes : Array.from(bytes),
+               __mime: mime, __name: name };
+    },
     // Unique per call, like the real one - that uniqueness is the only reason
     // thread and message IDs are unique. A constant would test a different
     // program, and a counter padded on the left would not vary in the
@@ -511,9 +562,34 @@ check('without reaching into anybody else\'s',
 check('without touching anybody else\'s',
   mine(USER).unread === 0 || typeof mine(USER).unread === 'number');
 
-check('the badge counts conversations waiting on us, not messages',
-  waiting() === threads(ADMIN).filter((t) => t.waiting > 0).length,
-  waiting() + ' waiting');
+// PEOPLE, NOT CONVERSATIONS, and not messages either.
+//
+// It used to count threads with an unanswered line in them - a true number
+// and the wrong one. Somebody asks two things, the team answers in one of
+// them, the conversation has been had and both of them know it; the badge
+// went on saying 1 for ever, because the other thread's last line was
+// still the asker's. An inbox badge is a to-do list and the to-do is a
+// person nobody has got back to.
+// Counted by CARD, which is the person unless the ID has no account - an
+// unenrolled ID keeps its signed-in and sign-in-page threads apart, so a
+// stranger's claim cannot borrow a colleague's card or their badge.
+const cardKey = (t) => (t.enrolled ? 'P|' : t.verified + '|') + t.person;
+check('the badge counts people we owe a word, not conversations',
+  waiting() === new Set(threads(ADMIN).filter((t) => t.owed).map(cardKey)).size,
+  waiting() + ' waiting, ' +
+    new Set(threads(ADMIN).filter((t) => t.owed).map(cardKey)).size + ' cards owed');
+
+check('and every thread of a person agrees about whether they are owed one',
+  (function () {
+    const byPerson = {};
+    threads(ADMIN).forEach(function (t) {
+      const k = cardKey(t);
+      if (!(k in byPerson)) byPerson[k] = t.owed;
+      if (byPerson[k] !== t.owed) byPerson[k] = 'MIXED';
+    });
+    return Object.keys(byPerson).every((k) => byPerson[k] !== 'MIXED');
+  })(),
+  'a card cannot be waiting and not waiting at the same time');
 
 // ---------------------------------------------------------------------------
 // what the panel is handed
@@ -1146,6 +1222,214 @@ check('running the migration twice adds nothing the second time',
     })(),
     mineNow().map((t) => t.messages.length + ' msg/' + t.waiting + ' wait')
       .join(', '));
+}
+
+
+// ===========================================================================
+// ANSWERING ANYTHING OF SOMEBODY'S CLEARS THE FLAG FOR THEM
+// ===========================================================================
+// The inbox is a to-do list of PEOPLE. Two queries from one colleague, an
+// answer in either, and there is nothing left to chase - the conversation
+// has been had. The badge used to go on saying 1 until every thread had its
+// own reply, which on a double-posted query was for ever.
+{
+  const WHO = '20990005';
+  const tok = 'USER:' + WHO;
+  const listThreads = vm.runInContext('listThreads', sb);
+  const cards = () => listThreads('ADMIN:20000099').filter((t) => t.person === WHO);
+  const replyTo = vm.runInContext('replyToThread', sb);
+
+  // Two GENUINELY different questions, so none of the duplicate handling
+  // can be what clears this.
+  const q1 = sendRaw(tok, '', 'Access', 'Please add me to the PP group.');
+  const q2 = sendRaw(tok, '', 'Printing', 'The label printer is offline.');
+
+  check('two different questions put one person on the list, once',
+    cards().length === 2 && cards().every((t) => t.owed),
+    cards().length + ' threads, owed=' + cards().map((t) => t.owed).join(','));
+
+  const before = waiting();
+  replyTo('ADMIN:20000099', q1.threadId, 'Added you.');
+
+  check('answering one of them takes that person off the list',
+    cards().every((t) => !t.owed),
+    'owed=' + cards().map((t) => t.owed).join(','));
+
+  check('and the badge drops by exactly one person',
+    waiting() === before - 1, before + ' then ' + waiting());
+
+  // The per-query pill is untouched: the printer question still has no
+  // answer under it, and saying otherwise inside the card would be a lie
+  // about that query rather than a statement about the person.
+  check('but the unanswered query still says so inside the card',
+    cards().filter((t) => t.id === q2.threadId)[0].waiting > 0,
+    'per-query waiting is a different fact from per-person');
+
+  // Writing again puts them back. Otherwise one reply would silence
+  // somebody for ever, which is worse than the bug this fixed.
+  sendRaw(tok, '', 'Access', 'Still cannot see it.');
+  check('writing again puts them back on the list',
+    cards().every((t) => t.owed) && waiting() === before,
+    'owed=' + cards().map((t) => t.owed).join(',') + ', badge ' + waiting());
+}
+
+
+// ===========================================================================
+// SCREENSHOTS IN A CONVERSATION
+// ===========================================================================
+// "Look at this" is how people report a fault, and until now the only way
+// was to describe it. Three images to a line, three megabytes each, kept in
+// a PRIVATE Drive folder and served through the script after a permission
+// check - never by a shared link, because a screenshot of somebody's screen
+// may carry a customer, a price or half an SAP session.
+{
+  const SHOT = '20990006';
+  const tok = 'USER:' + SHOT;
+  const drive = vm.runInContext('DriveApp', sb);
+  const props = vm.runInContext('PropertiesService', sb);
+  props.getScriptProperties().setProperty(
+    'CHAT_FOLDER', 'https://drive.google.com/drive/folders/1chatFolder0000000000000');
+
+  const listThreads = vm.runInContext('listThreads', sb);
+  const getImage = vm.runInContext('getChatImage', sb);
+
+  // A known byte pattern, so "it came back" can mean "byte for byte".
+  const PIXELS = [];
+  for (let i = 0; i < 400; i++) PIXELS.push((i * 13 + 7) & 0xff);
+  const asB64 = Buffer.from(PIXELS).toString('base64');
+  const shot = { name: 'error.png', mime: 'image/png', data: asB64 };
+
+  const sent = sendRaw(tok, '', 'Fault', 'This is what I see.', '', [shot]);
+  check('a message can carry a screenshot', sent.ok, sent.message);
+
+  const card = listThreads('ADMIN:20000099').filter((t) => t.person === SHOT)[0];
+  const line = card.messages[0];
+
+  check('the conversation says what is attached',
+    (line.files || []).length === 1 && line.files[0].name === 'error.png',
+    JSON.stringify(line.files || []));
+
+  // THE BYTES ARE NOT IN THE CONVERSATION, and the way to prove it is to
+  // count the Drive reads rather than to look for base64 in the payload.
+  //
+  // Looking at the payload was the first attempt and it proved nothing:
+  // parseChatFiles never opens the file, so the bytes were never going
+  // to be in there whatever the code did. Reading a conversation must
+  // not touch Drive AT ALL - a thread with ten screenshots in it is
+  // polled every forty-five seconds, and ten Drive reads a poll per open
+  // panel is a quota bill, not a feature.
+  drive.__reads = 0;
+  listThreads('ADMIN:20000099');
+  check('and reading a conversation does not open a single one of them',
+    drive.__reads === 0, drive.__reads + ' Drive reads to list every thread');
+
+  check('the list carries an id, a name and a size, and no more',
+    Object.keys(line.files[0]).sort().join(',') === 'id,name,size',
+    Object.keys(line.files[0]).sort().join(','));
+
+  const got = getImage(tok, line.id, line.files[0].id);
+  check('the owner can fetch it, and gets back what they sent',
+    got.ok && got.uri === 'data:image/png;base64,' + asB64,
+    got.ok ? 'identical' : got.message);
+
+  check('an admin can fetch it too, since they have to answer it',
+    getImage('ADMIN:20000099', line.id, line.files[0].id).ok);
+
+  // A FILE ID IS NOT A PERMISSION. Without the check, anybody signed in
+  // could read every screenshot in the folder by guessing ids.
+  const nosy = getImage('USER:20990007', line.id, line.files[0].id);
+  check('but a colleague with no part in it cannot',
+    !nosy.ok && /not yours/.test(nosy.message), nosy.message);
+
+  // Nor by pairing a readable message with a file from somebody else's.
+  const otherShot = sendRaw('USER:20990007', '', 'Mine', 'Mine.', '',
+    [{ name: 'other.png', mime: 'image/png', data: asB64 }]);
+  const otherLine = listThreads('ADMIN:20000099')
+    .filter((t) => t.id === otherShot.threadId)[0].messages[0];
+  const crossed = getImage(tok, line.id, otherLine.files[0].id);
+  check('nor pair their own message with somebody else\'s image',
+    !crossed.ok && /not on that message/.test(crossed.message), crossed.message);
+
+  // THE SIZE CAP, checked on the server. The browser checks too, so that
+  // somebody who picks a 12MB photo is told while the box is still open -
+  // but a check in a page is a courtesy and not a limit.
+  const HUGE = Buffer.alloc(3 * 1024 * 1024 + 1, 7).toString('base64');
+  const big = sendRaw(tok, '', 'Big', 'A big one.', '',
+    [{ name: 'photo.png', mime: 'image/png', data: HUGE }]);
+  const bigLine = listThreads('ADMIN:20000099')
+    .filter((t) => t.id === big.threadId)[0].messages[0];
+  check('an image over three megabytes is refused by the server',
+    !(bigLine.files || []).length, JSON.stringify(bigLine.files || []));
+
+  check('and that is said too, rather than silently dropping it',
+    /could not be attached/.test(String(big.message)), big.message);
+
+  // IMAGES ONLY, checked on the server - an accept attribute on a file
+  // input is a hint to a picker and has never stopped anybody.
+  const pdf = sendRaw('USER:20990009', '', 'Doc', 'A document.', '',
+    [{ name: 'payroll.pdf', mime: 'application/pdf', data: asB64 }]);
+  const pdfLine = listThreads('ADMIN:20000099')
+    .filter((t) => t.id === pdf.threadId)[0].messages[0];
+  check('anything that is not an image is refused by the server',
+    !(pdfLine.files || []).length, JSON.stringify(pdfLine.files || []));
+
+  check('and the line still sends, because losing words is worse',
+    pdf.ok && /A document/.test(pdfLine.text), pdf.message);
+
+  check('which it says, rather than letting them think it attached',
+    /could not be attached/.test(String(pdf.message)), pdf.message);
+
+  // A LINE THAT IS NOTHING BUT A PICTURE IS A LINE. Making somebody type a
+  // full stop to get past an empty-text check is the kind of thing that
+  // teaches people the tool is fighting them.
+  const wordless = sendRaw('USER:20990010', '', 'Just this', '', '', [shot]);
+  const wordlessLine = listThreads('ADMIN:20000099')
+    .filter((t) => t.id === wordless.threadId)[0].messages[0];
+  check('a message with no words but an image goes',
+    wordless.ok && (wordlessLine.files || []).length === 1,
+    wordless.message);
+
+  // THE SAME WORDS WITH A PICTURE IS NOT A DOUBLE PRESS. Somebody adding
+  // evidence to a question they already asked must not have it dropped by
+  // the duplicate guard.
+  const plain = sendRaw('USER:20990011', '', 'Repeat', 'It is still failing.');
+  const withShot = sendRaw('USER:20990011', '', 'Repeat',
+                           'It is still failing.', '', [shot]);
+  const repeatCard = listThreads('ADMIN:20000099')
+    .filter((t) => t.id === plain.threadId)[0];
+  check('the same words WITH a screenshot adds the screenshot',
+    withShot.ok &&
+    repeatCard.messages.some((m) => (m.files || []).length === 1),
+    repeatCard.messages.map((m) => (m.files || []).length).join(','));
+
+  // An admin's reply can carry one too.
+  const replyTo = vm.runInContext('replyToThread', sb);
+  replyTo('ADMIN:20000099', sent.threadId, 'Do this.', [shot]);
+  const answered = listThreads('ADMIN:20000099')
+    .filter((t) => t.id === sent.threadId)[0];
+  const teamLine = answered.messages.filter((m) => m.side === 'TEAM')[0];
+  check('and so can a reply from the team',
+    (teamLine.files || []).length === 1, JSON.stringify(teamLine.files || []));
+
+  // WITH NO FOLDER SET, the words still go. A message is never held
+  // hostage to a setting an admin has not got round to.
+  //
+  // A FRESH SENDER, because CONFIG.QUESTION_RATE_PER_HOUR is 5 and the
+  // one above has used its allowance. The limit refusing this send looked
+  // exactly like the feature being broken, which is the sort of thing
+  // that costs an afternoon.
+  props.getScriptProperties().setProperty('CHAT_FOLDER', '');
+  const noFolder = sendRaw('USER:20990008', '', 'Nowhere', 'Still works.', '',
+                           [shot]);
+  const noFolderLine = listThreads('ADMIN:20000099')
+    .filter((t) => t.id === noFolder.threadId)[0].messages[0];
+  check('with no folder configured the words still send',
+    noFolder.ok && /Still works/.test(noFolderLine.text) &&
+    !(noFolderLine.files || []).length,
+    noFolder.message);
+
+  check('and it says the image did not attach',
+    /could not be attached/.test(String(noFolder.message)), noFolder.message);
 }
 
 const failed = out.filter((r) => !r).length;

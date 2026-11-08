@@ -317,14 +317,16 @@ function teamPhotoFolderHelp(link) {
 }
 
 
-/** The Drive folder id inside a link, or the id if that is what was given. */
-function driveFolderId(link) {
-  const value = String(link || '').trim();
-  const hit = /\/folders\/([A-Za-z0-9_-]{15,})/.exec(value) ||
-              /[?&]id=([A-Za-z0-9_-]{15,})/.exec(value);
-  if (hit) return hit[1];
-  return /^[A-Za-z0-9_-]{15,}$/.test(value) ? value : '';
-}
+/*
+  driveFolderId() WAS HERE and now lives in Config.gs.
+
+  It was written for the photo import and stayed in this file while that
+  was the only thing that needed it. Learn.gs, Knowledge.gs and the chat
+  screenshots all read a Drive folder now, so a helper about Drive links
+  sitting in the file about the team directory meant three files quietly
+  depending on this one - which only showed up when a test suite loaded
+  Messenger.gs without it and got "driveFolderId is not defined".
+*/
 
 
 /**

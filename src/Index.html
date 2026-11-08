@@ -1500,7 +1500,30 @@
                  placeholder="What it is about">
         </label>
       </div>
+      <!--
+        PICKED SCREENSHOTS, ABOVE THE BOX. Shown before sending and not
+        after, because the moment to notice you attached the wrong window
+        is while you can still take it off.
+      -->
+      <div class="msgr-shots" id="msgrShots"></div>
+
       <div class="msgr-compose-row">
+        <!--
+          A paperclip, not a visible file input. Browsers style that
+          control themselves and will not be talked out of it, so the real
+          input is hidden and the button presses it.
+
+          accept is a HINT TO THE PICKER and nothing more - the server
+          checks the type again, because an accept attribute has never
+          stopped anybody.
+        -->
+        <input type="file" id="msgrFiles" accept="image/*" multiple hidden>
+        <button type="button" class="msgr-clip" id="msgrClip"
+                aria-label="Attach a screenshot" title="Attach a screenshot">
+          <svg viewBox="0 0 24 24" width="17" height="17" fill="none"
+               stroke="currentColor" stroke-width="2" stroke-linecap="round"
+               stroke-linejoin="round"><path d="M21.4 11.1l-8.5 8.5a5.5 5.5 0 0 1-7.8-7.8l8.5-8.5a3.7 3.7 0 0 1 5.2 5.2l-8.5 8.5a1.8 1.8 0 0 1-2.6-2.6l7.8-7.8"/></svg>
+        </button>
         <textarea id="msgrText" rows="2" maxlength="2000"
                   placeholder="Write a message&#x2026;"></textarea>
         <button type="submit" class="msgr-send" id="msgrSend" aria-label="Send">

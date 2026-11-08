@@ -163,7 +163,7 @@ function myThreads(token) {
  * @param {string} text      the message
  * @param {string} name      what to call them
  */
-function sendMessage(token, threadId, topic, text, name) {
+function sendMessage(token, threadId, topic, text, name, images) {
   const session = currentSession(token);
   if (!session) {
     return { ok: false, message: 'Your session has ended. Reload the page and ' +
@@ -171,7 +171,12 @@ function sendMessage(token, threadId, topic, text, name) {
   }
   const me = String(session.u || '').trim();
 
-  const body = cleanMessage(text);
+  // A LINE THAT IS NOTHING BUT A SCREENSHOT IS A LINE. "Here, look" with
+  // the picture attached is how people actually report a fault, and
+  // refusing it because the text box was empty would make them type a
+  // full stop to get past the check.
+  const has = (images || []).length > 0;
+  const body = cleanMessage(has && !String(text || '').trim() ? '(screenshot)' : text);
   if (body.bad) return { ok: false, message: body.bad };
 
   // THE THREAD HAS TO BE THEIRS. Without this check a signed-in person could
@@ -238,16 +243,23 @@ function sendMessage(token, threadId, topic, text, name) {
   // trying to achieve by pressing the button again.
   if (!into) {
     const twin = recentTwinThread(me, body.text, topic);
-    if (twin) {
+    if (twin && !has) {
+      // Only when there is nothing attached. The same words with a
+      // screenshot this time is somebody adding evidence, not somebody
+      // pressing Send twice, and dropping it would lose the thing they
+      // went to the trouble of taking.
       return { ok: true, id: '', threadId: twin.id, emailed: false,
                threads: myThreads(token), name: myName,
                nameOnAccount: Boolean(accountNameOf(me)), message: 'Sent.' };
     }
+    if (twin) into = twin;
   }
+
+  const kept = saveChatImages(images);
 
   const result = appendToThread(me, VERIFIED_YES, SIDE_USER, me, body.text,
                                 null, null, wanted ? null : topic,
-                                myName, null, into);
+                                myName, null, into, kept);
   noteQuestionAsked(me);
 
   // Only nudge if the team is not already sitting on something unanswered in
@@ -257,10 +269,19 @@ function sendMessage(token, threadId, topic, text, name) {
     ? false
     : alertTeamOfMessage(me, body.text, VERIFIED_YES, result.threadId, myName);
 
+  // SAY SO IF AN IMAGE DID NOT MAKE IT. saveChatImages drops what it
+  // cannot write rather than failing the send, which is right - but
+  // silently is not right. Somebody who attached a screenshot and sees
+  // "Sent." must not be left believing it went.
+  const lost = (images || []).length - kept.length;
+
   return { ok: true, id: result.messageId, threadId: result.threadId,
            emailed: emailed, threads: myThreads(token),
            name: myName, nameOnAccount: Boolean(accountNameOf(me)),
-           message: 'Sent.' };
+           message: lost
+             ? 'Sent, but ' + lost + (lost === 1 ? ' image' : ' images') +
+               ' could not be attached.'
+             : 'Sent.' };
 }
 
 
@@ -382,14 +403,16 @@ function listThreads(token) {
   //
   // Read once for the whole inbox rather than per thread: it is a
   // spreadsheet read, and a busy inbox has forty of them.
-  const enrolled = {};
+  const rows = readThreads();
+  const enrolled = enrolmentOf(rows);
   const idOf = function (p) { return String(p || '').trim().toLowerCase(); };
 
-  const rows = readThreads();
-  rows.forEach(function (t) {
-    const key = idOf(t.person);
-    if (key && !(key in enrolled)) enrolled[key] = hasAccount(key);
-  });
+  // WHO IS OWED A WORD, worked out once across everybody's threads - see
+  // peopleWaiting. The same function the sidebar badge counts, keyed the
+  // same way the page groups cards, so the number at the top of the
+  // screen and the pills down it cannot differ.
+  const owed = {};
+  peopleWaiting(rows, enrolled).forEach(function (key) { owed[key] = true; });
 
   return rows
     .map(function (t) {
@@ -402,12 +425,17 @@ function listThreads(token) {
         enrolled: Boolean(enrolled[idOf(t.person)]),
         topic: t.topic, startedAt: t.startedAt, lastAt: t.lastAt,
         lastBy: t.lastBy, status: t.status,
+        // Per query: has THIS question been answered. Drives the small
+        // pill beside a subject inside an opened card.
         waiting: Number(t.waitingForTeam) || 0,
+        // Per person: are we the ones who owe a word. Drives the pill on
+        // the card itself, the ordering, and the badge in the sidebar.
+        owed: Boolean(owed[inboxKeyOf(t, enrolled)]),
         messages: threadMessageList(t.id)
       };
     })
     .sort(function (a, b) {
-      if ((a.waiting > 0) !== (b.waiting > 0)) return a.waiting > 0 ? -1 : 1;
+      if (a.owed !== b.owed) return a.owed ? -1 : 1;
       return String(b.lastAt).localeCompare(String(a.lastAt));
     });
 }
@@ -415,6 +443,199 @@ function listThreads(token) {
 
 /** How close two sends have to be to count as one double-press, in minutes. */
 const TWIN_WINDOW_MINUTES = 30;
+
+
+// ---------------------------------------------------------------------------
+// SCREENSHOTS
+// ---------------------------------------------------------------------------
+/**
+ * The Drive folder chat images are kept in, and why it is NOT shared.
+ *
+ * The Learnings and Knowledge folders are opened to anyone with the link,
+ * because what is in them is meant to be passed around. This one is the
+ * opposite: a support conversation's screenshot is a picture of somebody's
+ * screen, which is as likely as not to show a customer, a price, a payroll
+ * figure or half an SAP session. Link-sharing those would make them
+ * readable by anyone who ever sees the URL, for good.
+ *
+ * So the folder stays private and the page never loads an image from
+ * Drive. It asks the SCRIPT, which checks that the caller is the person
+ * whose conversation it is or an admin, and hands back the bytes. That
+ * costs a round trip per image and is the right price.
+ *
+ * It also decides the limits: three images a line and three megabytes
+ * each. Not arbitrary - the bytes travel base64 through google.script.run,
+ * which inflates them by a third, and a screenshot that does not fit in
+ * three megabytes is a photograph of a monitor.
+ */
+const CHAT_FOLDER_KEY = 'CHAT_FOLDER';
+const CHAT_MAX_IMAGE = 3 * 1024 * 1024;
+const CHAT_MAX_IMAGES = 3;
+
+
+function chatFolder(given) {
+  const passed = String(given || '').trim();
+  if (passed) {
+    PropertiesService.getScriptProperties().setProperty(CHAT_FOLDER_KEY, passed);
+    return passed;
+  }
+  return String(
+    PropertiesService.getScriptProperties().getProperty(CHAT_FOLDER_KEY) || ''
+  ).trim();
+}
+
+
+/**
+ * Writes the images on one message to Drive, and describes them.
+ *
+ * IMAGES ONLY, and checked here rather than trusted from the browser - an
+ * accept attribute on a file input is a hint to a file picker and nothing
+ * more. Anything that is not an image is dropped and the line still sends:
+ * losing an attachment is a nuisance, losing what somebody typed is not.
+ *
+ * Returns [] and writes nothing when no folder is configured, for the same
+ * reason. The caller reports it; the message is never held hostage to it.
+ */
+function saveChatImages(images) {
+  const list = (images || []).slice(0, CHAT_MAX_IMAGES);
+  if (!list.length) return [];
+
+  const id = driveFolderId(chatFolder(''));
+  if (!id) return [];
+
+  let folder;
+  try {
+    folder = DriveApp.getFolderById(id);
+  } catch (e) {
+    return [];
+  }
+
+  const out = [];
+  list.forEach(function (image) {
+    const mime = String(image && image.mime || '');
+    const data = String(image && image.data || '');
+    if (!/^image\//i.test(mime) || !data) return;
+
+    try {
+      const bytes = Utilities.base64Decode(data);
+      if (bytes.length > CHAT_MAX_IMAGE) return;
+
+      const name = String(image.name || 'screenshot').slice(0, 120);
+      const file = folder.createFile(Utilities.newBlob(bytes, mime, name));
+      out.push({ id: file.getId(), name: name, mime: mime, size: bytes.length });
+    } catch (e) { /* one image lost; the line still goes */ }
+  });
+
+  return out;
+}
+
+
+/** The images on a message row, parsed. Bad JSON reads as none. */
+function parseChatFiles(cell) {
+  const text = String(cell || '').trim();
+  if (!text) return [];
+  try {
+    const list = JSON.parse(text);
+    if (!list || !list.length) return [];
+    return list.filter(function (f) { return f && f.id; }).map(function (f) {
+      return {
+        id: String(f.id),
+        name: String(f.name || 'Screenshot'),
+        mime: String(f.mime || 'image/png'),
+        size: Number(f.size) || 0
+      };
+    });
+  } catch (e) {
+    return [];
+  }
+}
+
+
+/**
+ * One image, as bytes, for somebody allowed to see it.
+ *
+ * THE CHECK IS THE POINT OF THIS FUNCTION. A file id is not a permission:
+ * anybody signed in could otherwise read every screenshot in the folder by
+ * guessing ids. So the message is found, its thread is found, and the
+ * caller has to be an admin or the person whose conversation it is.
+ *
+ * Returns a data URI rather than a link, because the folder is private and
+ * is staying that way.
+ */
+function getChatImage(token, messageId, fileId) {
+  const session = currentSession(token);
+  if (!session) return { ok: false, message: 'Your session has ended.' };
+
+  const want = String(messageId || '');
+  const file = String(fileId || '');
+  if (!want || !file) return { ok: false, message: 'No image asked for.' };
+
+  const message = readMessages().filter(function (m) { return m.id === want; })[0];
+  if (!message) return { ok: false, message: 'That message is no longer there.' };
+
+  // It has to be ON that message. Otherwise the id of any file in the
+  // folder, paired with any message this person may read, would do.
+  const on = parseChatFiles(message.files)
+    .filter(function (f) { return f.id === file; })[0];
+  if (!on) return { ok: false, message: 'That image is not on that message.' };
+
+  const thread = threadById(message.threadId);
+  if (!thread) return { ok: false, message: 'That conversation is no longer there.' };
+
+  const me = String(session.u || '');
+  const admin = rankOf(session.r) >= rankOf(ROLE_ADMIN);
+  const mine = thread.person === me && thread.verified === VERIFIED_YES;
+  if (!admin && !mine) return { ok: false, message: 'That is not yours to open.' };
+
+  try {
+    const blob = DriveApp.getFileById(file).getBlob();
+    return { ok: true, name: on.name,
+             uri: 'data:' + blob.getContentType() + ';base64,' +
+                  Utilities.base64Encode(blob.getBytes()) };
+  } catch (e) {
+    return { ok: false, message: 'That image could not be read.' };
+  }
+}
+
+
+/** Creates the chat image folder. Run from the editor. */
+function setupChatFolder() {
+  const link = chatFolder('');
+  const id = driveFolderId(link);
+  if (!id) {
+    Logger.log('No Drive folder is set for chat screenshots yet.');
+    Logger.log('');
+    Logger.log('Make a folder for it and LEAVE IT PRIVATE - do not share it.');
+    Logger.log('A support screenshot is a picture of somebody\'s screen and');
+    Logger.log('may show a customer, a price or half an SAP session. The page');
+    Logger.log('serves these through the script, which checks who is asking,');
+    Logger.log('so the folder never needs to be opened to anybody.');
+    Logger.log('');
+    Logger.log('  1  Make the folder in Drive, copy its address.');
+    Logger.log('  2  Project Settings (the cog on the left).');
+    Logger.log('  3  Script Properties > Add script property.');
+    Logger.log('  4  Property: %s', CHAT_FOLDER_KEY);
+    Logger.log('     Value:    the address you copied');
+    Logger.log('  5  Save, then run this again to check it.');
+    return;
+  }
+
+  try {
+    const folder = DriveApp.getFolderById(id);
+    const access = folder.getSharingAccess();
+    Logger.log('Chat screenshots will go into "%s".', folder.getName());
+    Logger.log('Sharing: %s', String(access));
+    if (String(access) !== 'PRIVATE') {
+      Logger.log('');
+      Logger.log('THAT FOLDER IS SHARED, and it should not be. Set it back to');
+      Logger.log('restricted in Drive - the page does not need it open, and a');
+      Logger.log('shared folder of support screenshots is readable by anybody');
+      Logger.log('who ever sees one of the addresses.');
+    }
+  } catch (e) {
+    Logger.log('That folder could not be opened: %s', e.message);
+  }
+}
 
 
 /**
@@ -511,10 +732,11 @@ function twinThreadsOf(thread) {
 
 
 /** Replies to one conversation. Admin and above. */
-function replyToThread(token, threadId, text) {
+function replyToThread(token, threadId, text, images) {
   const session = requireAdminSession(token);
 
-  const body = cleanMessage(text);
+  const has = (images || []).length > 0;
+  const body = cleanMessage(has && !String(text || '').trim() ? '(screenshot)' : text);
   if (body.bad) return { ok: false, message: body.bad };
 
   const thread = threadById(threadId);
@@ -524,10 +746,12 @@ function replyToThread(token, threadId, text) {
   // Left off, appendToThread had nothing to append to and started a fresh
   // conversation owned by the asker, so every reply the team sent arrived as
   // a new untitled query sitting beside the question instead of under it.
+  const kept = saveChatImages(images);
+
   appendToThread(thread.person, thread.verified, SIDE_TEAM,
                  String(session.u || ''), body.text,
                  null, null, null, null, nameOf(String(session.u || '')),
-                 thread);
+                 thread, kept);
 
   // AND THE OTHER COPIES OF THE SAME QUESTION, if there are any.
   //
@@ -545,16 +769,20 @@ function replyToThread(token, threadId, text) {
       appendToThread(twin.person, twin.verified, SIDE_TEAM,
                      String(session.u || ''), body.text,
                      null, null, null, null, nameOf(String(session.u || '')),
-                     twin);
+                     twin, kept);
       also++;
     });
   } catch (e) { /* the reply they asked for is sent; the copies can wait */ }
 
+  const lost = (images || []).length - kept.length;
+
   return { ok: true,
-           message: also
+           message: (also
              ? 'Replied, and to ' + also +
                (also === 1 ? ' duplicate of it.' : ' duplicates of it.')
-             : 'Replied.',
+             : 'Replied.') +
+             (lost ? ' ' + lost + (lost === 1 ? ' image' : ' images') +
+                     ' could not be attached.' : ''),
            messages: threadMessageList(thread.id) };
 }
 
@@ -576,16 +804,93 @@ function messagesWaiting(token) {
 }
 
 
-/** How many conversations are waiting on us. Called server-side only. */
+/**
+ * How many PEOPLE are waiting on us. Called server-side only.
+ *
+ * People, not conversations, and that is the whole of this change.
+ *
+ * It used to count threads with an unanswered line in them, which is a
+ * true number and the wrong one. Somebody asks two things and the team
+ * answers in one of them; the conversation has been had, both of them
+ * know it, and the badge went on saying 1 for ever - because the other
+ * thread's last line was still the asker's. An inbox badge is a to-do
+ * list, and the to-do is a PERSON nobody has got back to.
+ *
+ * So: the team owes this person a word if the last thing said between
+ * them, across all their queries, was said by them. Answer anything of
+ * theirs and the badge clears; write again afterwards and it comes back.
+ *
+ * The per-query WAITING pill inside a card is left alone - it says which
+ * question has no answer under it, which is a different and still useful
+ * fact, and the asker's own panel is scored that way too.
+ */
 function unansweredQuestionCount() {
   try {
-    return readThreads().filter(function (t) {
-      return (Number(t.waitingForTeam) || 0) > 0;
-    }).length;
+    return peopleWaiting(readThreads()).length;
   } catch (e) {
     // A missing tab is not a reason to fail the whole page load.
     return 0;
   }
+}
+
+
+/**
+ * The key the inbox groups a thread under - one key, one card, one badge.
+ *
+ * Enrolled people get ONE card whatever a thread records about how they
+ * sent it, because the accounts list has confirmed who they are. An ID
+ * nobody has enrolled keeps its verified and unverified threads apart, so
+ * a stranger's claim cannot borrow a colleague's card.
+ *
+ * Here rather than only in the page because the sidebar badge counts
+ * these too, and a badge that counts differently from the list it links
+ * to is a badge nobody believes twice.
+ */
+function inboxKeyOf(thread, enrolled) {
+  const who = String(thread.person || '');
+  return enrolled[who.trim().toLowerCase()] ? 'P|' + who
+                                            : thread.verified + '|' + who;
+}
+
+
+/** Which of these IDs have an account, asked once each. */
+function enrolmentOf(threads) {
+  const out = {};
+  (threads || []).forEach(function (t) {
+    const key = String(t.person || '').trim().toLowerCase();
+    if (key && !(key in out)) out[key] = hasAccount(key);
+  });
+  return out;
+}
+
+
+/**
+ * The people the team has not got back to, by inbox key.
+ *
+ * Decided on the LAST MESSAGE either way rather than on the stored
+ * waitingForTeam counters, because the counters are per thread and the
+ * question here spans every thread on the card. Shared by the count and
+ * the inbox so the badge and the list can never disagree.
+ */
+function peopleWaiting(threads, enrolled) {
+  const known = enrolled || enrolmentOf(threads);
+  const spoke = {};
+
+  (threads || []).forEach(function (t) {
+    const key = inboxKeyOf(t, known);
+    const seen = spoke[key] || (spoke[key] = { user: '', team: '' });
+
+    threadMessageList(t.id).forEach(function (m) {
+      const side = m.side === SIDE_TEAM ? 'team' : 'user';
+      if (String(m.at) > seen[side]) seen[side] = String(m.at);
+    });
+  });
+
+  return Object.keys(spoke).filter(function (key) {
+    const s = spoke[key];
+    // No word from them at all is not waiting. Their word last is.
+    return s.user && s.user > s.team;
+  });
 }
 
 
@@ -903,7 +1208,8 @@ function readMessages() {
         side: String(r[3] || SIDE_USER),
         author: String(r[4] || ''),
         text: String(r[5] || ''),
-        authorName: String(r[6] || '')
+        authorName: String(r[6] || ''),
+        files: String(r[7] || '')
       };
     })
     .filter(function (m) { return m.id && m.threadId; });
@@ -926,6 +1232,17 @@ function threadMessageList(threadId) {
       // are, and the thread header carries it for the team.
       const out = { id: m.id, at: m.at, side: m.side, text: m.text };
       if (m.side === SIDE_TEAM) out.by = who(m.author, m.authorName);
+
+      // WHAT is attached, never the bytes. A conversation with six
+      // screenshots in it would be twenty megabytes of base64 on every
+      // poll; the page asks for one at a time, through getChatImage,
+      // which is also where the permission check lives.
+      const files = parseChatFiles(m.files);
+      if (files.length) {
+        out.files = files.map(function (f) {
+          return { id: f.id, name: f.name, size: f.size };
+        });
+      }
       return out;
     });
 }
@@ -951,7 +1268,7 @@ function threadMessageList(threadId) {
  * @return {{threadId: string, messageId: string, wasWaiting: boolean}}
  */
 function appendToThread(person, verified, side, author, text, whenIso, forceId,
-                       topic, name, authorName, intoThread) {
+                       topic, name, authorName, intoThread, files) {
   const who = String(person || '').trim();
   const level = verified === VERIFIED_NO ? VERIFIED_NO : VERIFIED_YES;
   const when = whenIso ? new Date(whenIso) : new Date();
@@ -988,7 +1305,8 @@ function appendToThread(person, verified, side, author, text, whenIso, forceId,
   const messageId = forceId || ('M' + stamp(when) + '-' + shortId());
 
   messageTab().appendRow([messageId, thread.id, when, side, String(author || ''),
-                          text, cleanName(authorName)]);
+                          text, cleanName(authorName),
+                          (files && files.length) ? JSON.stringify(files) : '']);
 
   // Counters after the message. See the note above.
   const waiting = side === SIDE_USER ? (Number(thread.waitingForTeam) || 0) + 1 : 0;

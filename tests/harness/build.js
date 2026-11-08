@@ -337,7 +337,14 @@ const stub = `
       lastBy: 'USER', status: 'OPEN', waiting: 1,
       messages: [ { id: 'M1', at: '2026-08-02T09:15:00.000Z', side: 'USER',
                     text: 'Why is my section showing a delayed ticket?' } ] },
-    { id: 'T2', person: '20990012', name: 'Rudra', verified: false, topic: '',
+    // AN ID WITH NO ACCOUNT, and that now matters. This is the
+    // sign-in-page card - the one that should wear the red NOT VERIFIED
+    // and the amber alarm - and it only does while nobody has enrolled
+    // under that ID. It used to say 20990012, which is in ACCOUNTS above,
+    // so the moment the inbox started asking the accounts list the alarm
+    // card quietly became the quiet one and three assertions about the
+    // warning had nothing to find.
+    { id: 'T2', person: '20990020', name: 'Rudra', verified: false, topic: '',
       startedAt: '2026-08-02T10:02:00.000Z', lastAt: '2026-08-02T10:02:00.000Z',
       lastBy: 'USER', status: 'OPEN', waiting: 1,
       messages: [ { id: 'M2', at: '2026-08-02T10:02:00.000Z', side: 'USER',
@@ -603,10 +610,48 @@ const stub = `
       THREADS.splice(at, 1);
       return { ok: true, message: 'Conversation deleted.' };
     },
+    /*
+      WORKED OUT, NOT WRITTEN DOWN - owed and enrolled especially.
+
+      These used to be fixed fields on each THREADS entry, which made the
+      fixture agree with whatever the page happened to do. owed in
+      particular is the thing the page is now built around, and a canned
+      value meant the first screenshot of the finished inbox showed three
+      cards whose last line was the asker's and not one WAITING pill -
+      the page was right and the stub was lying to it.
+
+      So it is computed here the way the server computes it: by card, on
+      whether the last thing said between us was said by them.
+    */
     listThreads: function () {
       if (ROLE === 'USER') throw new Error('That action needs the admin login.');
-      return THREADS.slice().sort(function (a, b) {
-        if ((a.waiting > 0) !== (b.waiting > 0)) return a.waiting > 0 ? -1 : 1;
+
+      var enrolled = {};
+      ACCOUNTS.forEach(function (a) {
+        enrolled[String(a.username).toLowerCase()] = true;
+      });
+
+      var spoke = {};
+      var keyOf = function (t) {
+        return enrolled[String(t.person).toLowerCase()]
+          ? 'P|' + t.person : (t.verified ? 'YES|' : 'NO|') + t.person;
+      };
+      THREADS.forEach(function (t) {
+        var seen = spoke[keyOf(t)] || (spoke[keyOf(t)] = { user: '', team: '' });
+        (t.messages || []).forEach(function (m) {
+          var side = m.side === 'TEAM' ? 'team' : 'user';
+          if (String(m.at) > seen[side]) seen[side] = String(m.at);
+        });
+      });
+
+      return THREADS.map(function (t) {
+        var s = spoke[keyOf(t)];
+        return Object.assign({}, t, {
+          enrolled: Boolean(enrolled[String(t.person).toLowerCase()]),
+          owed: Boolean(s && s.user && s.user > s.team)
+        });
+      }).sort(function (a, b) {
+        if (a.owed !== b.owed) return a.owed ? -1 : 1;
         return String(b.lastAt).localeCompare(String(a.lastAt));
       });
     },

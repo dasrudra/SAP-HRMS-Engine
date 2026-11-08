@@ -1081,7 +1081,13 @@ const CONFIG = {
    * not who actually replied.
    */
   MESSAGE_COLUMNS: [
-    'Message ID', 'Thread ID', 'At', 'Side', 'Author', 'Text', 'Author Name'
+    'Message ID', 'Thread ID', 'At', 'Side', 'Author', 'Text', 'Author Name',
+    // A JSON index of the images attached to this line - id, name, type,
+    // size. The images themselves are in a PRIVATE Drive folder and are
+    // served through the script, never by a shared link; see the note on
+    // CHAT_FOLDER_KEY in Messenger.gs for why this one is not link-shared
+    // the way the Learnings and Knowledge folders are.
+    'Files'
   ],
 
   /**
@@ -1659,6 +1665,16 @@ function sectionMailTable() {
   return (CONFIG.SECTION_MAIL || []).map(function (entry) {
     return { match: entry.match, name: entry.name, address: entry.address };
   });
+}
+
+
+/** The Drive folder id inside a link, or the id if that is what was given. */
+function driveFolderId(link) {
+  const value = String(link || '').trim();
+  const hit = /\/folders\/([A-Za-z0-9_-]{15,})/.exec(value) ||
+              /[?&]id=([A-Za-z0-9_-]{15,})/.exec(value);
+  if (hit) return hit[1];
+  return /^[A-Za-z0-9_-]{15,}$/.test(value) ? value : '';
 }
 
 

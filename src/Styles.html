@@ -1579,17 +1579,6 @@
   .thread-ok { font-size: 11px; color: var(--text-mut); }
   .q-topic { font-size: 12px; font-weight: 650; color: var(--navy-700); }
 
-  /* How many queries are inside this person's card. Only drawn when there is
-     more than one, so it reads as information rather than as a "1" on every
-     row - and quiet, because the row is already carrying a name, a subject
-     and the last thing said. */
-  .thread-many {
-    flex: none; font-size: 10.5px; font-weight: 700; letter-spacing: .04em;
-    text-transform: uppercase; color: var(--blue-600);
-    background: var(--blue-050); border: 1px solid var(--border-str);
-    padding: 2px 7px; border-radius: 5px;
-  }
-
   /* The rule between two queries inside one card. A hairline and a subject:
      enough to see where one question ends and the next begins, without
      turning the card back into the list of cards it replaced. */
@@ -1692,6 +1681,87 @@
   /* Touch has no hover, so on a phone it is simply always there. */
   @media (hover: none) { .thread-del { opacity: 1; } }
   .q-reply { display: flex; gap: 10px; align-items: flex-start; }
+
+  /* ==========================================================================
+     SCREENSHOTS IN A CONVERSATION
+     ==========================================================================
+
+     A support question is nearly always "look at this", and until now the
+     only way to show somebody was to describe it. Three to a line, three
+     megabytes each.
+
+     THE PICTURES ARE NOT LOADED FROM DRIVE. Their folder is private, on
+     purpose - a screenshot of somebody's screen may carry a customer, a
+     price or half an SAP session, and link-sharing it would make it
+     readable by anyone who ever saw the address. The script hands the
+     bytes over after checking who is asking, so every one of these starts
+     as an empty slot and fills in. */
+
+  /* The paperclip, on both composers. Quiet: it sits beside the thing
+     people came to do, which is type. */
+  .msgr-clip {
+    display: grid; place-items: center; flex: none;
+    width: 34px; height: 34px; border-radius: 9px;
+    border: 1px solid var(--border-str); background: var(--surface);
+    color: var(--text-mut); cursor: pointer;
+    transition: color .14s ease, border-color .14s ease, background .14s ease;
+  }
+  .msgr-clip:hover {
+    color: var(--blue-600); border-color: var(--blue-300);
+    background: var(--blue-050);
+  }
+  .msgr-clip:focus-visible { outline: 2px solid var(--blue-600); outline-offset: 2px; }
+
+  /* What is picked but not yet sent, above the box - the moment to notice
+     you attached the wrong window is while you can still take it off. */
+  .msgr-shots { display: flex; flex-wrap: wrap; gap: 6px; }
+  .msgr-shots:not(:empty) { margin-bottom: 8px; }
+  .shot-chip {
+    display: inline-flex; align-items: center; gap: 7px;
+    padding: 4px 4px 4px 5px; border-radius: 8px;
+    border: 1px solid var(--border-str); background: var(--surface-2);
+    font-size: 11.5px; font-weight: 600; color: var(--text-dim);
+    max-width: 220px;
+  }
+  .shot-chip img {
+    width: 26px; height: 26px; border-radius: 5px; object-fit: cover;
+    flex: none; background: var(--surface);
+  }
+  .shot-chip > span {
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .shot-x {
+    display: grid; place-items: center; flex: none;
+    width: 18px; height: 18px; border-radius: 50%;
+    border: 0; background: var(--border); color: var(--text-dim);
+    font-family: inherit; font-size: 12px; line-height: 1; cursor: pointer;
+  }
+  .shot-x:hover { background: var(--red-ink); color: #fff; }
+
+  /* ---- and the ones already sent, inside a bubble ---- */
+  .bubble-shots {
+    display: flex; flex-wrap: wrap; gap: 6px; margin: 7px 0 2px;
+  }
+  /* The slot before the bytes arrive. It carries the file's name, so a
+     picture that never loads still says what it was meant to be. */
+  .bubble-shot {
+    display: grid; place-items: center;
+    min-width: 92px; max-width: 220px; min-height: 64px; padding: 6px 9px;
+    border-radius: 9px; border: 1px dashed rgba(255, 255, 255, .4);
+    font-size: 10.5px; font-weight: 600; text-align: center;
+    overflow: hidden; word-break: break-word;
+  }
+  .bubble-theirs .bubble-shot { border-color: var(--border-str); color: var(--text-mut); }
+  .bubble-shot.is-ready {
+    padding: 0; border-style: solid; border-color: rgba(255, 255, 255, .28);
+    cursor: zoom-in; min-height: 0;
+  }
+  .bubble-theirs .bubble-shot.is-ready { border-color: var(--border-str); }
+  .bubble-shot img {
+    display: block; max-width: 100%; max-height: 220px; border-radius: 8px;
+  }
+  .bubble-shot.is-gone { opacity: .7; font-style: italic; }
+
   .q-reply textarea {
     flex: 1; padding: 9px 11px; border-radius: 8px;
     border: 1px solid var(--border-str); background: var(--surface);

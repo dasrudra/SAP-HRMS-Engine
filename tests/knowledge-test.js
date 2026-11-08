@@ -207,10 +207,8 @@ function load(opts) {
   };
 
   const learn = fs.readFileSync(path.join(SRC, 'Learn.gs'), 'utf8');
-  ['learnKind', 'learnSize', 'driveFolderId'].forEach(function (name) {
-    const src = name === 'driveFolderId'
-      ? fs.readFileSync(path.join(SRC, 'Team.gs'), 'utf8')
-      : learn;
+  ['learnKind', 'learnSize'].forEach(function (name) {
+    const src = learn;
     const hit = new RegExp('function ' + name + '\\([\\s\\S]*?\\n}\\n').exec(src);
     if (!hit) throw new Error('could not lift ' + name);
     vm.runInContext(hit[0], ctx);
