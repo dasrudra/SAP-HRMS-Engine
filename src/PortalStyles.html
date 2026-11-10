@@ -3650,14 +3650,48 @@
     max-width: 1180px; margin: 0 auto; padding: 24px 28px 110px;
   }
 
+  /* where a refused press says so */
+  .obj-warn {
+    display: flex; align-items: flex-start; gap: 9px;
+    padding: 12px 15px; border-radius: 12px; margin-bottom: 16px;
+    background: #fef3f2; border: 1px solid #fecdca; color: #b42318;
+    font-size: 12.8px; line-height: 1.5; font-weight: 530;
+  }
+
   .obj-stats {
     display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px;
     margin-bottom: 24px;
   }
+  /*
+    THE FOUR TILES CARRY THE BAND'S COLOUR, faintly.
+
+    They were white cards on a near-white page directly under a deep indigo
+    band, which made the band look like it belonged to a different screen.
+    A wash of the same indigo at four per cent, a hairline of it at the top
+    and a tinted border tie the two together without turning the tiles into
+    another coloured block - the numbers still have to be the loudest thing
+    on them.
+  */
   .obj-stat {
-    background: var(--ob-paper); border: 1px solid var(--ob-line);
+    position: relative; overflow: hidden;
+    background:
+      linear-gradient(180deg, rgba(67, 56, 202, .045), rgba(67, 56, 202, 0) 62%),
+      var(--ob-paper);
+    border: 1px solid #e4e8f5;
     border-radius: 15px; padding: 17px 19px;
     box-shadow: 0 1px 2px rgba(16, 24, 40, .04);
+    transition: transform .16s ease, box-shadow .16s ease,
+                border-color .16s ease;
+  }
+  .obj-stat::before {
+    content: ''; position: absolute; left: 0; right: 0; top: 0; height: 2px;
+    background: linear-gradient(90deg, var(--ob-band-2), var(--ob-band-3));
+    opacity: .55;
+  }
+  .obj-stat:hover {
+    transform: translateY(-2px);
+    border-color: #c7d2f7;
+    box-shadow: 0 10px 24px -12px rgba(49, 46, 129, .34);
   }
   .obj-stat-l { font-size: 11.6px; color: var(--ob-dim); font-weight: 530; }
   .obj-stat-v {
@@ -3702,12 +3736,34 @@
     padding: 6px 12px; border-radius: 999px;
     border: 1px solid var(--ob-line-2); background: var(--ob-paper);
     color: var(--ob-mid);
+    transition: transform .13s ease, background .13s ease,
+                border-color .13s ease, box-shadow .13s ease;
   }
-  .obj-filter:hover { background: #f9fafb; }
+  .obj-filter:hover {
+    background: #f4f6ff; border-color: #a4bcfd; color: var(--ob-ink);
+    transform: translateY(-1px);
+  }
   .obj-filter.is-on {
     background: var(--ob-accent); border-color: var(--ob-accent);
     color: #fff; font-weight: 640;
+    box-shadow: 0 3px 10px -3px rgba(67, 56, 202, .5);
   }
+  .obj-filter.is-on:hover { background: #3b32b5; }
+  /*
+    Frequency sits on its own row, in its own key, because it is a
+    different question from module - and the two narrow each other rather
+    than replacing each other.
+  */
+  .obj-filter-break { flex-basis: 100%; height: 0; }
+  .obj-filter.is-freq {
+    border-style: dashed;
+  }
+  .obj-filter.is-freq.is-on {
+    border-style: solid;
+    background: #5925dc; border-color: #5925dc;
+    box-shadow: 0 3px 10px -3px rgba(89, 37, 220, .5);
+  }
+  .obj-filter.is-freq.is-on:hover { background: #4c1fbd; }
 
   /* ---------------- a card ---------------- */
   .obj-card {
@@ -3718,7 +3774,13 @@
     gap: 22px; align-items: center;
     transition: box-shadow .15s ease, border-color .15s ease;
   }
-  .obj-card:hover { box-shadow: 0 4px 14px -6px rgba(16, 24, 40, .16); }
+  .obj-card:hover {
+    border-color: #d7def2;
+    box-shadow: 0 8px 20px -10px rgba(49, 46, 129, .26);
+  }
+  /* The row that is being saved. Not a spinner - the square has already
+     changed colour, and this only says the answer has not come back yet. */
+  .obj-card.is-sending { opacity: .72; }
   .obj-card.is-open {
     grid-template-columns: 1fr;
     border-color: #c7d7fe;
@@ -3979,23 +4041,49 @@
     background: #f9fafb; color: var(--ob-faint);
   }
 
-  /* the day grid inside an opened daily objective */
-  .obj-days { display: flex; gap: 5px; flex-wrap: wrap; }
+  /* ---- the month, by date, inside an opened daily objective ----
+
+     Every day of the month is drawn, including the ones that do not count.
+     A Friday shown greyed says "this one is not counted" better than a
+     sentence under the grid did - and it means the number in a cell is the
+     DATE, which somebody can check against a calendar. Before, the cells
+     were working-day ordinals, so the eighth cell was the 11th.
+  */
+  .obj-days {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(36px, 1fr));
+    gap: 5px; max-width: 420px;
+  }
   .obj-day {
-    width: 36px; height: 36px; border-radius: 9px; cursor: pointer;
+    aspect-ratio: 1; min-height: 34px; border-radius: 9px; cursor: pointer;
     display: grid; place-items: center; font-size: 11.6px; font-weight: 600;
     border: 1px solid var(--ob-line-2); background: var(--ob-paper);
     color: var(--ob-mid);
+    transition: transform .12s ease, background .12s ease,
+                border-color .12s ease;
   }
-  .obj-day:hover { background: #f9fafb; }
+  .obj-day:hover:not([disabled]):not(.is-off) {
+    background: #f4f6ff; border-color: #a4bcfd; transform: translateY(-1px);
+  }
   .obj-day.is-y {
     background: #ecfdf3; border-color: #6ce9a6; color: #027a48;
   }
+  .obj-day.is-y:hover:not([disabled]) { background: #d9fbe7; }
   .obj-day.is-n {
     background: #fef3f2; border-color: #fda29b; color: #b42318;
   }
   .obj-day.is-now { box-shadow: 0 0 0 2px rgba(67, 56, 202, .45); }
   .obj-day[disabled] { opacity: .45; cursor: default; }
+  /* A weekend. Present, so the grid is a calendar; inert, so it is clear
+     it is not counted. Not a button at all, so it is skipped by the keyboard
+     and not announced as something to press. */
+  .obj-day.is-off {
+    background: repeating-linear-gradient(135deg,
+      #f7f8fb 0 5px, #eef0f5 5px 10px);
+    border-color: #eaecf0; color: #b4b9c4; cursor: default;
+    font-weight: 500;
+  }
+  .obj-day.is-week { aspect-ratio: auto; min-width: 46px; padding: 0 8px; }
+  .obj-days:has(.is-week) { grid-template-columns: repeat(5, 46px); }
 
   /* ---------------- states ---------------- */
   .obj-wait, .obj-empty {

@@ -350,19 +350,48 @@ function parseRgb(text) {
   await p.click('[data-obj-open="OJT-007"]');
   await p.waitForTimeout(350);
 
-  const days = () => p.$$eval('.obj-day', (ns) => ns.map((n) =>
-    (n.disabled ? 'x' : '') + n.className.replace(/obj-day\s*/, '').trim()));
-  const all = await days();
-  check('a daily objective opens onto November"s working days',
-    all.length === 22, all.length + ' days');
-  check('the days that have not happened yet cannot be pressed',
-    all.slice(8).every((c) => c.indexOf('x') === 0) &&
-    all.slice(0, 8).every((c) => c.indexOf('x') !== 0),
-    all.slice(6, 10).join(' | '));
-  check('a day already missed shows as missed',
-    all[2].indexOf('is-n') !== -1, all[2]);
-  check('and today is marked out',
-    all[7].indexOf('is-now') !== -1, all[7]);
+  /*
+    THE WHOLE MONTH, BY DATE.
+
+    It used to draw one cell per working day - 22 of them numbered 1 to 22
+    - under a line saying Friday and Saturday were not counted. The numbers
+    were working-day ordinals rather than dates, so the cell labelled 8 was
+    the 11th and not one of them could be checked against a calendar.
+
+    November 2026 opens on a Sunday: 30 days, 8 of them weekend.
+  */
+  const cells = () => p.$$eval('.obj-days > *', (ns) => ns.map((n) => ({
+    day: n.textContent.trim(),
+    off: n.classList.contains('is-off'),
+    dead: Boolean(n.disabled),
+    y: n.classList.contains('is-y'),
+    nn: n.classList.contains('is-n'),
+    now: n.classList.contains('is-now')
+  })));
+  const all = await cells();
+
+  check('a daily objective opens onto the whole month, not its working days',
+    all.length === 30, all.length + ' cells');
+  check('and the cells are dates, so they can be checked against a calendar',
+    all[0].day === '1' && all[29].day === '30',
+    all.slice(0, 3).map((c) => c.day).join(','));
+
+  const off = all.filter((c) => c.off).map((c) => Number(c.day));
+  check('the weekend is shown rather than left out',
+    off.join(',') === '6,7,13,14,20,21,27,28', off.join(','));
+  check('and cannot be pressed, which is what "not counted" means',
+    all.filter((c) => c.off).every((c) => !c.y && !c.nn));
+
+  check('a day already missed shows as missed on its own date',
+    all[2].nn === true && all[2].day === '3', JSON.stringify(all[2]));
+  check('today is marked out, on the 10th',
+    all[9].now === true && all[9].day === '10', JSON.stringify(all[9]));
+  check('the days still to come cannot be pressed',
+    all[10].dead === true && all[7].dead === false,
+    '11th dead ' + all[10].dead + ', 8th dead ' + all[7].dead);
+  check('the caption about Friday and Saturday is gone',
+    !/Friday and Saturday/.test(
+      await p.$eval('.obj-card.is-open', (n) => n.textContent)));
 
   // Press the missed day. It cycles missed -> pending.
   await p.click('.obj-day:nth-child(3)');
@@ -379,27 +408,153 @@ function parseRgb(text) {
   check('pressing it again marks it done',
     after2.charAt(2) === 'Y', 'marks now ' + after2.slice(0, 10));
 
-  check('and the count under it follows',
-    /7 of 8/.test(await p.$eval('.obj-card.is-open', (n) => n.textContent)),
-    (await p.$eval('.obj-card.is-open', (n) => n.textContent))
-      .replace(/\s+/g, ' ').slice(0, 120));
+  check('and the cell shows it, on the right date',
+    (await cells())[2].y === true && (await cells())[2].day === '3',
+    JSON.stringify((await cells())[2]));
+
+  /*
+    A PRESS IS NOT A PAGE RELOAD.
+
+    It used to call getObjectives again after every tick - six tab reads
+    and the whole ninety scored - to change one square's colour, and it
+    refused to accept another press while that was out. So marking three
+    rows in a row recorded the first and silently dropped the other two.
+  */
+  const loadsBefore = await p.evaluate(() => window.__calls.getObjectives || 0);
+  await p.click('.obj-day:nth-child(2)');
+  await p.waitForTimeout(500);
+  const loadsAfter = await p.evaluate(() => window.__calls.getObjectives || 0);
+  check('ticking does not reload the whole page',
+    loadsAfter === loadsBefore,
+    loadsBefore + ' -> ' + loadsAfter + ' getObjectives calls');
+
+  await p.click('[data-obj-close]');
+  await p.waitForTimeout(300);
+
+  /*
+    TWO PRESSES IN A ROW BOTH LAND.
+
+    There used to be one OBJ.busy for the whole screen, so a press made
+    while another was still out was dropped without a word. With a slow
+    first call that is most of them, and it is why marking three rows in a
+    row recorded one.
+  */
+  // Counted rather than read back: these two rows have been pressed earlier
+  // in the suite, so what they END at depends on what they started at. What
+  // matters is that BOTH presses reached the server.
+  const sent = () => p.evaluate(() => window.__calls.tickObjTask || 0);
+  const sentBefore = await sent();
+
+  await p.evaluate(() => { window.__slowNext = 900; });
+  await p.click('[data-obj-tick="OJT-005"]');
+  await p.click('[data-obj-tick="OJT-010"]');
+  await p.waitForTimeout(1800);
+
+  check('a press made while another is still out is not dropped',
+    (await sent()) - sentBefore === 2,
+    (await sent()) - sentBefore + ' of 2 presses reached the server');
+
+  /*
+    THE SAME ROW TWICE, THOUGH, IS ONE PRESS.
+
+    The guard is per row rather than per page, and this is the half of it
+    that does any work: an impatient second press on the SAME square would
+    otherwise send a second tick that undoes the first, because the button
+    still carries the mark it had when it was drawn.
+  */
+  const sameBefore = await sent();
+  await p.evaluate(() => { window.__slowNext = 900; });
+  await p.click('[data-obj-tick="OJT-010"]');
+  await p.click('[data-obj-tick="OJT-010"]');
+  await p.waitForTimeout(1800);
+  check('but pressing the same row twice before it answers sends once',
+    (await sent()) - sameBefore === 1,
+    (await sent()) - sameBefore + ' calls for a double press');
+
+  // =========================================================================
+  // 6b. a refused tick puts the square back and says why
+  // =========================================================================
+  {
+    const q = await b.newPage({ viewport: { width: 1500, height: 1000 } });
+    await q.goto(FILE + '?view=objective&refuse=tick');
+    await q.waitForTimeout(1300);
+    await q.click('#objTabTask');
+    await q.waitForTimeout(500);
+
+    check('the warning strip is out of the way until there is something to say',
+      await q.$eval('#objWarn', (n) => n.hidden));
+
+    await q.click('[data-obj-tick="OJT-005"]');
+    await q.waitForTimeout(700);
+
+    check('a refused tick says so where it can be seen',
+      !(await q.$eval('#objWarn', (n) => n.hidden)) &&
+      /FI module/.test(await q.$eval('#objWarn', (n) => n.textContent)),
+      await q.$eval('#objWarn', (n) => n.textContent));
+    check('and the square goes back to what it was',
+      /Not marked yet/.test(await q.$eval('#objList', (n) => {
+        const r = Array.prototype.slice.call(n.querySelectorAll('.obj-card'))
+          .filter((x) => x.textContent.indexOf('OJT-005') === 0)[0];
+        return r ? r.textContent : '';
+      })));
+    await q.close();
+  }
+
+  // =========================================================================
+  // 6c. frequency narrows the list
+  // =========================================================================
+  await p.click('#objFilters [data-freq="Daily"]');
+  await p.waitForTimeout(350);
+  check('a frequency chip narrows the list to that frequency',
+    (await cards()) === 2, (await cards()) + ' cards');
+
+  await p.click('#objFilters [data-group="MM"]');
+  await p.waitForTimeout(350);
+  check('module and frequency narrow each other rather than replacing',
+    (await cards()) === 0 || (await cards()) === 1,
+    (await cards()) + ' cards for MM + Daily');
+
+  await p.click('#objFilters [data-freq="Weekly"]');
+  await p.waitForTimeout(350);
+  check('MM and Weekly together is one objective',
+    (await cards()) === 1, (await cards()) + ' cards');
+
+  await p.click('#objFilters [data-freq="ALL"]');
+  await p.click('#objFilters [data-group="ALL"]');
+  await p.waitForTimeout(350);
+  check('and clearing both brings everything back', (await cards()) === 12);
 
   // =========================================================================
   // 7. the module chips
   // =========================================================================
-  await p.click('[data-obj-close]');
-  await p.waitForTimeout(300);
-
+  // The card was closed back in section 6, before the two-presses check.
   const chips = () => p.$$eval('#objFilters .obj-filter', (ns) =>
     ns.map((n) => n.textContent.trim()));
-  const lit = () => p.$$eval('#objFilters .obj-filter.is-on', (ns) =>
-    ns.map((n) => n.getAttribute('data-group')));
+  // Module chips only - the frequency row has its own lit chip and the two
+  // narrow each other rather than replacing each other.
+  const lit = () => p.$$eval('#objFilters .obj-filter.is-on[data-group]',
+    (ns) => ns.map((n) => n.getAttribute('data-group')));
 
   // The exact list, not a pattern. The fixture names six groups and only
   // four of them have anything filed under them this month; a pattern like
   // "no chip ending in 0" passed happily on chips reading "PP undefined".
   check('a module with nothing in it this month gets no chip at all',
-    (await chips()).join(' | ') === 'All 12 | Mine 7 | KPI 4 | SD 5 | MM 2 | CO 1',
+    (await chips()).join(' | ') ===
+      'All 12 | EAS 7 | KPI 4 | SD 5 | MM 2 | CO 1 | ' +
+      'Any frequency | Daily 2 | Weekly 3 | Monthly 6',
+    (await chips()).join(' | '));
+
+  // It said "Mine", which on this page means "whatever module is against
+  // your name" - and for the department head that is nearly all ninety.
+  check('the personal chip says EAS, not Mine',
+    (await chips()).some((c) => /^EAS /.test(c)) &&
+    !(await chips()).some((c) => /^Mine /.test(c)));
+
+  // A quarterly objective has no slot in November, so it is not offered as
+  // a frequency to filter by - a chip that empties the page when pressed.
+  check('frequency is offered as its own row of chips',
+    (await chips()).filter((c) => /^(Daily|Weekly|Monthly|Quarterly) /.test(c))
+      .join(',') === 'Daily 2,Weekly 3,Monthly 6',
     (await chips()).join(' | '));
   check('the four KPIs are not a second chip called All',
     (await chips()).filter((c) => /^All /.test(c)).length === 1,

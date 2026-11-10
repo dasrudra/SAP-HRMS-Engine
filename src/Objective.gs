@@ -305,15 +305,36 @@ function objDaysInMonth(period) {
  * slots is the honest failure - it shows as a gap somebody can explain,
  * where under-counting would silently forgive a real miss.
  */
+/**
+ * Worked out once per month per execution, not once per objective.
+ *
+ * THIS WAS THE PAGE'S HOT SPOT. Scoring the ninety across six months means
+ * objSlotCount and objSlotsElapsed are each called about 540 times, and
+ * both of them ask objWorkingDays, which builds a Date for every day of the
+ * month - some sixteen thousand Date objects to draw one screen. The answer
+ * is the same every time for a given month, so it is worked out once.
+ *
+ * Plain objects and not CacheService: these live for one call, where a
+ * cache round trip would cost more than the loop it saves.
+ */
+const OBJ_WORK_DAYS = {};
+const OBJ_SLOTS = {};
+
+
 function objWorkingDays(period) {
-  const y = Number(String(period).slice(0, 4));
-  const m = Number(String(period).slice(5, 7));
-  const days = objDaysInMonth(period);
+  const key = String(period);
+  if (OBJ_WORK_DAYS[key]) return OBJ_WORK_DAYS[key];
+
+  const y = Number(key.slice(0, 4));
+  const m = Number(key.slice(5, 7));
+  const days = objDaysInMonth(key);
   const work = CONFIG.OBJECTIVE.WORK_DAYS || [0, 1, 2, 3, 4];
   const out = [];
   for (let d = 1; d <= days; d++) {
     if (work.indexOf(new Date(y, m - 1, d).getDay()) !== -1) out.push(d);
   }
+
+  OBJ_WORK_DAYS[key] = out;
   return out;
 }
 
@@ -343,10 +364,17 @@ function objIsQuarterEnd(period) {
  */
 function objSlotCount(period, frequency) {
   const freq = String(frequency || '').trim().toUpperCase();
-  if (freq === 'DAILY')   return objWorkingDays(period).length;
-  if (freq === 'WEEKLY')  return Math.ceil(objDaysInMonth(period) / 7);
-  if (freq === 'QUARTERLY') return objIsQuarterEnd(period) ? 1 : 0;
-  return 1;                                   // MONTHLY, and anything unknown
+  const key = period + '|' + freq;
+  if (OBJ_SLOTS[key] !== undefined) return OBJ_SLOTS[key];
+
+  let n;
+  if (freq === 'DAILY')          n = objWorkingDays(period).length;
+  else if (freq === 'WEEKLY')    n = Math.ceil(objDaysInMonth(period) / 7);
+  else if (freq === 'QUARTERLY') n = objIsQuarterEnd(period) ? 1 : 0;
+  else                           n = 1;       // MONTHLY, and anything unknown
+
+  OBJ_SLOTS[key] = n;
+  return n;
 }
 
 
@@ -1156,6 +1184,22 @@ function getObjectives(token, period) {
     */
     current: current,
     closed: want < current,
+
+    /*
+      THE MONTH AS A CALENDAR, so a daily objective can be shown by date.
+
+      It used to draw one cell per WORKING day - twenty-two of them, with a
+      line underneath explaining that Friday and Saturday were not counted.
+      That is a true sentence about a grid nobody could check, because the
+      numbers in it were working-day ordinals, not dates: the eighth cell
+      was the 11th.
+
+      Now the page draws all thirty days and greys the ones that do not
+      count. The STORED form has not changed - a mark still belongs to a
+      working day, and `work` is what maps one to the other - so nothing
+      recorded before this needs migrating.
+    */
+    days: { count: objDaysInMonth(want), work: objWorkingDays(want) },
     plan: { rows: rows, weight: plan.weight, filled: plan.filled,
             count: plan.plan.length },
     tasks: { list: list, count: tasks.count, groups: tasks.groups,
@@ -1361,9 +1405,27 @@ function tickObjTask(token, taskId, period, slot, mark, note) {
 
   objWriteLog(p, OBJ_KIND_TASK, task.id, fields, { name: me.name, id: me.id });
 
+  /*
+    EVERYTHING THE PAGE NEEDS TO REDRAW THAT ONE ROW, and nothing else.
+
+    A tick used to be followed by a full getObjectives - six tab reads and
+    the whole ninety scored again - to show one square changing colour. On
+    this connection that is two round trips of several seconds for one
+    press, which is why pressing two buttons in a row looked like the
+    second one did nothing.
+
+    The page now patches the row it pressed from this, and works the strip
+    and the counters out from it locally.
+  */
   const state = objTaskState(task, marks, p, new Date());
-  return { ok: true, marks: state.marks, done: state.done,
-           elapsed: state.elapsed, onSchedule: state.onSchedule };
+  return {
+    ok: true,
+    id: task.id,
+    marks: state.marks, slots: state.slots, elapsed: state.elapsed,
+    done: state.done, missed: state.missed, silent: state.silent,
+    marked: state.marked, onSchedule: state.onSchedule, due: state.due,
+    by: me.name, at: new Date().getTime()
+  };
 }
 
 

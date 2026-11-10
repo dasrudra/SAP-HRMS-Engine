@@ -1115,6 +1115,70 @@ function load(opts) {
 }
 
 // ===========================================================================
+// 18d. the month is worked out once, not sixteen thousand times
+// ===========================================================================
+{
+  const ctx = load();
+
+  // Same array back, which is the whole proof: scoring the ninety across
+  // six months calls this about a thousand times, and it used to build a
+  // Date for every day of the month on every one of them.
+  const first = ctx.objWorkingDays('2026-11');
+  check('a month"s working days are worked out once and kept',
+    ctx.objWorkingDays('2026-11') === first, 'a second call rebuilt them');
+  check('and a different month is not confused with it',
+    ctx.objWorkingDays('2026-10') !== first &&
+    ctx.objWorkingDays('2026-10').length === 21);
+
+  /*
+    The slot count is kept too, and proving it needs a spy rather than a
+    comparison: the ANSWER is 22 either way, so asking twice and checking
+    the number says nothing about whether it was worked out twice.
+  */
+  const spied = load();
+  const real = spied.objWorkingDays;
+  let asked = 0;
+  spied.objWorkingDays = function (p) { asked++; return real(p); };
+
+  check('the slot count is kept per month and frequency too',
+    spied.objSlotCount('2026-11', 'Daily') === 22 &&
+    spied.objSlotCount('2026-11', 'Daily') === 22 &&
+    spied.objSlotCount('2026-11', 'Daily') === 22 &&
+    asked === 1,
+    'the month was consulted ' + asked + ' time(s) for 3 identical asks');
+  check('and a different frequency is still worked out',
+    spied.objSlotCount('2026-11', 'Weekly') === 5 &&
+    spied.objSlotCount('2026-12', 'Daily') === 23 && asked === 2,
+    'asked ' + asked);
+
+  // THE CALENDAR THE PAGE DRAWS FROM. Thirty cells, of which 22 count.
+  const page = ctx.getObjectives('t');
+  check('the page is given the month as a calendar, not just a slot count',
+    page.days.count === 30 && page.days.work.length === 22 &&
+    page.days.work[0] === 1 && page.days.work[5] === 8,
+    'count ' + page.days.count + ' work ' + page.days.work.length);
+  check('and the weekend is absent from the days that count',
+    page.days.work.indexOf(6) === -1 && page.days.work.indexOf(7) === -1 &&
+    page.days.work.indexOf(28) === -1);
+}
+
+// ===========================================================================
+// 18e. a tick answers with the row, so the page need not reload
+// ===========================================================================
+{
+  const ctx = load({ session: { u: '20990001', r: 'USER' } });
+  const r = ctx.tickObjTask('t', 'OJT-007', '2026-11', 0, 'Y');
+
+  check('a tick comes back with everything needed to redraw that one row',
+    r.id === 'OJT-007' && r.marks.length === 22 && r.slots === 22 &&
+    r.elapsed === 8 && r.done === 1 && r.onSchedule === false &&
+    typeof r.marked === 'number' && typeof r.due === 'boolean',
+    JSON.stringify({ id: r.id, done: r.done, elapsed: r.elapsed }));
+  check('including who marked it and when',
+    r.by === 'Bilal Hossain' && r.at > 0);
+}
+
+// ===========================================================================
 // 19. a Date from another realm
 // ===========================================================================
 {

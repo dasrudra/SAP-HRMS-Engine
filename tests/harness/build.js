@@ -215,6 +215,18 @@ const stub = `
   var OBJ_DAYS = { '2026-10': 31, '2026-11': 30, '2026-12': 31,
                    '2027-01': 31, '2027-02': 28, '2027-03': 31 };
 
+  /* Which dates of the month count. Sunday to Thursday, like the server. */
+  function objWorkDays(period) {
+    var y = Number(String(period).slice(0, 4));
+    var m = Number(String(period).slice(5, 7));
+    var out = [];
+    for (var d = 1; d <= (OBJ_DAYS[period] || 30); d++) {
+      var day = new Date(y, m - 1, d).getDay();
+      if (day >= 0 && day <= 4) out.push(d);
+    }
+    return out;
+  }
+
   function objSlots(period, freq) {
     var f = String(freq || '').toUpperCase();
     if (f === 'DAILY') return OBJ_WORK[period] || 0;
@@ -1318,6 +1330,9 @@ const stub = `
         monthIndex: OBJ_PERIODS.indexOf(want),
         current: OBJ_NOW,
         closed: want < OBJ_NOW,
+        // The month as a calendar, so a daily objective is drawn by
+        // date with the days that do not count shown and inert.
+        days: { count: OBJ_DAYS[want] || 30, work: objWorkDays(want) },
         plan: { rows: rows, weight: 100, filled: true,
                 count: OBJ_PLAN.reduce(function (n, r) {
                   return n + r.milestones.length; }, 0) },
@@ -1376,6 +1391,18 @@ const stub = `
     },
 
     tickObjTask: function (token, id, period, slot, mark) {
+      /*
+        ?refuse=tick makes every tick fail, which is the one path a test
+        cannot otherwise reach: the page only draws a Mark button on rows
+        the server will accept, so a refusal in normal use comes from a
+        race - somebody's module changed, the month rolled over - and the
+        page still has to put the square back and say what happened.
+      */
+      if ((new URLSearchParams(location.search).get('refuse') || '')
+            .split(',').indexOf('tick') !== -1) {
+        throw new Error('That objective belongs to the FI module. You can ' +
+                        'tick the ones for your own module.');
+      }
       var t = null;
       OBJ_TASK.forEach(function (x) { if (x.id === id) t = x; });
       if (!t) throw new Error('There is no objective with that id.');
@@ -1398,7 +1425,20 @@ const stub = `
       marks = marks.slice(0, i) + ch + marks.slice(i + 1);
       OBJ_LOG[key] = { marks: marks, note: '', by: 'Utpal Biswas',
                        at: Date.now(), history: [] };
-      return { ok: true, marks: marks };
+      // Everything the page needs to redraw that one row. A tick used to be
+      // followed by a whole getObjectives to change one square's colour.
+      var elapsed = objElapsed(period, t.frequency);
+      var done = objCount(marks, 'Y', elapsed);
+      var missed = objCount(marks, 'N', elapsed);
+      return {
+        ok: true, id: t.id, marks: marks, slots: slots, elapsed: elapsed,
+        done: done, missed: missed,
+        silent: Math.max(0, elapsed - done - missed),
+        marked: objCount(marks, 'Y', slots),
+        onSchedule: elapsed === 0 ? true : done === elapsed,
+        due: elapsed > 0 && marks.charAt(elapsed - 1) === '.',
+        by: 'Utpal Biswas', at: Date.now()
+      };
     },
 
     createObjMilestone: function (token, draft) {

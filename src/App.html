@@ -9088,7 +9088,9 @@
     draft: null,          // what is in that card before it is saved
     group: 'ALL',         // the module filter, on the Unique Roles side
     weight: 'ALL',        // the weight filter, on the SMART Objective side
-    busy: false
+    freq: 'ALL',          // the frequency filter, on the Unique Roles side
+    busy: false,          // a Save is in flight - one at a time is right there
+    sending: {}           // which ROWS have a tick in flight, by id
   };
 
   const OBJ_MONTHS = ['January', 'February', 'March', 'April', 'May', 'June',
@@ -9345,12 +9347,15 @@
       (OBJ.group === 'ALL' ? ' is-on' : '') + '" data-group="ALL">All ' +
       data.tasks.count + '</button>';
 
-    // Mine first, when there is a Mine to put first - it is the only chip
-    // most people ever press.
+    // EAS first, when there is one to put first - it is the only chip most
+    // people ever press. It says EAS rather than Mine because on this page
+    // "mine" is whatever module is against your name, and for the
+    // department head that is nearly all ninety, which is not a personal
+    // list by any reading.
     const mine = (data.tasks.list || []).filter(function (t) { return t.mine; });
     if (mine.length) {
       html += '<button class="obj-filter' +
-        (OBJ.group === 'MINE' ? ' is-on' : '') + '" data-group="MINE">Mine ' +
+        (OBJ.group === 'MINE' ? ' is-on' : '') + '" data-group="MINE">EAS ' +
         mine.length + '</button>';
     }
 
@@ -9371,6 +9376,39 @@
         escapeHtml(g) + '">' + escapeHtml(label) + ' ' + counts[g] +
         '</button>';
     });
+
+    /*
+      FREQUENCY ON ITS OWN ROW, because it is a different question.
+
+      Module asks "whose is this"; frequency asks "how often". They are
+      worth crossing - the daily FI checks are a real list somebody works
+      through - so they are two rows rather than one row of eighteen chips
+      where pressing the second one cancels the first.
+    */
+    const freqs = {};
+    (data.tasks.list || []).forEach(function (t) {
+      if (!t.slots) return;          // not due this month, so not a choice
+      const f = String(t.frequency || '').trim();
+      if (f) freqs[f] = (freqs[f] || 0) + 1;
+    });
+
+    const ORDER = ['Daily', 'Weekly', 'Monthly', 'Quarterly'];
+    const found = Object.keys(freqs).sort(function (a, b) {
+      const ia = ORDER.indexOf(a), ib = ORDER.indexOf(b);
+      return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
+    });
+
+    if (found.length > 1) {
+      html += '<span class="obj-filter-break"></span>';
+      html += '<button class="obj-filter is-freq' +
+        (OBJ.freq === 'ALL' ? ' is-on' : '') +
+        '" data-freq="ALL">Any frequency</button>';
+      found.forEach(function (f) {
+        html += '<button class="obj-filter is-freq' +
+          (OBJ.freq === f ? ' is-on' : '') + '" data-freq="' +
+          escapeHtml(f) + '">' + escapeHtml(f) + ' ' + freqs[f] + '</button>';
+      });
+    }
 
     box.innerHTML = html;
   }
@@ -9427,7 +9465,12 @@
       return;
     }
 
+    // Module and frequency NARROW each other - one chip at a time within
+    // each row, but the two rows combine. "The daily FI checks" is a real
+    // list; "SD or Weekly" is not a question anybody asks.
     const list = (data.tasks.list || []).filter(function (t) {
+      if (OBJ.freq !== 'ALL' &&
+          String(t.frequency || '').trim() !== OBJ.freq) return false;
       if (OBJ.group === 'ALL') return true;
       if (OBJ.group === 'MINE') return t.mine;
       return t.group === OBJ.group;
@@ -9761,17 +9804,56 @@
     const freq = String(t.frequency || '').toUpperCase();
     const marks = String(t.marks || '');
 
+    /*
+      A DAILY OBJECTIVE IS DRAWN AS THE WHOLE MONTH, BY DATE.
+
+      It used to draw one cell per working day - twenty-two of them,
+      numbered 1 to 22, under a line saying Friday and Saturday were not
+      counted. Both halves of that were a problem: the numbers were
+      working-day ordinals rather than dates, so the cell labelled 8 was
+      the 11th of the month and nobody could check a single one of them
+      against a calendar.
+
+      So every day of the month is here. The ones that do not count are
+      shown and cannot be pressed, which says "Friday is not counted" far
+      better than a sentence did. The stored marks are unchanged - one per
+      working day - and `days.work` is what maps a date to its slot.
+    */
     let cells = '';
-    for (let i = 0; i < t.slots; i++) {
-      const ch = marks.charAt(i);
-      const past = i < t.elapsed;
-      cells += '<button class="obj-day' +
-        (ch === 'Y' ? ' is-y' : ch === 'N' ? ' is-n' : '') +
-        (i === t.elapsed - 1 ? ' is-now' : '') + '"' +
-        (past ? '' : ' disabled') +
-        ' data-obj-tick="' + escapeHtml(t.id) + '" data-slot="' + i +
-        '" data-mark="' + (ch === 'Y' ? 'N' : ch === 'N' ? '.' : 'Y') + '">' +
-        (freq === 'DAILY' ? (i + 1) : 'W' + (i + 1)) + '</button>';
+    if (freq === 'DAILY') {
+      const cal = (data.days || {});
+      const work = cal.work || [];
+      const total = cal.count || work.length;
+
+      for (let d = 1; d <= total; d++) {
+        const slot = work.indexOf(d);
+        if (slot === -1) {
+          cells += '<span class="obj-day is-off" aria-hidden="true">' +
+            d + '</span>';
+          continue;
+        }
+        const ch = marks.charAt(slot);
+        const past = slot < t.elapsed;
+        cells += '<button class="obj-day' +
+          (ch === 'Y' ? ' is-y' : ch === 'N' ? ' is-n' : '') +
+          (slot === t.elapsed - 1 ? ' is-now' : '') + '"' +
+          (past ? '' : ' disabled') +
+          ' data-obj-tick="' + escapeHtml(t.id) + '" data-slot="' + slot +
+          '" data-mark="' + (ch === 'Y' ? 'N' : ch === 'N' ? '.' : 'Y') +
+          '">' + d + '</button>';
+      }
+    } else {
+      for (let i = 0; i < t.slots; i++) {
+        const ch = marks.charAt(i);
+        const past = i < t.elapsed;
+        cells += '<button class="obj-day is-week' +
+          (ch === 'Y' ? ' is-y' : ch === 'N' ? ' is-n' : '') +
+          (i === t.elapsed - 1 ? ' is-now' : '') + '"' +
+          (past ? '' : ' disabled') +
+          ' data-obj-tick="' + escapeHtml(t.id) + '" data-slot="' + i +
+          '" data-mark="' + (ch === 'Y' ? 'N' : ch === 'N' ? '.' : 'Y') +
+          '">W' + (i + 1) + '</button>';
+      }
     }
 
     return '<div class="obj-card is-open">' +
@@ -9795,12 +9877,6 @@
           '<label class="obj-fl">' + escapeHtml(objMonthName(data.period)) +
             ' <i>press to mark, press again to change your mind</i></label>' +
           '<div class="obj-days">' + cells + '</div>' +
-          '<div class="obj-strip-l" style="margin-top:9px">' + t.done +
-            ' of ' + t.elapsed +
-            (freq === 'DAILY' ? ' working days' : ' weeks') + ' done' +
-            (freq === 'DAILY'
-              ? ' &middot; Friday and Saturday are not counted' : '') +
-          '</div>' +
         '</div>' +
         '<div>' +
           '<label class="obj-fl">What it is <i>from the sheet</i></label>' +
@@ -9854,20 +9930,120 @@
   }
 
 
+  /**
+   * Marks a slot, and shows it marked at once.
+   *
+   * THREE THINGS WERE WRONG WITH THE FIRST VERSION, and together they made
+   * the buttons look broken.
+   *
+   *   It reloaded the whole page after every press. A tick cost two round
+   *   trips - the write, then six tab reads and the ninety scored again -
+   *   to change one square from grey to green.
+   *
+   *   It refused to do anything while one was in flight, because of a
+   *   single OBJ.busy shared by the whole screen. Pressing Mark on three
+   *   rows in a row therefore recorded the first and silently dropped the
+   *   other two.
+   *
+   *   And when a press DID fail, the message went to objSay, which writes
+   *   into the open card's footer - so with no card open it went nowhere.
+   *   A refusal looked exactly like a button that did not work.
+   *
+   * So: paint it immediately, send it, and patch the row from what comes
+   * back. Only that row is busy, not the page. If the server refuses, the
+   * square goes back to what it was and says why.
+   */
   function objTick(id, slot, mark) {
-    if (OBJ.busy) return;
-    OBJ.busy = true;
+    const task = objTaskById(id);
+    if (!task || OBJ.sending[id]) return;
 
-    callServer('tickObjTask', id, OBJ.period, Number(slot), mark)
-      .then(function () {
-        OBJ.busy = false;
-        loadObjective(OBJ.period);
+    const before = task.marks;
+    OBJ.sending[id] = true;
+
+    // Paint it now. The server is the authority and will correct this in a
+    // moment, but the press has to look like it landed.
+    const i = Number(slot);
+    const ch = (mark === 'Y' || mark === 'N') ? mark : '.';
+    if (i >= 0 && i < task.marks.length) {
+      task.marks = task.marks.slice(0, i) + ch + task.marks.slice(i + 1);
+      objRecount(task);
+      renderObjStats(OBJ.data);
+      renderObjList(OBJ.data);
+    }
+
+    callServer('tickObjTask', id, OBJ.period, i, mark)
+      .then(function (fresh) {
+        delete OBJ.sending[id];
+        if (fresh && fresh.id) {
+          ['marks', 'slots', 'elapsed', 'done', 'missed', 'silent',
+           'marked', 'onSchedule', 'due', 'by', 'at'].forEach(function (k) {
+            if (fresh[k] !== undefined) task[k] = fresh[k];
+          });
+        }
+        renderObjStats(OBJ.data);
+        renderObjList(OBJ.data);
       })
       .catch(function (err) {
-        OBJ.busy = false;
-        objSay(String(err && err.message || err), true);
+        delete OBJ.sending[id];
+        task.marks = before;
+        objRecount(task);
+        renderObjStats(OBJ.data);
+        renderObjList(OBJ.data);
+        objWarn(String(err && err.message || err));
         onError(err);
       });
+  }
+
+
+  /** One of the ninety, by id, out of what is loaded. */
+  function objTaskById(id) {
+    let found = null;
+    ((OBJ.data && OBJ.data.tasks.list) || []).forEach(function (t) {
+      if (t.id === id) found = t;
+    });
+    return found;
+  }
+
+
+  /**
+   * The counters on a row, worked out from its marks.
+   *
+   * The same arithmetic objTaskState does on the server, so that a row
+   * painted before the answer comes back says the same thing the answer
+   * will. Only the counts - the slot count and what has elapsed are facts
+   * about the calendar and do not change because somebody pressed a button.
+   */
+  function objRecount(t) {
+    let done = 0, missed = 0;
+    for (let i = 0; i < t.elapsed && i < t.marks.length; i++) {
+      const c = t.marks.charAt(i);
+      if (c === 'Y') done++;
+      else if (c === 'N') missed++;
+    }
+    t.done = done;
+    t.missed = missed;
+    t.silent = Math.max(0, t.elapsed - done - missed);
+    t.marked = (t.marks.match(/Y/g) || []).length;
+    t.onSchedule = t.elapsed === 0 ? true : done === t.elapsed;
+    t.due = t.elapsed > 0 &&
+            t.marks.charAt(Math.max(0, t.elapsed - 1)) === '.';
+  }
+
+
+  /**
+   * Something went wrong, said where it can actually be seen.
+   *
+   * objSay writes into the open card's footer, which is the right place for
+   * a failed Save and no place at all for a failed tick - most ticks happen
+   * with no card open, and the message went nowhere.
+   */
+  function objWarn(text) {
+    const box = document.getElementById('objWarn');
+    if (!box) return;
+    box.textContent = text;
+    box.hidden = false;
+    clearTimeout(objWarn.timer);
+    objWarn.timer = setTimeout(function () { box.hidden = true; }, 7000);
   }
 
 
@@ -10048,13 +10224,14 @@
     });
 
     document.getElementById('objFilters').addEventListener('click', function (e) {
-      const chip = e.target.closest('[data-group], [data-weight]');
+      const chip = e.target.closest('[data-group], [data-weight], [data-freq]');
       if (!chip) return;
-      // One filter at a time on both sides, and the two do not share a
-      // value: the module chips belong to the ninety and the weight chips
-      // to the twenty-nine.
+      // One at a time WITHIN a row. Weight belongs to the twenty-nine;
+      // module and frequency belong to the ninety and narrow each other.
       if (chip.hasAttribute('data-weight')) {
         OBJ.weight = chip.getAttribute('data-weight');
+      } else if (chip.hasAttribute('data-freq')) {
+        OBJ.freq = chip.getAttribute('data-freq');
       } else {
         OBJ.group = chip.getAttribute('data-group');
       }
