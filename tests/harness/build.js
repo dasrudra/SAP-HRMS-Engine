@@ -244,19 +244,23 @@ const stub = `
     if (period < OBJ_NOW) return slots;
     if (period > OBJ_NOW) return 0;
     var f = String(freq || '').toUpperCase();
-    if (f === 'DAILY') return 9;            // the 10th; only the 6th was off
-    if (f === 'WEEKLY') return 2;           // day 10 is inside block two
+    // CLOSED, not merely begun. It is the 10th: the 1st to the 5th and the
+    // 7th to the 9th are behind us (the 6th was a Friday), and the 10th is
+    // still being worked. Week two is likewise still running.
+    if (f === 'DAILY') return 8;
+    if (f === 'WEEKLY') return 1;
     return 0;
   }
 
-  /* How many slots may be pressed now - not the same as elapsed. */
+  /* How many slots may be pressed now - one more than elapsed, today. */
   function objOpen(period, freq) {
     var slots = objSlots(period, freq);
     if (!slots) return 0;
     if (period < OBJ_NOW) return slots;
     if (period > OBJ_NOW) return 0;
     var f = String(freq || '').toUpperCase();
-    if (f === 'DAILY' || f === 'WEEKLY') return objElapsed(period, freq);
+    if (f === 'DAILY') return 9;            // through the 10th
+    if (f === 'WEEKLY') return 2;           // day 10 is inside block two
     return slots;
   }
 

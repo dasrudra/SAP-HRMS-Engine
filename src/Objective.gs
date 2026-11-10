@@ -419,9 +419,17 @@ function objSlotCount(period, frequency) {
  * How many of this month's slots have already come and gone.
  *
  * For a month that is over, all of them. For the month in progress, the ones
- * whose last day is on or before today - a weekly slot is not missed until
- * its week is out, and marking somebody down on a Tuesday for a check they
- * have until Thursday to do is how a tracking system loses its audience.
+ * that have CLOSED - which is the same line objSlotEnd draws for deciding
+ * whether a mark arrived late, and it has to be the same line, because a
+ * slot that is still open enough to be marked on time cannot also be a slot
+ * whose blankness is a miss.
+ *
+ * Today is not elapsed. It counted today in its first version, so a daily
+ * objective went red at midnight for a day its owner had until the end of to
+ * do, and the Behind card counted it. Marking somebody down on a Tuesday for
+ * a check they have until Thursday to do is how a tracking system loses its
+ * audience, and doing it at 9am for today's work is the same mistake one
+ * period smaller.
  */
 function objSlotsElapsed(period, frequency, now) {
   const slots = objSlotCount(period, frequency);
@@ -432,22 +440,15 @@ function objSlotsElapsed(period, frequency, now) {
   if (period < nowPeriod) return slots;        // the month is closed
   if (period > nowPeriod) return 0;            // it has not started
 
-  const freq = String(frequency || '').trim().toUpperCase();
-  const day = today.getDate();
-
-  if (freq === 'DAILY') {
-    const work = objWorkingDays(period);
-    let n = 0;
-    for (let i = 0; i < work.length; i++) if (work[i] <= day) n++;
-    return n;
+  // Slot ends only ever move forwards, so this is a count of the ones behind
+  // us. Monthly and quarterly end with the month, so in the month in progress
+  // this is nought - which is what makes them "waiting" rather than behind.
+  const ms = today.getTime();
+  let n = 0;
+  for (let i = 0; i < slots; i++) {
+    if (objSlotEnd(period, frequency, i) < ms) n++;
   }
-  if (freq === 'WEEKLY') {
-    // The block containing today is in progress, so it counts as elapsed
-    // only once its seventh day has passed.
-    return Math.floor((day - 1) / 7) + 1;
-  }
-  // Monthly and quarterly are not elapsed until the month itself is.
-  return 0;
+  return n;
 }
 
 
@@ -460,8 +461,8 @@ function objSlotsElapsed(period, frequency, now) {
  * period has begun, so you may record it" - and a monthly slot is open from
  * the 1st and does not close until the 30th.
  *
- * For daily and weekly the two agree, because elapsed already counts the
- * day or week in progress.
+ * The two differ by exactly the slot in progress: today's square can be
+ * pressed, and is not a miss until tonight.
  */
 function objSlotsOpen(period, frequency, now) {
   const slots = objSlotCount(period, frequency);
@@ -473,8 +474,18 @@ function objSlotsOpen(period, frequency, now) {
   if (period > nowPeriod) return 0;       // it has not started
 
   const freq = String(frequency || '').trim().toUpperCase();
-  if (freq === 'DAILY' || freq === 'WEEKLY') {
-    return objSlotsElapsed(period, frequency, now);
+  const day = today.getDate();
+
+  if (freq === 'DAILY') {
+    // Every working day whose date has arrived. On a Friday that is the
+    // same count as elapsed: nothing to press, nothing pending.
+    const work = objWorkingDays(period);
+    let n = 0;
+    for (let i = 0; i < work.length; i++) if (work[i] <= day) n++;
+    return n;
+  }
+  if (freq === 'WEEKLY') {
+    return Math.min(slots, Math.floor((day - 1) / 7) + 1);
   }
   return slots;                           // the month has begun, so it is open
 }

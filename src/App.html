@@ -9729,11 +9729,22 @@
    */
   const OBJ_CELL = { done: 'is-y', late: 'is-l', missed: 'is-n', pending: '' };
 
+  /*
+    THE RING GOES ROUND THE SLOT IN PROGRESS, which is the last OPEN one
+    and not the last elapsed one. They used to be the same number because
+    elapsed counted today; now that today is not a miss until tonight, the
+    ring would sit on yesterday if it still read elapsed.
+  */
+  function objLive(t) {
+    return (t.open === undefined ? t.elapsed : t.open);
+  }
+
   function objStrip(t) {
     let html = '';
+    const live = objLive(t);
     (t.cells || []).forEach(function (c) {
       html += '<i class="' + (OBJ_CELL[c.state] || '') +
-        (c.slot === t.elapsed - 1 ? ' is-now' : '') + '"></i>';
+        (c.slot === live - 1 ? ' is-now' : '') + '"></i>';
     });
     return '<div class="obj-strip">' + html + '</div>';
   }
@@ -9875,12 +9886,13 @@
       const c = state[slot] || { state: 'pending', at: 0 };
       // Open, not elapsed: a monthly slot can be marked all month and only
       // becomes a miss the day after it ends. See objSlotsOpen.
-      const past = slot < (t.open === undefined ? t.elapsed : t.open);
+      const live = objLive(t);
+      const past = slot < live;
       const title = (c.state === 'late') ? objMarkedWhen(c.at)
                   : (c.state === 'done' && c.at) ? objMarkedWhen(c.at) : '';
       return '<button class="obj-day' + (extra || '') + ' ' +
         (OBJ_CELL[c.state] || '') +
-        (slot === t.elapsed - 1 ? ' is-now' : '') + '"' +
+        (slot === live - 1 ? ' is-now' : '') + '"' +
         (past ? '' : ' disabled') +
         (title ? ' title="' + escapeHtml(title) + '"' : '') +
         ' data-obj-tick="' + escapeHtml(t.id) + '" data-slot="' + slot +

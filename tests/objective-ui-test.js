@@ -410,6 +410,20 @@ function parseRgb(text) {
     all[2].nn === true && all[2].day === '3', JSON.stringify(all[2]));
   check('today is marked out, on the 10th',
     all[9].now === true && all[9].day === '10', JSON.stringify(all[9]));
+  /*
+    AND TODAY IS NOT ALREADY A MISS.
+
+    The ring used to sit on the last ELAPSED slot, and elapsed counted the
+    day in progress - so at one minute past midnight the 10th was drawn
+    red, the Behind card counted it, and somebody with the whole day ahead
+    of them was already being told they had failed it. A square you can
+    still mark on time cannot also be a square you have missed.
+  */
+  check('and it is still blank rather than red, with the day not over',
+    all[9].nn === false && all[9].y === false && all[9].dead === false,
+    JSON.stringify(all[9]));
+  check('while yesterday, unmarked, is a miss',
+    all[8].day === '9' && all[8].nn === true, JSON.stringify(all[8]));
   check('the days still to come cannot be pressed',
     all[10].dead === true && all[7].dead === false,
     '11th dead ' + all[10].dead + ', 8th dead ' + all[7].dead);

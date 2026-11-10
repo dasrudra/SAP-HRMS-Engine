@@ -367,13 +367,35 @@ function load(opts) {
   const ctx = load();
   const now = new Date(2026, 10, 10, 10, 0, 0);   // 10 November
 
-  check('9 of November"s working days have gone by the 10th',
-    ctx.objSlotsElapsed('2026-11', 'Daily', now) === 9,
+  /*
+    TODAY IS NOT ELAPSED. Eight of November"s working days have CLOSED by
+    the morning of the 10th - the 1st to the 5th, then the 7th, 8th and
+    9th, Friday the 6th not being one. The 10th is in progress: it can
+    still be marked on time, so it cannot also be a miss.
+  */
+  check('8 of November"s working days have closed by the 10th',
+    ctx.objSlotsElapsed('2026-11', 'Daily', now) === 8,
     'got ' + ctx.objSlotsElapsed('2026-11', 'Daily', now));
-  check('the 10th is inside week 2, so two weekly slots are elapsed',
-    ctx.objSlotsElapsed('2026-11', 'Weekly', now) === 2);
+  check('but nine of them may be pressed, today included',
+    ctx.objSlotsOpen('2026-11', 'Daily', now) === 9,
+    'got ' + ctx.objSlotsOpen('2026-11', 'Daily', now));
+  check('the 10th is inside week 2, so only week 1 has closed',
+    ctx.objSlotsElapsed('2026-11', 'Weekly', now) === 1 &&
+    ctx.objSlotsOpen('2026-11', 'Weekly', now) === 2,
+    ctx.objSlotsElapsed('2026-11', 'Weekly', now) + ' elapsed, ' +
+    ctx.objSlotsOpen('2026-11', 'Weekly', now) + ' open');
   check('a monthly slot is not elapsed until the month is',
     ctx.objSlotsElapsed('2026-11', 'Monthly', now) === 0);
+  /*
+    THE TWO AGREE ON A DAY THAT IS NOT A WORKING ONE. Friday the 6th has
+    nothing of its own to press, so there is no slot in progress and
+    nothing is left looking pending.
+  */
+  check('on a Friday nothing is open that has not also closed',
+    ctx.objSlotsElapsed('2026-11', 'Daily', new Date(2026, 10, 6, 10, 0)) ===
+    ctx.objSlotsOpen('2026-11', 'Daily', new Date(2026, 10, 6, 10, 0)),
+    'elapsed ' + ctx.objSlotsElapsed('2026-11', 'Daily',
+      new Date(2026, 10, 6, 10, 0)));
   check('a closed month has all of its slots elapsed',
     ctx.objSlotsElapsed('2026-10', 'Daily', now) === 26 &&
     ctx.objSlotsElapsed('2026-10', 'Monthly', now) === 1);
@@ -418,19 +440,35 @@ function load(opts) {
   const now = new Date(2026, 10, 10, 10, 0, 0);
   const daily = { frequency: 'Daily' };
 
+  // Nine marks: the eight working days that have closed, and today.
   const all = ctx.objTaskState(daily, 'YYYYYYYYY.................', '2026-11', now);
   check('every elapsed day marked done is on schedule',
-    all.onSchedule === true && all.done === 9 && all.elapsed === 9);
+    all.onSchedule === true && all.done === 8 && all.elapsed === 8,
+    'done ' + all.done + ' of ' + all.elapsed);
+  /*
+    AND TODAY, UNMARKED, IS NOT HELD AGAINST ANYBODY. Same objective,
+    nothing recorded for the 10th: still on schedule, because the 10th is
+    not over. It becomes a miss tonight if it is still blank, and that is
+    the whole of the difference between the two.
+  */
+  const sofar = ctx.objTaskState(daily, 'YYYYYYYY..................', '2026-11', now);
+  check('a day still in progress is not yet a miss',
+    sofar.onSchedule === true && sofar.elapsed === 8 && sofar.silent === 0,
+    'silent ' + sofar.silent);
+  check('and the same month read tomorrow morning does count it',
+    ctx.objTaskState(daily, 'YYYYYYYY..................', '2026-11',
+      new Date(2026, 10, 11, 9, 0)).onSchedule === false);
 
   const missed = ctx.objTaskState(daily, 'YYNYYYYYY.................', '2026-11', now);
   check('a day marked missed is not on schedule',
-    missed.onSchedule === false && missed.missed === 1 && missed.done === 8);
+    missed.onSchedule === false && missed.missed === 1 && missed.done === 7,
+    'missed ' + missed.missed + ' done ' + missed.done);
 
   // THE ONE THAT MATTERS. Six days ticked, two days nobody touched. The
   // comfortable reading calls that on schedule because nothing says missed.
   const silent = ctx.objTaskState(daily, 'YYYYYY....................', '2026-11', now);
   check('a slot that passed with nobody marking it counts against',
-    silent.onSchedule === false && silent.silent === 3 && silent.done === 6,
+    silent.onSchedule === false && silent.silent === 2 && silent.done === 6,
     'done ' + silent.done + ' silent ' + silent.silent);
 
   const ahead = ctx.objTaskState({ frequency: 'Monthly' }, '.', '2026-12', now);
@@ -457,7 +495,7 @@ function load(opts) {
 
   const ahead2 = ctx.objTaskState(daily, 'YYNYYYYYY.Y...............', '2026-11', now);
   check('marked counts every slot, done counts only the elapsed ones',
-    ahead2.marked === 9 && ahead2.done === 8,
+    ahead2.marked === 9 && ahead2.done === 7,
     'marked ' + ahead2.marked + ' done ' + ahead2.done);
 
   const due = ctx.objTaskState(daily, 'YYYYYYYY..................', '2026-11', now);
@@ -1155,6 +1193,35 @@ function load(opts) {
     spied.objSlotCount('2026-12', 'Daily') === 27 && asked === 2,
     'asked ' + asked);
 
+  /*
+    A MONTH THAT IS OVER IS ANSWERED WITHOUT WALKING IT.
+
+    objSlotsElapsed counts the slots whose end is behind us, and for a
+    closed month that is all of them - so the loop would give the right
+    answer on its own and the early return looks like a line worth
+    deleting. It is not. Six months of ninety objectives is 540 of these
+    calls per page, and the Objective tab was already slow enough to be
+    complained about; walking 26 working days and building a Date for each
+    to re-learn "October is over" is 14,000 Dates for nothing.
+
+    Counted rather than reasoned about, because the ANSWER is 26 either
+    way: only a spy can tell a short-circuit from a loop.
+  */
+  const sp2 = load();
+  const realEnd = sp2.objSlotEnd;
+  let ends = 0;
+  sp2.objSlotEnd = function (p, f, i) { ends++; return realEnd(p, f, i); };
+  const nov10 = new Date(2026, 10, 10, 10, 0, 0);
+  check('a closed month gives all its slots without walking them',
+    sp2.objSlotsElapsed('2026-10', 'Daily', nov10) === 26 && ends === 0,
+    'built ' + ends + ' slot ends for a month that is over');
+  check('and a month that has not started is answered the same way',
+    sp2.objSlotsElapsed('2026-12', 'Daily', nov10) === 0 && ends === 0,
+    'built ' + ends + ' slot ends');
+  check('while the month in progress does have to be walked',
+    sp2.objSlotsElapsed('2026-11', 'Daily', nov10) === 8 && ends === 26,
+    'built ' + ends + ' slot ends');
+
   // THE CALENDAR THE PAGE DRAWS FROM. Thirty cells, of which 22 count.
   const page = ctx.getObjectives('t');
   check('the page is given the month as a calendar, not just a slot count',
@@ -1175,7 +1242,7 @@ function load(opts) {
 
   check('a tick comes back with everything needed to redraw that one row',
     r.id === 'OJT-007' && r.marks.length === 26 && r.slots === 26 &&
-    r.elapsed === 9 && r.done === 1 && r.onSchedule === false &&
+    r.elapsed === 8 && r.done === 1 && r.onSchedule === false &&
     typeof r.marked === 'number' && typeof r.due === 'boolean',
     JSON.stringify({ id: r.id, done: r.done, elapsed: r.elapsed }));
   check('including who marked it and when',
@@ -1433,7 +1500,7 @@ function load(opts) {
   const ticked = page.tasks.list.filter((t) => t.id === 'OJT-007')[0];
   check('a tick made a moment ago is in what the page reads back',
     ticked.done === 1 && ticked.marks.charAt(0) === 'Y' &&
-    ticked.elapsed === 9 && ticked.onSchedule === false);
+    ticked.elapsed === 8 && ticked.onSchedule === false);
 
   const closed = ctx.getObjectives('t', '2026-10');
   check('an earlier month can be asked for, and knows it is closed',
