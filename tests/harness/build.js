@@ -253,23 +253,28 @@ const stub = `
 
   /* The ninety, counted the way the Operation milestone counts them. */
   function objUnique(period) {
-    var on = 0, total = 0, kpiOn = 0, kpiTotal = 0;
+    // OUT OF WHAT IS DUE, like the server. An objective whose slot has not
+    // come round is counted as waiting, not as a win - see
+    // objUniqueRolesScore.
+    var on = 0, due = 0, waiting = 0, total = 0, kpiOn = 0, kpiDue = 0;
     OBJ_TASK.forEach(function (t) {
       var slots = objSlots(period, t.frequency);
       if (!slots) return;
       total++;
-      if (t.kpi) kpiTotal++;
       var e = OBJ_LOG[period + '|TASK|' + t.id];
       var elapsed = objElapsed(period, t.frequency);
       var marks = objMarks(e ? e.marks : '', slots);
-      if (elapsed === 0 || objCount(marks, 'Y', elapsed) === elapsed) {
+      if (!elapsed) { waiting++; return; }
+      due++;
+      if (t.kpi) kpiDue++;
+      if (objCount(marks, 'Y', elapsed) === elapsed) {
         on++;
         if (t.kpi) kpiOn++;
       }
     });
-    return { fraction: total ? on / total : 0, on: on, total: total,
-             kpiOn: kpiOn, kpiTotal: kpiTotal,
-             processOn: on - kpiOn, processTotal: total - kpiTotal };
+    return { fraction: due ? on / due : 1, on: on, due: due,
+             waiting: waiting, total: total, kpiOn: kpiOn, kpiDue: kpiDue,
+             processOn: on - kpiOn, processDue: due - kpiDue };
   }
 
   function objAutoValue(m, period) {

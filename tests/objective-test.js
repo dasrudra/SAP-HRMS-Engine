@@ -217,11 +217,35 @@ function load(opts) {
 
   vm.runInContext(fs.readFileSync(path.join(SRC, 'Config.gs'), 'utf8'), ctx);
 
+  // Every tab read is counted, because "how many times does drawing this
+  // page ask Google a question" is the whole of why it took four seconds.
+  const reads = { OBJ_PLAN: 0, OBJ_TASK: 0, OBJ_LOG: 0, TEAM: 0 };
   ctx.sheetWithHeaders = (name) => {
     if (!tabs[name]) throw new Error('no such tab: ' + name);
+    reads[name]++;
     return tabs[name];
   };
   ctx.__tabs = tabs;
+  ctx.__reads = reads;
+
+  /*
+    A cache, only when a test asks for one.
+
+    Without it CacheService is simply not defined in this context, objCached
+    catches the ReferenceError and every read goes through - which is the
+    right default for the suites that are about the arithmetic rather than
+    about how often the sheet is asked.
+  */
+  if (o.cache) {
+    ctx.CacheService = {
+      getScriptCache: () => ({
+        get: (k) => (k in o.cache ? o.cache[k] : null),
+        put: (k, v) => { o.cache[k] = v; },
+        remove: (k) => { delete o.cache[k]; },
+        removeAll: (ks) => { (ks || []).forEach((k) => { delete o.cache[k]; }); }
+      })
+    };
+  }
   ctx.__logs = logs;
   ctx.CONFIG_TZ = () => 'Asia/Dhaka';
   ctx.requireSignedIn = () => {};
@@ -236,6 +260,7 @@ function load(opts) {
   // two modules - so the shapes that actually appear in the TEAM tab are
   // the shapes here.
   ctx.readTeam = () => {
+    reads.TEAM++;
     if (o.teamThrows) throw new Error('TEAM is mid-edit');
     return o.team || {
       lead: { name: 'Utpal Biswas', id: '20990000', module: 'MM/MD',
@@ -417,11 +442,14 @@ function load(opts) {
     'slot has not come round',
     monthly.marked === 1 && monthly.done === 0 && monthly.elapsed === 0,
     'marked ' + monthly.marked + ' done ' + monthly.done);
-  check('and marking it early does not score it early',
-    ctx.objUniqueRolesScore(
-      [{ id: 'X', frequency: 'Monthly', kpi: false }],
-      { byKey: {} }, '2026-11', now).on === 1,
-    'an unelapsed slot cannot be late either');
+  const early = ctx.objUniqueRolesScore(
+    [{ id: 'X', frequency: 'Monthly', kpi: false }],
+    { byKey: {} }, '2026-11', now);
+  check('an objective not yet due is waiting, not a win',
+    early.due === 0 && early.waiting === 1 && early.on === 0 &&
+    early.fraction === 1,
+    'due ' + early.due + ' waiting ' + early.waiting +
+    ' fraction ' + early.fraction);
 
   const ahead2 = ctx.objTaskState(daily, 'YYNYYYYY.Y............', '2026-11', now);
   check('marked counts every slot, done counts only the elapsed ones',
@@ -538,11 +566,22 @@ function load(opts) {
   check('a quarterly objective is not counted in a month it is not due',
     none.total === 11, 'got ' + none.total);
 
-  // Monthly and quarterly slots are not elapsed mid-month, so those are all
-  // still on schedule; only the daily and weekly ones can be behind.
-  check('nothing recorded still fails the dailies and weeklies',
-    none.on === 7 && none.fraction < 1,
-    'on ' + none.on + ' of ' + none.total);
+  /*
+    THE FIGURE THE PAGE SHOWS IS OUT OF WHAT IS DUE, NOT OUT OF EVERYTHING.
+
+    Seven of the eleven live objectives here are monthly, and a monthly slot
+    is not elapsed until the month ends. Counting those as "on schedule"
+    - true, since nothing not yet due can be late - made the page report
+    "30 of 85 on schedule" and a milestone sitting at 35% in a month where
+    nobody had recorded anything at all. A number that starts at 35% and can
+    only fall is not a measure of anything.
+  */
+  check('nothing recorded scores zero of what is due, not a free 7 of 11',
+    none.on === 0 && none.due === 4 && none.fraction === 0,
+    'on ' + none.on + ' of ' + none.due + ' due, ' + none.waiting + ' waiting');
+  check('and the ones that are not due yet are counted and reported apart',
+    none.waiting === 7 && none.total === 11,
+    'waiting ' + none.waiting + ' total ' + none.total);
 
   const log = { byKey: {} };
   // The three SD/MM dailies and weeklies, all ticked up to date.
@@ -553,12 +592,13 @@ function load(opts) {
   log.byKey[ctx.objLogKey('2026-11', 'TASK', 'OJT-012')] =
     { marks: 'YYYYYYYY..............' };
   const all = ctx.objUniqueRolesScore(tasks.tasks, log, '2026-11', now);
-  check('ticking the dailies and weeklies puts the ninety on schedule',
-    all.on === 11 && near(all.fraction, 1), 'on ' + all.on);
+  check('ticking everything that is due puts the ninety on schedule',
+    all.on === 4 && all.due === 4 && near(all.fraction, 1),
+    'on ' + all.on + ' of ' + all.due);
 
   check('the count separates the KPIs from the processes',
-    all.kpiTotal === 3 && all.processTotal === 8,
-    'kpi ' + all.kpiTotal + ' process ' + all.processTotal);
+    all.kpiDue === 0 && all.processDue === 4,
+    'kpi ' + all.kpiDue + ' process ' + all.processDue);
 
   // And it reaches the score. Operation is weight 20 with two milestones,
   // so the counted one in full is worth 10.
@@ -569,8 +609,10 @@ function load(opts) {
 
   const partial = { UNIQUE_ROLES: none };
   const lower = ctx.objScore(plan, log, '2026-11', { auto: partial }).score;
+  const higher = ctx.objScore(plan, log, '2026-11', { auto: auto }).score;
   check('a worse month below gives a lower score above',
-    lower < 10 && lower > 0, 'got ' + lower);
+    lower < higher && lower === 0 && higher === 10,
+    lower + ' against ' + higher);
 }
 
 // ===========================================================================
@@ -981,6 +1023,95 @@ function load(opts) {
     log.byKey[ctx.objLogKey('2026-11', 'PLAN', 'OBJ-002')].history.length === 0);
   check('and the entry it belongs to is still readable',
     log.byKey[ctx.objLogKey('2026-11', 'PLAN', 'OBJ-002')].value === 2);
+}
+
+// ===========================================================================
+// 18b. THE PERIOD COLUMN COMES BACK AS A DATE
+// ===========================================================================
+// Sheets parses '2026-11' written into a cell as the first of November
+// 2026. This is not a hypothetical: it is what made Save appear to work and
+// record nothing. The write landed, the read looked for the text '2026-11',
+// got a Date, missed every key, and the page said "Nothing recorded"
+// directly above the row that had just been written.
+{
+  const ctx = load();
+  const asDate = new Date(2026, 10, 1);          // what the cell really holds
+
+  check('a period cell holding a Date reads back as its month',
+    ctx.objPeriodCell(asDate) === '2026-11' &&
+    ctx.objPeriodCell('2026-11') === '2026-11' &&
+    ctx.objPeriodCell('  2026-11  ') === '2026-11',
+    ctx.objPeriodCell(asDate));
+
+  check('and the key built from either one is the same key',
+    ctx.objLogKey(asDate, 'PLAN', 'OBJ-002') ===
+    ctx.objLogKey('2026-11', 'PLAN', 'OBJ-002'),
+    ctx.objLogKey(asDate, 'PLAN', 'OBJ-002'));
+
+  // A tab written before the fix: the period is a Date, as Sheets stored it.
+  const dated = load({
+    session: { u: '20990002', r: 'USER' },
+    log: [[asDate, 'PLAN', 'OBJ-002', '', 2, 'ON_TRACK', 'Both closed.',
+           'Ayesha Rahman', '20990002', new Date(2026, 10, 4), '[]']]
+  });
+
+  const read = dated.readObjLog();
+  check('a row stored with a Date period is still found',
+    Boolean(read.byKey[dated.objLogKey('2026-11', 'PLAN', 'OBJ-002')]),
+    Object.keys(read.byKey).join(' '));
+  check('and it scores, rather than reading as nothing recorded',
+    near(dated.objScore(dated.readObjPlan(), read, '2026-11', null).score, 10),
+    'got ' + dated.objScore(dated.readObjPlan(), read, '2026-11', null).score);
+
+  // THE SECOND HALF OF THE BUG. A save that cannot find its own row appends
+  // another one, so the tab fills with duplicates of the same month.
+  dated.recordObjMilestone('t', 'OBJ-002', '2026-11', { value: 1 });
+  check('saving again updates that row instead of appending a duplicate',
+    dated.__tabs.OBJ_LOG.rows.length === 2,
+    dated.__tabs.OBJ_LOG.rows.length + ' rows');
+  check('and the value it replaced is kept',
+    JSON.parse(dated.__tabs.OBJ_LOG.rows[1][10])[0].value === 2,
+    dated.__tabs.OBJ_LOG.rows[1][10]);
+
+  check('the page reads back what was just saved',
+    dated.getObjectives('t').plan.rows
+      .filter((r) => r.rowId === 'OP')[0].milestones
+      .filter((m) => m.id === 'OBJ-002')[0].value === 1);
+}
+
+// ===========================================================================
+// 18c. reading six tabs once instead of every time
+// ===========================================================================
+{
+  // A cache that actually caches, so the saving can be counted.
+  const store = {};
+  const ctx = load({ cache: store, session: { u: '20990009', r: 'ADMIN' },
+                     admin: true });
+
+  const before = ctx.__reads.OBJ_PLAN;
+  ctx.getObjectives('t');
+  ctx.getObjectives('t');
+  ctx.getObjectives('t');
+  const after = ctx.__reads.OBJ_PLAN;
+
+  check('the plan is read once however many times the page is drawn',
+    after - before === 1, (after - before) + ' reads for 3 page loads');
+  check('and so are the ninety and the directory',
+    ctx.__reads.OBJ_TASK === 1 && ctx.__reads.TEAM === 1,
+    'task ' + ctx.__reads.OBJ_TASK + ' team ' + ctx.__reads.TEAM);
+
+  // THE LOG IS NOT CACHED, and must not be: it is what a tick writes, and a
+  // cached one means pressing a button and watching nothing happen.
+  check('the log is read fresh every single time',
+    ctx.__reads.OBJ_LOG === 3, ctx.__reads.OBJ_LOG + ' reads');
+
+  ctx.createObjMilestone('t', { rowId: 'PO2', milestone: 'Something new.',
+                                countType: 'NUMBER', target: 1, per: 'MONTH' });
+  ctx.getObjectives('t');
+  check('adding a milestone throws the cached plan away, so it shows at once',
+    ctx.__reads.OBJ_PLAN > after &&
+    ctx.getObjectives('t').plan.count === 11,
+    'reads ' + ctx.__reads.OBJ_PLAN);
 }
 
 // ===========================================================================

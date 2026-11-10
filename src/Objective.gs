@@ -113,6 +113,56 @@ const OBJ_KIND_PLAN = 'PLAN';
 const OBJ_KIND_TASK = 'TASK';
 
 
+/**
+ * Read once, remember for a few minutes, hand back a copy.
+ *
+ * WHY THE PAGE NEEDED THIS. Drawing the Objectives screen asked the
+ * spreadsheet six separate questions - the plan, the ninety, the log, the
+ * Knowledge feed, the 250-row Learnings index and the team directory - and
+ * in Apps Script every one of those is a round trip to Google. The page
+ * took about four seconds to appear, which on a screen somebody opens to
+ * tick one box is long enough that they stop opening it.
+ *
+ * Five of the six barely change within a sitting, so they are cached and
+ * only the log - the thing a tick actually writes - is read fresh every
+ * time. The caller must still see its own writes, which is what objForget
+ * is for.
+ *
+ * JSON in and out, so nothing with a Date in it can be cached through here.
+ * Everything that is cached is plain numbers and strings by the time it
+ * gets here; readObjLog, which carries timestamps, deliberately is not.
+ */
+function objCached(key, seconds, build) {
+  let cache = null;
+  try { cache = CacheService.getScriptCache(); } catch (e) { cache = null; }
+
+  if (cache) {
+    try {
+      const hit = cache.get(key);
+      if (hit) return JSON.parse(hit);
+    } catch (e) { /* a bad entry is not worth failing the page over */ }
+  }
+
+  const made = build();
+
+  if (cache) {
+    try {
+      cache.put(key, JSON.stringify(made), seconds);
+    } catch (e) { /* over 100KB, or no cache. The page still works. */ }
+  }
+  return made;
+}
+
+
+/** Throws away what objCached is holding, after something changed it. */
+function objForget() {
+  try {
+    CacheService.getScriptCache()
+      .removeAll(['obj.plan', 'obj.task', 'obj.counts']);
+  } catch (e) { /* no cache, nothing to forget */ }
+}
+
+
 function objPlanTab() {
   return sheetWithHeaders(CONFIG.SHEETS.OBJ_PLAN, OBJ_PLAN_COLUMNS);
 }
@@ -122,7 +172,27 @@ function objTaskTab() {
 }
 
 function objLogTab() {
-  return sheetWithHeaders(CONFIG.SHEETS.OBJ_LOG, OBJ_LOG_COLUMNS);
+  const sheet = sheetWithHeaders(CONFIG.SHEETS.OBJ_LOG, OBJ_LOG_COLUMNS);
+
+  /*
+    THE PERIOD COLUMN IS TEXT, and it has to be said out loud to Sheets.
+
+    '2026-11' written into a General cell is parsed as a date, which is what
+    made recording silently do nothing - see objPeriodCell. Every read
+    normalises, so nothing depends on this; it is here so the tab stays
+    legible to a person opening the spreadsheet, who should see 2026-11 and
+    not "01/11/2026".
+
+    Only on an empty tab, so this costs one call the first time the tab
+    exists and nothing on any read after that.
+  */
+  try {
+    if (sheet.getLastRow() <= 1) {
+      sheet.getRange('A:A').setNumberFormat('@');
+    }
+  } catch (e) { /* a format is a courtesy; the normalising read is the fix */ }
+
+  return sheet;
 }
 
 
@@ -153,6 +223,30 @@ function objPeriodOf(date) {
   if (!d) return '';
   const m = d.getMonth() + 1;
   return d.getFullYear() + '-' + (m < 10 ? '0' + m : String(m));
+}
+
+
+/**
+ * A period out of a spreadsheet cell, as 'YYYY-MM'.
+ *
+ * THIS IS NOT PARANOIA, IT IS THE BUG THAT MADE RECORDING SILENTLY DO
+ * NOTHING. A value written to a cell is parsed exactly as though somebody
+ * had typed it, and Sheets reads '2026-11' as a DATE - the first of
+ * November 2026. So the write succeeded, the row was there, and the read
+ * got a Date back where it expected the text '2026-11'. Every key missed,
+ * every lookup came back empty, and the page reported "Nothing recorded"
+ * directly above the row that had just been written. Worse, the next save
+ * could not find the row either, so it appended another one.
+ *
+ * Normalising on the way OUT fixes it for rows already written as dates and
+ * for rows written as text, which is why the fix is here and not only in
+ * the column format - setupObjectiveTabs sets that too, so the tab stays
+ * readable to a person, but no read depends on it having been set.
+ */
+function objPeriodCell(value) {
+  const d = objDate(value);
+  if (d) return objPeriodOf(d);
+  return String(value === null || value === undefined ? '' : value).trim();
 }
 
 
@@ -483,7 +577,8 @@ function readObjLog() {
   let count = 0;
 
   raw.forEach(function (r) {
-    const period = String(r[0] || '').trim();
+    // objPeriodCell, not String(): Sheets stores '2026-11' as a date. See it.
+    const period = objPeriodCell(r[0]);
     const kind = String(r[1] || '').trim().toUpperCase();
     const ref = String(r[2] || '').trim();
     if (!period || !kind || !ref) return;
@@ -508,9 +603,18 @@ function readObjLog() {
 }
 
 
-/** The one key shape, used by every reader and every writer. */
+/**
+ * The one key shape, used by every reader and every writer.
+ *
+ * The period goes through objPeriodCell so that a key built from a cell and
+ * a key built from a string agree even when Sheets turned the cell into a
+ * date. The two have to agree or a saved row can never be found again.
+ */
 function objLogKey(period, kind, ref) {
-  return String(period) + '|' + String(kind).toUpperCase() + '|' + String(ref);
+  return objPeriodCell(period) + '|' +
+         String(kind === null || kind === undefined ? '' : kind)
+           .trim().toUpperCase() + '|' +
+         String(ref === null || ref === undefined ? '' : ref).trim();
 }
 
 
@@ -582,18 +686,42 @@ function objTaskState(task, marks, period, now) {
  */
 function objUniqueRolesScore(tasks, log, period, now) {
   let on = 0;
+  let due = 0;
+  let waiting = 0;
   let total = 0;
   let kpiOn = 0;
-  let kpiTotal = 0;
+  let kpiDue = 0;
 
   tasks.forEach(function (t) {
     const slots = objSlotCount(period, t.frequency);
     if (!slots) return;                 // a quarterly item in a quiet month
     total++;
-    if (t.kpi) kpiTotal++;
 
     const entry = log.byKey[objLogKey(period, OBJ_KIND_TASK, t.id)];
     const state = objTaskState(t, entry ? entry.marks : '', period, now);
+
+    /*
+      ONLY WHAT HAS ACTUALLY COME ROUND COUNTS.
+
+      The first version scored every objective whose slot had not arrived
+      yet as "on schedule" - true, in the sense that nothing not yet due can
+      be late, and badly misleading as a number. Thirty of the ninety are
+      monthly, and a monthly slot is not elapsed until the month ends, so on
+      the 10th of November the page reported "30 of 85 on schedule" and a
+      milestone sitting at 35% on a month where nobody had recorded a single
+      thing. A figure that starts at 35% and can only go down is not a
+      measure of anything.
+
+      So the denominator is what is DUE, and the thirty that are not yet due
+      are reported separately rather than counted as wins.
+    */
+    if (!state.elapsed) {
+      waiting++;
+      return;
+    }
+
+    due++;
+    if (t.kpi) kpiDue++;
     if (state.onSchedule) {
       on++;
       if (t.kpi) kpiOn++;
@@ -601,10 +729,12 @@ function objUniqueRolesScore(tasks, log, period, now) {
   });
 
   return {
-    fraction: total ? on / total : 0,
-    on: on, total: total,
-    kpiOn: kpiOn, kpiTotal: kpiTotal,
-    processOn: on - kpiOn, processTotal: total - kpiTotal
+    // Nothing due yet is not a failure, and not a success either. It scores
+    // as met so that the first of the month does not open at zero.
+    fraction: due ? on / due : 1,
+    on: on, due: due, waiting: waiting, total: total,
+    kpiOn: kpiOn, kpiDue: kpiDue,
+    processOn: on - kpiOn, processDue: due - kpiDue
   };
 }
 
@@ -749,30 +879,43 @@ function objAutoAll(tasks, log, periods, now) {
     } catch (e) { /* the ninety are unreadable; the milestone can be typed */ }
   });
 
-  const countInto = function (key, stamps) {
-    const tally = {};
+  /*
+    The Knowledge feed and the 250-row Learnings index, boiled down to one
+    small number per month and CACHED as that. Both are whole-tab reads and
+    neither moves often; what comes out is six integers.
+  */
+  const tally = function (stamps) {
+    const out = {};
     stamps.forEach(function (ms) {
       if (!ms) return;
       const p = objPeriodOf(new Date(ms));
-      tally[p] = (tally[p] || 0) + 1;
+      out[p] = (out[p] || 0) + 1;
     });
-    periods.forEach(function (p) {
-      byPeriod[p][key] = { value: tally[p] || 0 };
-    });
+    return out;
   };
 
-  try {
-    countInto('KNOWLEDGE', (readKnowledge().shares || [])
-      .map(function (s) { return s.stamp; }));
-  } catch (e) { /* no Knowledge tab yet */ }
+  const counts = objCached('obj.counts', 600, function () {
+    const made = { KNOWLEDGE: null, LEARN: null };
+    try {
+      made.KNOWLEDGE = tally((readKnowledge().shares || [])
+        .map(function (s) { return s.stamp; }));
+    } catch (e) { /* no Knowledge tab yet */ }
+    try {
+      // `stamp` is the Updated cell as milliseconds, which readLearn already
+      // works out. Re-parsing its formatted `updated` string would mean
+      // guessing at a date format for no gain.
+      made.LEARN = tally(((readLearn() || {}).docs || [])
+        .map(function (d) { return d.stamp; }));
+    } catch (e) { /* no library index yet */ }
+    return made;
+  });
 
-  try {
-    // `stamp` is the Updated cell as milliseconds, which readLearn already
-    // works out. Re-parsing its formatted `updated` string would mean
-    // guessing at a date format for no gain.
-    countInto('LEARN', ((readLearn() || {}).docs || [])
-      .map(function (d) { return d.stamp; }));
-  } catch (e) { /* no library index yet */ }
+  ['KNOWLEDGE', 'LEARN'].forEach(function (key) {
+    if (!counts[key]) return;           // that source could not be read
+    periods.forEach(function (p) {
+      byPeriod[p][key] = { value: counts[key][p] || 0 };
+    });
+  });
 
   return byPeriod;
 }
@@ -813,26 +956,45 @@ function objWhoAmI(token) {
   };
   if (!id) return me;
 
+  /*
+    The directory read is cached per person. It is a whole-tab read that
+    answers two small questions - what modules are against your name, and
+    are you a head - and neither changes during a sitting. Keyed on the
+    employee ID and on the role, so signing in as admin does not inherit
+    the viewer's cached answer.
+  */
   let team = null;
-  try { team = readTeam(); } catch (e) { team = null; }
+  try {
+    team = objCached('obj.team.' + id + '.' + (admin ? 'a' : 'u'), 600,
+                     function () {
+      const read = readTeam();
+      // Trimmed to what this function uses. The full directory carries
+      // photo URLs and phone numbers, which have no business in a cache
+      // and would push it past the 100KB a cache entry holds.
+      const flat = [];
+      const add = function (person, head) {
+        if (!person) return;
+        flat.push({ id: String(person.id || ''), name: person.name || '',
+                    module: person.module || '', head: head });
+      };
+      add(read.lead, true);
+      (read.sections || []).forEach(function (s) {
+        add(s.head, true);
+        (s.members || []).forEach(function (m) { add(m, false); });
+      });
+      return { flat: flat };
+    });
+  } catch (e) { team = null; }
   if (!team) {
     me.reason = 'The team directory could not be read, so your modules are ' +
                 'not known. An admin can still record.';
     return me;
   }
 
-  const everyone = [];
-  if (team.lead) everyone.push({ person: team.lead, head: true });
-  (team.sections || []).forEach(function (s) {
-    if (s.head) everyone.push({ person: s.head, head: true });
-    (s.members || []).forEach(function (m) {
-      everyone.push({ person: m, head: false });
-    });
-  });
-
   let found = null;
+  const everyone = (team && team.flat) || [];
   for (let i = 0; i < everyone.length; i++) {
-    if (String(everyone[i].person.id || '') === id) { found = everyone[i]; break; }
+    if (everyone[i].id === id) { found = everyone[i]; break; }
   }
 
   if (!found) {
@@ -841,12 +1003,12 @@ function objWhoAmI(token) {
     return me;
   }
 
-  me.name = found.person.name || id;
+  me.name = found.name || id;
   // A section head records milestones; so does the department head. That is
   // what 'head' means on the organogram and there is no second list to keep.
   if (found.head) me.planner = true;
 
-  const modules = String(found.person.module || '')
+  const modules = String(found.module || '')
     .split(/[\/,&+;]| and /i)
     .map(function (m) { return m.trim().toUpperCase(); })
     .filter(Boolean);
@@ -905,8 +1067,17 @@ function getObjectives(token, period) {
   const want = String(period || '').trim() ||
                (periods.indexOf(current) !== -1 ? current : periods[0]) || '';
 
-  const plan = readObjPlan();
-  const tasks = readObjTask();
+  /*
+    THE LOG IS READ FRESH; EVERYTHING ELSE IS CACHED.
+
+    The plan and the ninety are the agreed wording for a six-month period -
+    they change when somebody edits the spreadsheet, which is rare, and the
+    cache is thrown away when the page itself adds a milestone. The log is
+    what a tick writes, so a cached one would mean pressing a button and
+    watching nothing happen.
+  */
+  const plan = objCached('obj.plan', 600, readObjPlan);
+  const tasks = objCached('obj.task', 600, readObjTask);
   const log = readObjLog();
   // Every month, not just the one on screen - the six pips under each
   // milestone need the other five. See objAutoAll.
@@ -1255,6 +1426,10 @@ function createObjMilestone(token, draft) {
     String(d.outcome || '').trim(), countType, target, per,
     String(d.owner || 'EAS Team').trim(), ''
   ]);
+
+  // The plan is cached, and a page that adds a milestone and then cannot
+  // see it for ten minutes looks exactly like a page that did not add it.
+  objForget();
 
   return { ok: true, id: id, rowId: rowId, category: row.category,
            weight: row.weight, sharedAcross: row.milestones.length + 1 };

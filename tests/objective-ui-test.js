@@ -162,6 +162,59 @@ function parseRgb(text) {
     (await onTab()) === 'plan' && (await cards()) === planCards);
 
   // =========================================================================
+  // 2b. the weight belongs in a filter, not on every card
+  // =========================================================================
+  const chipText = () => p.$$eval('#objFilters .obj-filter',
+    (ns) => ns.map((n) => n.textContent.replace(/\s+/g, ' ').trim()));
+
+  check('the SMART Objective side filters by weight',
+    (await chipText()).join(' | ') ===
+      'All 10 | Weight 20 \u00B7 3 | Weight 10 \u00B7 5 | Weight 5 \u00B7 2',
+    (await chipText()).join(' | '));
+
+  // It used to be printed on all twenty-nine cards - the same three numbers
+  // down the page, describing the category rather than the milestone.
+  check('and is not printed on the cards any more',
+    !/weight \d/i.test(await p.$eval('#objList', (n) => n.textContent)),
+    (await p.$eval('#objList', (n) => n.textContent)).slice(0, 80));
+
+  await p.click('#objFilters [data-weight="20"]');
+  await p.waitForTimeout(300);
+  check('pressing a weight narrows the list to it',
+    (await cards()) === 3, (await cards()) + ' cards');
+  check('and only that chip is lit',
+    (await p.$$eval('#objFilters .obj-filter.is-on',
+      (ns) => ns.map((n) => n.getAttribute('data-weight')))).join(',') === '20');
+
+  await p.click('#objFilters [data-weight="5"]');
+  await p.waitForTimeout(300);
+  check('the next weight replaces it rather than narrowing inside it',
+    (await cards()) === 2, (await cards()) + ' cards');
+
+  await p.click('#objFilters [data-weight="ALL"]');
+  await p.waitForTimeout(300);
+  check('All brings the twenty-nine back', (await cards()) === planCards);
+
+  // The caption that described the button beside it.
+  check('the instruction to press Update is gone',
+    !(await p.$eval('#objHint', (n) => n.textContent)).match(/Press Update/i) &&
+    await p.$eval('#objHint', (n) => n.hidden),
+    JSON.stringify(await p.$eval('#objHint', (n) => n.textContent)));
+
+  // =========================================================================
+  // 2c. the counted milestone counts what is due
+  // =========================================================================
+  // "30 of 85 on schedule" counted the thirty whose slot had not arrived as
+  // wins, and put a milestone at 35% in a month where nothing was recorded.
+  const op = await p.$eval('#objList .obj-card', (n) =>
+    n.textContent.replace(/\s+/g, ' '));
+  check('the counted milestone says what is due, not what is merely not late',
+    /of \d+ due so far/.test(op) && !/on schedule/.test(op),
+    op.slice(0, 160));
+  check('and says separately how many are not due yet',
+    /not due yet/.test(op), op.slice(0, 160));
+
+  // =========================================================================
   // 3. the counter sends what it shows
   // =========================================================================
   await p.click('[data-obj-open="OBJ-002"]');
@@ -415,6 +468,30 @@ function parseRgb(text) {
   await p.click('#objNew');
   await p.waitForTimeout(300);
   check('it opens the form', await p.isVisible('#objSheet'));
+
+  /*
+    THE FORM IS IN THE PAGE, NOT FIXED TO A VIEWPORT.
+
+    The app runs in an Apps Script iframe inside a Blogger post, and that
+    iframe is taller than the browser window - the window scrolls the
+    Blogger page, not the iframe. A position:fixed modal is therefore
+    pinned to the middle of a box nobody can see all of: it opened with its
+    top half above the visible area and drifted as the page scrolled.
+  */
+  const sheetPos = await p.$eval('#objSheet', (n) =>
+    getComputedStyle(n).position);
+  check('the form is laid out in the page, not fixed to the window',
+    sheetPos === 'static', sheetPos);
+
+  // And it sits above the list rather than on top of it, so nothing it
+  // covers has to be scrolled past to reach it.
+  const order = await p.evaluate(() => {
+    const s = document.getElementById('objSheet');
+    const l = document.getElementById('objList');
+    return s.compareDocumentPosition(l) & Node.DOCUMENT_POSITION_FOLLOWING
+      ? 'before' : 'after';
+  });
+  check('and it comes before the list it is adding to', order === 'before');
 
   const note = () => p.$eval('#objFNote', (n) =>
     n.textContent.replace(/\s+/g, ' ').trim());

@@ -4016,17 +4016,38 @@
   }
   .obj-wait { color: var(--ob-dim); font-size: 13px; }
 
-  /* ---------------- the new-objective sheet ---------------- */
+  /* ---------------- the new-objective panel ----------------
+
+     NOT A FIXED OVERLAY, and that is the whole point of it.
+
+     The app runs in an Apps Script iframe inside a Blogger post, and that
+     iframe is taller than the browser window - the window scrolls the
+     Blogger page, not the iframe. position:fixed therefore pins to the
+     middle of a box nobody can see all of: the form opened with its top
+     half above the visible area, the backdrop dimmed nothing, and the
+     whole thing slid about as the page scrolled.
+
+     So it is an ordinary panel in the flow, sitting directly under the
+     button that opens it. No viewport units, no z-index, nothing that
+     depends on knowing how tall the window is.
+  */
   .obj-sheet {
-    position: fixed; inset: 0; z-index: 70;
-    background: rgba(16, 24, 40, .55);
-    display: flex; align-items: center; justify-content: center;
-    padding: 24px;
+    display: block;
+    margin: 0 0 18px;
+    animation: obj-slide .18s ease-out;
+  }
+  @keyframes obj-slide {
+    from { opacity: 0; transform: translateY(-6px); }
+    to   { opacity: 1; transform: none; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .obj-sheet { animation: none; }
   }
   .obj-sheet-box {
-    width: 100%; max-width: 520px; max-height: 88vh; overflow-y: auto;
-    background: var(--ob-paper); border-radius: 20px;
-    box-shadow: 0 24px 60px -20px rgba(16, 24, 40, .5);
+    max-width: 620px;
+    background: var(--ob-paper); border-radius: 18px;
+    border: 1px solid #c7d7fe;
+    box-shadow: 0 10px 30px -12px rgba(67, 56, 202, .3);
   }
   .obj-sheet-head {
     display: flex; align-items: flex-start; gap: 10px; flex-wrap: wrap;

@@ -1002,20 +1002,28 @@
           <div class="obj-filters" id="objFilters"></div>
         </div>
 
-        <div class="obj-list" id="objList"></div>
-      </div>
+        <!--
+          ---- THE NEW OBJECTIVE PANEL ----
 
-      <!--
-        ---- THE NEW OBJECTIVE SHEET ----
+          In the page, directly under the button that opens it, and NOT a
+          centred overlay. This app runs in an Apps Script iframe inside a
+          Blogger post, and that iframe is TALLER than the browser window -
+          the window scrolls the Blogger page, not the iframe. So a
+          position:fixed modal is fixed to the middle of something nobody
+          can see all of: it opened with its top half above the visible
+          area, its backdrop dimmed nothing, and it slid about as the page
+          scrolled.
 
-        An overlay, like the Knowledge composer, and hidden rather than
-        inert for the same reason - inert is young enough that one of the
-        browsers in this building may not have it, and hidden takes the
-        controls out of the tab order just as well.
-      -->
-      <div class="obj-sheet" id="objSheet" hidden>
-        <div class="obj-sheet-box" role="dialog" aria-modal="true"
-             aria-labelledby="objSheetTitle">
+          A panel in the normal flow has none of those problems and needs
+          no z-index. It is also what the Update panel already does, which
+          is the half of this page that was never complained about.
+
+          inert is not used - it is young enough that one of the browsers
+          in this building may not have it - so the panel is simply hidden,
+          which takes its controls out of the tab order the same way.
+        -->
+        <div class="obj-sheet" id="objSheet" hidden
+             role="region" aria-labelledby="objSheetTitle">
           <div class="obj-sheet-head">
             <strong id="objSheetTitle">New objective</strong>
             <span>It is added to the SMART Objective sheet</span>
@@ -1089,7 +1097,10 @@
               Create objective</button>
           </div>
         </div>
+
+        <div class="obj-list" id="objList"></div>
       </div>
+
     </section>
 
     <!--

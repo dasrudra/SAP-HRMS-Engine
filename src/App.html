@@ -1827,6 +1827,31 @@
       if (window.google && google.script && google.script.url) {
         google.script.url.getLocation(function (location) {
           const p = (location && location.parameter) || {};
+
+          /*
+            THE LATE ANSWER IS STILL AN ANSWER.
+
+            getLocation is the slow part of starting up, and on the Blogger
+            embed it routinely takes longer than the fallback below allows.
+            When that happens the fallback settles on sessionStorage -
+            which is empty, because the Apps Script sandbox hands out a
+            fresh origin on every load - and the view falls back to Home.
+            So somebody who reloaded the Objectives page watched it think
+            for six seconds and then land somewhere else.
+
+            The parameters were correct all along; they simply arrived
+            second. Rather than make everybody wait longer for them, take
+            them when they come.
+          */
+          if (settled) {
+            if (p.view && p.view !== state.view &&
+                document.getElementById('view-' + p.view)) {
+              state.view = p.view;
+              showView(p.view, { skipSave: true });
+            }
+            return;
+          }
+
           if (p.view || p.month) return finish(p);
           finish(readStorage());
         });
@@ -9062,6 +9087,7 @@
     openId: '',           // the card that is open, if any
     draft: null,          // what is in that card before it is saved
     group: 'ALL',         // the module filter, on the Unique Roles side
+    weight: 'ALL',        // the weight filter, on the SMART Objective side
     busy: false
   };
 
@@ -9189,20 +9215,25 @@
     }
 
     // ---- the Unique Roles side ----
+    // Out of what has actually come round, not out of all ninety - see
+    // objUniqueRolesScore. An objective whose slot has not arrived is not a
+    // success yet, and counting it as one made this strip read far better
+    // than the month deserved.
     const list = data.tasks.list || [];
     const live = list.filter(function (t) { return t.slots > 0; });
-    const on = live.filter(function (t) { return t.onSchedule; }).length;
-    const due = live.filter(function (t) { return t.due && t.mine; }).length;
-    const behind = live.filter(function (t) { return !t.onSchedule; }).length;
+    const arrived = live.filter(function (t) { return t.elapsed > 0; });
+    const on = arrived.filter(function (t) { return t.onSchedule; }).length;
+    const behind = arrived.length - on;
+    const waitingOnYou = live.filter(function (t) { return t.due && t.mine; }).length;
     const mine = list.filter(function (t) { return t.mine; }).length;
 
     box.innerHTML =
-      tile('On schedule this month', on, ' of ' + live.length,
-           live.length ? (on / live.length) * 100 : 0, 'obj-fill-g') +
-      tile('Behind', behind, '', live.length ? (behind / live.length) * 100 : 0,
-           'obj-fill-r') +
-      tile('Waiting for you', due, '', live.length ? (due / live.length) * 100 : 0,
-           'obj-fill-a') +
+      tile('On schedule so far', on, ' of ' + arrived.length,
+           arrived.length ? (on / arrived.length) * 100 : 0, 'obj-fill-g') +
+      tile('Behind', behind, '',
+           arrived.length ? (behind / arrived.length) * 100 : 0, 'obj-fill-r') +
+      tile('Waiting for you', waitingOnYou, '',
+           live.length ? (waitingOnYou / live.length) * 100 : 0, 'obj-fill-a') +
       tile('Yours to tick', mine, ' of ' + list.length,
            list.length ? (mine / list.length) * 100 : 0, 'obj-fill-n');
   }
@@ -9226,16 +9257,27 @@
         periods[at + 1] > String(data.current || '');
     }
 
+    /*
+      THE HINT ONLY SPEAKS WHEN IT HAS SOMETHING TO SAY.
+
+      It used to read "Press Update to record this month" beside a column of
+      buttons saying Update, and "One press marks a period done" beside a
+      column of buttons saying Mark. A caption that describes the button
+      next to it is a caption nobody reads twice and everybody reads once.
+
+      What is left is the two cases where something is genuinely in the way:
+      you are not a head, or no module is set against your name.
+    */
     const hint = document.getElementById('objHint');
     if (hint) {
-      if (OBJ.sheet === 'plan') {
-        hint.textContent = data.me && data.me.planner
-          ? 'Press Update to record this month'
-          : 'Recording is for section heads and the department head';
-      } else {
-        hint.textContent = (data.me && data.me.reason) ||
-          'One press marks a period done';
+      let say = '';
+      if (OBJ.sheet === 'plan' && data.me && !data.me.planner) {
+        say = 'Recording is for section heads and the department head';
+      } else if (OBJ.sheet === 'task' && data.me && data.me.reason) {
+        say = data.me.reason;
       }
+      hint.textContent = say;
+      hint.hidden = !say;
     }
 
     renderObjFilters(data);
@@ -9252,7 +9294,47 @@
   function renderObjFilters(data) {
     const box = document.getElementById('objFilters');
     if (!box) return;
-    if (OBJ.sheet !== 'task') { box.innerHTML = ''; return; }
+
+    /*
+      ON THE SMART OBJECTIVE SIDE THE CHIPS FILTER BY WEIGHT.
+
+      The weight used to be printed on every single card, next to the
+      category, on all twenty-nine of them - which is the same three numbers
+      repeated down the page and nothing to do with the milestone you are
+      reading. It is a property of the category, not of the milestone.
+
+      As a filter it earns its place: "show me the twenty-pointers" is a
+      real question at a month end, and it is the question the weighting
+      exists to let somebody ask.
+    */
+    if (OBJ.sheet === 'plan') {
+      const byWeight = {};
+      let all = 0;
+      (data.plan.rows || []).forEach(function (r) {
+        const n = (r.milestones || []).length;
+        byWeight[r.weight] = (byWeight[r.weight] || 0) + n;
+        all += n;
+      });
+
+      let html = '<button class="obj-filter' +
+        (OBJ.weight === 'ALL' ? ' is-on' : '') + '" data-weight="ALL">All ' +
+        all + '</button>';
+
+      // Heaviest first - that is the order somebody asking this question
+      // wants, and it is stable regardless of what weights the sheet uses.
+      Object.keys(byWeight)
+        .map(Number)
+        .sort(function (a, b) { return b - a; })
+        .forEach(function (w) {
+          html += '<button class="obj-filter' +
+            (String(OBJ.weight) === String(w) ? ' is-on' : '') +
+            '" data-weight="' + w + '">Weight ' + w + ' &middot; ' +
+            byWeight[w] + '</button>';
+        });
+
+      box.innerHTML = html;
+      return;
+    }
 
     const counts = {};
     (data.tasks.list || []).forEach(function (t) {
@@ -9309,19 +9391,30 @@
       }
       let html = '';
       let colour = 0;
+      let shown = 0;
       const seen = {};
       (data.plan.rows || []).forEach(function (row) {
         if (seen[row.category] === undefined) {
           seen[row.category] = colour % 8;
           colour++;
         }
+        // The colour is assigned before the filter, so a category keeps the
+        // same colour whichever weight is being looked at.
+        if (OBJ.weight !== 'ALL' && String(row.weight) !== String(OBJ.weight)) {
+          return;
+        }
         (row.milestones || []).forEach(function (m) {
+          shown++;
           html += (m.id === OBJ.openId)
             ? objPlanOpen(m, data, seen[row.category])
             : objPlanCard(m, data, seen[row.category]);
         });
       });
-      box.innerHTML = html;
+
+      box.innerHTML = shown ? html
+        : '<div class="obj-empty"><strong>Nothing at that weight</strong>' +
+          '<span>No category carries a weight of ' + escapeHtml(OBJ.weight) +
+          '.</span></div>';
       return;
     }
 
@@ -9394,9 +9487,12 @@
 
     let note = '';
     if (m.auto === 'UNIQUE_ROLES' && data.unique) {
+      // OUT OF WHAT IS DUE, and the rest said separately. "30 of 85 on
+      // schedule" counted the thirty whose slot had not arrived as wins.
+      const u = data.unique;
       note = '<span class="is-auto">counted automatically</span> from Unique ' +
-        'Roles &middot; ' + data.unique.on + ' of ' + data.unique.total +
-        ' on schedule';
+        'Roles &middot; ' + u.on + ' of ' + u.due + ' due so far' +
+        (u.waiting ? ' &middot; ' + u.waiting + ' not due yet' : '');
     } else if (m.auto === 'KNOWLEDGE') {
       note = '<span class="is-auto">counted automatically</span> from ' +
         'Knowledge Share &middot; ' + m.value + ' this month';
@@ -9428,7 +9524,7 @@
     return '<div class="obj-card">' +
       '<div>' +
         '<span class="obj-tag" data-c="' + colour + '">' +
-          escapeHtml(m.category) + ' &middot; weight ' + m.weight + '</span>' +
+          escapeHtml(m.category) + '</span>' +
         '<div class="obj-card-t">' + escapeHtml(m.milestone) + '</div>' +
         '<div class="obj-card-s">' + note + '</div>' +
       '</div>' +
@@ -9487,7 +9583,7 @@
       '<div class="obj-up-head">' +
         '<div>' +
           '<span class="obj-tag" data-c="' + colour + '">' +
-            escapeHtml(m.category) + ' &middot; weight ' + m.weight + '</span>' +
+            escapeHtml(m.category) + '</span>' +
           '<div class="obj-card-t">' + escapeHtml(m.milestone) + '</div>' +
           '<div class="obj-card-s">' +
             (m.objective ? escapeHtml(m.objective) + ' &middot; ' : '') +
@@ -9790,7 +9886,30 @@
     }
     objSheetNote();
     document.getElementById('objSheetSay').textContent = '';
-    document.getElementById('objSheet').hidden = false;
+
+    /*
+      A PANEL AT THE TOP OF THE PAGE, NOT A CENTRED OVERLAY.
+
+      It was a position:fixed modal, and inside this app that is the wrong
+      tool. The page runs in an Apps Script iframe embedded in a Blogger
+      post, and that iframe is TALLER than the browser window - the window
+      scrolls the Blogger page, not the iframe. So "fixed to the viewport"
+      meant fixed to the middle of an iframe nobody can see all of: the form
+      opened with its top half above the visible area, its backdrop dimming
+      nothing, and it drifted as the page scrolled.
+
+      A panel in the normal flow, directly under the button that opens it,
+      has none of those problems and needs no z-index. It is also what the
+      Update panel already does, which is the half of this page that was
+      never complained about.
+    */
+    const sheet = document.getElementById('objSheet');
+    sheet.hidden = false;
+    try {
+      sheet.scrollIntoView({ block: 'nearest' });
+    } catch (e) { /* older browsers scroll on their own or not at all */ }
+    const first = document.getElementById('objFObjective');
+    if (first) first.focus();
   }
 
 
@@ -9929,9 +10048,16 @@
     });
 
     document.getElementById('objFilters').addEventListener('click', function (e) {
-      const chip = e.target.closest('[data-group]');
+      const chip = e.target.closest('[data-group], [data-weight]');
       if (!chip) return;
-      OBJ.group = chip.getAttribute('data-group');
+      // One filter at a time on both sides, and the two do not share a
+      // value: the module chips belong to the ninety and the weight chips
+      // to the twenty-nine.
+      if (chip.hasAttribute('data-weight')) {
+        OBJ.weight = chip.getAttribute('data-weight');
+      } else {
+        OBJ.group = chip.getAttribute('data-group');
+      }
       OBJ.openId = '';
       renderObjFilters(OBJ.data);
       renderObjList(OBJ.data);
