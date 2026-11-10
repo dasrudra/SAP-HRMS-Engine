@@ -3492,6 +3492,614 @@
     .lrn-card:hover, .lrn-chip:hover, .lrn-btn:hover,
     .lrn-search:hover, .kn-portal:hover, .kn-new:hover { transform: none; }
     .kn-portal:hover .kn-portal-go { transform: none; }
+
+    /* And on Objectives. */
+    .obj-card:hover, .obj-new:hover, .obj-btn:hover,
+    .obj-tick:hover { transform: none; }
+  }
+
+
+  /* =======================================================================
+     OBJECTIVES
+     =======================================================================
+
+     THE ONE LIGHT PAGE, and the only one that is not .portal-page.
+
+     Every other screen in this portal sits on the blue sky, which is right
+     for a front door: you arrive, you look, you move on. This page is a
+     working surface. Somebody is on it for half an hour at a month end,
+     reading numbers and pressing counters, and white paper under black text
+     is what that wants - the same reason a spreadsheet is not navy.
+
+     So the page paints over the sky below the navigation. The band is what
+     keeps that from being a jolt: dark blue at the top, carrying the title
+     and the controls, so the eye travels from the glass bar through a
+     familiar colour and into the light rather than falling off a cliff.
+
+     EVERY COLOUR HERE IS LOCAL. Nothing above this comment is reused,
+     because everything above it is built for white text on blue and would
+     be invisible or illegible the moment it landed on paper.
+  */
+  #view-objective {
+    --ob-ink: #101828;
+    --ob-mid: #475467;
+    --ob-dim: #667085;
+    --ob-faint: #98a2b3;
+    --ob-line: #eaecf0;
+    --ob-line-2: #d0d5dd;
+    --ob-paper: #fff;
+
+    /*
+      The band's blue is the indigo the toggle is painted in, run darker at
+      the left so the title has something solid under it and lighter at the
+      right where the buttons are. The two soft lights on top of it stop it
+      reading as a flat rectangle of corporate blue.
+    */
+    --ob-band-1: #272465;
+    --ob-band-2: #3b33b4;
+    --ob-band-3: #4f46e5;
+    --ob-accent: #4338ca;
+
+    --ob-green: #12b76a;
+    --ob-green-2: #32d583;
+    --ob-amber: #f79009;
+    --ob-amber-2: #fdb022;
+    --ob-red: #f04438;
+    --ob-red-2: #fda29b;
+
+    display: block;
+    min-height: 100%;
+    /*
+      Opaque, and that is the whole trick: .portal-sky is behind every view,
+      so a page with a transparent background shows navy through it. This
+      covers the sky from the navigation down.
+    */
+    background:
+      radial-gradient(1100px 520px at 88% 12%,
+        #eef1fc 0%, rgba(238, 241, 252, 0) 62%),
+      radial-gradient(820px 460px at 4% 96%,
+        #e9f5f1 0%, rgba(233, 245, 241, 0) 60%),
+      #f7f8fb;
+    color: var(--ob-ink);
+  }
+
+  /*
+    The sky is left full height behind it rather than shortened. Nothing of
+    it shows on this page except behind the glass navigation, which needs
+    something dark to blur or it stops looking like glass.
+  */
+  .portal[data-page="objective"] .portal-sky {
+    height: 100%; border-radius: 0;
+  }
+
+  /* ---------------- the band ---------------- */
+  .obj-band {
+    position: relative; overflow: hidden;
+    padding: 26px 0 28px;
+    background:
+      radial-gradient(880px 320px at 86% -45%,
+        rgba(129, 140, 248, .60) 0%, rgba(129, 140, 248, 0) 72%),
+      radial-gradient(720px 300px at 8% 140%,
+        rgba(34, 211, 238, .30) 0%, rgba(34, 211, 238, 0) 70%),
+      linear-gradient(118deg, var(--ob-band-1) 0%,
+        var(--ob-band-2) 52%, var(--ob-band-3) 100%);
+    box-shadow: 0 14px 34px -22px rgba(49, 46, 129, .9);
+  }
+  .obj-band::after {
+    content: ''; position: absolute; left: 0; right: 0; bottom: 0;
+    height: 1px; background: rgba(255, 255, 255, .16);
+  }
+  .obj-band-in {
+    position: relative; z-index: 1;
+    max-width: 1180px; margin: 0 auto; padding: 0 28px;
+    display: flex; align-items: flex-start; gap: 20px; flex-wrap: wrap;
+  }
+  .obj-h1 {
+    margin: 0; font-size: 25px; font-weight: 660; letter-spacing: -.5px;
+    color: #fff;
+  }
+  .obj-sub {
+    margin: 5px 0 0; font-size: 13.2px; color: rgba(255, 255, 255, .70);
+  }
+  .obj-band-acts {
+    margin-left: auto; display: flex; align-items: center; gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  /* ---------------- the two-sheet toggle ---------------- */
+  .obj-toggle {
+    display: inline-flex; padding: 4px; border-radius: 12px;
+    background: rgba(255, 255, 255, .13);
+    border: 1px solid rgba(255, 255, 255, .22);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .12);
+  }
+  .obj-tab {
+    font: inherit; font-size: 13px; font-weight: 580; cursor: pointer;
+    padding: 9px 18px; border-radius: 9px; border: 0; background: none;
+    color: rgba(255, 255, 255, .76);
+    display: flex; align-items: center; gap: 8px; white-space: nowrap;
+    transition: background .15s ease, color .15s ease;
+  }
+  .obj-tab:hover { color: #fff; }
+  .obj-tab.is-on {
+    background: #fff; color: #312e81; font-weight: 640;
+    box-shadow: 0 2px 8px rgba(23, 20, 70, .35);
+  }
+  .obj-tab u {
+    text-decoration: none; font-size: 11px; font-weight: 700;
+    padding: 1px 6px; border-radius: 20px;
+    background: rgba(255, 255, 255, .18);
+  }
+  .obj-tab.is-on u { background: rgba(49, 46, 129, .11); color: #312e81; }
+
+  .obj-new {
+    font: inherit; font-size: 13px; font-weight: 620; cursor: pointer;
+    padding: 11px 17px; border-radius: 11px; border: 0;
+    background: #fff; color: #231f5c;
+    display: flex; align-items: center; gap: 8px;
+    box-shadow: 0 4px 14px -4px rgba(16, 14, 55, .5);
+    transition: transform .14s ease, box-shadow .14s ease;
+  }
+  .obj-new:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 8px 20px -6px rgba(16, 14, 55, .55);
+  }
+
+  /* ---------------- the body ---------------- */
+  .obj-body {
+    max-width: 1180px; margin: 0 auto; padding: 24px 28px 110px;
+  }
+
+  .obj-stats {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px;
+    margin-bottom: 24px;
+  }
+  .obj-stat {
+    background: var(--ob-paper); border: 1px solid var(--ob-line);
+    border-radius: 15px; padding: 17px 19px;
+    box-shadow: 0 1px 2px rgba(16, 24, 40, .04);
+  }
+  .obj-stat-l { font-size: 11.6px; color: var(--ob-dim); font-weight: 530; }
+  .obj-stat-v {
+    font-size: 31px; font-weight: 300; letter-spacing: -1.2px;
+    margin-top: 7px; line-height: 1;
+  }
+  .obj-stat-v em {
+    font-size: 14px; font-style: normal; color: var(--ob-faint);
+    font-weight: 400; letter-spacing: 0;
+  }
+  .obj-stat-b {
+    height: 5px; border-radius: 3px; background: #f2f4f7;
+    margin-top: 12px; overflow: hidden;
+  }
+  .obj-stat-b i { display: block; height: 100%; border-radius: 3px; }
+
+  /* ---------------- the month picker ---------------- */
+  .obj-listhead {
+    display: flex; align-items: center; gap: 14px; margin-bottom: 13px;
+    flex-wrap: wrap;
+  }
+  .obj-month { display: flex; align-items: center; gap: 4px; }
+  .obj-month b {
+    font-size: 15px; font-weight: 620; min-width: 132px; text-align: center;
+  }
+  .obj-month-step {
+    width: 28px; height: 28px; border-radius: 8px; cursor: pointer;
+    border: 1px solid var(--ob-line-2); background: var(--ob-paper);
+    color: var(--ob-mid); display: grid; place-items: center;
+    box-shadow: 0 1px 2px rgba(16, 24, 40, .05);
+  }
+  .obj-month-step:hover { background: #f9fafb; color: var(--ob-ink); }
+  .obj-month-step[disabled] {
+    opacity: .4; cursor: default; box-shadow: none;
+  }
+  .obj-hint { font-size: 12.6px; color: var(--ob-dim); }
+  .obj-filters {
+    margin-left: auto; display: flex; gap: 6px; flex-wrap: wrap;
+  }
+  .obj-filter {
+    font: inherit; font-size: 11.8px; font-weight: 580; cursor: pointer;
+    padding: 6px 12px; border-radius: 999px;
+    border: 1px solid var(--ob-line-2); background: var(--ob-paper);
+    color: var(--ob-mid);
+  }
+  .obj-filter:hover { background: #f9fafb; }
+  .obj-filter.is-on {
+    background: var(--ob-accent); border-color: var(--ob-accent);
+    color: #fff; font-weight: 640;
+  }
+
+  /* ---------------- a card ---------------- */
+  .obj-card {
+    background: var(--ob-paper); border: 1px solid var(--ob-line);
+    border-radius: 16px; padding: 18px 20px; margin-bottom: 11px;
+    box-shadow: 0 1px 2px rgba(16, 24, 40, .04);
+    display: grid; grid-template-columns: 1fr 188px 118px;
+    gap: 22px; align-items: center;
+    transition: box-shadow .15s ease, border-color .15s ease;
+  }
+  .obj-card:hover { box-shadow: 0 4px 14px -6px rgba(16, 24, 40, .16); }
+  .obj-card.is-open {
+    grid-template-columns: 1fr;
+    border-color: #c7d7fe;
+    box-shadow: 0 6px 22px -8px rgba(67, 56, 202, .22);
+  }
+
+  .obj-tag {
+    display: inline-block; font-size: 11px; font-weight: 650;
+    letter-spacing: .2px; padding: 4px 10px; border-radius: 7px;
+    margin-bottom: 9px;
+  }
+  /*
+    One colour per category, and they are assigned in Config order rather
+    than chosen per category name - a seventh category added to the sheet
+    gets a colour instead of falling back to grey and looking broken.
+  */
+  .obj-tag[data-c="0"] { background: #eef4ff; color: #3538cd; }
+  .obj-tag[data-c="1"] { background: #f0f9ff; color: #026aa2; }
+  .obj-tag[data-c="2"] { background: #fdf2fa; color: #c11574; }
+  .obj-tag[data-c="3"] { background: #fffaeb; color: #b54708; }
+  .obj-tag[data-c="4"] { background: #ecfdf3; color: #027a48; }
+  .obj-tag[data-c="5"] { background: #f4f3ff; color: #5925dc; }
+  .obj-tag[data-c="6"] { background: #fef3f2; color: #b42318; }
+  .obj-tag[data-c="7"] { background: #f2f4f7; color: #344054; }
+
+  .obj-card-t {
+    font-size: 14.6px; font-weight: 600; line-height: 1.4;
+    letter-spacing: -.1px; color: var(--ob-ink);
+  }
+  .obj-card-s { font-size: 12.4px; color: var(--ob-dim); margin-top: 5px; }
+  .obj-card-s b { color: #344054; font-weight: 600; }
+  .obj-card-s .is-warn { color: #b54708; font-weight: 600; }
+  .obj-card-s .is-bad { color: #b42318; font-weight: 600; }
+  .obj-card-s .is-auto { color: #027a48; font-weight: 600; }
+
+  /* ---------------- progress ---------------- */
+  .obj-prog-top {
+    display: flex; justify-content: space-between; align-items: baseline;
+    margin-bottom: 7px;
+  }
+  .obj-prog-top b { font-size: 19px; font-weight: 400; letter-spacing: -.5px; }
+  .obj-prog-top span { font-size: 11.6px; color: var(--ob-dim); }
+  .obj-bar {
+    height: 8px; border-radius: 5px; background: #f2f4f7; overflow: hidden;
+  }
+  .obj-bar i { display: block; height: 100%; border-radius: 5px; }
+  .obj-fill-g {
+    background: linear-gradient(90deg, var(--ob-green), var(--ob-green-2));
+  }
+  .obj-fill-a {
+    background: linear-gradient(90deg, var(--ob-amber), var(--ob-amber-2));
+  }
+  .obj-fill-r {
+    background: linear-gradient(90deg, var(--ob-red), var(--ob-red-2));
+  }
+  .obj-fill-n { background: var(--ob-line-2); }
+
+  /* the six months under the bar */
+  .obj-pips { display: flex; gap: 4px; margin-top: 10px; }
+  .obj-pips i {
+    flex: 1; height: 6px; border-radius: 3px; background: var(--ob-line);
+  }
+  .obj-pips i.is-g { background: var(--ob-green-2); }
+  .obj-pips i.is-a { background: var(--ob-amber-2); }
+  .obj-pips i.is-r { background: var(--ob-red-2); }
+  .obj-pips i.is-now { background: var(--ob-accent); }
+  .obj-pipl { display: flex; gap: 4px; margin-top: 5px; }
+  .obj-pipl span {
+    flex: 1; font-size: 9.4px; color: var(--ob-faint); text-align: center;
+    letter-spacing: .3px;
+  }
+
+  /* ---------------- buttons ---------------- */
+  .obj-btn {
+    font: inherit; font-size: 12.8px; font-weight: 600; cursor: pointer;
+    padding: 10px 14px; border-radius: 10px;
+    border: 1px solid var(--ob-line-2); background: var(--ob-paper);
+    color: #344054; box-shadow: 0 1px 2px rgba(16, 24, 40, .05);
+    transition: transform .14s ease, background .14s ease;
+  }
+  .obj-btn:hover { background: #f9fafb; transform: translateY(-1px); }
+  .obj-btn.is-primary {
+    background: var(--ob-accent); border-color: var(--ob-accent); color: #fff;
+    box-shadow: 0 1px 3px rgba(67, 56, 202, .35);
+  }
+  .obj-btn.is-primary:hover { background: #3b32b5; }
+  .obj-btn.is-wide { width: 100%; }
+  .obj-btn[disabled] {
+    opacity: .5; cursor: default; transform: none; box-shadow: none;
+  }
+
+  /* ---------------- the open update panel ---------------- */
+  .obj-up-head { display: flex; align-items: flex-start; gap: 14px; }
+  .obj-up-x {
+    margin-left: auto; font-size: 20px; line-height: 1; cursor: pointer;
+    color: var(--ob-faint); background: none; border: 0; padding: 0 4px;
+  }
+  .obj-up-x:hover { color: var(--ob-ink); }
+  .obj-up-body {
+    margin-top: 19px; padding-top: 19px; border-top: 1px solid #f2f4f7;
+    display: grid; grid-template-columns: 1fr 1fr; gap: 26px;
+  }
+  .obj-fl {
+    font-size: 12.2px; font-weight: 600; color: #344054; margin-bottom: 9px;
+    display: block;
+  }
+  .obj-fl i { font-style: normal; color: var(--ob-faint); font-weight: 400; }
+
+  .obj-step { display: flex; align-items: center; gap: 14px; }
+  .obj-step button {
+    width: 44px; height: 44px; border-radius: 12px; cursor: pointer;
+    border: 1px solid var(--ob-line-2); background: var(--ob-paper);
+    font-size: 21px; line-height: 1; color: #344054;
+    box-shadow: 0 1px 2px rgba(16, 24, 40, .05);
+  }
+  .obj-step button:hover { background: #f9fafb; }
+  .obj-step-v {
+    font-size: 34px; font-weight: 300; letter-spacing: -1.4px;
+    min-width: 46px; text-align: center;
+  }
+  .obj-step-of { font-size: 13px; color: var(--ob-dim); line-height: 1.5; }
+  .obj-step-of b { color: var(--ob-ink); font-weight: 600; }
+  .obj-step-of .is-warn { color: #b54708; font-size: 11.6px; }
+
+  .obj-seg { display: flex; gap: 7px; }
+  .obj-seg button {
+    font: inherit; font-size: 12.4px; font-weight: 580; cursor: pointer;
+    padding: 10px 0; flex: 1; border-radius: 10px;
+    border: 1px solid #e4e7ec; background: var(--ob-paper);
+    color: var(--ob-dim);
+  }
+  .obj-seg button:hover { background: #f9fafb; }
+  .obj-seg button.is-on[data-s="ON_TRACK"],
+  .obj-seg button.is-on[data-s="DONE"] {
+    background: #ecfdf3; border-color: #6ce9a6; color: #027a48;
+    font-weight: 640;
+  }
+  .obj-seg button.is-on[data-s="AT_RISK"] {
+    background: #fffaeb; border-color: #fec84b; color: #b54708;
+    font-weight: 640;
+  }
+  .obj-seg button.is-on[data-s="MISSED"] {
+    background: #fef3f2; border-color: #fda29b; color: #b42318;
+    font-weight: 640;
+  }
+
+  .obj-note-in, .obj-field textarea, .obj-field input, .obj-field select {
+    width: 100%; font: inherit; font-size: 13px; padding: 11px 13px;
+    border-radius: 10px; border: 1px solid var(--ob-line-2);
+    background: var(--ob-paper); color: var(--ob-ink); resize: none;
+    box-shadow: 0 1px 2px rgba(16, 24, 40, .04);
+  }
+  .obj-note-in::placeholder, .obj-field textarea::placeholder,
+  .obj-field input::placeholder { color: #a9adb7; }
+  .obj-note-in:focus, .obj-field textarea:focus, .obj-field input:focus,
+  .obj-field select:focus {
+    outline: none; border-color: #a4bcfd;
+    box-shadow: 0 0 0 4px rgba(67, 56, 202, .10);
+  }
+
+  .obj-up-foot {
+    grid-column: 1 / -1; display: flex; align-items: center; gap: 11px;
+    flex-wrap: wrap;
+  }
+  .obj-up-who {
+    font-size: 11.8px; color: var(--ob-faint); margin-right: auto;
+  }
+  .obj-up-who.is-bad { color: #b42318; }
+
+  /* ---------------- the Updates timeline ---------------- */
+  .obj-hist {
+    grid-column: 1 / -1; margin-top: 4px; padding-top: 18px;
+    border-top: 1px solid #f2f4f7;
+  }
+  .obj-hist-h {
+    font-size: 10.6px; letter-spacing: 1.1px; text-transform: uppercase;
+    color: var(--ob-faint); font-weight: 650; margin-bottom: 13px;
+  }
+  .obj-hi { display: flex; gap: 12px; padding-bottom: 14px; position: relative; }
+  .obj-hi:not(:last-child)::before {
+    content: ''; position: absolute; left: 14px; top: 32px; bottom: 0;
+    width: 1px; background: var(--ob-line);
+  }
+  .obj-av {
+    width: 29px; height: 29px; border-radius: 9px; flex: none;
+    display: grid; place-items: center; font-size: 10.8px; font-weight: 700;
+    background: #eef4ff; color: #3538cd;
+  }
+  .obj-hi-t { font-size: 12.8px; color: var(--ob-mid); line-height: 1.5; }
+  .obj-hi-t b { color: var(--ob-ink); font-weight: 620; }
+  .obj-hi-n {
+    font-size: 12.3px; color: var(--ob-mid); margin-top: 5px; line-height: 1.55;
+    padding: 9px 12px; border-radius: 10px; background: #f9fafb;
+    border: 1px solid var(--ob-line);
+  }
+  .obj-hi-d { font-size: 11px; color: var(--ob-faint); margin-top: 5px; }
+
+  /* ---------------- the Unique Roles side ---------------- */
+  .obj-freq {
+    font-size: 9.8px; font-weight: 700; letter-spacing: .5px;
+    padding: 3px 8px; border-radius: 5px; text-transform: uppercase;
+    white-space: nowrap;
+  }
+  .obj-freq[data-f="DAILY"] {
+    background: #fef3f2; color: #b42318; border: 1px solid #fecdca;
+  }
+  .obj-freq[data-f="WEEKLY"] {
+    background: #fffaeb; color: #b54708; border: 1px solid #fedf89;
+  }
+  .obj-freq[data-f="MONTHLY"] {
+    background: #eff8ff; color: #175cd3; border: 1px solid #b2ddff;
+  }
+  .obj-freq[data-f="QUARTERLY"] {
+    background: #f4f3ff; color: #5925dc; border: 1px solid #d9d6fe;
+  }
+  .obj-chip {
+    font-size: 10.4px; font-weight: 600; padding: 3px 8px; border-radius: 5px;
+    background: #f2f4f7; color: var(--ob-mid); white-space: nowrap;
+  }
+  .obj-meta { display: flex; gap: 6px; align-items: center; margin-top: 8px;
+              flex-wrap: wrap; }
+
+  /* the slot strip - one block per period of the month */
+  .obj-strip { display: flex; gap: 2px; align-items: center; }
+  .obj-strip i {
+    flex: 1; height: 17px; border-radius: 2px; min-width: 3px;
+    background: #f2f4f7; border: 1px solid #eaecf0;
+  }
+  .obj-strip i.is-y {
+    background: var(--ob-green-2); border-color: var(--ob-green);
+  }
+  .obj-strip i.is-n {
+    background: var(--ob-red-2); border-color: var(--ob-red);
+  }
+  .obj-strip i.is-now { box-shadow: 0 0 0 2px rgba(67, 56, 202, .5); }
+  .obj-strip-l { font-size: 10.8px; color: var(--ob-dim); margin-top: 6px; }
+  .obj-strip-l.is-bad { color: #b42318; font-weight: 600; }
+
+  .obj-tick {
+    font: inherit; font-size: 12.6px; font-weight: 620; cursor: pointer;
+    width: 100%; padding: 11px 0; border-radius: 11px;
+    display: flex; align-items: center; justify-content: center; gap: 7px;
+    border: 1px solid var(--ob-line-2); background: var(--ob-paper);
+    color: #344054; box-shadow: 0 1px 2px rgba(16, 24, 40, .05);
+    transition: transform .14s ease, background .14s ease;
+  }
+  .obj-tick:hover { transform: translateY(-1px); background: #f9fafb; }
+  .obj-tick.is-due {
+    background: var(--ob-accent); border-color: var(--ob-accent); color: #fff;
+    box-shadow: 0 1px 3px rgba(67, 56, 202, .35);
+  }
+  .obj-tick.is-due:hover { background: #3b32b5; }
+  .obj-tick.is-done {
+    background: #ecfdf3; border-color: #6ce9a6; color: #027a48;
+  }
+  .obj-tick[disabled] {
+    opacity: .55; cursor: default; transform: none;
+    background: #f9fafb; color: var(--ob-faint);
+  }
+
+  /* the day grid inside an opened daily objective */
+  .obj-days { display: flex; gap: 5px; flex-wrap: wrap; }
+  .obj-day {
+    width: 36px; height: 36px; border-radius: 9px; cursor: pointer;
+    display: grid; place-items: center; font-size: 11.6px; font-weight: 600;
+    border: 1px solid var(--ob-line-2); background: var(--ob-paper);
+    color: var(--ob-mid);
+  }
+  .obj-day:hover { background: #f9fafb; }
+  .obj-day.is-y {
+    background: #ecfdf3; border-color: #6ce9a6; color: #027a48;
+  }
+  .obj-day.is-n {
+    background: #fef3f2; border-color: #fda29b; color: #b42318;
+  }
+  .obj-day.is-now { box-shadow: 0 0 0 2px rgba(67, 56, 202, .45); }
+  .obj-day[disabled] { opacity: .45; cursor: default; }
+
+  /* ---------------- states ---------------- */
+  .obj-wait, .obj-empty {
+    background: var(--ob-paper); border: 1px solid var(--ob-line);
+    border-radius: 16px; padding: 40px 24px; text-align: center;
+  }
+  .obj-empty strong {
+    display: block; font-size: 15.5px; font-weight: 640; margin-bottom: 6px;
+  }
+  .obj-empty span {
+    display: block; font-size: 13px; color: var(--ob-dim); line-height: 1.6;
+    max-width: 560px; margin: 0 auto;
+  }
+  .obj-empty code {
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 12.2px; background: #f2f4f7; padding: 2px 6px;
+    border-radius: 5px; color: #344054;
+  }
+  .obj-wait { color: var(--ob-dim); font-size: 13px; }
+
+  /* ---------------- the new-objective sheet ---------------- */
+  .obj-sheet {
+    position: fixed; inset: 0; z-index: 70;
+    background: rgba(16, 24, 40, .55);
+    display: flex; align-items: center; justify-content: center;
+    padding: 24px;
+  }
+  .obj-sheet-box {
+    width: 100%; max-width: 520px; max-height: 88vh; overflow-y: auto;
+    background: var(--ob-paper); border-radius: 20px;
+    box-shadow: 0 24px 60px -20px rgba(16, 24, 40, .5);
+  }
+  .obj-sheet-head {
+    display: flex; align-items: flex-start; gap: 10px; flex-wrap: wrap;
+    padding: 22px 24px 0;
+  }
+  .obj-sheet-head strong {
+    font-size: 16px; font-weight: 640; letter-spacing: -.3px;
+    color: var(--ob-ink);
+  }
+  .obj-sheet-head span {
+    width: 100%; order: 3; font-size: 12.2px; color: var(--ob-dim);
+    margin-top: -4px;
+  }
+  .obj-sheet-x {
+    margin-left: auto; font-size: 20px; line-height: 1; cursor: pointer;
+    color: var(--ob-faint); background: none; border: 0; padding: 0 2px;
+  }
+  .obj-sheet-x:hover { color: var(--ob-ink); }
+  .obj-sheet-body { padding: 18px 24px 4px; }
+  .obj-field { display: block; margin-bottom: 15px; }
+  .obj-field > span {
+    display: block; font-size: 12.2px; font-weight: 600; color: #30323a;
+    margin-bottom: 7px;
+  }
+  .obj-field > span i {
+    font-style: normal; font-weight: 400; color: var(--ob-faint);
+  }
+  .obj-two { display: grid; grid-template-columns: 1fr 1fr; gap: 11px; }
+  .obj-pick { display: flex; gap: 6px; }
+  .obj-pick button {
+    font: inherit; font-size: 12.2px; font-weight: 580; cursor: pointer;
+    flex: 1; padding: 9px 0; border-radius: 9px;
+    border: 1px solid var(--ob-line-2); background: var(--ob-paper);
+    color: var(--ob-dim);
+  }
+  .obj-pick button.is-on {
+    background: var(--ob-ink); border-color: var(--ob-ink); color: #fff;
+  }
+  .obj-note {
+    display: flex; gap: 9px; align-items: flex-start; padding: 11px 13px;
+    border-radius: 11px; background: #f6f3ff; border: 1px solid #e3dbfd;
+    font-size: 11.9px; color: #5b21b6; line-height: 1.5; margin-bottom: 16px;
+  }
+  .obj-sheet-foot {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    padding: 4px 24px 22px;
+  }
+  .obj-sheet-say {
+    font-size: 12px; color: #b42318; margin-right: auto; flex: 1 1 100%;
+    order: -1;
+  }
+  .obj-sheet-say:empty { display: none; }
+
+  /* ---------------- narrower windows ---------------- */
+  /*
+    The three-column card is the first thing to go. At 1050 the progress
+    column and the button still fit beside the words; below it they do not,
+    and a 14px milestone wrapped to five lines in a 300px column is worse
+    than the same milestone with its bar underneath.
+  */
+  @media (max-width: 1049px) {
+    .obj-stats { grid-template-columns: repeat(2, 1fr); }
+    .obj-card { grid-template-columns: 1fr 160px; }
+    .obj-card > .obj-acts { grid-column: 2; }
+  }
+  @media (max-width: 760px) {
+    .obj-band-in, .obj-body { padding-left: 18px; padding-right: 18px; }
+    .obj-band-acts { margin-left: 0; width: 100%; }
+    .obj-card { grid-template-columns: 1fr; gap: 14px; }
+    .obj-up-body { grid-template-columns: 1fr; gap: 18px; }
+    .obj-stats { grid-template-columns: 1fr 1fr; gap: 10px; }
+    .obj-two { grid-template-columns: 1fr; }
+    .obj-filters { margin-left: 0; width: 100%; }
   }
 
 </style>

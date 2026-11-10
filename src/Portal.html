@@ -899,11 +899,196 @@
       </div>
     </section>
 
-    <section class="view portal-page" id="view-objective" hidden>
-      <h1 class="portal-page-title">Objective</h1>
-      <div class="portal-empty">
-        <h2>This page is waiting for its words</h2>
-        <p>Phase 5, from the <b>PORTAL</b> tab.</p>
+    <!--
+      ---- OBJECTIVES ----
+
+      NOT a .portal-page, which is the only page here that is not, and the
+      reason is the band: .portal-page is a 1180px column with padding, and
+      the dark blue header has to run the full width of the window. So this
+      section lays itself out, and everything inside it is in .obj-*.
+
+      IT IS ALSO THE ONE LIGHT PAGE. Every other screen in the portal sits
+      on the blue sky. This one paints over it below the navigation, because
+      what is on it is a working surface - numbers to read and counters to
+      press, for half an hour at a time at a month end - and the rest of the
+      portal is a front door you pass through. The band keeps the join
+      between the two from being abrupt.
+
+      TWO SHEETS, ONE PAGE. The toggle swaps which of the department's two
+      lists is on screen: the twenty-nine weighted milestones, or the ninety
+      unique-role objectives underneath the first of them. They share this
+      shell, the stats strip and the month picker, and differ in what a card
+      looks like and what pressing it does - a counter on one, a tick on the
+      other. See renderObj* in App.html.
+
+      Empty markup, like Learnings and Knowledge Share. The objectives are a
+      spreadsheet the department edits; this file is a shell that does not.
+    -->
+    <section class="view obj" id="view-objective" hidden>
+
+      <div class="obj-band">
+        <div class="obj-band-in">
+          <div class="obj-band-words">
+            <h1 class="obj-h1">Objectives</h1>
+            <p class="obj-sub" id="objSub">Loading the objectives&#x2026;</p>
+          </div>
+
+          <div class="obj-band-acts">
+            <!--
+              role="tablist" and aria-selected rather than two buttons that
+              look like a switch: it IS a switch between two views of the
+              same page, and that is the thing a screen reader has a word
+              for.
+            -->
+            <div class="obj-toggle" role="tablist"
+                 aria-label="Which objective sheet">
+              <button class="obj-tab is-on" type="button" role="tab"
+                      id="objTabPlan" aria-selected="true"
+                      data-sheet="plan">SMART Objective
+                <u id="objCountPlan"></u></button>
+              <button class="obj-tab" type="button" role="tab"
+                      id="objTabTask" aria-selected="false"
+                      data-sheet="task">Unique Roles
+                <u id="objCountTask"></u></button>
+            </div>
+
+            <!--
+              Hidden until the server says who is looking. Adding an
+              objective is the admin's, and a button that greets everybody
+              and then refuses them is worse than one that is not there.
+            -->
+            <button class="obj-new" id="objNew" type="button" hidden>
+              <svg viewBox="0 0 16 16" width="13" height="13" fill="none"
+                   stroke="currentColor" stroke-width="2.4"
+                   stroke-linecap="round" aria-hidden="true">
+                <path d="M8 3.5v9M3.5 8h9"/>
+              </svg>
+              New objective
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="obj-body">
+        <div class="obj-stats" id="objStats"></div>
+
+        <div class="obj-listhead">
+          <!--
+            The month being recorded against. It is a picker and not just a
+            heading because a milestone is closed off after the month ends -
+            somebody writing up October on the 3rd of November needs to say
+            so, and a page that only ever showed the current month would
+            have them record it against the wrong one.
+          -->
+          <div class="obj-month">
+            <button class="obj-month-step" id="objPrev" type="button"
+                    aria-label="The month before">
+              <svg viewBox="0 0 16 16" width="13" height="13" fill="none"
+                   stroke="currentColor" stroke-width="2"
+                   stroke-linecap="round" stroke-linejoin="round"
+                   aria-hidden="true"><path d="M10 3L5 8l5 5"/></svg>
+            </button>
+            <b id="objMonth">&mdash;</b>
+            <button class="obj-month-step" id="objNext" type="button"
+                    aria-label="The month after">
+              <svg viewBox="0 0 16 16" width="13" height="13" fill="none"
+                   stroke="currentColor" stroke-width="2"
+                   stroke-linecap="round" stroke-linejoin="round"
+                   aria-hidden="true"><path d="M6 3l5 5-5 5"/></svg>
+            </button>
+          </div>
+          <span class="obj-hint" id="objHint"></span>
+          <!-- Only on the Unique Roles side; filled by renderObjFilters. -->
+          <div class="obj-filters" id="objFilters"></div>
+        </div>
+
+        <div class="obj-list" id="objList"></div>
+      </div>
+
+      <!--
+        ---- THE NEW OBJECTIVE SHEET ----
+
+        An overlay, like the Knowledge composer, and hidden rather than
+        inert for the same reason - inert is young enough that one of the
+        browsers in this building may not have it, and hidden takes the
+        controls out of the tab order just as well.
+      -->
+      <div class="obj-sheet" id="objSheet" hidden>
+        <div class="obj-sheet-box" role="dialog" aria-modal="true"
+             aria-labelledby="objSheetTitle">
+          <div class="obj-sheet-head">
+            <strong id="objSheetTitle">New objective</strong>
+            <span>It is added to the SMART Objective sheet</span>
+            <button class="obj-sheet-x" id="objSheetX" type="button"
+                    aria-label="Close">&#xD7;</button>
+          </div>
+
+          <div class="obj-sheet-body">
+            <label class="obj-field">
+              <span>Category</span>
+              <select id="objFRow"></select>
+            </label>
+
+            <label class="obj-field">
+              <span>Objective</span>
+              <textarea id="objFObjective" rows="2" maxlength="2000"
+                        placeholder="What is to be achieved, in one sentence."></textarea>
+            </label>
+
+            <label class="obj-field">
+              <span>Milestone <i>how it will be measured</i></span>
+              <textarea id="objFMilestone" rows="2" maxlength="2000"
+                        placeholder="e.g. Conduct at least 1 session per month."></textarea>
+            </label>
+
+            <div class="obj-field">
+              <span>How is it counted?</span>
+              <div class="obj-pick" id="objFType">
+                <button type="button" class="is-on" data-type="NUMBER">A number</button>
+                <button type="button" data-type="PERCENT">A percentage</button>
+                <button type="button" data-type="DONE">Done / not done</button>
+              </div>
+            </div>
+
+            <div class="obj-two">
+              <label class="obj-field">
+                <span>Target</span>
+                <input type="number" id="objFTarget" min="1" step="1" value="1">
+              </label>
+              <label class="obj-field">
+                <span>Per</span>
+                <select id="objFPer">
+                  <option value="MONTH">Month</option>
+                  <option value="QUARTER">Quarter</option>
+                  <option value="PERIOD">The whole period</option>
+                </select>
+              </label>
+            </div>
+
+            <label class="obj-field">
+              <span>Expected outcome <i>optional</i></span>
+              <textarea id="objFOutcome" rows="2" maxlength="2000"
+                        placeholder="What changes if this is achieved."></textarea>
+            </label>
+
+            <!--
+              THE SENTENCE THAT STOPS A BAD ASSUMPTION. Somebody adding a
+              milestone reasonably expects the page to find room for it in
+              the weighting. It does not: the nine weights are the agreed
+              split of 100, and a new milestone shares the weight of the
+              category it joins. Said here, before they type, rather than
+              discovered later from a score that moved.
+            -->
+            <div class="obj-note" id="objFNote"></div>
+          </div>
+
+          <div class="obj-sheet-foot">
+            <span class="obj-sheet-say" id="objSheetSay"></span>
+            <button class="obj-btn" id="objFCancel" type="button">Cancel</button>
+            <button class="obj-btn is-primary" id="objFCreate" type="button">
+              Create objective</button>
+          </div>
+        </div>
       </div>
     </section>
 

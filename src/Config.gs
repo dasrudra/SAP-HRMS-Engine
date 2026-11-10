@@ -547,7 +547,67 @@ const CONFIG = {
     // the team has approved. Written by the page and not by hand; the
     // attachments are in Drive and this holds a JSON index of them. See
     // the header of Knowledge.gs for why the two are kept apart.
-    KNOWLEDGE: 'KNOWLEDGE'
+    KNOWLEDGE: 'KNOWLEDGE',
+
+    /*
+      THE THREE OBJECTIVE TABS. See the header of Objective.gs.
+
+      OBJ_PLAN and OBJ_TASK are the department's own objective workbook,
+      pasted in: the SMART objective split one row per milestone, and the
+      ninety unique-role objectives exactly as that sheet has them. They are
+      TYPED, not written by the page, because they are the agreed wording
+      for the period and correcting a sentence should be a cell edit.
+
+      THEY ARE NOT IN THIS FILE, deliberately. This repository is public,
+      and the objectives name the department's targets and all eighty-six
+      monitored business processes. Behind the sign-in they are the team's;
+      written into Config.gs they would be on the open internet and in the
+      git history after any deletion.
+
+      OBJ_LOG is the only one the page writes: what was recorded, for which
+      month, by whom. setupObjectiveTabs() creates it.
+    */
+    OBJ_PLAN:  'OBJ_PLAN',
+    OBJ_TASK:  'OBJ_TASK',
+    OBJ_LOG:   'OBJ_LOG'
+  },
+
+  /**
+   * The objective period, and the shape of the week it is measured in.
+   *
+   * ONE PERIOD AT A TIME. The department sets objectives for six months and
+   * scores them at the end; there is no history of previous periods to leaf
+   * through yet, and inventing one before a second period exists would be
+   * guessing at what the second one looks like. When March 2027 closes,
+   * these three lines move and the tabs are re-pasted.
+   *
+   * WORK_DAYS is the part that is genuinely local and genuinely matters.
+   * Thirty of the ninety objectives are DAILY, and "did we do it today"
+   * cannot be answered without knowing which days count. The working week
+   * here is Sunday to Thursday - Friday and Saturday are the weekend - so a
+   * daily check has about twenty-two slots in a month, not thirty. Getting
+   * this wrong does not fail loudly: it quietly scores every team member as
+   * having missed eight days a month, for ever.
+   *
+   * 0 is Sunday, the same numbering Date.getDay() uses, so nothing has to be
+   * translated at the point of asking.
+   */
+  OBJECTIVE: {
+    PERIOD_START: '2026-10',
+    PERIOD_END:   '2027-03',
+    PERIOD_LABEL: 'October 2026 to March 2027',
+
+    WORK_DAYS: [0, 1, 2, 3, 4],
+
+    /*
+      How many past updates each log row remembers.
+
+      The Updates timeline is built from a JSON column on the row rather
+      than from a second tab of events, the same way a share's attachments
+      are. Twenty is more than anybody scrolls and small enough that the
+      cell never approaches the 50,000 characters a cell holds.
+    */
+    HISTORY_KEPT: 20
   },
 
   /**

@@ -189,6 +189,242 @@ const stub = `
 <script>
 (function () {
   var FIXTURE = ${jsonA(FIXTURE)};
+
+  /*
+    THE OBJECTIVE STORE, and the arithmetic that goes with it.
+
+    Written out rather than canned because the Objectives page is the one
+    screen whose headline number is DERIVED from what is below it. A fixture
+    that returned a fixed score could show 67 out of 100 above a list of
+    milestones nobody had touched, and the suite would pass.
+
+    November 2026 opens on a Sunday and has 22 working days; 8 of them have
+    gone by the 10th, which is the day the fixture is pinned to. Those are
+    the numbers the server works out from CONFIG.OBJECTIVE.WORK_DAYS, and
+    they are repeated here so the page can be checked against them.
+  */
+  var OBJ_PERIODS = ['2026-10', '2026-11', '2026-12',
+                     '2027-01', '2027-02', '2027-03'];
+  var OBJ_NOW = '2026-11';
+  var OBJ_PERIOD = OBJ_NOW;
+  var OBJ_LOG = {};
+
+  // Working days per month, and how many had gone by the fixture's today.
+  var OBJ_WORK = { '2026-10': 21, '2026-11': 22, '2026-12': 23,
+                   '2027-01': 21, '2027-02': 20, '2027-03': 23 };
+  var OBJ_DAYS = { '2026-10': 31, '2026-11': 30, '2026-12': 31,
+                   '2027-01': 31, '2027-02': 28, '2027-03': 31 };
+
+  function objSlots(period, freq) {
+    var f = String(freq || '').toUpperCase();
+    if (f === 'DAILY') return OBJ_WORK[period] || 0;
+    if (f === 'WEEKLY') return Math.ceil((OBJ_DAYS[period] || 30) / 7);
+    if (f === 'QUARTERLY') {
+      var m = Number(String(period).slice(5, 7));
+      return (m === 3 || m === 6 || m === 9 || m === 12) ? 1 : 0;
+    }
+    return 1;
+  }
+
+  function objElapsed(period, freq) {
+    var slots = objSlots(period, freq);
+    if (!slots) return 0;
+    if (period < OBJ_NOW) return slots;
+    if (period > OBJ_NOW) return 0;
+    var f = String(freq || '').toUpperCase();
+    if (f === 'DAILY') return 8;            // the 10th, Sunday to Thursday
+    if (f === 'WEEKLY') return 2;           // day 10 is inside block two
+    return 0;
+  }
+
+  function objMarks(s, slots) {
+    var out = String(s || '').replace(/[^YN.]/g, '').slice(0, slots);
+    while (out.length < slots) out += '.';
+    return out;
+  }
+
+  function objCount(marks, mark, upto) {
+    var n = 0;
+    for (var i = 0; i < Math.min(upto, marks.length); i++) {
+      if (marks.charAt(i) === mark) n++;
+    }
+    return n;
+  }
+
+  /* The ninety, counted the way the Operation milestone counts them. */
+  function objUnique(period) {
+    var on = 0, total = 0, kpiOn = 0, kpiTotal = 0;
+    OBJ_TASK.forEach(function (t) {
+      var slots = objSlots(period, t.frequency);
+      if (!slots) return;
+      total++;
+      if (t.kpi) kpiTotal++;
+      var e = OBJ_LOG[period + '|TASK|' + t.id];
+      var elapsed = objElapsed(period, t.frequency);
+      var marks = objMarks(e ? e.marks : '', slots);
+      if (elapsed === 0 || objCount(marks, 'Y', elapsed) === elapsed) {
+        on++;
+        if (t.kpi) kpiOn++;
+      }
+    });
+    return { fraction: total ? on / total : 0, on: on, total: total,
+             kpiOn: kpiOn, kpiTotal: kpiTotal,
+             processOn: on - kpiOn, processTotal: total - kpiTotal };
+  }
+
+  function objAutoValue(m, period) {
+    if (m.auto === 'UNIQUE_ROLES') return objUnique(period).fraction * m.target;
+    if (m.auto === 'KNOWLEDGE') return period === OBJ_NOW ? 2 : 0;
+    if (m.auto === 'LEARN') return period === OBJ_NOW ? 3 : 0;
+    return 0;
+  }
+
+  function objFraction(m, period) {
+    if (m.auto) {
+      return Math.max(0, Math.min(1, objAutoValue(m, period) / (m.target || 1)));
+    }
+    var e = OBJ_LOG[period + '|PLAN|' + m.id];
+    if (!e) return 0;
+    if (m.countType === 'DONE') return e.status === 'DONE' ? 1 : 0;
+    if (m.per === 'PERIOD') {
+      var sum = 0;
+      for (var i = 0; i <= OBJ_PERIODS.indexOf(period); i++) {
+        var p = OBJ_LOG[OBJ_PERIODS[i] + '|PLAN|' + m.id];
+        if (p && p.value) sum += p.value;
+      }
+      return Math.max(0, Math.min(1, sum / (m.target || 1)));
+    }
+    return Math.max(0, Math.min(1,
+      (e.value || 0) / (m.target || (m.countType === 'PERCENT' ? 100 : 1))));
+  }
+
+  /* Six categories, nine weighted rows, weighting 100 - as the sheet has it. */
+  var OBJ_PLAN = [
+    { rowId: 'OP', category: 'Operation', weight: 20, milestones: [
+      { id: 'OBJ-001', objective: 'Ensure stable and responsive SAP support.',
+        milestone: 'Monitor 86 SAP processes, maintain >= 99.5% SLA ' +
+          'achievement, and review 4 KPI results monthly.',
+        countType: 'PERCENT', target: 100, per: 'MONTH',
+        auto: 'UNIQUE_ROLES' },
+      { id: 'OBJ-002', objective: 'Identify recurring SAP issues.',
+        milestone: 'Complete at least 2 RCA / preventive actions every month.',
+        countType: 'NUMBER', target: 2, per: 'MONTH', auto: '' }
+    ] },
+    { rowId: 'DEV', category: 'Development Work & Project', weight: 10,
+      milestones: [
+      { id: 'OBJ-003', objective: 'Deliver approved SAP enhancements.',
+        milestone: 'Complete at least 6 development initiatives during ' +
+          'the period.',
+        countType: 'NUMBER', target: 6, per: 'PERIOD', auto: '' }
+    ] },
+    { rowId: 'PO1', category: 'People & Organization', weight: 10,
+      milestones: [
+      { id: 'OBJ-004', objective: 'Share SAP knowledge across the team.',
+        milestone: 'Conduct at least 1 knowledge-sharing session per month.',
+        countType: 'NUMBER', target: 1, per: 'MONTH', auto: 'KNOWLEDGE' }
+    ] },
+    { rowId: 'PO2', category: 'People & Organization', weight: 5,
+      milestones: [
+      { id: 'OBJ-005', objective: 'Improve business users understanding.',
+        milestone: 'Conduct at least 1 user training / awareness session ' +
+          'per month.',
+        countType: 'NUMBER', target: 1, per: 'MONTH', auto: '' }
+    ] },
+    { rowId: 'PO3', category: 'People & Organization', weight: 10,
+      milestones: [
+      { id: 'OBJ-006', objective: 'Maintain clear SOPs and user guides.',
+        milestone: 'Complete or update at least 2 documents per month.',
+        countType: 'NUMBER', target: 2, per: 'MONTH', auto: 'LEARN' }
+    ] },
+    { rowId: 'PO4', category: 'People & Organization', weight: 5,
+      milestones: [
+      { id: 'OBJ-007', objective: 'Promote TVL culture and ethics.',
+        milestone: 'Commit and practice strong adherence to TVL culture.',
+        countType: 'DONE', target: 1, per: 'PERIOD', auto: '' }
+    ] },
+    { rowId: 'COM', category: 'Commercial', weight: 20, milestones: [
+      { id: 'OBJ-008', objective: 'The Go-to-Market strategy for EAS services.',
+        milestone: 'SAP self-paced learning through learning.sap.com, ' +
+          'module-wise.',
+        countType: 'DONE', target: 1, per: 'PERIOD', auto: '' }
+    ] },
+    { rowId: 'LEAD', category: 'Leadership', weight: 10, milestones: [
+      { id: 'OBJ-009', objective: 'Ensure SAP activities comply with ITSM.',
+        milestone: 'Maintain 100% compliance with applicable SAP governance.',
+        countType: 'PERCENT', target: 100, per: 'MONTH', auto: '' }
+    ] },
+    { rowId: 'XF', category: 'Cross-Functional', weight: 10, milestones: [
+      { id: 'OBJ-010', objective: 'Work closely with the business functions.',
+        milestone: 'Complete at least 1 cross-functional initiative per month.',
+        countType: 'NUMBER', target: 1, per: 'MONTH', auto: '' }
+    ] }
+  ];
+
+  /* Twelve of the ninety: the four KPIs and eight processes. */
+  var OBJ_TASK = (function () {
+    var t = function (id, name, group, kpi, freq, area, target) {
+      return { id: id, category: group + ' Process Execution', name: name,
+               group: group, area: area || 'RMG/MG', kpi: kpi,
+               description: 'Checks ' + name.toLowerCase() + '.',
+               target: target || 1, method: 'Data from the system using ' +
+               'layout & inform the users to minimize it.', frequency: freq };
+    };
+    return [
+      t('OJT-001', 'SAP Incident & Emergency Management', 'All', true,
+        'Monthly', 'RMG/MG', '>= 99.90%'),
+      t('OJT-002', 'SAP Server Availability', 'All', true, 'Monthly',
+        'RMG/MG', '>= 99.50%'),
+      t('OJT-003', 'User Training Feedback analysis', 'All', true,
+        'Quarterly', 'RMG/MG', '>= 90%'),
+      t('OJT-004', 'Error/Issue Resolution Time', 'All', true, 'Monthly',
+        'RMG/MG', '>= 90%'),
+      t('OJT-005', 'Unnecessary delivery order monitoring', 'SD', false,
+        'Monthly'),
+      t('OJT-006', 'GI vs. POD check', 'SD', false, 'Weekly'),
+      t('OJT-007', 'Proof of delivery (POD) vs. Billing', 'SD', false,
+        'Daily'),
+      t('OJT-008', 'Commercial Invoice check', 'SD', false, 'Weekly'),
+      t('OJT-009', 'Delivery challan status check', 'SD', false, 'Daily', 'MG'),
+      t('OJT-010', 'Requisition-based GI Status check', 'MM', false,
+        'Monthly', 'RMG'),
+      t('OJT-011', 'Weekly RM Leftover Declaration', 'MM', false, 'Weekly',
+        'RMG', 0.9),
+      t('OJT-012', 'Plan Cost & Activity Monitoring', 'CO', false, 'Monthly')
+    ];
+  })();
+
+  /*
+    A month that has been partly worked, so the page does not open on a
+    clean slate - a screen where nothing has happened hides every bug about
+    showing what has.
+  */
+  OBJ_LOG['2026-11|TASK|OJT-007'] = { marks: 'YYNYYYY...............',
+    by: 'Bilal Hossain', at: Date.now() - 86400000, history: [] };
+  OBJ_LOG['2026-11|TASK|OJT-009'] = { marks: 'YYYYYYYY..............',
+    by: 'Bilal Hossain', at: Date.now() - 3600000, history: [] };
+  OBJ_LOG['2026-11|TASK|OJT-006'] = { marks: 'YY...',
+    by: 'Bilal Hossain', at: Date.now() - 7200000, history: [] };
+  OBJ_LOG['2026-11|PLAN|OBJ-002'] = { value: 1, status: 'ON_TRACK',
+    note: 'RCA done for the repeated GI posting failure in MM. The second ' +
+      'is in progress with the FI team.',
+    by: 'Rudra Das', at: Date.now() - 172800000,
+    history: [{ at: Date.now() - 600000000, by: 'Ayesha Rahman', value: 0,
+                status: 'AT_RISK', note: 'Nothing closed yet this month.' }] };
+  OBJ_LOG['2026-10|PLAN|OBJ-002'] = { value: 2, status: 'ON_TRACK',
+    note: '', by: 'Ayesha Rahman', at: Date.now() - 900000000, history: [] };
+  OBJ_LOG['2026-11|PLAN|OBJ-009'] = { value: 100, status: 'ON_TRACK',
+    note: '', by: 'Rudra Das', at: Date.now() - 200000000, history: [] };
+
+  /*
+    The store, where a test can read it.
+
+    Reading the CARD back after a save proves nothing: this fixture answers
+    with whatever it was sent, so a card showing 2 means only that the page
+    can draw a 2. What has to be checked is what crossed the wire, and this
+    is where it landed.
+  */
+  window.__OBJ_LOG__ = OBJ_LOG;
+
   // The Knowledge Share store, which is a real one: see getKnowledge below.
   // Starts with one share so the page has something to draw before anybody
   // posts, and so "the feed is empty" is a state a test has to create
@@ -1017,6 +1253,167 @@ const stub = `
       }
       KN_STORE.splice(at, 1);
       return { ok: true };
+    },
+
+    /*
+      OBJECTIVES, with a store that stores, for the same reason Knowledge
+      Share has one: this page writes. A fixture that answers a save with a
+      canned payload would prove the card draws and nothing about whether
+      the figure it drew is the figure that was sent.
+
+      THE SCORING IS DONE HERE THE WAY THE SERVER DOES IT - the mean of a
+      row's milestones, times its weight. A fixture that returned a fixed
+      score would let the page show 67 out of 100 above a list of untouched
+      milestones, which is exactly the bug that would be worth catching.
+      Ask getObjectives again after a save and the number has moved.
+    */
+    getObjectives: function (token, period) {
+      var want = String(period || '') || OBJ_PERIOD;
+      OBJ_PERIOD = want;
+
+      var rows = OBJ_PLAN.map(function (r) {
+        return {
+          rowId: r.rowId, category: r.category, weight: r.weight,
+          milestones: r.milestones.map(function (m) {
+            var e = OBJ_LOG[want + '|PLAN|' + m.id] || null;
+            var f = objFraction(m, want);
+            return {
+              id: m.id, rowId: r.rowId, category: r.category,
+              weight: r.weight, objective: m.objective,
+              milestone: m.milestone, outcome: '',
+              countType: m.countType, target: m.target, per: m.per,
+              owner: 'EAS Team', auto: m.auto || '',
+              value: e ? e.value : (m.auto ? objAutoValue(m, want) : 0),
+              fraction: f,
+              status: e ? e.status : '', note: e ? e.note : '',
+              by: e ? e.by : '', at: e ? e.at : 0,
+              history: e ? (e.history || []) : [],
+              months: OBJ_PERIODS.map(function (p) {
+                var pe = OBJ_LOG[p + '|PLAN|' + m.id];
+                return { period: p, recorded: Boolean(pe),
+                         fraction: objFraction(m, p),
+                         status: pe ? pe.status : '' };
+              })
+            };
+          })
+        };
+      });
+
+      var unique = objUnique(want);
+      var score = 0;
+      rows.forEach(function (r) {
+        var sum = 0;
+        r.milestones.forEach(function (m) { sum += m.fraction; });
+        score += (r.milestones.length ? sum / r.milestones.length : 0) * r.weight;
+      });
+
+      return {
+        period: want, periods: OBJ_PERIODS.slice(),
+        periodLabel: 'October 2026 to March 2027',
+        monthIndex: OBJ_PERIODS.indexOf(want),
+        current: OBJ_NOW,
+        closed: want < OBJ_NOW,
+        plan: { rows: rows, weight: 100, filled: true,
+                count: OBJ_PLAN.reduce(function (n, r) {
+                  return n + r.milestones.length; }, 0) },
+        tasks: {
+          list: OBJ_TASK.map(function (t) {
+            var e = OBJ_LOG[want + '|TASK|' + t.id];
+            var slots = objSlots(want, t.frequency);
+            var elapsed = objElapsed(want, t.frequency);
+            var marks = objMarks(e ? e.marks : '', slots);
+            var done = objCount(marks, 'Y', elapsed);
+            var missed = objCount(marks, 'N', elapsed);
+            return {
+              id: t.id, category: t.category, name: t.name, group: t.group,
+              area: t.area, kpi: t.kpi, description: t.description,
+              target: t.target, method: t.method, frequency: t.frequency,
+              owner: 'SAP Support Team',
+              marks: marks, slots: slots, elapsed: elapsed,
+              done: done, missed: missed,
+              silent: Math.max(0, elapsed - done - missed),
+              marked: objCount(marks, 'Y', slots),
+              onSchedule: elapsed === 0 ? true : done === elapsed,
+              due: elapsed > 0 && marks.charAt(elapsed - 1) === '.',
+              // The four KPIs are nobody's, and this account owns SD.
+              mine: !t.kpi && (t.group === 'SD' || t.group === 'MM'),
+              note: e ? e.note : '', by: e ? e.by : '', at: e ? e.at : 0
+            };
+          }),
+          count: OBJ_TASK.length,
+          groups: ['All', 'SD', 'MM', 'PP', 'FI', 'CO'],
+          filled: true
+        },
+        unique: unique,
+        score: { period: want, score: Math.round(score * 10) / 10,
+                 outOf: 100, rows: [] },
+        me: { id: '20000000', name: 'Utpal Biswas', admin: true,
+              planner: true, groups: ['SD', 'MM'], all: true, reason: '' }
+      };
+    },
+
+    recordObjMilestone: function (token, id, period, update) {
+      var key = period + '|PLAN|' + id;
+      var had = OBJ_LOG[key];
+      var history = had ? (had.history || []).slice() : [];
+      if (had && had.at) {
+        history.unshift({ at: had.at, by: had.by, value: had.value,
+                          status: had.status, note: had.note });
+      }
+      var u = update || {};
+      OBJ_LOG[key] = {
+        value: u.value === undefined ? (had ? had.value : 0) : Number(u.value),
+        status: u.status === undefined ? (had ? had.status : '') : u.status,
+        note: u.note === undefined ? (had ? had.note : '') : u.note,
+        by: 'Utpal Biswas', at: Date.now(), history: history.slice(0, 20)
+      };
+      return { ok: true, at: OBJ_LOG[key].at, by: 'Utpal Biswas' };
+    },
+
+    tickObjTask: function (token, id, period, slot, mark) {
+      var t = null;
+      OBJ_TASK.forEach(function (x) { if (x.id === id) t = x; });
+      if (!t) throw new Error('There is no objective with that id.');
+      if (t.kpi) {
+        throw new Error('That one is a KPI. Its figure comes from the KPI ' +
+                        'engine and is not ticked by hand.');
+      }
+      if (t.group !== 'SD' && t.group !== 'MM') {
+        throw new Error('That objective belongs to the ' + t.group +
+                        ' module. You can tick the ones for your own module.');
+      }
+      var slots = objSlots(period, t.frequency);
+      var i = Number(slot);
+      if (!(i >= 0) || i >= slots) {
+        throw new Error('There is no slot ' + slot + ' in ' + period + '.');
+      }
+      var key = period + '|TASK|' + id;
+      var marks = objMarks(OBJ_LOG[key] ? OBJ_LOG[key].marks : '', slots);
+      var ch = (mark === 'Y' || mark === 'N') ? mark : '.';
+      marks = marks.slice(0, i) + ch + marks.slice(i + 1);
+      OBJ_LOG[key] = { marks: marks, note: '', by: 'Utpal Biswas',
+                       at: Date.now(), history: [] };
+      return { ok: true, marks: marks };
+    },
+
+    createObjMilestone: function (token, draft) {
+      var d = draft || {};
+      var row = null;
+      OBJ_PLAN.forEach(function (r) { if (r.rowId === d.rowId) row = r; });
+      if (!row) throw new Error('There is no category with that id.');
+      if (!String(d.milestone || '').trim()) {
+        throw new Error('A milestone needs its measure - what has to happen.');
+      }
+      var n = 0;
+      OBJ_PLAN.forEach(function (r) { n += r.milestones.length; });
+      var id = 'OBJ-' + ('00' + (n + 1)).slice(-3);
+      row.milestones.push({
+        id: id, objective: String(d.objective || ''),
+        milestone: String(d.milestone), countType: d.countType || 'NUMBER',
+        target: Number(d.target) || 1, per: d.per || 'MONTH', auto: ''
+      });
+      return { ok: true, id: id, rowId: row.rowId, category: row.category,
+               weight: row.weight, sharedAcross: row.milestones.length };
     },
 
     getTeam: function () {

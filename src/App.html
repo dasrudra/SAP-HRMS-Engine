@@ -1659,6 +1659,13 @@
     // shared this morning is there this afternoon.
     if (name === 'knowledge') loadKnowledge();
 
+    // Re-read on every visit too, and for a sharper version of the same
+    // reason: two people can be ticking the ninety at once, and somebody who
+    // cannot see their colleague's tick will do the check again.
+    // wireObjective guards on its own flag, so this costs nothing after the
+    // first visit.
+    if (name === 'objective') { wireObjective(); loadObjective(); }
+
     // The dots are only drawn on one page, so only one page pays for keeping
     // them current. stopTeamPresence() is idempotent, which is what lets this
     // sit in the middle of a function every view change passes through.
@@ -9025,6 +9032,987 @@
     const text = String(value == null ? '' : value);
     return (window.CSS && window.CSS.escape) ? window.CSS.escape(text)
                                              : text.replace(/["\\]/g, '\\$&');
+  }
+
+
+  // =========================================================================
+  // OBJECTIVES  -  the department's six months, and the ninety underneath
+  // =========================================================================
+  //
+  // ONE PAGE, TWO SHEETS, TWO DIFFERENT CONTROLS, and that last part is the
+  // whole design. The department's objective workbook has two sheets and
+  // they ask different questions of whoever is recording:
+  //
+  //   SMART Objective   "how many did we do this month?"   a counter
+  //   Unique Roles      "did we do today's check?"          one tick
+  //
+  // A page that used one control for both would make either the twenty-nine
+  // tedious or the ninety impossible - thirty of the ninety are daily, and
+  // typing a number into each of them every morning is not a thing anybody
+  // would keep up past the first week.
+  //
+  // WHAT IS DRAWN AND WHAT IS NOT. Everything the server decides stays the
+  // server's: which objectives are yours to tick, whether you may record a
+  // milestone at all, what a milestone's figure is when it is counted rather
+  // than typed. This file draws what it is handed - see getObjectives.
+  const OBJ = {
+    data: null,
+    sheet: 'plan',        // which of the two is on screen
+    period: '',           // the month being recorded against
+    openId: '',           // the card that is open, if any
+    draft: null,          // what is in that card before it is saved
+    group: 'ALL',         // the module filter, on the Unique Roles side
+    busy: false
+  };
+
+  const OBJ_MONTHS = ['January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'];
+
+
+  /** '2026-11' -> 'November 2026'. */
+  function objMonthName(period) {
+    const bits = String(period || '').split('-');
+    const m = Number(bits[1]);
+    if (!bits[0] || !m) return String(period || '');
+    return OBJ_MONTHS[m - 1] + ' ' + bits[0];
+  }
+
+  /** '2026-11' -> 'N', for the six letters under a progress bar. */
+  function objMonthLetter(period) {
+    const m = Number(String(period || '').split('-')[1]);
+    return m ? OBJ_MONTHS[m - 1].charAt(0) : '?';
+  }
+
+  /** '2026-11' -> 'Nov', for the caption beside a percentage. */
+  function objMonthShort(period) {
+    const m = Number(String(period || '').split('-')[1]);
+    return m ? OBJ_MONTHS[m - 1].slice(0, 3) : '';
+  }
+
+
+  function loadObjective(period) {
+    const list = document.getElementById('objList');
+    if (list && !OBJ.data) {
+      list.innerHTML = '<div class="obj-wait">Loading the objectives...</div>';
+    }
+
+    // The month is sent so that stepping back to October asks the server for
+    // October rather than filtering a November payload in the browser: a
+    // milestone counted from the ninety has a different figure every month,
+    // and only the server can work out what it was.
+    callServer('getObjectives', period || OBJ.period || '')
+      .then(function (data) {
+        OBJ.data = data;
+        OBJ.period = data.period;
+        renderObj(data);
+      })
+      .catch(function (err) {
+        if (list) {
+          list.innerHTML = '<div class="obj-empty"><strong>Could not load</strong>' +
+            '<span>' + escapeHtml(String(err && err.message || err)) +
+            '</span></div>';
+        }
+        onError(err);
+      });
+  }
+
+
+  function renderObj(data) {
+    const sub = document.getElementById('objSub');
+    if (sub) {
+      const n = data.monthIndex >= 0 ? data.monthIndex + 1 : 0;
+      sub.textContent = data.periodLabel +
+        (n ? '  \u00B7  month ' + n + ' of ' + (data.periods || []).length : '');
+    }
+
+    const cp = document.getElementById('objCountPlan');
+    const ct = document.getElementById('objCountTask');
+    if (cp) cp.textContent = data.plan.count;
+    if (ct) ct.textContent = data.tasks.count;
+
+    // Adding an objective is the admin's. The button is not drawn for
+    // anybody else rather than drawn and refused.
+    const add = document.getElementById('objNew');
+    if (add) add.hidden = !(data.me && data.me.admin);
+
+    document.getElementById('objTabPlan')
+      .classList.toggle('is-on', OBJ.sheet === 'plan');
+    document.getElementById('objTabTask')
+      .classList.toggle('is-on', OBJ.sheet === 'task');
+    document.getElementById('objTabPlan')
+      .setAttribute('aria-selected', OBJ.sheet === 'plan' ? 'true' : 'false');
+    document.getElementById('objTabTask')
+      .setAttribute('aria-selected', OBJ.sheet === 'task' ? 'true' : 'false');
+
+    renderObjStats(data);
+    renderObjHead(data);
+    renderObjList(data);
+  }
+
+
+  function renderObjStats(data) {
+    const box = document.getElementById('objStats');
+    if (!box) return;
+
+    const tile = function (label, value, unit, pct, fill) {
+      return '<div class="obj-stat"><div class="obj-stat-l">' +
+        escapeHtml(label) + '</div><div class="obj-stat-v">' + value +
+        (unit ? '<em>' + unit + '</em>' : '') + '</div>' +
+        '<div class="obj-stat-b"><i class="' + fill + '" style="width:' +
+        Math.max(0, Math.min(100, pct)) + '%"></i></div></div>';
+    };
+
+    if (OBJ.sheet === 'plan') {
+      const rows = data.plan.rows || [];
+      let total = 0, met = 0, needs = 0, auto = 0;
+      rows.forEach(function (r) {
+        (r.milestones || []).forEach(function (m) {
+          total++;
+          if (m.fraction >= 1) met++;
+          if (m.auto) auto++; else if (!m.status && m.fraction < 1) needs++;
+        });
+      });
+      const score = data.score ? data.score.score : 0;
+      const outOf = data.score ? data.score.outOf : 100;
+
+      box.innerHTML =
+        tile('Period achievement', score, ' / ' + outOf,
+             outOf ? (score / outOf) * 100 : 0,
+             score / (outOf || 100) >= .7 ? 'obj-fill-g' : 'obj-fill-a') +
+        tile('Milestones on track', met, ' of ' + total,
+             total ? (met / total) * 100 : 0, 'obj-fill-g') +
+        tile('Needs an update', needs, '', total ? (needs / total) * 100 : 0,
+             'obj-fill-a') +
+        tile('Counted automatically', auto, ' of ' + total,
+             total ? (auto / total) * 100 : 0, 'obj-fill-n');
+      return;
+    }
+
+    // ---- the Unique Roles side ----
+    const list = data.tasks.list || [];
+    const live = list.filter(function (t) { return t.slots > 0; });
+    const on = live.filter(function (t) { return t.onSchedule; }).length;
+    const due = live.filter(function (t) { return t.due && t.mine; }).length;
+    const behind = live.filter(function (t) { return !t.onSchedule; }).length;
+    const mine = list.filter(function (t) { return t.mine; }).length;
+
+    box.innerHTML =
+      tile('On schedule this month', on, ' of ' + live.length,
+           live.length ? (on / live.length) * 100 : 0, 'obj-fill-g') +
+      tile('Behind', behind, '', live.length ? (behind / live.length) * 100 : 0,
+           'obj-fill-r') +
+      tile('Waiting for you', due, '', live.length ? (due / live.length) * 100 : 0,
+           'obj-fill-a') +
+      tile('Yours to tick', mine, ' of ' + list.length,
+           list.length ? (mine / list.length) * 100 : 0, 'obj-fill-n');
+  }
+
+
+  function renderObjHead(data) {
+    const month = document.getElementById('objMonth');
+    if (month) month.textContent = objMonthName(data.period);
+
+    const periods = data.periods || [];
+    const at = periods.indexOf(data.period);
+    const prev = document.getElementById('objPrev');
+    const next = document.getElementById('objNext');
+    if (prev) prev.disabled = at <= 0;
+    // NOT PAST THE MONTH IT ACTUALLY IS, which is data.current and not the
+    // month being looked at. There is nothing to record against February
+    // yet, and a page that let somebody step into it would be inviting a
+    // figure that means nothing - and one that would then be counted.
+    if (next) {
+      next.disabled = at < 0 || at >= periods.length - 1 ||
+        periods[at + 1] > String(data.current || '');
+    }
+
+    const hint = document.getElementById('objHint');
+    if (hint) {
+      if (OBJ.sheet === 'plan') {
+        hint.textContent = data.me && data.me.planner
+          ? 'Press Update to record this month'
+          : 'Recording is for section heads and the department head';
+      } else {
+        hint.textContent = (data.me && data.me.reason) ||
+          'One press marks a period done';
+      }
+    }
+
+    renderObjFilters(data);
+  }
+
+
+  /**
+   * The module chips, on the Unique Roles side only.
+   *
+   * ONE AT A TIME, like the Learnings chips and for the reason that page
+   * taught us: a filter that stays on while you pick another is a filter
+   * somebody forgets they set, and then the page looks empty and broken.
+   */
+  function renderObjFilters(data) {
+    const box = document.getElementById('objFilters');
+    if (!box) return;
+    if (OBJ.sheet !== 'task') { box.innerHTML = ''; return; }
+
+    const counts = {};
+    (data.tasks.list || []).forEach(function (t) {
+      counts[t.group] = (counts[t.group] || 0) + 1;
+    });
+
+    let html = '<button class="obj-filter' +
+      (OBJ.group === 'ALL' ? ' is-on' : '') + '" data-group="ALL">All ' +
+      data.tasks.count + '</button>';
+
+    // Mine first, when there is a Mine to put first - it is the only chip
+    // most people ever press.
+    const mine = (data.tasks.list || []).filter(function (t) { return t.mine; });
+    if (mine.length) {
+      html += '<button class="obj-filter' +
+        (OBJ.group === 'MINE' ? ' is-on' : '') + '" data-group="MINE">Mine ' +
+        mine.length + '</button>';
+    }
+
+    (data.tasks.groups || []).forEach(function (g) {
+      // A module nothing is filed under this month would be a chip that
+      // empties the page when pressed. Quarterly objectives do that to a
+      // whole group in two months out of three.
+      if (!counts[g]) return;
+      /*
+        The sheet files the four KPIs under a group called 'All', which in
+        a row of chips sits next to the All that means everything and reads
+        as the same word twice. They are the KPIs, so the chip says so -
+        the value sent is still the group name the server knows.
+      */
+      const label = (g === 'All') ? 'KPI' : g;
+      html += '<button class="obj-filter' +
+        (OBJ.group === g ? ' is-on' : '') + '" data-group="' +
+        escapeHtml(g) + '">' + escapeHtml(label) + ' ' + counts[g] +
+        '</button>';
+    });
+
+    box.innerHTML = html;
+  }
+
+
+  function renderObjList(data) {
+    const box = document.getElementById('objList');
+    if (!box) return;
+
+    if (OBJ.sheet === 'plan') {
+      if (!data.plan.filled) {
+        box.innerHTML = '<div class="obj-empty"><strong>' +
+          'The SMART Objective sheet is empty</strong><span>' +
+          'Import <code>OBJ_PLAN.csv</code> into a tab called ' +
+          '<code>OBJ_PLAN</code>, then run <code>setupObjectiveTabs</code> ' +
+          'in the editor to check it.</span></div>';
+        return;
+      }
+      let html = '';
+      let colour = 0;
+      const seen = {};
+      (data.plan.rows || []).forEach(function (row) {
+        if (seen[row.category] === undefined) {
+          seen[row.category] = colour % 8;
+          colour++;
+        }
+        (row.milestones || []).forEach(function (m) {
+          html += (m.id === OBJ.openId)
+            ? objPlanOpen(m, data, seen[row.category])
+            : objPlanCard(m, data, seen[row.category]);
+        });
+      });
+      box.innerHTML = html;
+      return;
+    }
+
+    // ---- the ninety ----
+    if (!data.tasks.filled) {
+      box.innerHTML = '<div class="obj-empty"><strong>' +
+        'The Unique Roles sheet is empty</strong><span>' +
+        'Copy A1:L91 from the Objective_Unique Roles sheet of the workbook ' +
+        'and paste it into a tab called <code>OBJ_TASK</code>.</span></div>';
+      return;
+    }
+
+    const list = (data.tasks.list || []).filter(function (t) {
+      if (OBJ.group === 'ALL') return true;
+      if (OBJ.group === 'MINE') return t.mine;
+      return t.group === OBJ.group;
+    });
+
+    if (!list.length) {
+      box.innerHTML = '<div class="obj-empty"><strong>Nothing here</strong>' +
+        '<span>No objective in this module for ' +
+        escapeHtml(objMonthName(data.period)) + '.</span></div>';
+      return;
+    }
+
+    box.innerHTML = list.map(function (t) {
+      return (t.id === OBJ.openId) ? objTaskOpen(t, data) : objTaskCard(t, data);
+    }).join('');
+  }
+
+
+  // ------------------------------------------------------------------ plan
+  /**
+   * The six pips under a milestone's bar - one per month of the period.
+   *
+   * A MONTH THAT HAS NOT HAPPENED YET IS BLANK, and that is tested against
+   * data.current rather than against the month being looked at. It matters
+   * most on a counted milestone: nothing has elapsed in February, so nothing
+   * can be late, so it scores a clean 1 - and a pip drawn from the score
+   * alone would paint next February green in November.
+   */
+  function objPips(m, data) {
+    const now = String(data.current || data.period);
+    let pips = '', letters = '';
+    (m.months || []).forEach(function (mo) {
+      let cls = '';
+      if (mo.period > now) cls = '';                    // not yet
+      else if (mo.period === data.period) cls = 'is-now';
+      else if (mo.fraction >= 1) cls = 'is-g';
+      else if (mo.recorded || mo.fraction > 0) cls = 'is-a';
+      else cls = 'is-r';
+      pips += '<i class="' + cls + '"></i>';
+      letters += '<span>' + objMonthLetter(mo.period) + '</span>';
+    });
+    return '<div class="obj-pips">' + pips + '</div>' +
+           '<div class="obj-pipl">' + letters + '</div>';
+  }
+
+
+  function objFill(fraction) {
+    if (fraction >= 1) return 'obj-fill-g';
+    if (fraction > 0) return 'obj-fill-a';
+    return 'obj-fill-r';
+  }
+
+
+  function objPlanCard(m, data, colour) {
+    const pct = Math.round(m.fraction * 100);
+    const can = data.me && data.me.planner;
+
+    let note = '';
+    if (m.auto === 'UNIQUE_ROLES' && data.unique) {
+      note = '<span class="is-auto">counted automatically</span> from Unique ' +
+        'Roles &middot; ' + data.unique.on + ' of ' + data.unique.total +
+        ' on schedule';
+    } else if (m.auto === 'KNOWLEDGE') {
+      note = '<span class="is-auto">counted automatically</span> from ' +
+        'Knowledge Share &middot; ' + m.value + ' this month';
+    } else if (m.auto === 'LEARN') {
+      note = '<span class="is-auto">counted automatically</span> from ' +
+        'Learnings &middot; ' + m.value + ' updated this month';
+    } else if (m.status) {
+      note = 'Recorded by ' + escapeHtml(m.by || 'somebody') +
+        (m.countType === 'DONE' ? '' : ' &middot; ' + m.value + ' of ' + m.target);
+    } else {
+      note = 'Nothing recorded for ' + escapeHtml(objMonthName(data.period));
+      const behind = (m.months || []).filter(function (mo) {
+        return mo.period <= data.period && !mo.recorded && !m.auto;
+      }).length;
+      if (behind > 1) {
+        note += ' &middot; <span class="is-bad">' + behind +
+          ' months behind</span>';
+      }
+    }
+
+    const act = m.auto === 'UNIQUE_ROLES'
+      ? '<button class="obj-btn is-wide" data-obj-sheet="task">View the 90</button>'
+      : (can
+          ? '<button class="obj-btn is-wide' + (m.status ? '' : ' is-primary') +
+            '" data-obj-open="' + escapeHtml(m.id) + '">' +
+            (m.status ? 'Update' : 'Record') + '</button>'
+          : '<button class="obj-btn is-wide" disabled>Heads only</button>');
+
+    return '<div class="obj-card">' +
+      '<div>' +
+        '<span class="obj-tag" data-c="' + colour + '">' +
+          escapeHtml(m.category) + ' &middot; weight ' + m.weight + '</span>' +
+        '<div class="obj-card-t">' + escapeHtml(m.milestone) + '</div>' +
+        '<div class="obj-card-s">' + note + '</div>' +
+      '</div>' +
+      '<div><div class="obj-prog-top"><b>' + pct + '%</b><span>' +
+        objMonthShort(data.period) + '</span></div>' +
+        '<div class="obj-bar"><i class="' + objFill(m.fraction) +
+          '" style="width:' + Math.max(pct, m.fraction > 0 ? 3 : 0) +
+          '%"></i></div>' +
+        objPips(m, data) +
+      '</div>' +
+      '<div class="obj-acts">' + act + '</div>' +
+    '</div>';
+  }
+
+
+  /** The card that is open: the counter, the status, the note, the history. */
+  function objPlanOpen(m, data, colour) {
+    const d = OBJ.draft || {};
+    const value = d.value === undefined ? (m.value || 0) : d.value;
+    const status = d.status === undefined ? (m.status || '') : d.status;
+    const note = d.note === undefined ? (m.note || '') : d.note;
+
+    let control;
+    if (m.countType === 'DONE') {
+      control = '<label class="obj-fl">Has it been done?</label>' +
+        '<div class="obj-seg" data-obj-status>' +
+          objSeg('DONE', 'Done', status) +
+          objSeg('AT_RISK', 'In progress', status) +
+          objSeg('MISSED', 'Not done', status) +
+        '</div>';
+    } else {
+      const unit = m.countType === 'PERCENT' ? '%' : '';
+      const short = Math.max(0, m.target - value);
+      control = '<label class="obj-fl">' +
+          (m.countType === 'PERCENT' ? 'What percentage this month?'
+                                     : 'How many this month?') +
+          ' <i>target ' + m.target + unit + '</i></label>' +
+        '<div class="obj-step">' +
+          '<button type="button" data-obj-step="-1">&minus;</button>' +
+          '<div class="obj-step-v">' + value + '</div>' +
+          '<button type="button" data-obj-step="1">+</button>' +
+          '<div class="obj-step-of">of <b>' + m.target + unit + '</b>' +
+            (short > 0 ? '<br><span class="is-warn">' + short + unit +
+              ' more to meet it</span>' : '') +
+          '</div>' +
+        '</div>' +
+        '<label class="obj-fl" style="margin-top:22px">Status</label>' +
+        '<div class="obj-seg" data-obj-status>' +
+          objSeg('ON_TRACK', 'On track', status) +
+          objSeg('AT_RISK', 'At risk', status) +
+          objSeg('MISSED', 'Missed', status) +
+        '</div>';
+    }
+
+    return '<div class="obj-card is-open">' +
+      '<div class="obj-up-head">' +
+        '<div>' +
+          '<span class="obj-tag" data-c="' + colour + '">' +
+            escapeHtml(m.category) + ' &middot; weight ' + m.weight + '</span>' +
+          '<div class="obj-card-t">' + escapeHtml(m.milestone) + '</div>' +
+          '<div class="obj-card-s">' +
+            (m.objective ? escapeHtml(m.objective) + ' &middot; ' : '') +
+            'recording <b>' + escapeHtml(objMonthName(data.period)) + '</b>' +
+          '</div>' +
+        '</div>' +
+        '<button class="obj-up-x" data-obj-close aria-label="Close">&times;</button>' +
+      '</div>' +
+
+      '<div class="obj-up-body">' +
+        '<div>' + control + '</div>' +
+        '<div>' +
+          '<label class="obj-fl">Note <i>optional</i></label>' +
+          '<textarea class="obj-note-in" rows="5" maxlength="4000" ' +
+            'data-obj-note placeholder="What was done, and what is left. ' +
+            'Anything here shows in the review.">' + escapeHtml(note) +
+          '</textarea>' +
+        '</div>' +
+
+        '<div class="obj-up-foot">' +
+          '<span class="obj-up-who" data-obj-say>Saved against ' +
+            escapeHtml(objMonthName(data.period)) +
+            ' &middot; your name and the time are recorded</span>' +
+          '<button class="obj-btn" data-obj-close>Cancel</button>' +
+          '<button class="obj-btn is-primary" data-obj-save="' +
+            escapeHtml(m.id) + '">Save update</button>' +
+        '</div>' +
+
+        objHistory(m) +
+      '</div>' +
+    '</div>';
+  }
+
+
+  function objSeg(value, label, chosen) {
+    return '<button type="button" data-s="' + value + '"' +
+      (chosen === value ? ' class="is-on"' : '') + '>' + label + '</button>';
+  }
+
+
+  /**
+   * The Updates timeline.
+   *
+   * It is what makes this a record rather than a scoreboard: a number on its
+   * own cannot be questioned, and a number with who put it there, when, and
+   * what they said about it can be.
+   */
+  function objHistory(m) {
+    const now = m.status || m.value ? [{
+      at: m.at, by: m.by, value: m.value, status: m.status, note: m.note
+    }] : [];
+    const all = now.concat(m.history || []);
+    if (!all.length) return '';
+
+    let html = '<div class="obj-hist"><div class="obj-hist-h">Updates</div>';
+    all.slice(0, 8).forEach(function (h) {
+      const who = String(h.by || 'Somebody');
+      const initials = who.split(/\s+/).slice(0, 2)
+        .map(function (w) { return w.charAt(0); }).join('').toUpperCase();
+      html += '<div class="obj-hi"><div class="obj-av">' +
+        escapeHtml(initials || '?') + '</div><div>' +
+        '<div class="obj-hi-t"><b>' + escapeHtml(who) + '</b> set it to <b>' +
+          (h.value === null || h.value === undefined ? '-' : h.value) +
+          '</b>' + (h.status ? ' &middot; ' +
+            escapeHtml(h.status.toLowerCase().replace(/_/g, ' ')) : '') +
+        '</div>' +
+        (h.note ? '<div class="obj-hi-n">' + escapeHtml(h.note) + '</div>' : '') +
+        '<div class="obj-hi-d">' + (h.at ? objWhen(h.at) : '') + '</div>' +
+      '</div></div>';
+    });
+    return html + '</div>';
+  }
+
+
+  /** A timestamp the way a person would say it. */
+  function objWhen(ms) {
+    const d = new Date(Number(ms) || 0);
+    if (!d.getTime()) return '';
+    const mm = d.getMinutes();
+    return d.getDate() + ' ' + OBJ_MONTHS[d.getMonth()] + ' ' +
+      d.getFullYear() + ', ' + d.getHours() + ':' + (mm < 10 ? '0' + mm : mm);
+  }
+
+
+  // ------------------------------------------------------------------ tasks
+  function objStrip(t) {
+    let html = '';
+    for (let i = 0; i < t.slots; i++) {
+      const ch = String(t.marks || '').charAt(i);
+      html += '<i class="' +
+        (ch === 'Y' ? 'is-y' : ch === 'N' ? 'is-n' : '') +
+        (i === t.elapsed - 1 ? ' is-now' : '') + '"></i>';
+    }
+    return '<div class="obj-strip">' + html + '</div>';
+  }
+
+
+  function objTaskCard(t, data) {
+    const freq = String(t.frequency || '').toUpperCase();
+
+    let act;
+    if (t.kpi) {
+      act = '<button class="obj-btn is-wide" disabled>From the engine</button>';
+    } else if (!t.mine) {
+      act = '<button class="obj-btn is-wide" disabled>' +
+        escapeHtml(t.group) + ' module</button>';
+    } else if (!t.slots) {
+      act = '<button class="obj-btn is-wide" disabled>Not due</button>';
+    } else if (freq === 'DAILY' || freq === 'WEEKLY') {
+      // More than one slot a month, so the card opens onto the grid rather
+      // than guessing which one the press meant.
+      act = '<button class="obj-tick' + (t.due ? ' is-due' : '') +
+        '" data-obj-open="' + escapeHtml(t.id) + '">' +
+        (t.due ? objTickIcon() + 'Mark ' + (freq === 'DAILY' ? 'a day' : 'a week')
+               : 'Open') + '</button>';
+    } else {
+      const done = String(t.marks || '').charAt(0) === 'Y';
+      act = '<button class="obj-tick' +
+        (done ? ' is-done' : ' is-due') + '" data-obj-tick="' +
+        escapeHtml(t.id) + '" data-slot="0" data-mark="' +
+        (done ? '.' : 'Y') + '">' + objTickIcon() +
+        (done ? 'Done' : 'Mark done') + '</button>';
+    }
+
+    let under;
+    if (!t.slots) {
+      under = '<div class="obj-strip-l">Not due in ' +
+        escapeHtml(objMonthName(data.period)) + '</div>';
+    } else if (!t.elapsed) {
+      // The slot has not come round yet - a monthly objective all month,
+      // every objective in a month that has not started. `done` is
+      // deliberately zero here, so the count that gets printed is `marked`.
+      under = '<div class="obj-strip-l">' +
+        (t.marked ? 'Marked done for ' + escapeHtml(objMonthShort(data.period))
+                  : 'Not marked yet') + '</div>';
+    } else if (t.missed) {
+      under = '<div class="obj-strip-l is-bad">' + t.done + ' of ' +
+        t.elapsed + ' &middot; ' + t.missed + ' missed</div>';
+    } else if (t.silent) {
+      under = '<div class="obj-strip-l is-bad">' + t.done + ' of ' +
+        t.elapsed + ' &middot; ' + t.silent + ' not marked</div>';
+    } else {
+      under = '<div class="obj-strip-l">' + t.done + ' of ' + t.elapsed +
+        ' done</div>';
+    }
+
+    return '<div class="obj-card">' +
+      '<div>' +
+        '<div class="obj-card-s" style="margin:0 0 4px;font-weight:700;' +
+          'letter-spacing:.3px">' + escapeHtml(t.id) + '</div>' +
+        '<div class="obj-card-t">' + escapeHtml(t.name) + '</div>' +
+        '<div class="obj-meta">' +
+          '<span class="obj-freq" data-f="' + escapeHtml(freq) + '">' +
+            escapeHtml(t.frequency) + '</span>' +
+          '<span class="obj-chip">' + escapeHtml(t.group) + '</span>' +
+          '<span class="obj-chip">' + escapeHtml(t.area) + '</span>' +
+          (t.kpi ? '<span class="obj-chip">KPI</span>' : '') +
+        '</div>' +
+      '</div>' +
+      '<div>' + objStrip(t) + under + '</div>' +
+      '<div class="obj-acts">' + act + '</div>' +
+    '</div>';
+  }
+
+
+  function objTickIcon() {
+    return '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" ' +
+      'stroke="currentColor" stroke-width="3" stroke-linecap="round" ' +
+      'aria-hidden="true"><path d="M4 12.5l5.5 5.5L20 7"/></svg>';
+  }
+
+
+  /** A daily or weekly objective, opened onto its slots. */
+  function objTaskOpen(t, data) {
+    const freq = String(t.frequency || '').toUpperCase();
+    const marks = String(t.marks || '');
+
+    let cells = '';
+    for (let i = 0; i < t.slots; i++) {
+      const ch = marks.charAt(i);
+      const past = i < t.elapsed;
+      cells += '<button class="obj-day' +
+        (ch === 'Y' ? ' is-y' : ch === 'N' ? ' is-n' : '') +
+        (i === t.elapsed - 1 ? ' is-now' : '') + '"' +
+        (past ? '' : ' disabled') +
+        ' data-obj-tick="' + escapeHtml(t.id) + '" data-slot="' + i +
+        '" data-mark="' + (ch === 'Y' ? 'N' : ch === 'N' ? '.' : 'Y') + '">' +
+        (freq === 'DAILY' ? (i + 1) : 'W' + (i + 1)) + '</button>';
+    }
+
+    return '<div class="obj-card is-open">' +
+      '<div class="obj-up-head">' +
+        '<div>' +
+          '<div class="obj-card-s" style="margin:0 0 4px;font-weight:700;' +
+            'letter-spacing:.3px">' + escapeHtml(t.id) + '</div>' +
+          '<div class="obj-card-t">' + escapeHtml(t.name) + '</div>' +
+          '<div class="obj-meta">' +
+            '<span class="obj-freq" data-f="' + escapeHtml(freq) + '">' +
+              escapeHtml(t.frequency) + '</span>' +
+            '<span class="obj-chip">' + escapeHtml(t.group) + '</span>' +
+            '<span class="obj-chip">target ' + escapeHtml(t.target) + '</span>' +
+          '</div>' +
+        '</div>' +
+        '<button class="obj-up-x" data-obj-close aria-label="Close">&times;</button>' +
+      '</div>' +
+
+      '<div class="obj-up-body">' +
+        '<div>' +
+          '<label class="obj-fl">' + escapeHtml(objMonthName(data.period)) +
+            ' <i>press to mark, press again to change your mind</i></label>' +
+          '<div class="obj-days">' + cells + '</div>' +
+          '<div class="obj-strip-l" style="margin-top:9px">' + t.done +
+            ' of ' + t.elapsed +
+            (freq === 'DAILY' ? ' working days' : ' weeks') + ' done' +
+            (freq === 'DAILY'
+              ? ' &middot; Friday and Saturday are not counted' : '') +
+          '</div>' +
+        '</div>' +
+        '<div>' +
+          '<label class="obj-fl">What it is <i>from the sheet</i></label>' +
+          '<div class="obj-hi-n" style="margin:0">' +
+            escapeHtml(t.description || t.name) +
+            (t.method ? '<br><br><b>How:</b> ' + escapeHtml(t.method) : '') +
+          '</div>' +
+        '</div>' +
+        '<div class="obj-up-foot">' +
+          '<span class="obj-up-who" data-obj-say>' +
+            (t.by ? 'Last marked by ' + escapeHtml(t.by) : 'Not marked yet') +
+          '</span>' +
+          '<button class="obj-btn" data-obj-close>Close</button>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  }
+
+
+  // ------------------------------------------------------------------ saving
+  function objSay(text, bad) {
+    const el = document.querySelector('[data-obj-say]');
+    if (!el) return;
+    el.textContent = text;
+    el.classList.toggle('is-bad', Boolean(bad));
+  }
+
+
+  function objSave(id) {
+    if (OBJ.busy) return;
+    const d = OBJ.draft || {};
+    const note = document.querySelector('[data-obj-note]');
+
+    OBJ.busy = true;
+    objSay('Saving...');
+
+    callServer('recordObjMilestone', id, OBJ.period, {
+      value: d.value,
+      status: d.status,
+      note: note ? note.value : undefined
+    }).then(function () {
+      OBJ.busy = false;
+      OBJ.openId = '';
+      OBJ.draft = null;
+      loadObjective(OBJ.period);
+    }).catch(function (err) {
+      OBJ.busy = false;
+      objSay(String(err && err.message || err), true);
+      onError(err);
+    });
+  }
+
+
+  function objTick(id, slot, mark) {
+    if (OBJ.busy) return;
+    OBJ.busy = true;
+
+    callServer('tickObjTask', id, OBJ.period, Number(slot), mark)
+      .then(function () {
+        OBJ.busy = false;
+        loadObjective(OBJ.period);
+      })
+      .catch(function (err) {
+        OBJ.busy = false;
+        objSay(String(err && err.message || err), true);
+        onError(err);
+      });
+  }
+
+
+  // ------------------------------------------------------------------ adding
+  function objOpenSheet() {
+    const data = OBJ.data;
+    if (!data) return;
+
+    const pick = document.getElementById('objFRow');
+    if (pick) {
+      pick.innerHTML = (data.plan.rows || []).map(function (r) {
+        return '<option value="' + escapeHtml(r.rowId) + '">' +
+          escapeHtml(r.category) + ' &middot; weight ' + r.weight +
+          '</option>';
+      }).join('');
+    }
+    objSheetNote();
+    document.getElementById('objSheetSay').textContent = '';
+    document.getElementById('objSheet').hidden = false;
+  }
+
+
+  /**
+   * The sentence about the weighting, kept current with the chosen category.
+   *
+   * Somebody adding a milestone expects the page to find room for it in the
+   * weighting. It does not - the nine weights are the agreed split of 100 -
+   * so this says what will actually happen, with that category's own numbers
+   * in it, before they type anything.
+   */
+  function objSheetNote() {
+    const box = document.getElementById('objFNote');
+    const pick = document.getElementById('objFRow');
+    if (!box || !pick || !OBJ.data) return;
+
+    const rows = OBJ.data.plan.rows || [];
+    let row = null;
+    rows.forEach(function (r) { if (r.rowId === pick.value) row = r; });
+    if (!row) { box.innerHTML = ''; return; }
+
+    const was = row.milestones.length;
+    box.innerHTML = '<svg viewBox="0 0 24 24" width="15" height="15" ' +
+      'fill="none" stroke="currentColor" stroke-width="2" ' +
+      'stroke-linecap="round" style="flex:none;margin-top:1px" ' +
+      'aria-hidden="true"><path d="M13 2L4.1 13.3a.9.9 0 00.7 1.5H11l-1 ' +
+      '7.2 8.9-11.3a.9.9 0 00-.7-1.5H12z"/></svg><div>Weighting stays at ' +
+      '<b>100</b>. ' + escapeHtml(row.category) + ' is worth ' + row.weight +
+      ', shared across ' + was + ' milestone' + (was === 1 ? '' : 's') +
+      ' today and <b>' + (was + 1) + '</b> after this. The total does not ' +
+      'move.</div>';
+  }
+
+
+  function objCreate() {
+    if (OBJ.busy) return;
+    const say = document.getElementById('objSheetSay');
+    const type = document.querySelector('#objFType .is-on');
+
+    OBJ.busy = true;
+    say.textContent = '';
+
+    callServer('createObjMilestone', {
+      rowId: document.getElementById('objFRow').value,
+      objective: document.getElementById('objFObjective').value,
+      milestone: document.getElementById('objFMilestone').value,
+      outcome: document.getElementById('objFOutcome').value,
+      countType: type ? type.getAttribute('data-type') : 'NUMBER',
+      target: document.getElementById('objFTarget').value,
+      per: document.getElementById('objFPer').value
+    }).then(function () {
+      OBJ.busy = false;
+      document.getElementById('objSheet').hidden = true;
+      ['objFObjective', 'objFMilestone', 'objFOutcome'].forEach(function (k) {
+        document.getElementById(k).value = '';
+      });
+      loadObjective(OBJ.period);
+    }).catch(function (err) {
+      OBJ.busy = false;
+      say.textContent = String(err && err.message || err);
+      onError(err);
+    });
+  }
+
+
+  // ------------------------------------------------------------------ wiring
+  /**
+   * One listener on the list, not one per card.
+   *
+   * The list is redrawn on every save, every tick and every month step, so
+   * per-card listeners would be rebound hundreds of times in a sitting and
+   * any that leaked would fire twice.
+   */
+  function wireObjective() {
+    const list = document.getElementById('objList');
+    if (!list || list.__wired) return;
+    list.__wired = true;
+
+    list.addEventListener('click', function (e) {
+      const open = e.target.closest('[data-obj-open]');
+      if (open) {
+        OBJ.openId = open.getAttribute('data-obj-open');
+        OBJ.draft = null;
+        renderObjList(OBJ.data);
+        return;
+      }
+
+      if (e.target.closest('[data-obj-close]')) {
+        OBJ.openId = '';
+        OBJ.draft = null;
+        renderObjList(OBJ.data);
+        return;
+      }
+
+      const sheet = e.target.closest('[data-obj-sheet]');
+      if (sheet) { objShowSheet(sheet.getAttribute('data-obj-sheet')); return; }
+
+      const step = e.target.closest('[data-obj-step]');
+      if (step) {
+        const m = objOpenMilestone();
+        if (!m) return;
+        const by = Number(step.getAttribute('data-obj-step'));
+        const now = (OBJ.draft && OBJ.draft.value !== undefined)
+          ? OBJ.draft.value : (m.value || 0);
+        const next = Math.max(0, now + by *
+          (m.countType === 'PERCENT' ? 5 : 1));
+        OBJ.draft = OBJ.draft || {};
+        OBJ.draft.value = m.countType === 'PERCENT' ? Math.min(100, next) : next;
+        // The note is in the DOM and would be lost by a redraw, so it is
+        // carried into the draft before the card is rebuilt.
+        const note = document.querySelector('[data-obj-note]');
+        if (note) OBJ.draft.note = note.value;
+        renderObjList(OBJ.data);
+        return;
+      }
+
+      const seg = e.target.closest('[data-obj-status] button');
+      if (seg) {
+        OBJ.draft = OBJ.draft || {};
+        OBJ.draft.status = seg.getAttribute('data-s');
+        const note = document.querySelector('[data-obj-note]');
+        if (note) OBJ.draft.note = note.value;
+        renderObjList(OBJ.data);
+        return;
+      }
+
+      const save = e.target.closest('[data-obj-save]');
+      if (save) { objSave(save.getAttribute('data-obj-save')); return; }
+
+      const tick = e.target.closest('[data-obj-tick]');
+      if (tick && !tick.disabled) {
+        objTick(tick.getAttribute('data-obj-tick'),
+                tick.getAttribute('data-slot'),
+                tick.getAttribute('data-mark'));
+      }
+    });
+
+    document.getElementById('objFilters').addEventListener('click', function (e) {
+      const chip = e.target.closest('[data-group]');
+      if (!chip) return;
+      OBJ.group = chip.getAttribute('data-group');
+      OBJ.openId = '';
+      renderObjFilters(OBJ.data);
+      renderObjList(OBJ.data);
+    });
+
+    document.getElementById('objTabPlan')
+      .addEventListener('click', function () { objShowSheet('plan'); });
+    document.getElementById('objTabTask')
+      .addEventListener('click', function () { objShowSheet('task'); });
+
+    document.getElementById('objPrev').addEventListener('click', function () {
+      objStepMonth(-1);
+    });
+    document.getElementById('objNext').addEventListener('click', function () {
+      objStepMonth(1);
+    });
+
+    document.getElementById('objNew')
+      .addEventListener('click', objOpenSheet);
+    document.getElementById('objSheetX')
+      .addEventListener('click', function () {
+        document.getElementById('objSheet').hidden = true;
+      });
+    document.getElementById('objFCancel')
+      .addEventListener('click', function () {
+        document.getElementById('objSheet').hidden = true;
+      });
+    document.getElementById('objFCreate')
+      .addEventListener('click', objCreate);
+    document.getElementById('objFRow')
+      .addEventListener('change', objSheetNote);
+
+    document.getElementById('objFType').addEventListener('click', function (e) {
+      const b = e.target.closest('[data-type]');
+      if (!b) return;
+      Array.prototype.forEach.call(this.children, function (c) {
+        c.classList.remove('is-on');
+      });
+      b.classList.add('is-on');
+      // A percentage is out of 100 and done-or-not is out of one. Setting
+      // the target to match saves a correction that is easy to forget.
+      const t = document.getElementById('objFTarget');
+      const type = b.getAttribute('data-type');
+      if (type === 'PERCENT') t.value = 100;
+      if (type === 'DONE') t.value = 1;
+      if (type === 'NUMBER' && (t.value === '100' || t.value === '')) t.value = 1;
+      t.disabled = type === 'DONE';
+    });
+  }
+
+
+  /** Which milestone is open, out of whatever is currently loaded. */
+  function objOpenMilestone() {
+    let found = null;
+    ((OBJ.data && OBJ.data.plan.rows) || []).forEach(function (r) {
+      (r.milestones || []).forEach(function (m) {
+        if (m.id === OBJ.openId) found = m;
+      });
+    });
+    return found;
+  }
+
+
+  function objShowSheet(which) {
+    OBJ.sheet = (which === 'task') ? 'task' : 'plan';
+    OBJ.openId = '';
+    OBJ.draft = null;
+    if (OBJ.data) renderObj(OBJ.data);
+  }
+
+
+  function objStepMonth(by) {
+    if (!OBJ.data) return;
+    const periods = OBJ.data.periods || [];
+    const at = periods.indexOf(OBJ.period);
+    const next = at + by;
+    if (next < 0 || next >= periods.length) return;
+    OBJ.period = periods[next];
+    OBJ.openId = '';
+    OBJ.draft = null;
+    loadObjective(OBJ.period);
   }
 
 

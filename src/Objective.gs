@@ -1,0 +1,1373 @@
+/**
+ * Objective.gs - the department's six-month objectives, and their tracking.
+ * =========================================================================
+ *
+ * WHAT THIS IS
+ * EAS agrees a SMART objective for a six-month period: six categories, nine
+ * weighted rows, twenty-nine milestones, weighting exactly 100. Underneath
+ * the first of those milestones sits a second, much longer list - ninety
+ * unique-role objectives, four of which are the KPIs the engine already
+ * measures and eighty-six of which are recurring checks on business
+ * processes.
+ *
+ * THE TWO LISTS ARE ONE HIERARCHY, WHICH IS THE WHOLE POINT OF THIS FILE.
+ * The Operation row's first milestone reads, in the department's own words,
+ * "Monitor 86 SAP processes ... and review 4 KPI results monthly". The
+ * second sheet has ninety rows: four marked KPI, eighty-six not. It is not
+ * a second table that happens to sit nearby - it IS that milestone, written
+ * out. So that milestone is never typed in: it is COUNTED from the ninety,
+ * and the number flows up into Operation, and Operation times its weight of
+ * 20 is what reaches the score. Correct a row at the bottom and the figure
+ * at the top moves.
+ *
+ * WHERE THE THREE TABS COME FROM, AND WHY THAT SPLIT
+ *   OBJ_PLAN  the twenty-nine milestones. TYPED.
+ *   OBJ_TASK  the ninety unique-role objectives. TYPED.
+ *   OBJ_LOG   what was recorded, per month. WRITTEN BY THE PAGE.
+ *
+ * The first two are the agreed wording for the period. They belong in the
+ * spreadsheet and not in this file for two reasons: correcting a sentence
+ * should be a cell edit rather than a deployment, and this repository is
+ * public while the objectives are not. See CONFIG.SHEETS.
+ *
+ * WHY A MARKS STRING RATHER THAN A ROW PER TICK
+ * Thirty of the ninety are DAILY. A row per tick is 86 objectives times
+ * twenty-two working days times six months - some eleven thousand rows, read
+ * in full every time somebody opens the page. Instead each objective gets
+ * ONE row per month carrying a short string with one character per slot:
+ *
+ *     'YYNYY.................'   a daily check, 8 November
+ *      ^^^^^                     1st to 5th done, 3rd missed
+ *
+ * That is 90 x 6 = 540 rows for the whole period, one read, and the daily
+ * detail is all still there. See objMarks* below.
+ *
+ * WHY THE WEEK IS SUNDAY TO THURSDAY
+ * Because it is, here. A daily objective has about twenty-two slots in a
+ * month and not thirty, and a system that counted Fridays would score every
+ * person as missing eight days a month for ever, silently. It is in
+ * CONFIG.OBJECTIVE.WORK_DAYS so that it is a stated decision rather than an
+ * assumption buried in a loop.
+ *
+ * WHO MAY DO WHAT
+ *   tick a unique-role objective   anyone signed in, for THEIR OWN group
+ *   record a SMART milestone       section heads, the department head, admin
+ *   add a new objective            admin only
+ *
+ * The middle one is the unusual one and it is deliberate: the ninety are
+ * the daily work of whoever owns that module, and routing every tick through
+ * a manager would mean the ticks stop happening. The twenty-nine are what
+ * the department is scored on, which is a different kind of claim to make.
+ */
+
+
+/**
+ * Column layout of the three tabs.
+ *
+ * OBJ_PLAN and OBJ_TASK are read BY POSITION and the headers are not
+ * consulted, unlike the TEAM tab which is somebody else's spreadsheet and
+ * gets a loose header match. These two are generated - the plan from the
+ * objective workbook by a script, the tasks pasted straight out of it - so
+ * the order is known and a loose match would only hide a bad paste.
+ *
+ * THE LAST TWO COLUMNS OF OBJ_PLAN ARE NOT IN THE ORIGINAL WORKBOOK.
+ * 'Count Type' says which control the page draws - a counter, a percentage
+ * or a yes/no - and 'Auto Source' names the three milestones the portal can
+ * count by itself. Neither is a judgement about the objective; both are
+ * about how it is recorded.
+ */
+const OBJ_PLAN_COLUMNS = [
+  'Milestone ID', 'Row ID', 'Category', 'Weight', 'Objective',
+  'Milestone', 'Expected Outcome', 'Count Type', 'Target', 'Per',
+  'Owner', 'Auto Source'
+];
+
+/** Exactly the twelve columns of the Unique Roles sheet, in its order. */
+const OBJ_TASK_COLUMNS = [
+  'Objective ID', 'Category', 'Objective name', 'Group', 'Area', 'KPI',
+  'Objective / Description', 'Target', 'Measurement Method', 'Frequency',
+  'Responsible Person', 'Remarks / Outcome'
+];
+
+/**
+ * The log. One row per objective per month, updated in place.
+ *
+ * History is JSON and last, like a share's attachment index and for the same
+ * reason: it is a list nobody is meant to read by eye, and it keeps the
+ * Updates timeline on the row it belongs to instead of in a second tab that
+ * would have to be joined to this one on every page load.
+ */
+const OBJ_LOG_COLUMNS = [
+  'Period', 'Kind', 'Ref ID', 'Marks', 'Value', 'Status', 'Note',
+  'By', 'By ID', 'At', 'History'
+];
+
+
+/** What a slot in a Marks string can say. */
+const OBJ_PENDING = '.';
+const OBJ_DONE    = 'Y';
+const OBJ_MISSED  = 'N';
+
+/** The two kinds of thing the log holds. */
+const OBJ_KIND_PLAN = 'PLAN';
+const OBJ_KIND_TASK = 'TASK';
+
+
+function objPlanTab() {
+  return sheetWithHeaders(CONFIG.SHEETS.OBJ_PLAN, OBJ_PLAN_COLUMNS);
+}
+
+function objTaskTab() {
+  return sheetWithHeaders(CONFIG.SHEETS.OBJ_TASK, OBJ_TASK_COLUMNS);
+}
+
+function objLogTab() {
+  return sheetWithHeaders(CONFIG.SHEETS.OBJ_LOG, OBJ_LOG_COLUMNS);
+}
+
+
+// ---------------------------------------------------------------------------
+// THE PERIOD
+// ---------------------------------------------------------------------------
+
+/**
+ * A Date out of a cell, or null.
+ *
+ * Duck-typed rather than `instanceof Date`, because this is also called from
+ * the test harness where the Date a fixture built belongs to a different
+ * realm than the one this code is evaluated in - and a cross-realm Date is
+ * not `instanceof` the local one, so the check silently says "no date" for
+ * something that plainly is one.
+ */
+function objDate(value) {
+  if (!value) return null;
+  if (typeof value.getTime !== 'function') return null;
+  const ms = value.getTime();
+  return (ms === ms) ? value : null;   // NaN fails its own equality
+}
+
+
+/** 'YYYY-MM' for a date. */
+function objPeriodOf(date) {
+  const d = objDate(date);
+  if (!d) return '';
+  const m = d.getMonth() + 1;
+  return d.getFullYear() + '-' + (m < 10 ? '0' + m : String(m));
+}
+
+
+/**
+ * Every month of the objective period, in order.
+ *
+ * Built from the two dates in CONFIG rather than listed, so that moving the
+ * period is two lines and not a list somebody has to keep in step with them.
+ */
+function objPeriods() {
+  const start = String(CONFIG.OBJECTIVE.PERIOD_START || '');
+  const end   = String(CONFIG.OBJECTIVE.PERIOD_END || '');
+  const out = [];
+
+  let y = Number(start.slice(0, 4));
+  let m = Number(start.slice(5, 7));
+  const ey = Number(end.slice(0, 4));
+  const em = Number(end.slice(5, 7));
+  if (!y || !m || !ey || !em) return out;
+
+  // Bounded rather than `while (true)`: a mistyped end date earlier than the
+  // start would otherwise spin until the script times out, and a page that
+  // hangs is harder to diagnose than one that comes back short.
+  for (let guard = 0; guard < 120; guard++) {
+    out.push(y + '-' + (m < 10 ? '0' + m : String(m)));
+    if (y === ey && m === em) break;
+    m++;
+    if (m > 12) { m = 1; y++; }
+  }
+  return out;
+}
+
+
+/** Where a month sits in the period, or -1. */
+function objPeriodIndex(period) {
+  return objPeriods().indexOf(String(period || ''));
+}
+
+
+/** How many days a month has. */
+function objDaysInMonth(period) {
+  const y = Number(String(period).slice(0, 4));
+  const m = Number(String(period).slice(5, 7));
+  if (!y || !m) return 0;
+  return new Date(y, m, 0).getDate();      // day 0 of the next month
+}
+
+
+/**
+ * The working days of a month, as day-of-month numbers.
+ *
+ * Public holidays are NOT excluded, and that is a decision rather than an
+ * omission: there is no holiday calendar in this project, inventing one
+ * would mean maintaining it, and a check missed because the office was shut
+ * is a thing the person recording it can say in the note. Over-counting the
+ * slots is the honest failure - it shows as a gap somebody can explain,
+ * where under-counting would silently forgive a real miss.
+ */
+function objWorkingDays(period) {
+  const y = Number(String(period).slice(0, 4));
+  const m = Number(String(period).slice(5, 7));
+  const days = objDaysInMonth(period);
+  const work = CONFIG.OBJECTIVE.WORK_DAYS || [0, 1, 2, 3, 4];
+  const out = [];
+  for (let d = 1; d <= days; d++) {
+    if (work.indexOf(new Date(y, m - 1, d).getDay()) !== -1) out.push(d);
+  }
+  return out;
+}
+
+
+/**
+ * Which calendar quarter a month closes, if it closes one.
+ *
+ * A quarterly objective is due once a quarter, and the month it is due in is
+ * the one that ends it - March, June, September, December. Over an October
+ * to March period that is December and March, which is twice, which is what
+ * "quarterly" means over six months.
+ */
+function objIsQuarterEnd(period) {
+  const m = Number(String(period).slice(5, 7));
+  return m === 3 || m === 6 || m === 9 || m === 12;
+}
+
+
+/**
+ * How many slots an objective of this frequency has in this month.
+ *
+ * WEEKLY counts blocks of seven days from the 1st, not calendar weeks. A
+ * calendar week straddles two months and would have to be attributed to one
+ * of them; blocks of seven are entirely inside the month, are the same
+ * number every time for a given month length, and can be explained to
+ * somebody looking at the page in one sentence.
+ */
+function objSlotCount(period, frequency) {
+  const freq = String(frequency || '').trim().toUpperCase();
+  if (freq === 'DAILY')   return objWorkingDays(period).length;
+  if (freq === 'WEEKLY')  return Math.ceil(objDaysInMonth(period) / 7);
+  if (freq === 'QUARTERLY') return objIsQuarterEnd(period) ? 1 : 0;
+  return 1;                                   // MONTHLY, and anything unknown
+}
+
+
+/**
+ * How many of this month's slots have already come and gone.
+ *
+ * For a month that is over, all of them. For the month in progress, the ones
+ * whose last day is on or before today - a weekly slot is not missed until
+ * its week is out, and marking somebody down on a Tuesday for a check they
+ * have until Thursday to do is how a tracking system loses its audience.
+ */
+function objSlotsElapsed(period, frequency, now) {
+  const slots = objSlotCount(period, frequency);
+  if (!slots) return 0;
+
+  const today = objDate(now) || new Date();
+  const nowPeriod = objPeriodOf(today);
+  if (period < nowPeriod) return slots;        // the month is closed
+  if (period > nowPeriod) return 0;            // it has not started
+
+  const freq = String(frequency || '').trim().toUpperCase();
+  const day = today.getDate();
+
+  if (freq === 'DAILY') {
+    const work = objWorkingDays(period);
+    let n = 0;
+    for (let i = 0; i < work.length; i++) if (work[i] <= day) n++;
+    return n;
+  }
+  if (freq === 'WEEKLY') {
+    // The block containing today is in progress, so it counts as elapsed
+    // only once its seventh day has passed.
+    return Math.floor((day - 1) / 7) + 1;
+  }
+  // Monthly and quarterly are not elapsed until the month itself is.
+  return 0;
+}
+
+
+// ---------------------------------------------------------------------------
+// THE MARKS STRING
+// ---------------------------------------------------------------------------
+
+/** A fresh string of pending slots. */
+function objMarksBlank(slots) {
+  let s = '';
+  for (let i = 0; i < Math.max(0, slots); i++) s += OBJ_PENDING;
+  return s;
+}
+
+
+/**
+ * A stored string, trimmed or padded to the length the month actually has.
+ *
+ * Both directions matter. Padding covers a row written before somebody fixed
+ * the frequency; trimming covers the opposite. Neither is a silent data loss
+ * worth refusing the page over - the alternative is an objective that cannot
+ * be shown at all because its string is a character too long.
+ */
+function objMarksRead(cell, slots) {
+  let s = String(cell === null || cell === undefined ? '' : cell)
+    .replace(/[^YN.]/g, '');
+  if (s.length > slots) s = s.slice(0, slots);
+  while (s.length < slots) s += OBJ_PENDING;
+  return s;
+}
+
+
+/** The same string with one slot changed. Out-of-range leaves it alone. */
+function objMarksSet(marks, index, mark) {
+  const s = String(marks || '');
+  const i = Number(index);
+  if (!(i >= 0) || i >= s.length) return s;
+  const ch = (mark === OBJ_DONE || mark === OBJ_MISSED) ? mark : OBJ_PENDING;
+  return s.slice(0, i) + ch + s.slice(i + 1);
+}
+
+
+/** How many of the first `upto` slots carry this mark. */
+function objMarksCount(marks, mark, upto) {
+  const s = String(marks || '');
+  const n = (upto === undefined || upto === null) ? s.length
+          : Math.min(Number(upto) || 0, s.length);
+  let count = 0;
+  for (let i = 0; i < n; i++) if (s.charAt(i) === mark) count++;
+  return count;
+}
+
+
+// ---------------------------------------------------------------------------
+// READING THE TABS
+// ---------------------------------------------------------------------------
+
+/**
+ * The twenty-nine milestones.
+ *
+ * Weight is carried on every milestone of a row but belongs to the ROW - the
+ * workbook weights rows, not milestones - so scoring groups by Row ID and
+ * counts each row's weight once. A milestone whose Row ID is blank is
+ * dropped rather than silently given its own weight, which would push the
+ * total past 100 and make every figure on the page wrong.
+ */
+function readObjPlan() {
+  const sheet = objPlanTab();
+  const last = sheet.getLastRow();
+  if (last < 2) return { plan: [], rows: [], weight: 0, filled: false };
+
+  const raw = sheet.getRange(2, 1, last - 1, OBJ_PLAN_COLUMNS.length).getValues();
+  const plan = [];
+
+  raw.forEach(function (r) {
+    const id = String(r[0] || '').trim();
+    const rowId = String(r[1] || '').trim();
+    const milestone = String(r[5] || '').trim();
+    if (!id || !rowId || !milestone) return;
+
+    plan.push({
+      id: id,
+      rowId: rowId,
+      category: String(r[2] || '').trim(),
+      weight: Number(r[3]) || 0,
+      objective: String(r[4] || '').trim(),
+      milestone: milestone,
+      outcome: String(r[6] || '').trim(),
+      countType: String(r[7] || 'DONE').trim().toUpperCase(),
+      target: Number(r[8]),
+      per: String(r[9] || 'MONTH').trim().toUpperCase(),
+      owner: String(r[10] || '').trim(),
+      auto: String(r[11] || '').trim().toUpperCase()
+    });
+  });
+
+  // ---- group into the weighted rows ----
+  const order = [];
+  const byRow = {};
+  plan.forEach(function (m) {
+    if (!byRow[m.rowId]) {
+      byRow[m.rowId] = {
+        rowId: m.rowId, category: m.category, weight: m.weight, milestones: []
+      };
+      order.push(m.rowId);
+    }
+    byRow[m.rowId].milestones.push(m);
+  });
+
+  const rows = order.map(function (k) { return byRow[k]; });
+  const weight = rows.reduce(function (sum, r) { return sum + r.weight; }, 0);
+
+  return { plan: plan, rows: rows, weight: weight, filled: plan.length > 0 };
+}
+
+
+/**
+ * The ninety unique-role objectives.
+ *
+ * `kpi` is the four that the KPI engine already measures. They are kept in
+ * the list rather than filtered out because the milestone above counts
+ * ninety things, and a page that showed eighty-six would not add up to what
+ * the department's own sheet says.
+ */
+function readObjTask() {
+  const sheet = objTaskTab();
+  const last = sheet.getLastRow();
+  if (last < 2) return { tasks: [], count: 0, groups: [], filled: false };
+
+  const raw = sheet.getRange(2, 1, last - 1, OBJ_TASK_COLUMNS.length).getValues();
+  const tasks = [];
+  const groups = [];
+
+  raw.forEach(function (r) {
+    const id = String(r[0] || '').trim();
+    const name = String(r[2] || '').trim();
+    if (!id || !name) return;
+
+    const group = String(r[3] || '').trim() || 'Unassigned';
+    if (groups.indexOf(group) === -1) groups.push(group);
+
+    tasks.push({
+      id: id,
+      category: String(r[1] || '').trim(),
+      name: name,
+      group: group,
+      area: String(r[4] || '').trim(),
+      kpi: /^y/i.test(String(r[5] || '').trim()),
+      description: String(r[6] || '').trim(),
+      target: String(r[7] === null || r[7] === undefined ? '' : r[7]).trim(),
+      method: String(r[8] || '').trim(),
+      frequency: String(r[9] || 'Monthly').trim(),
+      owner: String(r[10] || '').trim(),
+      remarks: String(r[11] || '').trim()
+    });
+  });
+
+  return {
+    tasks: tasks, count: tasks.length, groups: groups, filled: tasks.length > 0
+  };
+}
+
+
+/** Past updates on a log row, parsed. Bad JSON reads as no history. */
+function parseObjHistory(cell) {
+  const text = String(cell || '').trim();
+  if (!text) return [];
+  try {
+    const list = JSON.parse(text);
+    if (!list || !list.length) return [];
+    return list.filter(function (h) { return h && h.at; });
+  } catch (e) {
+    return [];
+  }
+}
+
+
+/**
+ * Everything recorded, keyed by period and reference.
+ *
+ * One read for the whole period. The key is deliberately the same shape as
+ * the one the writers build, so a lookup here and a write there cannot drift
+ * apart - see objLogKey.
+ */
+function readObjLog() {
+  const sheet = objLogTab();
+  const last = sheet.getLastRow();
+  const byKey = {};
+  if (last < 2) return { byKey: byKey, count: 0 };
+
+  const raw = sheet.getRange(2, 1, last - 1, OBJ_LOG_COLUMNS.length).getValues();
+  let count = 0;
+
+  raw.forEach(function (r) {
+    const period = String(r[0] || '').trim();
+    const kind = String(r[1] || '').trim().toUpperCase();
+    const ref = String(r[2] || '').trim();
+    if (!period || !kind || !ref) return;
+
+    const at = objDate(r[9]);
+    byKey[objLogKey(period, kind, ref)] = {
+      period: period, kind: kind, ref: ref,
+      marks: String(r[3] || ''),
+      value: (r[4] === '' || r[4] === null || r[4] === undefined)
+        ? null : Number(r[4]),
+      status: String(r[5] || '').trim().toUpperCase(),
+      note: String(r[6] || ''),
+      by: String(r[7] || '').trim(),
+      byId: String(r[8] || '').trim(),
+      at: at ? at.getTime() : 0,
+      history: parseObjHistory(r[10])
+    };
+    count++;
+  });
+
+  return { byKey: byKey, count: count };
+}
+
+
+/** The one key shape, used by every reader and every writer. */
+function objLogKey(period, kind, ref) {
+  return String(period) + '|' + String(kind).toUpperCase() + '|' + String(ref);
+}
+
+
+/** The row a log entry is on, or -1. */
+function objLogRowOf(sheet, period, kind, ref) {
+  const last = sheet.getLastRow();
+  if (last < 2) return -1;
+  const keys = sheet.getRange(2, 1, last - 1, 3).getValues();
+  const want = objLogKey(period, kind, ref);
+  for (let i = 0; i < keys.length; i++) {
+    if (objLogKey(keys[i][0], keys[i][1], keys[i][2]) === want) return i + 2;
+  }
+  return -1;
+}
+
+
+// ---------------------------------------------------------------------------
+// SCORING
+// ---------------------------------------------------------------------------
+
+/**
+ * Where one unique-role objective stands in one month.
+ *
+ * `onSchedule` is the strict reading: every slot that has already passed was
+ * marked done. A slot that passed and was never marked counts against it,
+ * the same as one marked missed - an untouched objective is not a passing
+ * one, and the opposite reading would make the whole page an optimistic
+ * guess at what people meant to do.
+ */
+function objTaskState(task, marks, period, now) {
+  const slots = objSlotCount(period, task.frequency);
+  const elapsed = objSlotsElapsed(period, task.frequency, now);
+  const s = objMarksRead(marks, slots);
+  const done = objMarksCount(s, OBJ_DONE, elapsed);
+  const missed = objMarksCount(s, OBJ_MISSED, elapsed);
+
+  return {
+    slots: slots,
+    elapsed: elapsed,
+    done: done,
+    missed: missed,
+    // Slots that came and went without anybody saying either way.
+    silent: Math.max(0, elapsed - done - missed),
+    /*
+      EVERY slot marked done, elapsed or not, which is a different question
+      from `done` and is the one the card prints.
+
+      A monthly objective has one slot and it is not elapsed until the month
+      is over, so `done` - which counts only inside `elapsed` - is zero all
+      month even after somebody ticks it, and the card read "0 of 0 done"
+      over a green button saying Done. Scoring still uses `done`: a slot
+      that has not come round yet cannot be late, and should not count as
+      early credit either.
+    */
+    marked: objMarksCount(s, OBJ_DONE),
+    marks: s,
+    onSchedule: elapsed === 0 ? true : done === elapsed,
+    due: elapsed > 0 && s.charAt(Math.max(0, elapsed - 1)) === OBJ_PENDING
+  };
+}
+
+
+/**
+ * The milestone that is counted rather than typed: how the ninety are doing.
+ *
+ * Returns a fraction, which is what the scorer wants, plus the counts the
+ * page prints beside it. The four KPI rows are included - they are four of
+ * the ninety and the milestone's own wording counts them.
+ */
+function objUniqueRolesScore(tasks, log, period, now) {
+  let on = 0;
+  let total = 0;
+  let kpiOn = 0;
+  let kpiTotal = 0;
+
+  tasks.forEach(function (t) {
+    const slots = objSlotCount(period, t.frequency);
+    if (!slots) return;                 // a quarterly item in a quiet month
+    total++;
+    if (t.kpi) kpiTotal++;
+
+    const entry = log.byKey[objLogKey(period, OBJ_KIND_TASK, t.id)];
+    const state = objTaskState(t, entry ? entry.marks : '', period, now);
+    if (state.onSchedule) {
+      on++;
+      if (t.kpi) kpiOn++;
+    }
+  });
+
+  return {
+    fraction: total ? on / total : 0,
+    on: on, total: total,
+    kpiOn: kpiOn, kpiTotal: kpiTotal,
+    processOn: on - kpiOn, processTotal: total - kpiTotal
+  };
+}
+
+
+/**
+ * How far one milestone got in one month, as a fraction of its target.
+ *
+ * A month with nothing recorded scores zero. That is the honest reading and
+ * it is worth saying out loud, because the comfortable alternative - leaving
+ * it out of the average - makes a department that recorded nothing at all
+ * score 100, which is exactly backwards.
+ *
+ * PERIOD targets are cumulative. "Complete at least 6 development
+ * initiatives during the period" is not six a month; it is six by March, so
+ * its score in any month is everything recorded up to and including that
+ * month, over six.
+ */
+function objMilestoneScore(milestone, log, period, context) {
+  const auto = milestone.auto;
+  const key = objLogKey(period, OBJ_KIND_PLAN, milestone.id);
+  const entry = log.byKey[key] || null;
+
+  // ---- the three that are counted, not typed ----
+  if (auto) {
+    const counted = context && context.auto && context.auto[auto];
+    if (counted) {
+      const target = Number(milestone.target) || 1;
+      const value = (auto === 'UNIQUE_ROLES')
+        ? counted.fraction * target          // already a fraction of its own
+        : counted.value;
+      return {
+        fraction: Math.max(0, Math.min(1, value / target)),
+        value: value, target: target, auto: auto, entry: entry
+      };
+    }
+    // The source could not be read. Fall through and use whatever was typed
+    // rather than scoring a real milestone zero because another tab is
+    // mid-edit.
+  }
+
+  const target = Number(milestone.target);
+  const type = milestone.countType;
+
+  if (type === 'PERCENT') {
+    const v = entry && entry.value !== null ? entry.value : 0;
+    return { fraction: Math.max(0, Math.min(1, v / (target || 100))),
+             value: v, target: target || 100, auto: '', entry: entry };
+  }
+
+  if (type === 'DONE') {
+    const done = Boolean(entry && entry.status === 'DONE');
+    return { fraction: done ? 1 : 0, value: done ? 1 : 0, target: 1,
+             auto: '', entry: entry };
+  }
+
+  // NUMBER
+  let value = entry && entry.value !== null ? entry.value : 0;
+  if (milestone.per === 'PERIOD') {
+    value = 0;
+    const periods = objPeriods();
+    const upto = objPeriodIndex(period);
+    for (let i = 0; i <= upto && i < periods.length; i++) {
+      const e = log.byKey[objLogKey(periods[i], OBJ_KIND_PLAN, milestone.id)];
+      if (e && e.value !== null) value += e.value;
+    }
+  }
+  const t = target || 1;
+  return { fraction: Math.max(0, Math.min(1, value / t)),
+           value: value, target: t, auto: '', entry: entry };
+}
+
+
+/**
+ * The weighted figure out of 100 for one month.
+ *
+ * A row's achievement is the MEAN of its milestones, not their sum: the
+ * workbook gives Operation four milestones and People and Organization's
+ * second row only one, and summing would make a row worth more for being
+ * described in more detail.
+ */
+function objScore(plan, log, period, context) {
+  const rows = [];
+  let total = 0;
+
+  plan.rows.forEach(function (row) {
+    let sum = 0;
+    const scored = row.milestones.map(function (m) {
+      const s = objMilestoneScore(m, log, period, context);
+      sum += s.fraction;
+      return { id: m.id, fraction: s.fraction, value: s.value,
+               target: s.target, auto: s.auto };
+    });
+
+    const fraction = row.milestones.length ? sum / row.milestones.length : 0;
+    total += fraction * row.weight;
+    rows.push({
+      rowId: row.rowId, category: row.category, weight: row.weight,
+      fraction: fraction, points: fraction * row.weight, milestones: scored
+    });
+  });
+
+  return {
+    period: period,
+    score: Math.round(total * 10) / 10,
+    outOf: plan.weight,
+    rows: rows
+  };
+}
+
+
+// ---------------------------------------------------------------------------
+// WHAT THE PORTAL ALREADY KNOWS
+// ---------------------------------------------------------------------------
+
+/**
+ * The three milestones nobody has to type, for EVERY month at once.
+ *
+ * ALL SIX MONTHS, not just the one on screen, and that is the point of the
+ * shape. Each milestone shows six pips - how it went in each month of the
+ * period - and the first version worked the auto sources out only for the
+ * month being looked at. The other five fell back to what had been TYPED
+ * against a milestone that is never typed, which is nothing, so three of
+ * the ten milestones drew five red pips for months that had been fine. The
+ * pips are the drifting signal; wrong pips are worse than none.
+ *
+ * The two Drive-backed sources are read ONCE and counted per month from
+ * what came back, rather than read once per month. Six sheet reads where
+ * one will do is the kind of thing that turns a page into a slow page.
+ *
+ * Every source is wrapped. The objectives page must open when the Learnings
+ * index is mid-rebuild or the Knowledge tab has not been made yet; a source
+ * that cannot be read is simply not counted, and the milestone falls back to
+ * whatever was recorded by hand.
+ */
+function objAutoAll(tasks, log, periods, now) {
+  const byPeriod = {};
+  periods.forEach(function (p) { byPeriod[p] = {}; });
+
+  periods.forEach(function (p) {
+    try {
+      byPeriod[p].UNIQUE_ROLES = objUniqueRolesScore(tasks, log, p, now);
+    } catch (e) { /* the ninety are unreadable; the milestone can be typed */ }
+  });
+
+  const countInto = function (key, stamps) {
+    const tally = {};
+    stamps.forEach(function (ms) {
+      if (!ms) return;
+      const p = objPeriodOf(new Date(ms));
+      tally[p] = (tally[p] || 0) + 1;
+    });
+    periods.forEach(function (p) {
+      byPeriod[p][key] = { value: tally[p] || 0 };
+    });
+  };
+
+  try {
+    countInto('KNOWLEDGE', (readKnowledge().shares || [])
+      .map(function (s) { return s.stamp; }));
+  } catch (e) { /* no Knowledge tab yet */ }
+
+  try {
+    // `stamp` is the Updated cell as milliseconds, which readLearn already
+    // works out. Re-parsing its formatted `updated` string would mean
+    // guessing at a date format for no gain.
+    countInto('LEARN', ((readLearn() || {}).docs || [])
+      .map(function (d) { return d.stamp; }));
+  } catch (e) { /* no library index yet */ }
+
+  return byPeriod;
+}
+
+
+/** The same thing for one month, which is what the editor tools want. */
+function objAutoSources(tasks, log, period, now) {
+  return objAutoAll(tasks, log, [period], now)[period] || {};
+}
+
+
+// ---------------------------------------------------------------------------
+// WHO MAY DO WHAT
+// ---------------------------------------------------------------------------
+
+/**
+ * The groups a person may tick, and whether they may record a milestone.
+ *
+ * A person's groups come from their Module cell in the TEAM tab, split on
+ * the separators that cell actually uses - 'MM/MD' is two modules, and the
+ * cell is written for a human to read rather than for this to parse.
+ *
+ * SOMEBODY WITH AN EMPTY MODULE CELL CAN TICK NOTHING, and the page says so
+ * in those words. That is a real consequence and it is the right one: the
+ * alternative is to let anybody tick anything, which makes the owner column
+ * decorative. It also surfaces a gap in the directory, which is fixable in
+ * one cell, rather than hiding it.
+ */
+function objWhoAmI(token) {
+  const session = currentSession(token);
+  const id = session ? String(session.u || '') : '';
+  const admin = Boolean(session) &&
+                rankOf(session.r) >= rankOf(ROLE_ADMIN);
+
+  const me = {
+    id: id, name: id, admin: admin,
+    groups: [], all: admin, planner: admin, reason: ''
+  };
+  if (!id) return me;
+
+  let team = null;
+  try { team = readTeam(); } catch (e) { team = null; }
+  if (!team) {
+    me.reason = 'The team directory could not be read, so your modules are ' +
+                'not known. An admin can still record.';
+    return me;
+  }
+
+  const everyone = [];
+  if (team.lead) everyone.push({ person: team.lead, head: true });
+  (team.sections || []).forEach(function (s) {
+    if (s.head) everyone.push({ person: s.head, head: true });
+    (s.members || []).forEach(function (m) {
+      everyone.push({ person: m, head: false });
+    });
+  });
+
+  let found = null;
+  for (let i = 0; i < everyone.length; i++) {
+    if (String(everyone[i].person.id || '') === id) { found = everyone[i]; break; }
+  }
+
+  if (!found) {
+    me.reason = 'Your employee ID is not in the team directory, so there is ' +
+                'no module against your name.';
+    return me;
+  }
+
+  me.name = found.person.name || id;
+  // A section head records milestones; so does the department head. That is
+  // what 'head' means on the organogram and there is no second list to keep.
+  if (found.head) me.planner = true;
+
+  const modules = String(found.person.module || '')
+    .split(/[\/,&+;]| and /i)
+    .map(function (m) { return m.trim().toUpperCase(); })
+    .filter(Boolean);
+
+  me.groups = modules;
+  if (!modules.length && !admin) {
+    me.reason = 'No module is set against your name in the team directory, ' +
+                'so there is nothing here for you to tick yet. Ask for your ' +
+                'Module cell to be filled in.';
+  }
+  return me;
+}
+
+
+/**
+ * Whether this person may tick this objective.
+ *
+ * TAKES THE OBJECTIVE, NOT ITS GROUP NAME, so that the two rules that decide
+ * this - it is a KPI, and it is not your module - live together in one
+ * function. The first version took the group, which meant an admin got
+ * `true` for the four KPIs: the page drew a tick button on them and
+ * tickObjTask then refused the press. A button that does nothing is worse
+ * than no button, and the rule was in two places to drift apart.
+ *
+ * A KPI is nobody's to tick, an admin included. Its figure comes from the
+ * engine, and a hand-set tick beside a measured percentage is a second,
+ * quieter answer to a question that already has one.
+ */
+function objMayTick(me, task) {
+  if (!me || !me.id || !task) return false;
+  if (task.kpi) return false;
+  if (me.all) return true;
+  const g = String(task.group || '').trim().toUpperCase();
+  return me.groups.indexOf(g) !== -1;
+}
+
+
+// ---------------------------------------------------------------------------
+// WHAT THE PAGE CALLS
+// ---------------------------------------------------------------------------
+
+/**
+ * Everything the Objectives page needs, in one call.
+ *
+ * One round trip rather than three, because the two sheets are one hierarchy
+ * and the page cannot draw either half honestly without the other: the
+ * Operation milestone's figure IS the ninety, and the ninety's header says
+ * which milestone they roll up into.
+ */
+function getObjectives(token, period) {
+  requireSignedIn(token);
+
+  const periods = objPeriods();
+  const now = new Date();
+  const current = objPeriodOf(now);
+  const want = String(period || '').trim() ||
+               (periods.indexOf(current) !== -1 ? current : periods[0]) || '';
+
+  const plan = readObjPlan();
+  const tasks = readObjTask();
+  const log = readObjLog();
+  // Every month, not just the one on screen - the six pips under each
+  // milestone need the other five. See objAutoAll.
+  const autoAll = objAutoAll(tasks.tasks, log, periods, now);
+  const auto = autoAll[want] || {};
+  const me = objWhoAmI(token);
+
+  // ---- the plan side, with this month's standing on each milestone ----
+  const rows = plan.rows.map(function (row) {
+    return {
+      rowId: row.rowId, category: row.category, weight: row.weight,
+      milestones: row.milestones.map(function (m) {
+        const s = objMilestoneScore(m, log, want, { auto: auto });
+        const entry = s.entry;
+        // Every month at a glance, for the six pips under the bar. Each one
+        // is scored against ITS OWN month's auto sources, not against the
+        // month on screen - a counted milestone has a different figure every
+        // month and the pips are the only place that shows the shape of it.
+        const months = periods.map(function (p) {
+          const e = log.byKey[objLogKey(p, OBJ_KIND_PLAN, m.id)];
+          const ms = objMilestoneScore(m, log, p, { auto: autoAll[p] || {} });
+          return {
+            period: p,
+            recorded: Boolean(e) || Boolean(m.auto && p <= current),
+            fraction: ms.fraction,
+            status: e ? e.status : ''
+          };
+        });
+        return {
+          id: m.id, rowId: m.rowId, category: m.category, weight: m.weight,
+          objective: m.objective, milestone: m.milestone, outcome: m.outcome,
+          countType: m.countType, target: s.target, per: m.per,
+          owner: m.owner, auto: m.auto,
+          value: s.value, fraction: s.fraction,
+          status: entry ? entry.status : '',
+          note: entry ? entry.note : '',
+          by: entry ? entry.by : '',
+          at: entry ? entry.at : 0,
+          history: entry ? entry.history : [],
+          months: months
+        };
+      })
+    };
+  });
+
+  // ---- the ninety, with this month's marks on each ----
+  const list = tasks.tasks.map(function (t) {
+    const entry = log.byKey[objLogKey(want, OBJ_KIND_TASK, t.id)];
+    const state = objTaskState(t, entry ? entry.marks : '', want, now);
+    return {
+      id: t.id, category: t.category, name: t.name, group: t.group,
+      area: t.area, kpi: t.kpi, description: t.description,
+      target: t.target, method: t.method, frequency: t.frequency,
+      owner: t.owner,
+      marks: state.marks, slots: state.slots, elapsed: state.elapsed,
+      done: state.done, missed: state.missed, silent: state.silent,
+      marked: state.marked, onSchedule: state.onSchedule, due: state.due,
+      mine: objMayTick(me, t),
+      note: entry ? entry.note : '',
+      by: entry ? entry.by : '',
+      at: entry ? entry.at : 0
+    };
+  });
+
+  return {
+    period: want,
+    periods: periods,
+    periodLabel: CONFIG.OBJECTIVE.PERIOD_LABEL,
+    monthIndex: periods.indexOf(want),
+    /*
+      The month it actually is, which is NOT the same question as which
+      month is being looked at. The page needs both: `period` to draw, and
+      this to know that there is nothing yet to record against February.
+      Worked out here because the browser's clock is the user's and can be
+      anything at all.
+    */
+    current: current,
+    closed: want < current,
+    plan: { rows: rows, weight: plan.weight, filled: plan.filled,
+            count: plan.plan.length },
+    tasks: { list: list, count: tasks.count, groups: tasks.groups,
+             filled: tasks.filled },
+    unique: auto.UNIQUE_ROLES || null,
+    score: objScore(plan, log, want, { auto: auto }),
+    me: { id: me.id, name: me.name, admin: me.admin, planner: me.planner,
+          groups: me.groups, all: me.all, reason: me.reason }
+  };
+}
+
+
+/**
+ * Writes a log row, keeping the last few versions of it beside it.
+ *
+ * The row is updated in place rather than appended to, so the tab stays one
+ * row per objective per month; the version it replaces is pushed onto the
+ * History column first, which is what the Updates timeline is drawn from.
+ * Correcting a number therefore does not erase the number it corrected.
+ */
+function objWriteLog(period, kind, ref, fields, who) {
+  const sheet = objLogTab();
+  const row = objLogRowOf(sheet, period, kind, ref);
+  const now = new Date();
+
+  let history = [];
+  let marks = '';
+  let value = '';
+  let status = '';
+  let note = '';
+
+  if (row !== -1) {
+    const had = sheet.getRange(row, 1, 1, OBJ_LOG_COLUMNS.length).getValues()[0];
+    marks = String(had[3] || '');
+    value = had[4];
+    status = String(had[5] || '');
+    note = String(had[6] || '');
+    history = parseObjHistory(had[10]);
+
+    const at = objDate(had[9]);
+    if (at) {
+      history.unshift({
+        at: at.getTime(),
+        by: String(had[7] || ''),
+        byId: String(had[8] || ''),
+        value: (value === '' || value === null || value === undefined)
+          ? null : Number(value),
+        status: status,
+        note: note,
+        marks: marks
+      });
+    }
+    history = history.slice(0, CONFIG.OBJECTIVE.HISTORY_KEPT || 20);
+  }
+
+  const next = [
+    period, kind, ref,
+    fields.marks !== undefined ? fields.marks : marks,
+    fields.value !== undefined ? fields.value : value,
+    fields.status !== undefined ? fields.status : status,
+    fields.note !== undefined ? fields.note : note,
+    who.name, who.id, now,
+    JSON.stringify(history)
+  ];
+
+  if (row === -1) {
+    sheet.appendRow(next);
+  } else {
+    sheet.getRange(row, 1, 1, OBJ_LOG_COLUMNS.length).setValues([next]);
+  }
+
+  return { at: now.getTime(), by: who.name, history: history };
+}
+
+
+/**
+ * Records a SMART milestone for a month.
+ *
+ * Section heads, the department head and admins. Not everybody, because
+ * these twenty-nine are what the department is scored on - see the file
+ * header.
+ */
+function recordObjMilestone(token, milestoneId, period, update) {
+  requireSignedIn(token);
+
+  const me = objWhoAmI(token);
+  if (!me.planner) {
+    throw new Error('Recording against the SMART objective is for section ' +
+                    'heads and the department head. You can still tick the ' +
+                    'unique-role objectives for your own module.');
+  }
+
+  const periods = objPeriods();
+  const p = String(period || '').trim();
+  if (periods.indexOf(p) === -1) {
+    throw new Error('That month is outside the objective period (' +
+                    CONFIG.OBJECTIVE.PERIOD_LABEL + ').');
+  }
+
+  const plan = readObjPlan();
+  let milestone = null;
+  plan.plan.forEach(function (m) {
+    if (m.id === String(milestoneId || '').trim()) milestone = m;
+  });
+  if (!milestone) throw new Error('There is no milestone with that id.');
+
+  if (milestone.auto === 'UNIQUE_ROLES') {
+    throw new Error('That milestone is counted from the ninety unique-role ' +
+                    'objectives and is not recorded by hand. Tick those and ' +
+                    'this moves with them.');
+  }
+
+  const u = update || {};
+  const fields = {};
+
+  if (u.value !== undefined && u.value !== null && u.value !== '') {
+    const v = Number(u.value);
+    if (!(v >= 0)) throw new Error('That is not a number this can record.');
+    if (milestone.countType === 'PERCENT' && v > 100) {
+      throw new Error('A percentage cannot be more than 100.');
+    }
+    fields.value = v;
+  }
+
+  if (u.status !== undefined) {
+    const s = String(u.status || '').trim().toUpperCase();
+    const allowed = ['ON_TRACK', 'AT_RISK', 'MISSED', 'DONE', ''];
+    if (allowed.indexOf(s) === -1) throw new Error('That is not a status.');
+    fields.status = s;
+  }
+
+  if (u.note !== undefined) {
+    const n = String(u.note || '');
+    if (n.length > 4000) {
+      throw new Error('That note is too long - 4,000 characters at most.');
+    }
+    fields.note = n;
+  }
+
+  const written = objWriteLog(p, OBJ_KIND_PLAN, milestone.id, fields,
+                              { name: me.name, id: me.id });
+  return { ok: true, at: written.at, by: written.by };
+}
+
+
+/**
+ * Marks one slot of one unique-role objective.
+ *
+ * The slot is an index into the month's Marks string, which the page already
+ * holds - so a daily objective ticked on the 8th sends the index of the 8th
+ * working day and not the date. The server recomputes the string's length
+ * from the frequency before writing, so a page holding a stale idea of how
+ * long the month is cannot write past the end of it.
+ */
+function tickObjTask(token, taskId, period, slot, mark, note) {
+  requireSignedIn(token);
+
+  const me = objWhoAmI(token);
+  const periods = objPeriods();
+  const p = String(period || '').trim();
+  if (periods.indexOf(p) === -1) {
+    throw new Error('That month is outside the objective period (' +
+                    CONFIG.OBJECTIVE.PERIOD_LABEL + ').');
+  }
+
+  const all = readObjTask();
+  let task = null;
+  all.tasks.forEach(function (t) {
+    if (t.id === String(taskId || '').trim()) task = t;
+  });
+  if (!task) throw new Error('There is no objective with that id.');
+
+  if (task.kpi) {
+    throw new Error('That one is a KPI. Its figure comes from the KPI ' +
+                    'engine and is not ticked by hand.');
+  }
+
+  if (!objMayTick(me, task)) {
+    throw new Error(me.reason ||
+      ('That objective belongs to the ' + task.group + ' module. You can ' +
+       'tick the ones for your own module.'));
+  }
+
+  const slots = objSlotCount(p, task.frequency);
+  const i = Number(slot);
+  if (!(i >= 0) || i >= slots) {
+    throw new Error('There is no slot ' + slot + ' in ' + p + ' for a ' +
+                    task.frequency.toLowerCase() + ' objective.');
+  }
+
+  const log = readObjLog();
+  const had = log.byKey[objLogKey(p, OBJ_KIND_TASK, task.id)];
+  const marks = objMarksSet(objMarksRead(had ? had.marks : '', slots), i, mark);
+
+  const fields = { marks: marks };
+  if (note !== undefined) {
+    const n = String(note || '');
+    if (n.length > 4000) {
+      throw new Error('That note is too long - 4,000 characters at most.');
+    }
+    fields.note = n;
+  }
+
+  objWriteLog(p, OBJ_KIND_TASK, task.id, fields, { name: me.name, id: me.id });
+
+  const state = objTaskState(task, marks, p, new Date());
+  return { ok: true, marks: state.marks, done: state.done,
+           elapsed: state.elapsed, onSchedule: state.onSchedule };
+}
+
+
+/**
+ * Adds a milestone to the SMART objective. Admin only.
+ *
+ * It joins an EXISTING weighted row rather than bringing a weight of its
+ * own, because the nine weights are the agreed split of 100 and a page that
+ * let somebody add a tenth would quietly make every score on it a fraction
+ * of something other than 100. Adding to a row shares that row's weight
+ * across one more milestone; the total does not move.
+ */
+function createObjMilestone(token, draft) {
+  requireAdmin(token);
+
+  const d = draft || {};
+  const rowId = String(d.rowId || '').trim();
+  const milestone = String(d.milestone || '').trim();
+  const objective = String(d.objective || '').trim();
+
+  if (!rowId) throw new Error('Pick which category it belongs to.');
+  if (!milestone) throw new Error('A milestone needs its measure - what has to happen.');
+  if (milestone.length > 2000) throw new Error('That milestone is too long.');
+  if (objective.length > 2000) throw new Error('That objective is too long.');
+
+  const plan = readObjPlan();
+  let row = null;
+  plan.rows.forEach(function (r) { if (r.rowId === rowId) row = r; });
+  if (!row) throw new Error('There is no category with the id ' + rowId + '.');
+
+  const countType = String(d.countType || 'NUMBER').trim().toUpperCase();
+  if (['NUMBER', 'PERCENT', 'DONE'].indexOf(countType) === -1) {
+    throw new Error('Say whether it is counted as a number, a percentage, ' +
+                    'or done and not done.');
+  }
+
+  const per = String(d.per || 'MONTH').trim().toUpperCase();
+  if (['MONTH', 'PERIOD', 'QUARTER'].indexOf(per) === -1) {
+    throw new Error('Say whether the target is per month, per quarter, or ' +
+                    'for the whole period.');
+  }
+
+  let target = Number(d.target);
+  if (countType === 'DONE') target = 1;
+  if (countType === 'PERCENT' && !target) target = 100;
+  if (!(target > 0)) throw new Error('That target is not a number.');
+
+  // The next id in sequence, from what is there rather than from the count -
+  // a deleted row would otherwise hand a new milestone an id that is already
+  // on the sheet.
+  let highest = 0;
+  plan.plan.forEach(function (m) {
+    const n = Number(String(m.id).replace(/[^0-9]/g, ''));
+    if (n > highest) highest = n;
+  });
+  const id = 'OBJ-' + ('00' + (highest + 1)).slice(-3);
+
+  objPlanTab().appendRow([
+    id, rowId, row.category, row.weight, objective, milestone,
+    String(d.outcome || '').trim(), countType, target, per,
+    String(d.owner || 'EAS Team').trim(), ''
+  ]);
+
+  return { ok: true, id: id, rowId: rowId, category: row.category,
+           weight: row.weight, sharedAcross: row.milestones.length + 1 };
+}
+
+
+// ---------------------------------------------------------------------------
+// RUN FROM THE EDITOR
+// ---------------------------------------------------------------------------
+
+/**
+ * Creates the OBJ_LOG tab, and says what the other two still need.
+ *
+ * Only the log is created. OBJ_PLAN and OBJ_TASK are pasted from the
+ * objective workbook, and a tool that made them empty with the right
+ * headers would look exactly like a tool that had filled them in.
+ */
+function setupObjectiveTabs() {
+  const log = objLogTab();
+  Logger.log('Tab "%s" is ready, with %s columns. The page writes it; ' +
+             'nothing is typed in.', log.getName(), OBJ_LOG_COLUMNS.length);
+  Logger.log('');
+
+  const plan = readObjPlan();
+  const tasks = readObjTask();
+
+  Logger.log('%s  %s milestone(s), weighting %s',
+             padTo(CONFIG.SHEETS.OBJ_PLAN, 10), padTo(plan.plan.length, 4),
+             plan.weight);
+  Logger.log('%s  %s objective(s)',
+             padTo(CONFIG.SHEETS.OBJ_TASK, 10), padTo(tasks.count, 4));
+  Logger.log('');
+
+  if (!plan.filled) {
+    Logger.log('%s is empty. Import OBJ_PLAN.csv into it - File > Import >',
+               CONFIG.SHEETS.OBJ_PLAN);
+    Logger.log('Upload, and choose "Insert new sheet", then rename the tab.');
+  } else if (plan.weight !== 100) {
+    Logger.log('WEIGHTING IS %s, NOT 100. Every figure on the page is a share',
+               plan.weight);
+    Logger.log('of this number, so it should be 100. Check the Weight column:');
+    Logger.log('it carries the ROW weight, repeated on each milestone of that');
+    Logger.log('row, and each row is counted once.');
+  }
+
+  if (!tasks.filled) {
+    Logger.log('%s is empty. Copy A1:L91 from the Objective_Unique Roles',
+               CONFIG.SHEETS.OBJ_TASK);
+    Logger.log('sheet of the workbook and paste it in.');
+  }
+}
+
+
+/**
+ * What is recorded, and what is not, month by month.
+ *
+ * The thing worth looking at here is the SILENT column - slots that came and
+ * went with nobody saying either way. Those score as misses, which is
+ * correct, but a large number of them means the page is not being used
+ * rather than that the work is not being done, and those are different
+ * problems with different fixes.
+ */
+function checkObjectives() {
+  const plan = readObjPlan();
+  const tasks = readObjTask();
+  const log = readObjLog();
+  const now = new Date();
+  const current = objPeriodOf(now);
+
+  if (!plan.filled && !tasks.filled) {
+    Logger.log('Neither objective tab has anything in it yet.');
+    Logger.log('Run setupObjectiveTabs for what to do about that.');
+    return;
+  }
+
+  Logger.log('%s - %s milestones, %s unique-role objectives, %s log row(s).',
+             CONFIG.OBJECTIVE.PERIOD_LABEL, plan.plan.length, tasks.count,
+             log.count);
+  Logger.log('');
+  Logger.log('%s %s %s %s %s', padTo('MONTH', 9), padTo('SCORE', 7),
+             padTo('ON SCH.', 9), padTo('SILENT', 8), 'MILESTONES RECORDED');
+
+  // Read once for the whole period rather than once a month - six Drive
+  // reads where one does is what turns a check into a slow check.
+  const autoAll = objAutoAll(tasks.tasks, log, objPeriods(), now);
+
+  objPeriods().forEach(function (p) {
+    if (p > current) return;
+    const auto = autoAll[p] || {};
+    const scored = objScore(plan, log, p, { auto: auto });
+    const unique = auto.UNIQUE_ROLES || { on: 0, total: 0 };
+
+    let silent = 0;
+    tasks.tasks.forEach(function (t) {
+      const e = log.byKey[objLogKey(p, OBJ_KIND_TASK, t.id)];
+      silent += objTaskState(t, e ? e.marks : '', p, now).silent;
+    });
+
+    let recorded = 0;
+    plan.plan.forEach(function (m) {
+      if (log.byKey[objLogKey(p, OBJ_KIND_PLAN, m.id)]) recorded++;
+    });
+
+    Logger.log('%s %s %s %s %s', padTo(p, 9),
+               padTo(scored.score + '/' + scored.outOf, 7),
+               padTo(unique.on + '/' + unique.total, 9),
+               padTo(silent, 8),
+               recorded + ' of ' + plan.plan.length);
+  });
+
+  Logger.log('');
+  Logger.log('SILENT is slots that passed with nobody marking them either');
+  Logger.log('way. They score as missed, which is right - but a big number');
+  Logger.log('here means the page is not being used, not that the work is');
+  Logger.log('not being done.');
+}
