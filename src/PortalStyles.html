@@ -4015,9 +4015,21 @@
   .obj-strip i.is-n {
     background: var(--ob-red-2); border-color: var(--ob-red);
   }
+  /*
+    YELLOW IS "DONE, BUT RECORDED AFTER ITS PERIOD CLOSED".
+
+    It is the one state that cannot be worked out from the marks alone -
+    green and yellow are the same mark, and only the time it was made
+    tells them apart - which is why the moment of each mark is stored
+    beside it. The square carries the date in its tooltip.
+  */
+  .obj-strip i.is-l {
+    background: var(--ob-amber-2); border-color: var(--ob-amber);
+  }
   .obj-strip i.is-now { box-shadow: 0 0 0 2px rgba(67, 56, 202, .5); }
   .obj-strip-l { font-size: 10.8px; color: var(--ob-dim); margin-top: 6px; }
   .obj-strip-l.is-bad { color: #b42318; font-weight: 600; }
+  .obj-strip-l.is-late { color: #b54708; font-weight: 600; }
 
   .obj-tick {
     font: inherit; font-size: 12.6px; font-weight: 620; cursor: pointer;
@@ -4071,6 +4083,11 @@
   .obj-day.is-n {
     background: #fef3f2; border-color: #fda29b; color: #b42318;
   }
+  /* Done, but caught up on after its period closed. The tooltip says when. */
+  .obj-day.is-l {
+    background: #fffaeb; border-color: #fec84b; color: #b54708;
+  }
+  .obj-day.is-l:hover:not([disabled]) { background: #fef0c7; }
   .obj-day.is-now { box-shadow: 0 0 0 2px rgba(67, 56, 202, .45); }
   .obj-day[disabled] { opacity: .45; cursor: default; }
   /* A weekend. Present, so the grid is a calendar; inert, so it is clear

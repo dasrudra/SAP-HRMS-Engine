@@ -583,21 +583,25 @@ const CONFIG = {
    *
    * WORK_DAYS is the part that is genuinely local and genuinely matters.
    * Thirty of the ninety objectives are DAILY, and "did we do it today"
-   * cannot be answered without knowing which days count. The working week
-   * here is Sunday to Thursday - Friday and Saturday are the weekend - so a
-   * daily check has about twenty-two slots in a month, not thirty. Getting
-   * this wrong does not fail loudly: it quietly scores every team member as
-   * having missed eight days a month, for ever.
+   * cannot be answered without knowing which days count. Getting this wrong
+   * does not fail loudly: it quietly scores every team member as having
+   * missed days they were never at work on, for ever.
+   *
+   * ONLY FRIDAY IS THE WEEKEND HERE. Saturday is a working day, which is
+   * the office's own arrangement and not the one a calendar would guess -
+   * this was Sunday to Thursday until the team said otherwise, and that
+   * cost a daily objective four slots a month it should have had.
    *
    * 0 is Sunday, the same numbering Date.getDay() uses, so nothing has to be
-   * translated at the point of asking.
+   * translated at the point of asking. 5 is Friday, and it is the only one
+   * missing.
    */
   OBJECTIVE: {
     PERIOD_START: '2026-10',
     PERIOD_END:   '2027-03',
     PERIOD_LABEL: 'October 2026 to March 2027',
 
-    WORK_DAYS: [0, 1, 2, 3, 4],
+    WORK_DAYS: [0, 1, 2, 3, 4, 6],
 
     /*
       How many past updates each log row remembers.

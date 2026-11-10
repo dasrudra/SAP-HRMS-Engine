@@ -9385,9 +9385,16 @@
       through - so they are two rows rather than one row of eighteen chips
       where pressing the second one cancels the first.
     */
+    /*
+      EVERY FREQUENCY THAT EXISTS, due this month or not.
+
+      It used to leave out any frequency with nothing due, which meant the
+      quarterly chip vanished for two months out of three - and a filter
+      that disappears is worse than one that shows you four objectives
+      saying "due in December". Those are a real thing to want to look at.
+    */
     const freqs = {};
     (data.tasks.list || []).forEach(function (t) {
-      if (!t.slots) return;          // not due this month, so not a choice
       const f = String(t.frequency || '').trim();
       if (f) freqs[f] = (freqs[f] || 0) + 1;
     });
@@ -9712,21 +9719,53 @@
 
 
   // ------------------------------------------------------------------ tasks
+  /**
+   * The slots of a month, as the server coloured them.
+   *
+   * THE COLOUR IS NOT WORKED OUT HERE. done, late, missed and pending come
+   * off the server with the row, because whether a mark was late depends on
+   * when it was made against when its period closed - and only the server
+   * knows the first and should be trusted on the second.
+   */
+  const OBJ_CELL = { done: 'is-y', late: 'is-l', missed: 'is-n', pending: '' };
+
   function objStrip(t) {
     let html = '';
-    for (let i = 0; i < t.slots; i++) {
-      const ch = String(t.marks || '').charAt(i);
-      html += '<i class="' +
-        (ch === 'Y' ? 'is-y' : ch === 'N' ? 'is-n' : '') +
-        (i === t.elapsed - 1 ? ' is-now' : '') + '"></i>';
-    }
+    (t.cells || []).forEach(function (c) {
+      html += '<i class="' + (OBJ_CELL[c.state] || '') +
+        (c.slot === t.elapsed - 1 ? ' is-now' : '') + '"></i>';
+    });
     return '<div class="obj-strip">' + html + '</div>';
+  }
+
+
+  /** What pressing a slot should send: marked goes back to clear, clear to marked. */
+  function objNextMark(state) {
+    return (state === 'done' || state === 'late') ? '.' : 'Y';
+  }
+
+
+  /** 'Marked 12 Nov 2026', for the tooltip on a late square. */
+  function objMarkedWhen(ms) {
+    const d = new Date(Number(ms) || 0);
+    if (!d.getTime()) return '';
+    return 'Marked ' + d.getDate() + ' ' +
+      OBJ_MONTHS[d.getMonth()].slice(0, 3) + ' ' + d.getFullYear();
   }
 
 
   function objTaskCard(t, data) {
     const freq = String(t.frequency || '').toUpperCase();
 
+    /*
+      EVERY FREQUENCY OPENS THE SAME WAY.
+
+      A monthly objective used to carry a Mark done button that marked it
+      and nothing else - no note, no way to change your mind, no record of
+      when. That is a worse deal than the daily ones got for no reason
+      other than having one slot instead of twenty-six, so all of them now
+      open onto the same panel.
+    */
     let act;
     if (t.kpi) {
       act = '<button class="obj-btn is-wide" disabled>From the engine</button>';
@@ -9734,27 +9773,25 @@
       act = '<button class="obj-btn is-wide" disabled>' +
         escapeHtml(t.group) + ' module</button>';
     } else if (!t.slots) {
-      act = '<button class="obj-btn is-wide" disabled>Not due</button>';
-    } else if (freq === 'DAILY' || freq === 'WEEKLY') {
-      // More than one slot a month, so the card opens onto the grid rather
-      // than guessing which one the press meant.
+      // "Not due in October" answered the wrong question. It is only ever
+      // a quarterly objective, and what you want to know is when.
+      act = '<button class="obj-btn is-wide" disabled>' +
+        (t.dueIn ? 'Due in ' + objMonthShort(t.dueIn) : 'Not due') +
+        '</button>';
+    } else {
       act = '<button class="obj-tick' + (t.due ? ' is-due' : '') +
         '" data-obj-open="' + escapeHtml(t.id) + '">' +
-        (t.due ? objTickIcon() + 'Mark ' + (freq === 'DAILY' ? 'a day' : 'a week')
-               : 'Open') + '</button>';
-    } else {
-      const done = String(t.marks || '').charAt(0) === 'Y';
-      act = '<button class="obj-tick' +
-        (done ? ' is-done' : ' is-due') + '" data-obj-tick="' +
-        escapeHtml(t.id) + '" data-slot="0" data-mark="' +
-        (done ? '.' : 'Y') + '">' + objTickIcon() +
-        (done ? 'Done' : 'Mark done') + '</button>';
+        (t.due ? objTickIcon() + 'Mark' : 'Open') + '</button>';
     }
 
     let under;
     if (!t.slots) {
-      under = '<div class="obj-strip-l">Not due in ' +
-        escapeHtml(objMonthName(data.period)) + '</div>';
+      under = '<div class="obj-strip-l">' + (t.dueIn
+        ? 'Quarterly &middot; due in ' + escapeHtml(objMonthName(t.dueIn))
+        : 'Not due in ' + escapeHtml(objMonthName(data.period))) + '</div>';
+    } else if (t.late && t.late === t.marked && !t.silent && !t.missed) {
+      under = '<div class="obj-strip-l is-late">' + t.done + ' of ' +
+        t.elapsed + ' &middot; marked late</div>';
     } else if (!t.elapsed) {
       // The slot has not come round yet - a monthly objective all month,
       // every objective in a month that has not started. `done` is
@@ -9819,40 +9856,55 @@
       better than a sentence did. The stored marks are unchanged - one per
       working day - and `days.work` is what maps a date to its slot.
     */
+    const state = {};
+    (t.cells || []).forEach(function (c) { state[c.slot] = c; });
+
+    /*
+      ONE CELL PER SLOT, AND PRESSING IT ONLY EVER MARKS OR CLEARS.
+
+      There used to be a third press that set a square red. Nobody wants a
+      button for "we did not do this": a miss is what a period that came
+      and went without a mark IS, and the page works that out. So the cycle
+      is marked and not marked, and red arrives on its own.
+
+      Yellow is the one that has to be stored rather than derived - it says
+      the work was done but recorded after its period had closed - and the
+      square carries the date it was marked in its tooltip.
+    */
+    const cell = function (slot, label, extra) {
+      const c = state[slot] || { state: 'pending', at: 0 };
+      // Open, not elapsed: a monthly slot can be marked all month and only
+      // becomes a miss the day after it ends. See objSlotsOpen.
+      const past = slot < (t.open === undefined ? t.elapsed : t.open);
+      const title = (c.state === 'late') ? objMarkedWhen(c.at)
+                  : (c.state === 'done' && c.at) ? objMarkedWhen(c.at) : '';
+      return '<button class="obj-day' + (extra || '') + ' ' +
+        (OBJ_CELL[c.state] || '') +
+        (slot === t.elapsed - 1 ? ' is-now' : '') + '"' +
+        (past ? '' : ' disabled') +
+        (title ? ' title="' + escapeHtml(title) + '"' : '') +
+        ' data-obj-tick="' + escapeHtml(t.id) + '" data-slot="' + slot +
+        '" data-mark="' + objNextMark(c.state) + '">' + label + '</button>';
+    };
+
     let cells = '';
     if (freq === 'DAILY') {
       const cal = (data.days || {});
       const work = cal.work || [];
       const total = cal.count || work.length;
-
       for (let d = 1; d <= total; d++) {
         const slot = work.indexOf(d);
-        if (slot === -1) {
-          cells += '<span class="obj-day is-off" aria-hidden="true">' +
-            d + '</span>';
-          continue;
-        }
-        const ch = marks.charAt(slot);
-        const past = slot < t.elapsed;
-        cells += '<button class="obj-day' +
-          (ch === 'Y' ? ' is-y' : ch === 'N' ? ' is-n' : '') +
-          (slot === t.elapsed - 1 ? ' is-now' : '') + '"' +
-          (past ? '' : ' disabled') +
-          ' data-obj-tick="' + escapeHtml(t.id) + '" data-slot="' + slot +
-          '" data-mark="' + (ch === 'Y' ? 'N' : ch === 'N' ? '.' : 'Y') +
-          '">' + d + '</button>';
+        cells += (slot === -1)
+          ? '<span class="obj-day is-off" aria-hidden="true">' + d + '</span>'
+          : cell(slot, d, '');
       }
+    } else if (freq === 'WEEKLY') {
+      for (let i = 0; i < t.slots; i++) cells += cell(i, 'W' + (i + 1), ' is-week');
     } else {
+      // Monthly and quarterly have one slot, and it is named rather than
+      // numbered - "W1" for a thing that happens once a month is noise.
       for (let i = 0; i < t.slots; i++) {
-        const ch = marks.charAt(i);
-        const past = i < t.elapsed;
-        cells += '<button class="obj-day is-week' +
-          (ch === 'Y' ? ' is-y' : ch === 'N' ? ' is-n' : '') +
-          (i === t.elapsed - 1 ? ' is-now' : '') + '"' +
-          (past ? '' : ' disabled') +
-          ' data-obj-tick="' + escapeHtml(t.id) + '" data-slot="' + i +
-          '" data-mark="' + (ch === 'Y' ? 'N' : ch === 'N' ? '.' : 'Y') +
-          '">W' + (i + 1) + '</button>';
+        cells += cell(i, objMonthShort(data.period), ' is-week');
       }
     }
 
@@ -9878,18 +9930,30 @@
             ' <i>press to mark, press again to change your mind</i></label>' +
           '<div class="obj-days">' + cells + '</div>' +
         '</div>' +
+        /*
+          THE NOTE, where the objective's own description used to sit.
+
+          The description is in the spreadsheet and does not change; what
+          the person at this screen has to say about this month does. "The
+          POD report was not generated on the 3rd" belongs beside the
+          square that is red because of it.
+        */
         '<div>' +
-          '<label class="obj-fl">What it is <i>from the sheet</i></label>' +
-          '<div class="obj-hi-n" style="margin:0">' +
-            escapeHtml(t.description || t.name) +
-            (t.method ? '<br><br><b>How:</b> ' + escapeHtml(t.method) : '') +
-          '</div>' +
+          '<label class="obj-fl">Note <i>for ' +
+            escapeHtml(objMonthName(data.period)) + '</i></label>' +
+          '<textarea class="obj-note-in" rows="5" maxlength="4000" ' +
+            'data-obj-tnote="' + escapeHtml(t.id) + '" placeholder="What ' +
+            'happened this month - anything a square cannot say on its ' +
+            'own.">' + escapeHtml(t.note || '') + '</textarea>' +
         '</div>' +
+
         '<div class="obj-up-foot">' +
           '<span class="obj-up-who" data-obj-say>' +
-            (t.by ? 'Last marked by ' + escapeHtml(t.by) : 'Not marked yet') +
+            (t.by ? 'Last saved by ' + escapeHtml(t.by) : 'Nothing saved yet') +
           '</span>' +
           '<button class="obj-btn" data-obj-close>Close</button>' +
+          '<button class="obj-btn is-primary" data-obj-note-save="' +
+            escapeHtml(t.id) + '">Save note</button>' +
         '</div>' +
       '</div>' +
     '</div>';
@@ -9955,10 +10019,20 @@
    */
   function objTick(id, slot, mark) {
     const task = objTaskById(id);
-    if (!task || OBJ.sending[id]) return;
+    /*
+      HELD PER SQUARE, not per objective.
+
+      Per objective was wrong in the one case that matters most: catching
+      up on a week of a daily check means pressing five squares in a row on
+      the SAME row, and a per-row hold dropped four of them. What must not
+      happen twice is the same square - an impatient second press sends the
+      mark the button was drawn with, which undoes the first.
+    */
+    const held = String(id) + '|' + String(slot);
+    if (!task || OBJ.sending[held]) return;
 
     const before = task.marks;
-    OBJ.sending[id] = true;
+    OBJ.sending[held] = true;
 
     // Paint it now. The server is the authority and will correct this in a
     // moment, but the press has to look like it landed.
@@ -9973,10 +10047,11 @@
 
     callServer('tickObjTask', id, OBJ.period, i, mark)
       .then(function (fresh) {
-        delete OBJ.sending[id];
+        delete OBJ.sending[held];
         if (fresh && fresh.id) {
           ['marks', 'slots', 'elapsed', 'done', 'missed', 'silent',
-           'marked', 'onSchedule', 'due', 'by', 'at'].forEach(function (k) {
+           'marked', 'late', 'cells', 'open', 'onSchedule', 'due',
+           'by', 'at'].forEach(function (k) {
             if (fresh[k] !== undefined) task[k] = fresh[k];
           });
         }
@@ -9984,11 +10059,44 @@
         renderObjList(OBJ.data);
       })
       .catch(function (err) {
-        delete OBJ.sending[id];
+        delete OBJ.sending[held];
         task.marks = before;
         objRecount(task);
         renderObjStats(OBJ.data);
         renderObjList(OBJ.data);
+        objWarn(String(err && err.message || err));
+        onError(err);
+      });
+  }
+
+
+  /**
+   * Saves the note on one of the ninety.
+   *
+   * Its own call rather than part of a tick, because somebody writes a
+   * note without changing any square - that is most of why a note exists -
+   * and one that could only be saved by also pressing something would be a
+   * note nobody writes.
+   */
+  function objSaveTaskNote(id) {
+    const task = objTaskById(id);
+    const box = document.querySelector('[data-obj-tnote="' + cssEscape(id) + '"]');
+    if (!task || !box || OBJ.sending[id]) return;
+
+    const text = box.value;
+    OBJ.sending[id] = true;
+    objSay('Saving the note...');
+
+    callServer('saveObjTaskNote', id, OBJ.period, text)
+      .then(function (fresh) {
+        delete OBJ.sending[id];
+        task.note = text;
+        if (fresh && fresh.by) task.by = fresh.by;
+        objSay('Saved against ' + objMonthName(OBJ.period));
+      })
+      .catch(function (err) {
+        delete OBJ.sending[id];
+        objSay(String(err && err.message || err), true);
         objWarn(String(err && err.message || err));
         onError(err);
       });
@@ -10014,14 +10122,44 @@
    * about the calendar and do not change because somebody pressed a button.
    */
   function objRecount(t) {
-    let done = 0, missed = 0;
-    for (let i = 0; i < t.elapsed && i < t.marks.length; i++) {
-      const c = t.marks.charAt(i);
-      if (c === 'Y') done++;
-      else if (c === 'N') missed++;
+    let done = 0, missed = 0, late = 0;
+    const cells = [];
+
+    for (let i = 0; i < t.slots; i++) {
+      const ch = t.marks.charAt(i);
+      const was = (t.cells || []).filter(function (c) { return c.slot === i; })[0];
+
+      if (ch === 'Y') {
+        if (i < t.elapsed) done++;
+        /*
+          GREEN OR YELLOW, GUESSED, until the server says.
+
+          A square whose own period is still the current one is on time;
+          one further back is being caught up on. The server decides this
+          properly - it has the moment the mark was made and the moment
+          the period closed - and its answer lands a moment later. This is
+          only so that the square does not flash the wrong colour first.
+        */
+        const fresh = !was || was.state === 'pending' || was.state === 'missed';
+        const isLate = fresh ? (i < t.elapsed - 1)
+                             : (was.state === 'late');
+        if (isLate) late++;
+        cells.push({ slot: i, state: isLate ? 'late' : 'done',
+                     at: (was && was.at) || Date.now() });
+      } else if (ch === 'N') {
+        if (i < t.elapsed) missed++;
+        cells.push({ slot: i, state: 'missed', at: 0 });
+      } else if (i < t.elapsed) {
+        cells.push({ slot: i, state: 'missed', at: 0 });
+      } else {
+        cells.push({ slot: i, state: 'pending', at: 0 });
+      }
     }
+
+    t.cells = cells;
     t.done = done;
     t.missed = missed;
+    t.late = late;
     t.silent = Math.max(0, t.elapsed - done - missed);
     t.marked = (t.marks.match(/Y/g) || []).length;
     t.onSchedule = t.elapsed === 0 ? true : done === t.elapsed;
@@ -10214,6 +10352,12 @@
 
       const save = e.target.closest('[data-obj-save]');
       if (save) { objSave(save.getAttribute('data-obj-save')); return; }
+
+      const noteSave = e.target.closest('[data-obj-note-save]');
+      if (noteSave) {
+        objSaveTaskNote(noteSave.getAttribute('data-obj-note-save'));
+        return;
+      }
 
       const tick = e.target.closest('[data-obj-tick]');
       if (tick && !tick.disabled) {

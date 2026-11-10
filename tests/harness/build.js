@@ -222,7 +222,7 @@ const stub = `
     var out = [];
     for (var d = 1; d <= (OBJ_DAYS[period] || 30); d++) {
       var day = new Date(y, m - 1, d).getDay();
-      if (day >= 0 && day <= 4) out.push(d);
+      if (day !== 5) out.push(d);          // Friday alone is the weekend
     }
     return out;
   }
@@ -244,9 +244,20 @@ const stub = `
     if (period < OBJ_NOW) return slots;
     if (period > OBJ_NOW) return 0;
     var f = String(freq || '').toUpperCase();
-    if (f === 'DAILY') return 8;            // the 10th, Sunday to Thursday
+    if (f === 'DAILY') return 9;            // the 10th; only the 6th was off
     if (f === 'WEEKLY') return 2;           // day 10 is inside block two
     return 0;
+  }
+
+  /* How many slots may be pressed now - not the same as elapsed. */
+  function objOpen(period, freq) {
+    var slots = objSlots(period, freq);
+    if (!slots) return 0;
+    if (period < OBJ_NOW) return slots;
+    if (period > OBJ_NOW) return 0;
+    var f = String(freq || '').toUpperCase();
+    if (f === 'DAILY' || f === 'WEEKLY') return objElapsed(period, freq);
+    return slots;
   }
 
   function objMarks(s, slots) {
@@ -261,6 +272,51 @@ const stub = `
       if (marks.charAt(i) === mark) n++;
     }
     return n;
+  }
+
+  /* The last moment a slot could be marked and still count as on time. */
+  function objSlotEnd(period, freq, slot) {
+    var y = Number(String(period).slice(0, 4));
+    var m = Number(String(period).slice(5, 7));
+    var days = OBJ_DAYS[period] || 30;
+    var f = String(freq || '').toUpperCase();
+    var last = days;
+    if (f === 'DAILY') last = objWorkDays(period)[slot] || days;
+    else if (f === 'WEEKLY') last = Math.min((slot + 1) * 7, days);
+    return new Date(y, m - 1, last, 23, 59, 59, 999).getTime();
+  }
+
+  /*
+    done / late / missed / pending per slot, the way the server works it
+    out. Late is the one that cannot be read off the marks - green and
+    yellow are the same mark, and only WHEN it was made tells them apart.
+  */
+  function objCells(t, period, marks, elapsed, when) {
+    var out = [], late = 0;
+    for (var i = 0; i < marks.length; i++) {
+      var ch = marks.charAt(i);
+      var at = (when || {})[String(i)] || 0;
+      if (ch === 'Y') {
+        var isLate = at > 0 && at > objSlotEnd(period, t.frequency, i);
+        if (isLate) late++;
+        out.push({ slot: i, state: isLate ? 'late' : 'done', at: at });
+      } else if (i < elapsed) {
+        out.push({ slot: i, state: 'missed', at: 0 });
+      } else {
+        out.push({ slot: i, state: 'pending', at: 0 });
+      }
+    }
+    return { cells: out, late: late };
+  }
+
+  /* The month a quarterly objective with no slot this month is next due. */
+  function objDueIn(t, period) {
+    if (objSlots(period, t.frequency)) return '';
+    var at = OBJ_PERIODS.indexOf(period);
+    for (var i = at + 1; i < OBJ_PERIODS.length; i++) {
+      if (objSlots(OBJ_PERIODS[i], t.frequency)) return OBJ_PERIODS[i];
+    }
+    return '';
   }
 
   /* The ninety, counted the way the Operation milestone counts them. */
@@ -1344,7 +1400,9 @@ const stub = `
             var marks = objMarks(e ? e.marks : '', slots);
             var done = objCount(marks, 'Y', elapsed);
             var missed = objCount(marks, 'N', elapsed);
+            var st = objCells(t, want, marks, elapsed, e ? e.markedAt : null);
             return {
+              cells: st.cells, late: st.late, dueIn: objDueIn(t, want),
               id: t.id, category: t.category, name: t.name, group: t.group,
               area: t.area, kpi: t.kpi, description: t.description,
               target: t.target, method: t.method, frequency: t.frequency,
@@ -1353,8 +1411,10 @@ const stub = `
               done: done, missed: missed,
               silent: Math.max(0, elapsed - done - missed),
               marked: objCount(marks, 'Y', slots),
+              open: objOpen(want, t.frequency),
               onSchedule: elapsed === 0 ? true : done === elapsed,
-              due: elapsed > 0 && marks.charAt(elapsed - 1) === '.',
+              due: objOpen(want, t.frequency) > 0 &&
+                   marks.charAt(objOpen(want, t.frequency) - 1) === '.',
               // The four KPIs are nobody's, and this account owns SD.
               mine: !t.kpi && (t.group === 'SD' || t.group === 'MM'),
               note: e ? e.note : '', by: e ? e.by : '', at: e ? e.at : 0
@@ -1420,25 +1480,58 @@ const stub = `
         throw new Error('There is no slot ' + slot + ' in ' + period + '.');
       }
       var key = period + '|TASK|' + id;
-      var marks = objMarks(OBJ_LOG[key] ? OBJ_LOG[key].marks : '', slots);
+      var had = OBJ_LOG[key] || {};
+      var marks = objMarks(had.marks || '', slots);
       var ch = (mark === 'Y' || mark === 'N') ? mark : '.';
       marks = marks.slice(0, i) + ch + marks.slice(i + 1);
-      OBJ_LOG[key] = { marks: marks, note: '', by: 'Utpal Biswas',
-                       at: Date.now(), history: [] };
+
+      // WHEN, as well as whether - it is what tells green from yellow.
+      var when = {};
+      Object.keys(had.markedAt || {}).forEach(function (k) {
+        when[k] = had.markedAt[k];
+      });
+      if (ch === 'Y') { when[String(i)] = Date.now(); }
+      else { delete when[String(i)]; }
+
+      OBJ_LOG[key] = { marks: marks, note: had.note || '',
+                       by: 'Utpal Biswas', at: Date.now(), history: [],
+                       markedAt: when };
       // Everything the page needs to redraw that one row. A tick used to be
       // followed by a whole getObjectives to change one square's colour.
       var elapsed = objElapsed(period, t.frequency);
       var done = objCount(marks, 'Y', elapsed);
       var missed = objCount(marks, 'N', elapsed);
+      var st = objCells(t, period, marks, elapsed, when);
       return {
+        cells: st.cells, late: st.late,
         ok: true, id: t.id, marks: marks, slots: slots, elapsed: elapsed,
         done: done, missed: missed,
         silent: Math.max(0, elapsed - done - missed),
         marked: objCount(marks, 'Y', slots),
+        open: objOpen(period, t.frequency),
         onSchedule: elapsed === 0 ? true : done === elapsed,
-        due: elapsed > 0 && marks.charAt(elapsed - 1) === '.',
+        due: objOpen(period, t.frequency) > 0 &&
+             marks.charAt(objOpen(period, t.frequency) - 1) === '.',
         by: 'Utpal Biswas', at: Date.now()
       };
+    },
+
+    saveObjTaskNote: function (token, id, period, note) {
+      var t = null;
+      OBJ_TASK.forEach(function (x) { if (x.id === id) t = x; });
+      if (!t) throw new Error('There is no objective with that id.');
+      if (t.kpi || (t.group !== 'SD' && t.group !== 'MM')) {
+        throw new Error('That objective belongs to the ' + t.group +
+                        ' module. You can write notes on the ones for ' +
+                        'your own module.');
+      }
+      var key = period + '|TASK|' + id;
+      var had = OBJ_LOG[key] || { marks: '', markedAt: {} };
+      had.note = String(note || '');
+      had.by = 'Utpal Biswas';
+      had.at = Date.now();
+      OBJ_LOG[key] = had;
+      return { ok: true, id: id, note: had.note, by: had.by, at: had.at };
     },
 
     createObjMilestone: function (token, draft) {

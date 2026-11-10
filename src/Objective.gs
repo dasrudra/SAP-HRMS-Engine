@@ -99,11 +99,23 @@ const OBJ_TASK_COLUMNS = [
  */
 const OBJ_LOG_COLUMNS = [
   'Period', 'Kind', 'Ref ID', 'Marks', 'Value', 'Status', 'Note',
-  'By', 'By ID', 'At', 'History'
+  'By', 'By ID', 'At', 'History', 'Marked'
 ];
 
 
-/** What a slot in a Marks string can say. */
+/**
+ * What a slot in a Marks string can say.
+ *
+ * TWO OF THESE ARE WRITTEN AND THREE ARE READ. The page sends only DONE and
+ * PENDING: pressing a square marks it, pressing again clears it. There is
+ * no button that says "we missed this", because a miss is not something
+ * anybody goes and records - it is what a period that came and went without
+ * a mark IS, and the page works that out rather than waiting to be told.
+ *
+ * MISSED is still read, because rows written when the page did have that
+ * button are still in the tab, and an 'N' means the same thing as a '.'
+ * that got away: not done.
+ */
 const OBJ_PENDING = '.';
 const OBJ_DONE    = 'Y';
 const OBJ_MISSED  = 'N';
@@ -354,6 +366,31 @@ function objIsQuarterEnd(period) {
 
 
 /**
+ * The month an objective with no slot this month is next due in.
+ *
+ * "Not due in October 2026" is a true sentence that answers the wrong
+ * question. The only objectives it ever appears on are the quarterly ones,
+ * and what somebody looking at one actually wants to know is WHEN - so the
+ * card says "Due in December" and the question does not arise.
+ *
+ * Empty when it is due this month, or when there is no month left in the
+ * period that it falls in.
+ */
+function objDueIn(task, period) {
+  if (objSlotCount(period, task.frequency)) return '';
+
+  const periods = objPeriods();
+  const from = periods.indexOf(String(period));
+  if (from === -1) return '';
+
+  for (let i = from + 1; i < periods.length; i++) {
+    if (objSlotCount(periods[i], task.frequency)) return periods[i];
+  }
+  return '';
+}
+
+
+/**
  * How many slots an objective of this frequency has in this month.
  *
  * WEEKLY counts blocks of seven days from the 1st, not calendar weeks. A
@@ -414,6 +451,35 @@ function objSlotsElapsed(period, frequency, now) {
 }
 
 
+/**
+ * How many of this month's slots can be marked right now.
+ *
+ * NOT THE SAME QUESTION AS objSlotsElapsed, and conflating the two made a
+ * monthly objective impossible to record in its own month. Elapsed means
+ * "this period has closed, so an unmarked slot is a miss". Open means "this
+ * period has begun, so you may record it" - and a monthly slot is open from
+ * the 1st and does not close until the 30th.
+ *
+ * For daily and weekly the two agree, because elapsed already counts the
+ * day or week in progress.
+ */
+function objSlotsOpen(period, frequency, now) {
+  const slots = objSlotCount(period, frequency);
+  if (!slots) return 0;
+
+  const today = objDate(now) || new Date();
+  const nowPeriod = objPeriodOf(today);
+  if (period < nowPeriod) return slots;   // the month is over; all of it
+  if (period > nowPeriod) return 0;       // it has not started
+
+  const freq = String(frequency || '').trim().toUpperCase();
+  if (freq === 'DAILY' || freq === 'WEEKLY') {
+    return objSlotsElapsed(period, frequency, now);
+  }
+  return slots;                           // the month has begun, so it is open
+}
+
+
 // ---------------------------------------------------------------------------
 // THE MARKS STRING
 // ---------------------------------------------------------------------------
@@ -450,6 +516,58 @@ function objMarksSet(marks, index, mark) {
   if (!(i >= 0) || i >= s.length) return s;
   const ch = (mark === OBJ_DONE || mark === OBJ_MISSED) ? mark : OBJ_PENDING;
   return s.slice(0, i) + ch + s.slice(i + 1);
+}
+
+
+/**
+ * The last moment a slot could be marked and still count as on time.
+ *
+ * A daily slot closes at the end of its own date, a weekly one at the end
+ * of its seven-day block, a monthly or quarterly one at the end of the
+ * month. Marking after that is not a miss - the work was done - but it is
+ * not on time either, and the page shows the difference.
+ */
+function objSlotEnd(period, frequency, slot) {
+  const y = Number(String(period).slice(0, 4));
+  const m = Number(String(period).slice(5, 7));
+  const days = objDaysInMonth(period);
+  const freq = String(frequency || '').trim().toUpperCase();
+  const i = Number(slot) || 0;
+
+  let last = days;
+  if (freq === 'DAILY') {
+    const work = objWorkingDays(period);
+    last = work[i] || days;
+  } else if (freq === 'WEEKLY') {
+    last = Math.min((i + 1) * 7, days);
+  }
+  return new Date(y, m - 1, last, 23, 59, 59, 999).getTime();
+}
+
+
+/**
+ * When each slot was marked, parsed. Bad JSON reads as nothing recorded.
+ *
+ * Kept beside the marks rather than inside them because a mark is one
+ * character and a time is not - and because the question it answers is one
+ * the page asks of a single square at a time: was this done when it should
+ * have been, or caught up on later.
+ */
+function parseObjMarked(cell) {
+  const text = String(cell || '').trim();
+  if (!text) return {};
+  try {
+    const got = JSON.parse(text);
+    if (!got || typeof got !== 'object') return {};
+    const out = {};
+    Object.keys(got).forEach(function (k) {
+      const n = Number(got[k]);
+      if (n > 0) out[String(Number(k))] = n;
+    });
+    return out;
+  } catch (e) {
+    return {};
+  }
 }
 
 
@@ -622,7 +740,8 @@ function readObjLog() {
       by: String(r[7] || '').trim(),
       byId: String(r[8] || '').trim(),
       at: at ? at.getTime() : 0,
-      history: parseObjHistory(r[10])
+      history: parseObjHistory(r[10]),
+      markedAt: parseObjMarked(r[11])
     };
     count++;
   });
@@ -672,12 +791,47 @@ function objLogRowOf(sheet, period, kind, ref) {
  * one, and the opposite reading would make the whole page an optimistic
  * guess at what people meant to do.
  */
-function objTaskState(task, marks, period, now) {
+function objTaskState(task, marks, period, now, markedAt) {
   const slots = objSlotCount(period, task.frequency);
   const elapsed = objSlotsElapsed(period, task.frequency, now);
+  const open = objSlotsOpen(period, task.frequency, now);
   const s = objMarksRead(marks, slots);
   const done = objMarksCount(s, OBJ_DONE, elapsed);
   const missed = objMarksCount(s, OBJ_MISSED, elapsed);
+
+  /*
+    WHAT COLOUR EACH SQUARE IS, worked out here so the page does not have
+    to and cannot disagree with the score.
+
+      done      marked, and marked while its own period was still open
+      late      marked, but after that period had closed. The work was
+                done; it was recorded afterwards, and the square says so
+                rather than pretending either that it was on time or that
+                it never happened
+      missed    the period came and went with no mark. Nobody records this
+                - it is what the absence IS
+      pending   the period has not closed yet
+
+    Marking late still counts as done for the score. It was done. The
+    colour is the honest record of when, and a scoring rule that threw the
+    work away because the note was late would teach people not to catch up.
+  */
+  const when = markedAt || {};
+  const marksState = [];
+  let late = 0;
+  for (let i = 0; i < slots; i++) {
+    const ch = s.charAt(i);
+    const at = when[String(i)] || 0;
+    if (ch === OBJ_DONE) {
+      const isLate = at > 0 && at > objSlotEnd(period, task.frequency, i);
+      if (isLate) late++;
+      marksState.push({ slot: i, state: isLate ? 'late' : 'done', at: at });
+    } else if (i < elapsed) {
+      marksState.push({ slot: i, state: 'missed', at: 0 });
+    } else {
+      marksState.push({ slot: i, state: 'pending', at: 0 });
+    }
+  }
 
   return {
     slots: slots,
@@ -698,9 +852,15 @@ function objTaskState(task, marks, period, now) {
       early credit either.
     */
     marked: objMarksCount(s, OBJ_DONE),
+    // How many slots may be pressed. See objSlotsOpen - a monthly one is
+    // open all month, and elapsed only the day after it ends.
+    open: open,
+    late: late,
+    cells: marksState,
     marks: s,
     onSchedule: elapsed === 0 ? true : done === elapsed,
-    due: elapsed > 0 && s.charAt(Math.max(0, elapsed - 1)) === OBJ_PENDING
+    // Waiting on somebody: the slot that can be pressed right now is blank.
+    due: open > 0 && s.charAt(Math.max(0, open - 1)) === OBJ_PENDING
   };
 }
 
@@ -726,7 +886,8 @@ function objUniqueRolesScore(tasks, log, period, now) {
     total++;
 
     const entry = log.byKey[objLogKey(period, OBJ_KIND_TASK, t.id)];
-    const state = objTaskState(t, entry ? entry.marks : '', period, now);
+    const state = objTaskState(t, entry ? entry.marks : '', period, now,
+                               entry ? entry.markedAt : null);
 
     /*
       ONLY WHAT HAS ACTUALLY COME ROUND COUNTS.
@@ -1154,7 +1315,8 @@ function getObjectives(token, period) {
   // ---- the ninety, with this month's marks on each ----
   const list = tasks.tasks.map(function (t) {
     const entry = log.byKey[objLogKey(want, OBJ_KIND_TASK, t.id)];
-    const state = objTaskState(t, entry ? entry.marks : '', want, now);
+    const state = objTaskState(t, entry ? entry.marks : '', want, now,
+                               entry ? entry.markedAt : null);
     return {
       id: t.id, category: t.category, name: t.name, group: t.group,
       area: t.area, kpi: t.kpi, description: t.description,
@@ -1162,7 +1324,9 @@ function getObjectives(token, period) {
       owner: t.owner,
       marks: state.marks, slots: state.slots, elapsed: state.elapsed,
       done: state.done, missed: state.missed, silent: state.silent,
-      marked: state.marked, onSchedule: state.onSchedule, due: state.due,
+      marked: state.marked, late: state.late, cells: state.cells,
+      open: state.open, onSchedule: state.onSchedule, due: state.due,
+      dueIn: objDueIn(t, want),
       mine: objMayTick(me, t),
       note: entry ? entry.note : '',
       by: entry ? entry.by : '',
@@ -1230,6 +1394,7 @@ function objWriteLog(period, kind, ref, fields, who) {
   let value = '';
   let status = '';
   let note = '';
+  let markedAt = {};
 
   if (row !== -1) {
     const had = sheet.getRange(row, 1, 1, OBJ_LOG_COLUMNS.length).getValues()[0];
@@ -1238,6 +1403,7 @@ function objWriteLog(period, kind, ref, fields, who) {
     status = String(had[5] || '');
     note = String(had[6] || '');
     history = parseObjHistory(had[10]);
+    markedAt = parseObjMarked(had[11]);
 
     const at = objDate(had[9]);
     if (at) {
@@ -1262,7 +1428,8 @@ function objWriteLog(period, kind, ref, fields, who) {
     fields.status !== undefined ? fields.status : status,
     fields.note !== undefined ? fields.note : note,
     who.name, who.id, now,
-    JSON.stringify(history)
+    JSON.stringify(history),
+    JSON.stringify(fields.markedAt !== undefined ? fields.markedAt : markedAt)
   ];
 
   if (row === -1) {
@@ -1394,7 +1561,25 @@ function tickObjTask(token, taskId, period, slot, mark, note) {
   const had = log.byKey[objLogKey(p, OBJ_KIND_TASK, task.id)];
   const marks = objMarksSet(objMarksRead(had ? had.marks : '', slots), i, mark);
 
-  const fields = { marks: marks };
+  /*
+    WHEN, as well as whether.
+
+    The time is what tells a square marked on its own day from one caught
+    up on afterwards - green from yellow - so it is recorded at the moment
+    the mark is made and cleared when the mark is cleared. Unmarking and
+    marking again therefore resets the clock, which is correct: it is a
+    fresh claim about when the work was recorded.
+  */
+  const markedAt = {};
+  const hadTimes = (had && had.markedAt) || {};
+  Object.keys(hadTimes).forEach(function (k) { markedAt[k] = hadTimes[k]; });
+  if (marks.charAt(i) === OBJ_DONE) {
+    markedAt[String(i)] = new Date().getTime();
+  } else {
+    delete markedAt[String(i)];
+  }
+
+  const fields = { marks: marks, markedAt: markedAt };
   if (note !== undefined) {
     const n = String(note || '');
     if (n.length > 4000) {
@@ -1417,15 +1602,62 @@ function tickObjTask(token, taskId, period, slot, mark, note) {
     The page now patches the row it pressed from this, and works the strip
     and the counters out from it locally.
   */
-  const state = objTaskState(task, marks, p, new Date());
+  const state = objTaskState(task, marks, p, new Date(), markedAt);
   return {
     ok: true,
     id: task.id,
     marks: state.marks, slots: state.slots, elapsed: state.elapsed,
     done: state.done, missed: state.missed, silent: state.silent,
-    marked: state.marked, onSchedule: state.onSchedule, due: state.due,
+    marked: state.marked, late: state.late, cells: state.cells,
+    open: state.open, onSchedule: state.onSchedule, due: state.due,
     by: me.name, at: new Date().getTime()
   };
+}
+
+
+/**
+ * Saves the note on one objective for one month.
+ *
+ * Separate from tickObjTask because a note is not a mark: somebody writes
+ * "the report was not generated on the 3rd" without changing any square,
+ * and a note that could only be saved by also pressing something would be
+ * a note nobody writes.
+ *
+ * Same permission as a tick - it is the same row, and a note on somebody
+ * else's module is the same intrusion as a mark on it.
+ */
+function saveObjTaskNote(token, taskId, period, note) {
+  requireSignedIn(token);
+
+  const me = objWhoAmI(token);
+  const p = String(period || '').trim();
+  if (objPeriods().indexOf(p) === -1) {
+    throw new Error('That month is outside the objective period (' +
+                    CONFIG.OBJECTIVE.PERIOD_LABEL + ').');
+  }
+
+  const all = objCached('obj.task', 600, readObjTask);
+  let task = null;
+  all.tasks.forEach(function (t) {
+    if (t.id === String(taskId || '').trim()) task = t;
+  });
+  if (!task) throw new Error('There is no objective with that id.');
+
+  if (!objMayTick(me, task)) {
+    throw new Error(me.reason ||
+      ('That objective belongs to the ' + task.group + ' module. You can ' +
+       'write notes on the ones for your own module.'));
+  }
+
+  const text = String(note === null || note === undefined ? '' : note);
+  if (text.length > 4000) {
+    throw new Error('That note is too long - 4,000 characters at most.');
+  }
+
+  objWriteLog(p, OBJ_KIND_TASK, task.id, { note: text },
+              { name: me.name, id: me.id });
+  return { ok: true, id: task.id, note: text, by: me.name,
+           at: new Date().getTime() };
 }
 
 
@@ -1587,7 +1819,8 @@ function checkObjectives() {
     let silent = 0;
     tasks.tasks.forEach(function (t) {
       const e = log.byKey[objLogKey(p, OBJ_KIND_TASK, t.id)];
-      silent += objTaskState(t, e ? e.marks : '', p, now).silent;
+      silent += objTaskState(t, e ? e.marks : '', p, now,
+                             e ? e.markedAt : null).silent;
     });
 
     let recorded = 0;

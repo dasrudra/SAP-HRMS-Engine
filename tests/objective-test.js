@@ -322,27 +322,31 @@ function load(opts) {
 {
   const ctx = load();
 
-  // Counted by hand from a calendar. November 2026 opens on a Sunday.
-  check('November 2026 has 22 working days, not 30',
-    ctx.objWorkingDays('2026-11').length === 22,
+  // Counted by hand from a calendar. November 2026 opens on a Sunday and
+  // has four Fridays - the 6th, 13th, 20th and 27th.
+  check('November 2026 has 26 working days, not 30',
+    ctx.objWorkingDays('2026-11').length === 26,
     'got ' + ctx.objWorkingDays('2026-11').length);
-  check('October 2026 has 21 working days',
-    ctx.objWorkingDays('2026-10').length === 21,
+  check('October 2026 has 26, because it has five Fridays',
+    ctx.objWorkingDays('2026-10').length === 26,
     'got ' + ctx.objWorkingDays('2026-10').length);
-  check('December 2026 has 23 working days',
-    ctx.objWorkingDays('2026-12').length === 23,
+  check('December 2026 has 27',
+    ctx.objWorkingDays('2026-12').length === 27,
     'got ' + ctx.objWorkingDays('2026-12').length);
 
   const nov = ctx.objWorkingDays('2026-11');
-  check('Friday and Saturday are not working days',
-    nov.indexOf(6) === -1 && nov.indexOf(7) === -1 &&
-    nov.indexOf(13) === -1 && nov.indexOf(14) === -1,
+  // SATURDAY IS A WORKING DAY HERE. This was Sunday to Thursday until the
+  // team said otherwise, which cost a daily objective four slots a month.
+  check('Friday is the weekend, and Saturday is not',
+    nov.indexOf(6) === -1 && nov.indexOf(13) === -1 &&
+    nov.indexOf(7) !== -1 && nov.indexOf(14) !== -1,
     nov.join(','));
-  check('the working days run Sunday to Thursday',
-    nov[0] === 1 && nov[4] === 5 && nov[5] === 8 && nov[21] === 30);
+  check('so the working days run Saturday to Thursday',
+    nov[0] === 1 && nov[4] === 5 && nov[5] === 7 && nov[25] === 30,
+    nov.slice(0, 8).join(','));
 
   check('a daily objective has a slot per working day',
-    ctx.objSlotCount('2026-11', 'Daily') === 22);
+    ctx.objSlotCount('2026-11', 'Daily') === 26);
   check('a weekly objective has blocks of seven from the 1st',
     ctx.objSlotCount('2026-11', 'Weekly') === 5 &&
     ctx.objSlotCount('2026-12', 'Weekly') === 5);
@@ -363,15 +367,15 @@ function load(opts) {
   const ctx = load();
   const now = new Date(2026, 10, 10, 10, 0, 0);   // 10 November
 
-  check('8 of November"s working days have gone by the 10th',
-    ctx.objSlotsElapsed('2026-11', 'Daily', now) === 8,
+  check('9 of November"s working days have gone by the 10th',
+    ctx.objSlotsElapsed('2026-11', 'Daily', now) === 9,
     'got ' + ctx.objSlotsElapsed('2026-11', 'Daily', now));
   check('the 10th is inside week 2, so two weekly slots are elapsed',
     ctx.objSlotsElapsed('2026-11', 'Weekly', now) === 2);
   check('a monthly slot is not elapsed until the month is',
     ctx.objSlotsElapsed('2026-11', 'Monthly', now) === 0);
   check('a closed month has all of its slots elapsed',
-    ctx.objSlotsElapsed('2026-10', 'Daily', now) === 21 &&
+    ctx.objSlotsElapsed('2026-10', 'Daily', now) === 26 &&
     ctx.objSlotsElapsed('2026-10', 'Monthly', now) === 1);
   check('a month that has not started has none',
     ctx.objSlotsElapsed('2026-12', 'Daily', now) === 0);
@@ -414,19 +418,19 @@ function load(opts) {
   const now = new Date(2026, 10, 10, 10, 0, 0);
   const daily = { frequency: 'Daily' };
 
-  const all = ctx.objTaskState(daily, 'YYYYYYYY..............', '2026-11', now);
+  const all = ctx.objTaskState(daily, 'YYYYYYYYY.................', '2026-11', now);
   check('every elapsed day marked done is on schedule',
-    all.onSchedule === true && all.done === 8 && all.elapsed === 8);
+    all.onSchedule === true && all.done === 9 && all.elapsed === 9);
 
-  const missed = ctx.objTaskState(daily, 'YYNYYYYY..............', '2026-11', now);
+  const missed = ctx.objTaskState(daily, 'YYNYYYYYY.................', '2026-11', now);
   check('a day marked missed is not on schedule',
-    missed.onSchedule === false && missed.missed === 1 && missed.done === 7);
+    missed.onSchedule === false && missed.missed === 1 && missed.done === 8);
 
   // THE ONE THAT MATTERS. Six days ticked, two days nobody touched. The
   // comfortable reading calls that on schedule because nothing says missed.
-  const silent = ctx.objTaskState(daily, 'YYYYYY................', '2026-11', now);
+  const silent = ctx.objTaskState(daily, 'YYYYYY....................', '2026-11', now);
   check('a slot that passed with nobody marking it counts against',
-    silent.onSchedule === false && silent.silent === 2 && silent.done === 6,
+    silent.onSchedule === false && silent.silent === 3 && silent.done === 6,
     'done ' + silent.done + ' silent ' + silent.silent);
 
   const ahead = ctx.objTaskState({ frequency: 'Monthly' }, '.', '2026-12', now);
@@ -451,12 +455,12 @@ function load(opts) {
     'due ' + early.due + ' waiting ' + early.waiting +
     ' fraction ' + early.fraction);
 
-  const ahead2 = ctx.objTaskState(daily, 'YYNYYYYY.Y............', '2026-11', now);
+  const ahead2 = ctx.objTaskState(daily, 'YYNYYYYYY.Y...............', '2026-11', now);
   check('marked counts every slot, done counts only the elapsed ones',
-    ahead2.marked === 8 && ahead2.done === 7,
+    ahead2.marked === 9 && ahead2.done === 8,
     'marked ' + ahead2.marked + ' done ' + ahead2.done);
 
-  const due = ctx.objTaskState(daily, 'YYYYYYY...............', '2026-11', now);
+  const due = ctx.objTaskState(daily, 'YYYYYYYY..................', '2026-11', now);
   check('the current slot being blank is what "due" means',
     due.due === true && all.due === false);
 }
@@ -587,10 +591,10 @@ function load(opts) {
   // The three SD/MM dailies and weeklies, all ticked up to date.
   log.byKey[ctx.objLogKey('2026-11', 'TASK', 'OJT-006')] = { marks: 'YY...' };
   log.byKey[ctx.objLogKey('2026-11', 'TASK', 'OJT-007')] =
-    { marks: 'YYYYYYYY..............' };
+    { marks: 'YYYYYYYYY.................' };
   log.byKey[ctx.objLogKey('2026-11', 'TASK', 'OJT-009')] = { marks: 'YY...' };
   log.byKey[ctx.objLogKey('2026-11', 'TASK', 'OJT-012')] =
-    { marks: 'YYYYYYYY..............' };
+    { marks: 'YYYYYYYYY.................' };
   const all = ctx.objUniqueRolesScore(tasks.tasks, log, '2026-11', now);
   check('ticking everything that is due puts the ninety on schedule',
     all.on === 4 && all.due === 4 && near(all.fraction, 1),
@@ -860,12 +864,12 @@ function load(opts) {
   check('a member can tick their own module"s objective',
     r.ok === true && r.marks.charAt(0) === 'Y' && r.done === 1);
   check('the marks string is the length of the month, not of the tick',
-    r.marks.length === 22, 'got ' + r.marks.length);
+    r.marks.length === 26, 'got ' + r.marks.length);
 
   ctx.tickObjTask('t', 'OJT-007', '2026-11', 2, 'N');
   const row = ctx.__tabs.OBJ_LOG.rows[1];
   check('a second tick changes its own slot and leaves the first alone',
-    row[3] === 'Y.N' + '.'.repeat(19), row[3]);
+    row[3] === 'Y.N' + '.'.repeat(23), row[3]);
   check('ticking stays on one row per objective per month',
     ctx.__tabs.OBJ_LOG.rows.length === 2);
 
@@ -1128,7 +1132,7 @@ function load(opts) {
     ctx.objWorkingDays('2026-11') === first, 'a second call rebuilt them');
   check('and a different month is not confused with it',
     ctx.objWorkingDays('2026-10') !== first &&
-    ctx.objWorkingDays('2026-10').length === 21);
+    ctx.objWorkingDays('2026-10').length === 26);
 
   /*
     The slot count is kept too, and proving it needs a spy rather than a
@@ -1141,25 +1145,25 @@ function load(opts) {
   spied.objWorkingDays = function (p) { asked++; return real(p); };
 
   check('the slot count is kept per month and frequency too',
-    spied.objSlotCount('2026-11', 'Daily') === 22 &&
-    spied.objSlotCount('2026-11', 'Daily') === 22 &&
-    spied.objSlotCount('2026-11', 'Daily') === 22 &&
+    spied.objSlotCount('2026-11', 'Daily') === 26 &&
+    spied.objSlotCount('2026-11', 'Daily') === 26 &&
+    spied.objSlotCount('2026-11', 'Daily') === 26 &&
     asked === 1,
     'the month was consulted ' + asked + ' time(s) for 3 identical asks');
   check('and a different frequency is still worked out',
     spied.objSlotCount('2026-11', 'Weekly') === 5 &&
-    spied.objSlotCount('2026-12', 'Daily') === 23 && asked === 2,
+    spied.objSlotCount('2026-12', 'Daily') === 27 && asked === 2,
     'asked ' + asked);
 
   // THE CALENDAR THE PAGE DRAWS FROM. Thirty cells, of which 22 count.
   const page = ctx.getObjectives('t');
   check('the page is given the month as a calendar, not just a slot count',
-    page.days.count === 30 && page.days.work.length === 22 &&
-    page.days.work[0] === 1 && page.days.work[5] === 8,
+    page.days.count === 30 && page.days.work.length === 26 &&
+    page.days.work[0] === 1 && page.days.work[5] === 7,
     'count ' + page.days.count + ' work ' + page.days.work.length);
-  check('and the weekend is absent from the days that count',
-    page.days.work.indexOf(6) === -1 && page.days.work.indexOf(7) === -1 &&
-    page.days.work.indexOf(28) === -1);
+  check('and Friday alone is absent from the days that count',
+    page.days.work.indexOf(6) === -1 && page.days.work.indexOf(13) === -1 &&
+    page.days.work.indexOf(7) !== -1 && page.days.work.indexOf(28) !== -1);
 }
 
 // ===========================================================================
@@ -1170,12 +1174,199 @@ function load(opts) {
   const r = ctx.tickObjTask('t', 'OJT-007', '2026-11', 0, 'Y');
 
   check('a tick comes back with everything needed to redraw that one row',
-    r.id === 'OJT-007' && r.marks.length === 22 && r.slots === 22 &&
-    r.elapsed === 8 && r.done === 1 && r.onSchedule === false &&
+    r.id === 'OJT-007' && r.marks.length === 26 && r.slots === 26 &&
+    r.elapsed === 9 && r.done === 1 && r.onSchedule === false &&
     typeof r.marked === 'number' && typeof r.due === 'boolean',
     JSON.stringify({ id: r.id, done: r.done, elapsed: r.elapsed }));
   check('including who marked it and when',
     r.by === 'Bilal Hossain' && r.at > 0);
+}
+
+// ===========================================================================
+// 18f. green, yellow and red
+// ===========================================================================
+// Green and yellow are the SAME MARK. Only when it was made tells them
+// apart, which is why the moment of each mark is stored beside it - and why
+// red needs nothing stored at all, being what a period that came and went
+// without a mark simply is.
+{
+  const ctx = load();
+  const now = new Date(2026, 10, 10, 10, 0, 0);
+  const daily = { frequency: 'Daily' };
+
+  const onTime = new Date(2026, 10, 3, 14, 0, 0).getTime();   // the 3rd
+  const caught = new Date(2026, 10, 10, 9, 0, 0).getTime();   // a week later
+
+  // Slot 2 is the 3rd of November - working days run 1,2,3,4,5,7,...
+  const green = ctx.objTaskState(daily, '..Y.......................',
+    '2026-11', now, { '2': onTime });
+  check('a mark made while its own day was still open is green',
+    green.cells[2].state === 'done' && green.late === 0,
+    green.cells[2].state);
+
+  const yellow = ctx.objTaskState(daily, '..Y.......................',
+    '2026-11', now, { '2': caught });
+  check('the same mark made a week later is yellow, not green',
+    yellow.cells[2].state === 'late' && yellow.late === 1,
+    yellow.cells[2].state);
+  check('and it carries the moment it was made, for the tooltip',
+    yellow.cells[2].at === caught);
+
+  check('an unmarked day that has been and gone is red, with nothing stored',
+    yellow.cells[1].state === 'missed' && yellow.cells[1].at === 0);
+  check('and one that has not arrived yet is neither',
+    yellow.cells[20].state === 'pending');
+
+  // Late is still DONE. The work happened; it was written down afterwards.
+  check('a late mark still counts as done for the score',
+    yellow.done === 1 && green.done === 1,
+    'late done ' + yellow.done + ', on-time done ' + green.done);
+
+  // A monthly slot closes at the end of the month, so marking it on the
+  // 10th is on time - this is the case that makes the window matter.
+  const monthly = ctx.objTaskState({ frequency: 'Monthly' }, 'Y', '2026-11',
+    now, { '0': caught });
+  check('a monthly mark made mid-month is on time, not late',
+    monthly.cells[0].state === 'done' && monthly.late === 0);
+
+  const lateMonth = ctx.objTaskState({ frequency: 'Monthly' }, 'Y', '2026-10',
+    now, { '0': caught });
+  check('but the same mark against last month is late',
+    lateMonth.cells[0].state === 'late' && lateMonth.late === 1);
+}
+
+// ===========================================================================
+// 18f2. the moment of a mark is written down, and taken away again
+// ===========================================================================
+// The timestamp is the ONLY thing that separates a green square from a
+// yellow one, so it has to be recorded at the moment the mark is made -
+// and cleared when the mark is cleared, or the row keeps a time for
+// something that is not marked.
+{
+  const ctx = load({ session: { u: '20990001', r: 'USER' } });
+  // The vm's clock, not Node's: this suite pins today to 10 November 2026,
+  // and comparing a mark made in there against the real wall clock would
+  // only ever be a test of what year it is now.
+  const before = vm.runInContext('Date.now()', ctx);
+
+  ctx.tickObjTask('t', 'OJT-007', '2026-11', 3, 'Y');
+  const row = ctx.__tabs.OBJ_LOG.rows[1];
+  const stamps = JSON.parse(row[11] || '{}');
+
+  check('ticking records WHEN, beside the mark',
+    Object.keys(stamps).join(',') === '3' && stamps['3'] >= before,
+    row[11]);
+
+  ctx.tickObjTask('t', 'OJT-007', '2026-11', 5, 'Y');
+  check('a second tick adds to it rather than replacing it',
+    Object.keys(JSON.parse(ctx.__tabs.OBJ_LOG.rows[1][11])).sort().join(',')
+      === '3,5', ctx.__tabs.OBJ_LOG.rows[1][11]);
+
+  ctx.tickObjTask('t', 'OJT-007', '2026-11', 3, '.');
+  check('and clearing a mark takes its time away with it',
+    Object.keys(JSON.parse(ctx.__tabs.OBJ_LOG.rows[1][11])).join(',') === '5',
+    ctx.__tabs.OBJ_LOG.rows[1][11]);
+
+  // Marking day 4 (slot 3 is the 4th) long after it closed reads as late.
+  const page = ctx.getObjectives('t');
+  const t7 = page.tasks.list.filter((t) => t.id === 'OJT-007')[0];
+  check('and the page is told which squares are late',
+    t7.cells[5].state === 'late' && t7.cells[3].state === 'missed',
+    'slot 5 ' + t7.cells[5].state + ', slot 3 ' + t7.cells[3].state);
+}
+
+// ===========================================================================
+// 18g. open is not elapsed
+// ===========================================================================
+// Conflating the two made a monthly objective impossible to record in its
+// own month: its slot is not ELAPSED until the 30th, and a page that only
+// let you press elapsed slots therefore let you press nothing at all.
+{
+  const ctx = load();
+  const now = new Date(2026, 10, 10, 10, 0, 0);
+
+  check('a monthly slot is open all month and elapsed only after it',
+    ctx.objSlotsOpen('2026-11', 'Monthly', now) === 1 &&
+    ctx.objSlotsElapsed('2026-11', 'Monthly', now) === 0);
+  // A quarterly one the same, once the month it falls in has started -
+  // and not before it, which is a different thing from "not due".
+  const inDec = new Date(2026, 11, 4, 10, 0, 0);
+  check('a quarterly slot opens once its month begins, and not before',
+    ctx.objSlotsOpen('2026-12', 'Quarterly', inDec) === 1 &&
+    ctx.objSlotsOpen('2026-12', 'Quarterly', now) === 0,
+    'December from December ' +
+    ctx.objSlotsOpen('2026-12', 'Quarterly', inDec) +
+    ', from November ' + ctx.objSlotsOpen('2026-12', 'Quarterly', now));
+  check('for daily and weekly the two agree, because the day in progress ' +
+    'already counts',
+    ctx.objSlotsOpen('2026-11', 'Daily', now) === 9 &&
+    ctx.objSlotsOpen('2026-11', 'Weekly', now) === 2);
+  check('a month that has not started is open for nothing',
+    ctx.objSlotsOpen('2026-12', 'Monthly', now) === 0);
+  check('and a closed one is open for all of it',
+    ctx.objSlotsOpen('2026-10', 'Daily', now) === 26);
+
+  const page = ctx.getObjectives('t');
+  const monthly = page.tasks.list.filter((t) => t.id === 'OJT-005')[0];
+  check('the page is told how many slots it may let somebody press',
+    monthly.open === 1 && monthly.elapsed === 0,
+    'open ' + monthly.open + ' elapsed ' + monthly.elapsed);
+  check('so a monthly objective is waiting on somebody, not closed off',
+    monthly.due === true);
+}
+
+// ===========================================================================
+// 18h. a quarterly objective says WHEN, not just "no"
+// ===========================================================================
+{
+  const ctx = load();
+  const page = ctx.getObjectives('t', '2026-10');
+  const q = page.tasks.list.filter((t) => t.id === 'OJT-003')[0];
+
+  check('a quarterly objective has no slot in a month that does not close ' +
+    'its quarter',
+    q.slots === 0, q.slots + ' slots in October');
+  check('and the page is told the month it IS due in, so it can say so',
+    q.dueIn === '2026-12', q.dueIn);
+
+  const dec = ctx.getObjectives('t', '2026-12').tasks.list
+    .filter((t) => t.id === 'OJT-003')[0];
+  check('in December it is due, and says nothing about a later month',
+    dec.slots === 1 && dec.dueIn === '', dec.slots + ' / ' + dec.dueIn);
+}
+
+// ===========================================================================
+// 18i. a note of its own
+// ===========================================================================
+{
+  const ctx = load({ session: { u: '20990001', r: 'USER' } });   // SD member
+  const r = ctx.saveObjTaskNote('t', 'OJT-007', '2026-11',
+    'POD report was not generated on the 3rd.');
+  check('a note saves without marking anything',
+    r.ok === true && r.by === 'Bilal Hossain');
+
+  const row = ctx.__tabs.OBJ_LOG.rows[1];
+  check('it lands on the objective"s own row for that month',
+    row[0] === '2026-11' && row[2] === 'OJT-007' &&
+    row[6] === 'POD report was not generated on the 3rd.' &&
+    row[3] === '', 'marks left alone: ' + JSON.stringify(row[3]));
+
+  check('and the page reads it back',
+    ctx.getObjectives('t').tasks.list
+      .filter((t) => t.id === 'OJT-007')[0].note ===
+      'POD report was not generated on the 3rd.');
+
+  let msg = '';
+  try { ctx.saveObjTaskNote('t', 'OJT-008', '2026-11', 'x'); }
+  catch (e) { msg = e.message; }
+  check('a note on somebody else"s module is refused, like a mark',
+    /belongs to the MM module/.test(msg), msg);
+
+  msg = '';
+  try {
+    ctx.saveObjTaskNote('t', 'OJT-007', '2026-11', 'x'.repeat(5000));
+  } catch (e) { msg = e.message; }
+  check('and one that is far too long', /4,000 characters/.test(msg));
 }
 
 // ===========================================================================
@@ -1242,7 +1433,7 @@ function load(opts) {
   const ticked = page.tasks.list.filter((t) => t.id === 'OJT-007')[0];
   check('a tick made a moment ago is in what the page reads back',
     ticked.done === 1 && ticked.marks.charAt(0) === 'Y' &&
-    ticked.elapsed === 8 && ticked.onSchedule === false);
+    ticked.elapsed === 9 && ticked.onSchedule === false);
 
   const closed = ctx.getObjectives('t', '2026-10');
   check('an earlier month can be asked for, and knows it is closed',

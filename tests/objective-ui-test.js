@@ -310,18 +310,38 @@ function parseRgb(text) {
   check('your own module does',
     (await btnFor('OJT-005')) === 'LIVE', await btnFor('OJT-005'));
 
-  // A MONTHLY OBJECTIVE, TICKED, IN THE MONTH IT IS TICKED IN. Its one slot
-  // does not count as elapsed until the month is out, so the count that
-  // scores it is zero all month - and the card used to print that as
-  // "0 of 0 done" directly above a green button saying Done.
-  await p.click('[data-obj-tick="OJT-005"]');
+  /*
+    A MONTHLY OBJECTIVE OPENS LIKE EVERY OTHER ONE.
+
+    It used to carry a Mark done button that marked it and nothing else -
+    no note, no way to change your mind, no record of when - which is a
+    worse deal than the daily ones got for no reason but having one slot
+    instead of twenty-six.
+  */
+  await p.click('[data-obj-open="OJT-005"]');
+  await p.waitForTimeout(400);
+  check('a monthly objective opens onto a panel rather than marking itself',
+    await p.isVisible('.obj-card.is-open [data-obj-tnote="OJT-005"]'));
+  check('and its one slot is named for the month, not numbered W1',
+    (await p.$$eval('.obj-card.is-open .obj-day',
+      (ns) => ns.map((n) => n.textContent.trim()))).join(',') === 'Nov',
+    (await p.$$eval('.obj-card.is-open .obj-day',
+      (ns) => ns.map((n) => n.textContent.trim()))).join(','));
+
+  await p.click('.obj-card.is-open .obj-day');
   await p.waitForTimeout(700);
+  await p.click('[data-obj-close]');
+  await p.waitForTimeout(400);
+
+  // Its one slot does not count as elapsed until the month is out, so the
+  // count that scores it is zero all month - the card used to print that
+  // as "0 of 0 done" directly above a green button saying Done.
   const monthly = await p.$eval('#objList', (n) => {
     const r = Array.prototype.slice.call(n.querySelectorAll('.obj-card'))
       .filter((x) => x.textContent.indexOf('OJT-005') === 0)[0];
     return r ? r.textContent.replace(/\s+/g, ' ') : '';
   });
-  check('a monthly objective ticked this month says so, not "0 of 0 done"',
+  check('a monthly objective marked this month says so, not "0 of 0 done"',
     /Marked done for Nov/.test(monthly) && !/0 of 0/.test(monthly),
     monthly.slice(-60));
 
@@ -366,6 +386,8 @@ function parseRgb(text) {
     dead: Boolean(n.disabled),
     y: n.classList.contains('is-y'),
     nn: n.classList.contains('is-n'),
+    late: n.classList.contains('is-l'),
+    title: n.getAttribute('title') || '',
     now: n.classList.contains('is-now')
   })));
   const all = await cells();
@@ -377,8 +399,10 @@ function parseRgb(text) {
     all.slice(0, 3).map((c) => c.day).join(','));
 
   const off = all.filter((c) => c.off).map((c) => Number(c.day));
-  check('the weekend is shown rather than left out',
-    off.join(',') === '6,7,13,14,20,21,27,28', off.join(','));
+  // Only Friday. Saturday is a working day here, which is the office's own
+  // arrangement rather than the one a calendar would guess.
+  check('Friday alone is shown as the day that does not count',
+    off.join(',') === '6,13,20,27', off.join(','));
   check('and cannot be pressed, which is what "not counted" means',
     all.filter((c) => c.off).every((c) => !c.y && !c.nn));
 
@@ -393,24 +417,76 @@ function parseRgb(text) {
     !/Friday and Saturday/.test(
       await p.$eval('.obj-card.is-open', (n) => n.textContent)));
 
-  // Press the missed day. It cycles missed -> pending.
+  /*
+    PRESSING ONLY EVER MARKS OR CLEARS.
+
+    There used to be a third press that set a square red. Nobody records
+    "we did not do this" - a miss is what a period that came and went
+    without a mark IS - so the cycle is marked and not marked, and red
+    arrives on its own.
+
+    The 3rd starts as an 'N' written by the version that had that button,
+    which still has to read as not done.
+  */
+  check('a legacy missed mark still reads as not done',
+    all[2].nn === true, JSON.stringify(all[2]));
+
   await p.click('.obj-day:nth-child(3)');
-  await p.waitForTimeout(600);
+  await p.waitForTimeout(700);
   const after = await p.evaluate(() =>
     window.__OBJ_LOG__['2026-11|TASK|OJT-007'].marks);
-  check('pressing a day sends the slot and the mark to the server',
-    after.charAt(2) === '.', 'marks now ' + after.slice(0, 10));
+  check('one press marks it, rather than cycling through a red',
+    after.charAt(2) === 'Y', 'marks now ' + after.slice(0, 10));
+
+  /*
+    AND IT IS YELLOW, NOT GREEN. The 3rd of November has been and gone, so
+    this is work being caught up on - which is neither a miss nor on time,
+    and the square says which with the date it was marked.
+  */
+  const third = (await cells())[2];
+  check('a square marked after its day had passed is yellow, not green',
+    third.late === true && third.y === false && third.day === '3',
+    JSON.stringify(third));
+  check('and it carries the date it was marked',
+    /^Marked \d+ \w+ \d{4}$/.test(third.title), third.title);
 
   await p.click('.obj-day:nth-child(3)');
-  await p.waitForTimeout(600);
+  await p.waitForTimeout(700);
   const after2 = await p.evaluate(() =>
     window.__OBJ_LOG__['2026-11|TASK|OJT-007'].marks);
-  check('pressing it again marks it done',
-    after2.charAt(2) === 'Y', 'marks now ' + after2.slice(0, 10));
-
-  check('and the cell shows it, on the right date',
-    (await cells())[2].y === true && (await cells())[2].day === '3',
+  check('pressing it again clears it rather than setting it red',
+    after2.charAt(2) === '.', 'marks now ' + after2.slice(0, 10));
+  check('and the square goes back to being a plain miss',
+    (await cells())[2].nn === true && (await cells())[2].late === false,
     JSON.stringify((await cells())[2]));
+
+  /*
+    A GREEN SQUARE CLEARS THE SAME WAY.
+
+    The yellow square above is only half the cycle: the press that matters
+    most is the one on a square that is done ON TIME, because that is the
+    one the old third state used to turn red. Taking a mark back is '.' -
+    whether the mark was green or yellow - and 'N' here would be the
+    removed button wearing the clear press"s clothes.
+  */
+  const firstWas = (await cells())[0];
+  check('the 1st is green, so this is a press on an on-time mark',
+    firstWas.y === true && firstWas.late === false, JSON.stringify(firstWas));
+
+  await p.click('.obj-day:nth-child(1)');
+  await p.waitForTimeout(700);
+  const cleared = await p.evaluate(() =>
+    window.__OBJ_LOG__['2026-11|TASK|OJT-007'].marks);
+  check('clearing a done square unmarks it rather than recording a miss',
+    cleared.charAt(0) === '.', 'marks now ' + cleared.slice(0, 10));
+  // It reads red all the same, because the 1st has been and gone - but
+  // that is the day having passed, not anything written down.
+  check('and it reads as a miss only because that day is behind us',
+    (await cells())[0].nn === true && (await cells())[0].late === false,
+    JSON.stringify((await cells())[0]));
+
+  await p.click('.obj-day:nth-child(3)');
+  await p.waitForTimeout(700);
 
   /*
     A PRESS IS NOT A PAGE RELOAD.
@@ -428,26 +504,24 @@ function parseRgb(text) {
     loadsAfter === loadsBefore,
     loadsBefore + ' -> ' + loadsAfter + ' getObjectives calls');
 
-  await p.click('[data-obj-close]');
-  await p.waitForTimeout(300);
-
   /*
     TWO PRESSES IN A ROW BOTH LAND.
 
     There used to be one OBJ.busy for the whole screen, so a press made
     while another was still out was dropped without a word. With a slow
-    first call that is most of them, and it is why marking three rows in a
-    row recorded one.
+    first call that is most of them, and it is why marking a backlog of
+    days recorded the first and lost the rest.
+
+    Counted rather than read back: these squares have been pressed earlier
+    in the suite, so where they END depends on where they started. What
+    matters is that BOTH presses reached the server.
   */
-  // Counted rather than read back: these two rows have been pressed earlier
-  // in the suite, so what they END at depends on what they started at. What
-  // matters is that BOTH presses reached the server.
   const sent = () => p.evaluate(() => window.__calls.tickObjTask || 0);
   const sentBefore = await sent();
 
   await p.evaluate(() => { window.__slowNext = 900; });
-  await p.click('[data-obj-tick="OJT-005"]');
-  await p.click('[data-obj-tick="OJT-010"]');
+  await p.click('.obj-day:nth-child(1)');
+  await p.click('.obj-day:nth-child(2)');
   await p.waitForTimeout(1800);
 
   check('a press made while another is still out is not dropped',
@@ -464,12 +538,51 @@ function parseRgb(text) {
   */
   const sameBefore = await sent();
   await p.evaluate(() => { window.__slowNext = 900; });
-  await p.click('[data-obj-tick="OJT-010"]');
-  await p.click('[data-obj-tick="OJT-010"]');
+  await p.click('.obj-day:nth-child(4)');
+  await p.click('.obj-day:nth-child(4)');
   await p.waitForTimeout(1800);
   check('but pressing the same row twice before it answers sends once',
     (await sent()) - sameBefore === 1,
     (await sent()) - sameBefore + ' calls for a double press');
+
+  /*
+    THE NOTE BOX, where the objective's own description used to sit.
+
+    The description is in the spreadsheet and does not change; what the
+    person at this screen has to say about this month does - and it has to
+    save on its own, because writing a note without touching any square is
+    most of why a note exists.
+  */
+  check('the panel carries a note box rather than the sheet"s description',
+    await p.isVisible('[data-obj-tnote="OJT-007"]') &&
+    !/from the sheet/.test(
+      await p.$eval('.obj-card.is-open', (n) => n.textContent)));
+
+  await p.fill('[data-obj-tnote="OJT-007"]',
+    'POD report was not generated on the 3rd. Raised with SD.');
+  await p.click('[data-obj-note-save="OJT-007"]');
+  await p.waitForTimeout(800);
+
+  const saved = await p.evaluate(() =>
+    window.__OBJ_LOG__['2026-11|TASK|OJT-007'].note);
+  check('a note saves on its own, without marking anything',
+    saved === 'POD report was not generated on the 3rd. Raised with SD.',
+    saved);
+  check('and the panel says where it went',
+    /Saved against November 2026/.test(
+      await p.$eval('.obj-card.is-open [data-obj-say]', (n) => n.textContent)),
+    await p.$eval('.obj-card.is-open [data-obj-say]', (n) => n.textContent));
+
+  await p.click('[data-obj-close]');
+  await p.waitForTimeout(300);
+  await p.click('[data-obj-open="OJT-007"]');
+  await p.waitForTimeout(450);
+  check('and it is still there when the panel is opened again',
+    (await p.$eval('[data-obj-tnote="OJT-007"]', (n) => n.value)) ===
+      'POD report was not generated on the 3rd. Raised with SD.');
+
+  await p.click('[data-obj-close]');
+  await p.waitForTimeout(300);
 
   // =========================================================================
   // 6b. a refused tick puts the square back and says why
@@ -484,7 +597,10 @@ function parseRgb(text) {
     check('the warning strip is out of the way until there is something to say',
       await q.$eval('#objWarn', (n) => n.hidden));
 
-    await q.click('[data-obj-tick="OJT-005"]');
+    // The monthly one opens onto its panel, like every other frequency.
+    await q.click('[data-obj-open="OJT-005"]');
+    await q.waitForTimeout(400);
+    await q.click('.obj-card.is-open .obj-day');
     await q.waitForTimeout(700);
 
     check('a refused tick says so where it can be seen',
@@ -492,11 +608,10 @@ function parseRgb(text) {
       /FI module/.test(await q.$eval('#objWarn', (n) => n.textContent)),
       await q.$eval('#objWarn', (n) => n.textContent));
     check('and the square goes back to what it was',
-      /Not marked yet/.test(await q.$eval('#objList', (n) => {
-        const r = Array.prototype.slice.call(n.querySelectorAll('.obj-card'))
-          .filter((x) => x.textContent.indexOf('OJT-005') === 0)[0];
-        return r ? r.textContent : '';
-      })));
+      await q.$eval('.obj-card.is-open .obj-day',
+        (n) => !n.classList.contains('is-y') &&
+               !n.classList.contains('is-l')),
+      await q.$eval('.obj-card.is-open .obj-day', (n) => n.className));
     await q.close();
   }
 
@@ -541,7 +656,7 @@ function parseRgb(text) {
   check('a module with nothing in it this month gets no chip at all',
     (await chips()).join(' | ') ===
       'All 12 | EAS 7 | KPI 4 | SD 5 | MM 2 | CO 1 | ' +
-      'Any frequency | Daily 2 | Weekly 3 | Monthly 6',
+      'Any frequency | Daily 2 | Weekly 3 | Monthly 6 | Quarterly 1',
     (await chips()).join(' | '));
 
   // It said "Mine", which on this page means "whatever module is against
@@ -552,10 +667,27 @@ function parseRgb(text) {
 
   // A quarterly objective has no slot in November, so it is not offered as
   // a frequency to filter by - a chip that empties the page when pressed.
-  check('frequency is offered as its own row of chips',
+  /*
+    QUARTERLY IS OFFERED EVEN THOUGH NOTHING IS DUE THIS MONTH.
+
+    It used to be left out of the row whenever nothing was due, which meant
+    the quarterly chip vanished for two months out of three - and a filter
+    that disappears is worse than one that shows four objectives saying
+    "due in December".
+  */
+  check('every frequency is offered, due this month or not',
     (await chips()).filter((c) => /^(Daily|Weekly|Monthly|Quarterly) /.test(c))
-      .join(',') === 'Daily 2,Weekly 3,Monthly 6',
+      .join(',') === 'Daily 2,Weekly 3,Monthly 6,Quarterly 1',
     (await chips()).join(' | '));
+
+  await p.click('#objFilters [data-freq="Quarterly"]');
+  await p.waitForTimeout(350);
+  check('and pressing it shows what is not due yet, with when it is',
+    (await cards()) === 1 &&
+    /due in December 2026/.test(await p.$eval('#objList', (n) => n.textContent)),
+    (await p.$eval('#objList', (n) => n.textContent)).slice(0, 120));
+  await p.click('#objFilters [data-freq="ALL"]');
+  await p.waitForTimeout(300);
   check('the four KPIs are not a second chip called All',
     (await chips()).filter((c) => /^All /.test(c)).length === 1,
     (await chips()).join(' | '));
