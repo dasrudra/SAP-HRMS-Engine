@@ -163,6 +163,7 @@ const TODAY = [2026, 10, 10];     // month is 0-based, as Date wants it
 function load(opts) {
   const o = opts || {};
   const logs = [];
+  const locks = { taken: 0, released: 0 };
   const tabs = {
     OBJ_PLAN: makeTab('OBJ_PLAN', PLAN_HEAD,
       o.plan === undefined ? planRows() : o.plan),
@@ -184,6 +185,18 @@ function load(opts) {
     PropertiesService: {
       getScriptProperties: () => ({
         getProperty: () => null, setProperty: () => {}
+      })
+    },
+    /*
+      The lock objWriteLog takes so that two ticks in flight cannot both
+      append a row for the same key. Counted, because a lock that is
+      taken and never released is a page that stops writing after the
+      first press - and nothing else here would notice.
+    */
+    LockService: {
+      getScriptLock: () => ({
+        waitLock: function () { locks.taken++; },
+        releaseLock: function () { locks.released++; }
       })
     },
     Utilities: {
@@ -237,6 +250,7 @@ function load(opts) {
     return tabs[name];
   };
   ctx.__tabs = tabs;
+  ctx.__locks = locks;
   ctx.__reads = reads;
 
   /*
@@ -1584,6 +1598,140 @@ function load(opts) {
   catch (e) { msg = e.message; }
   check('and a month outside the period is refused',
     /outside the objective period/.test(msg), msg);
+}
+
+
+// ===========================================================================
+// 18h-iii. a key on two rows
+// ===========================================================================
+/*
+  THE WORST FAILURE THIS APP CAN HAVE, and it was live for a month.
+
+  readObjLog walks the rows and overwrites as it goes, so where a key
+  appears twice the page reads the LAST row. objLogRowOf took the FIRST.
+  With one row per key those are the same row; with two, every save went
+  into a row nobody reads and the page went on showing the other one.
+
+  From the outside: the save says it worked, the card closes, the figure
+  goes back to what it was, and there is nothing in any log to see. The
+  recording that found this shows a milestone set to 0, saved, and read
+  back as 2 - with the month"s square still unmarked underneath it.
+
+  Duplicates arrived two ways, both now shut: a Period cell Sheets had
+  turned into a date did not match the key built from a string, so saves
+  appended instead of updating; and two ticks in flight at once could
+  both find no row and both append.
+*/
+{
+  const stale = ['2026-11', 'PLAN', 'OBJ-002', '', 2, 'ON_TRACK', '',
+                 'Rudra Das', '20990002', new Date(2026, 10, 10, 12, 45),
+                 '[]', '{}', '{}'];
+  const ctx = load({ session: { u: '20990002', r: 'USER' },
+                     log: [stale.slice(), stale.slice()] });
+
+  check('two rows for one key is a thing the reader can be shown',
+    ctx.objLogDuplicates().keys === 1 && ctx.objLogDuplicates().extra === 1,
+    JSON.stringify(ctx.objLogDuplicates()));
+
+  ctx.recordObjMilestone('t', 'OBJ-002', '2026-11', { value: 0 });
+
+  check('a save writes the row the page actually reads',
+    ctx.getObjectives('t').plan.rows.reduce(function (hit, r) {
+      return hit || r.milestones.filter((x) => x.id === 'OBJ-002')[0];
+    }, null).value === 0,
+    'the page still shows ' + ctx.getObjectives('t').plan.rows.reduce(
+      function (hit, r) {
+        return hit || r.milestones.filter((x) => x.id === 'OBJ-002')[0];
+      }, null).value);
+
+  const nov = ctx.getObjectives('t').plan.rows.reduce(function (hit, r) {
+    return hit || r.milestones.filter((x) => x.id === 'OBJ-002')[0];
+  }, null).months.filter((x) => x.period === '2026-11')[0];
+  check('and the month it recorded is marked, not left blank',
+    nov.state === 'done', nov.state);
+
+  check('it still does not add a row', ctx.__tabs.OBJ_LOG.rows.length === 3,
+    (ctx.__tabs.OBJ_LOG.rows.length - 1) + ' rows');
+}
+
+
+// ===========================================================================
+// 18h-iv. folding them back together
+// ===========================================================================
+/*
+  The rows nobody could read are not empty - they are where somebody"s
+  marks and notes went while the page showed them the other row. So the
+  repair MERGES and then removes, rather than picking one and discarding
+  the rest.
+*/
+{
+  const older = ['2026-11', 'TASK', 'OJT-007', 'YY........................',
+                 '', '', 'a note against the month', 'Bilal Hossain',
+                 '20990001', new Date(2026, 10, 5, 9, 0), '[]',
+                 JSON.stringify({ '0': 100, '1': 200 }),
+                 JSON.stringify({ '0': { t: 'the old one', by: 'Bilal Hossain',
+                   id: '20990001', at: 100, made: 100, n: 1 } })];
+  const newer = ['2026-11', 'TASK', 'OJT-007', '..Y.......................',
+                 '', '', '', 'Bilal Hossain', '20990001',
+                 new Date(2026, 10, 9, 9, 0), '[]',
+                 JSON.stringify({ '2': 300 }),
+                 JSON.stringify({ '0': { t: 'the newer one', by: 'Bilal Hossain',
+                   id: '20990001', at: 400, made: 100, n: 2 },
+                   '5': { t: 'another slot', by: 'Bilal Hossain',
+                     id: '20990001', at: 500, made: 500, n: 1 } })];
+
+  const ctx = load({ session: { u: '20990001', r: 'USER' },
+                     log: [older, newer] });
+  ctx.repairObjLog();
+
+  check('the duplicates are gone', ctx.__tabs.OBJ_LOG.rows.length === 2,
+    (ctx.__tabs.OBJ_LOG.rows.length - 1) + ' rows left');
+
+  const row = ctx.__tabs.OBJ_LOG.rows[1];
+  check('and every mark from either row survived',
+    row[3].slice(0, 4) === 'YYY.', JSON.stringify(row[3]));
+  check('with the earliest time claimed for each of them',
+    JSON.parse(row[11])['0'] === 100 && JSON.parse(row[11])['2'] === 300,
+    row[11]);
+
+  const notes = JSON.parse(row[12]);
+  check('the newer note wins where both rows had one',
+    notes['0'].t === 'the newer one', JSON.stringify(notes['0']));
+  check('and a note only the other row had is still there',
+    notes['5'].t === 'another slot', Object.keys(notes).join(','));
+
+  check('running it again finds nothing to do',
+    (ctx.repairObjLog(), ctx.__tabs.OBJ_LOG.rows.length === 2));
+  check('and the page reads the merged row',
+    ctx.getObjectives('t').tasks.list
+      .filter((t) => t.id === 'OJT-007')[0].states.slice(0, 3) === 'yyy',
+    ctx.getObjectives('t').tasks.list
+      .filter((t) => t.id === 'OJT-007')[0].states);
+}
+
+
+// ===========================================================================
+// 18h-v. one writer at a time
+// ===========================================================================
+/*
+  The find-then-write above is what makes a duplicate possible, and the
+  page now sends ticks concurrently on purpose. Two landing together
+  both find no row and both append one. A lock is the only thing that
+  stops it, and a lock that is taken and never released is a page that
+  writes once and then hangs - so both halves are counted.
+*/
+{
+  const ctx = load({ session: { u: '20990001', r: 'USER' } });
+  ctx.tickObjTask('t', 'OJT-007', '2026-11', 0, 'Y');
+  ctx.tickObjTask('t', 'OJT-007', '2026-11', 1, 'Y');
+  check('every write takes the lock, and gives it back',
+    ctx.__locks.taken === 2 && ctx.__locks.released === 2,
+    JSON.stringify(ctx.__locks));
+  check('and the two marks are on one row, not two',
+    ctx.__tabs.OBJ_LOG.rows.length === 2 &&
+    ctx.__tabs.OBJ_LOG.rows[1][3].slice(0, 2) === 'YY',
+    (ctx.__tabs.OBJ_LOG.rows.length - 1) + ' rows, marks ' +
+      ctx.__tabs.OBJ_LOG.rows[1][3].slice(0, 4));
 }
 
 

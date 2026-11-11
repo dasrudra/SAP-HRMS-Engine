@@ -564,10 +564,30 @@ function parseRgb(text) {
     pips.join(' | '));
   check('and a month that has been and gone is coloured',
     /\bis-[ynl]\b/.test(pips[0]), pips[0]);
-  check('and they use the same four colours the squares do',
-    pips.every((c) => c === '-' ||
-      /^(is-[ynl] ?)?(is-now)?$/.test(c.trim())),
-    pips.join(' | '));
+
+  /*
+    THE PAINT, NOT THE CLASS NAME.
+
+    The pips were changed to carry the square classes - is-y, is-l, is-n -
+    and the stylesheet was left naming the old ones, is-g, is-a, is-r. So
+    every pip on every card went grey, and the test asserting the class
+    passed the whole time, because the class was right and only the
+    colour was missing. A rule nobody wrote is exactly what a class-name
+    assertion cannot see.
+  */
+  const pipPaint = await p.$$eval('#objList .obj-card:first-child .obj-pips i',
+    (ns) => ns.map((n) => ({
+      cls: n.className || '-',
+      bg: getComputedStyle(n).backgroundColor
+    })));
+  const plain = pipPaint.filter((x) => x.cls === '-')
+    .map((x) => x.bg).filter((x, i, a) => a.indexOf(x) === i);
+  const painted = pipPaint.filter((x) => /\bis-[ynl]\b/.test(x.cls));
+  check('a pip with a state is actually painted a different colour from ' +
+    'a blank one',
+    painted.length > 0 && painted.every((x) => plain.indexOf(x.bg) === -1),
+    painted.map((x) => x.cls + '=' + x.bg).join(' | ') +
+      '   blank=' + plain.join(','));
 
   await p.click('#objList .obj-card [data-obj-sheet="task"]');
   await p.waitForTimeout(400);

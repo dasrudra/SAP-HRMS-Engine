@@ -873,14 +873,46 @@ function objLogKey(period, kind, ref) {
 
 /** The row a log entry is on, or -1. */
 function objLogRowOf(sheet, period, kind, ref) {
+  const rows = objLogRowsOf(sheet, period, kind, ref);
+  return rows.length ? rows[rows.length - 1] : -1;
+}
+
+
+/**
+ * EVERY row for one key, in sheet order. Normally one.
+ *
+ * THE BUG THIS EXISTS FOR, because it cost a month of recording.
+ *
+ * readObjLog builds its index by walking the rows and overwriting as it
+ * goes, so where a key appears twice the LAST row is the one the page
+ * sees. The writer used to take the FIRST. With one row per key those are
+ * the same row and everything works; with two, every save was written
+ * into a row nobody reads, and the page went on showing the other one.
+ *
+ * From the outside that is the worst failure this app can have: the save
+ * says it worked, the card closes, the number goes back to what it was,
+ * and there is nothing to see in any log. Somebody marks a month, comes
+ * back, finds it unmarked, and marks it again.
+ *
+ * Duplicates got there two ways, both now closed. Before objPeriodCell,
+ * a Period cell that Sheets had turned into a date did not match the key
+ * built from a string, so every save appended instead of updating. And
+ * two ticks in flight at once could both find no row and both append -
+ * which the page made more likely, not less, when it stopped sending
+ * them one at a time. objWriteLog now takes a lock for exactly that.
+ *
+ * repairObjLog folds any that are already there.
+ */
+function objLogRowsOf(sheet, period, kind, ref) {
   const last = sheet.getLastRow();
-  if (last < 2) return -1;
+  if (last < 2) return [];
   const keys = sheet.getRange(2, 1, last - 1, 3).getValues();
   const want = objLogKey(period, kind, ref);
+  const found = [];
   for (let i = 0; i < keys.length; i++) {
-    if (objLogKey(keys[i][0], keys[i][1], keys[i][2]) === want) return i + 2;
+    if (objLogKey(keys[i][0], keys[i][1], keys[i][2]) === want) found.push(i + 2);
   }
-  return -1;
+  return found;
 }
 
 
@@ -1610,6 +1642,38 @@ function getObjectives(token, period) {
  * Correcting a number therefore does not erase the number it corrected.
  */
 function objWriteLog(period, kind, ref, fields, who) {
+  /*
+    ONE WRITER AT A TIME.
+
+    This is find-the-row-then-write-it, and the page now sends ticks
+    concurrently on purpose - pressing five days in a row fires five
+    calls without waiting. Two of those landing together both find no
+    row and both append one, and from then on the key has two rows and
+    every later save goes into whichever one the reader does not use.
+    That is how a month of recording disappears.
+
+    Thirty seconds is far longer than this ever needs; a tick is one
+    read and one write. If the lock cannot be had at all the write is
+    refused out loud, because the alternative is writing anyway and
+    producing exactly the duplicate this is here to prevent.
+  */
+  let lock = null;
+  try {
+    lock = LockService.getScriptLock();
+    lock.waitLock(30000);
+  } catch (e) {
+    throw new Error('Somebody else is recording against the objectives ' +
+                    'right now. Press it again in a moment.');
+  }
+  try {
+    return objWriteLogLocked(period, kind, ref, fields, who);
+  } finally {
+    try { lock.releaseLock(); } catch (e) { /* already gone */ }
+  }
+}
+
+
+function objWriteLogLocked(period, kind, ref, fields, who) {
   const sheet = objLogTab();
   const row = objLogRowOf(sheet, period, kind, ref);
   const now = new Date();
@@ -2137,6 +2201,165 @@ function createObjMilestone(token, draft) {
  * objective workbook, and a tool that made them empty with the right
  * headers would look exactly like a tool that had filled them in.
  */
+/** How many keys are on more than one row, and how many rows that is. */
+function objLogDuplicates() {
+  const sheet = objLogTab();
+  const last = sheet.getLastRow();
+  if (last < 2) return { keys: 0, extra: 0 };
+
+  const rows = sheet.getRange(2, 1, last - 1, 3).getValues();
+  const seen = {};
+  let keys = 0, extra = 0;
+  rows.forEach(function (r) {
+    if (!r[0] || !r[1] || !r[2]) return;
+    const key = objLogKey(r[0], r[1], r[2]);
+    seen[key] = (seen[key] || 0) + 1;
+    if (seen[key] === 2) keys++;
+    if (seen[key] > 1) extra++;
+  });
+  return { keys: keys, extra: extra };
+}
+
+
+/**
+ * Folds duplicate rows in OBJ_LOG, keeping everything that was written
+ * into any of them. Run from the editor; prints what it did.
+ *
+ * WHY THERE ARE DUPLICATES AT ALL, and why they are worth recovering
+ * rather than deleting.
+ *
+ * readObjLog overwrites as it walks, so where a key appears twice the
+ * page reads the LAST row. The writer used to take the FIRST. Every save
+ * after the duplicate appeared therefore went into a row nobody reads -
+ * and the marks, notes and figures in it are still sitting there, out of
+ * sight. Somebody has been recording a month into a row the page will
+ * never show them.
+ *
+ * So this MERGES rather than discards: a slot marked in any row is
+ * marked, the newest note for a slot wins, and the figure, status and
+ * timeline come from whichever row was written last. Then the extra rows
+ * go, because a shadowed row is the thing that caused this.
+ *
+ * Safe to run twice: with no duplicates it changes nothing and says so.
+ */
+function repairObjLog() {
+  const sheet = objLogTab();
+  const last = sheet.getLastRow();
+  if (last < 2) {
+    Logger.log('%s is empty - nothing to repair.', CONFIG.SHEETS.OBJ_LOG);
+    return;
+  }
+
+  const width = OBJ_LOG_COLUMNS.length;
+  const raw = sheet.getRange(2, 1, last - 1, width).getValues();
+  const order = [];
+  const groups = {};
+
+  raw.forEach(function (r, i) {
+    const key = objLogKey(r[0], r[1], r[2]);
+    if (!r[0] || !r[1] || !r[2]) return;       // a blank row is not a row
+    if (!groups[key]) { groups[key] = []; order.push(key); }
+    groups[key].push({ row: i + 2, cells: r });
+  });
+
+  const doubled = order.filter(function (k) { return groups[k].length > 1; });
+  if (!doubled.length) {
+    Logger.log('%s: %s row(s), no duplicates. Nothing to do.',
+               CONFIG.SHEETS.OBJ_LOG, raw.length);
+    return;
+  }
+
+  Logger.log('%s: %s row(s), %s key(s) appearing more than once.',
+             CONFIG.SHEETS.OBJ_LOG, raw.length, doubled.length);
+  Logger.log('');
+
+  const drop = [];
+  let recovered = 0;
+
+  doubled.forEach(function (key) {
+    const rows = groups[key];
+    const keep = rows[rows.length - 1];        // the one the page reads
+    const merged = keep.cells.slice();
+
+    // MARKS: a slot marked in any of them is marked. The length is
+    // whichever row knew the most about the month.
+    let marks = '';
+    rows.forEach(function (r) {
+      const s2 = String(r.cells[3] || '');
+      if (s2.length > marks.length) marks = marks + objMarksBlank(s2.length - marks.length);
+      for (let i = 0; i < s2.length; i++) {
+        if (s2.charAt(i) === OBJ_DONE) marks = objMarksSet(marks, i, OBJ_DONE);
+        else if (s2.charAt(i) === OBJ_MISSED && marks.charAt(i) === OBJ_PENDING) {
+          marks = objMarksSet(marks, i, OBJ_MISSED);
+        }
+      }
+    });
+
+    const when = {};
+    const notes = {};
+    rows.forEach(function (r) {
+      const at = parseObjMarked(r.cells[11]);
+      Object.keys(at).forEach(function (k) {
+        if (!when[k] || at[k] < when[k]) when[k] = at[k];   // the first claim
+      });
+      const got = parseObjNotes(r.cells[12]);
+      Object.keys(got).forEach(function (k) {
+        if (!notes[k] || got[k].at > notes[k].at) notes[k] = got[k];
+      });
+    });
+
+    // The figure, status and note come from the row written last, which
+    // is the one that was on screen.
+    let newest = rows[0];
+    rows.forEach(function (r) {
+      const a = objDate(r.cells[9]);
+      const b = objDate(newest.cells[9]);
+      if (a && (!b || a.getTime() >= b.getTime())) newest = r;
+    });
+    merged[3] = marks;
+    merged[4] = newest.cells[4];
+    merged[5] = newest.cells[5];
+    merged[6] = newest.cells[6];
+    merged[7] = newest.cells[7];
+    merged[8] = newest.cells[8];
+    merged[9] = newest.cells[9];
+
+    let history = [];
+    rows.forEach(function (r) {
+      history = history.concat(parseObjHistory(r.cells[10]));
+    });
+    history.sort(function (a, b) { return (b.at || 0) - (a.at || 0); });
+    merged[10] = JSON.stringify(
+      history.slice(0, CONFIG.OBJECTIVE.HISTORY_KEPT || 20));
+    merged[11] = JSON.stringify(when);
+    merged[12] = JSON.stringify(notes);
+
+    const was = objMarksCount(String(keep.cells[3] || ''), OBJ_DONE);
+    const now = objMarksCount(marks, OBJ_DONE);
+    if (now > was) recovered += now - was;
+
+    Logger.log('%s  %s rows -> 1   marks %s -> %s, notes %s',
+               key, rows.length, was, now, Object.keys(notes).length);
+
+    sheet.getRange(keep.row, 1, 1, width).setValues([merged]);
+    rows.forEach(function (r) { if (r.row !== keep.row) drop.push(r.row); });
+  });
+
+  // Bottom up, so the rows above keep the numbers they were found at.
+  drop.sort(function (a, b) { return b - a; });
+  drop.forEach(function (r) { sheet.deleteRow(r); });
+  objForget();
+
+  Logger.log('');
+  Logger.log('%s duplicate row(s) removed.', drop.length);
+  if (recovered) {
+    Logger.log('%s mark(s) recovered from rows the page could not read.',
+               recovered);
+  }
+  Logger.log('Reload the Objectives page to see it.');
+}
+
+
 function setupObjectiveTabs() {
   const log = objLogTab();
   Logger.log('Tab "%s" is ready, with %s columns. The page writes it; ' +
@@ -2198,6 +2421,23 @@ function checkObjectives() {
   Logger.log('%s - %s milestones, %s unique-role objectives, %s log row(s).',
              CONFIG.OBJECTIVE.PERIOD_LABEL, plan.plan.length, tasks.count,
              log.count);
+
+  /*
+    DUPLICATE ROWS, SAID FIRST, because nothing else on this page matters
+    while there are any. A key on two rows means the page reads one of
+    them and writes the other, so every save appears to work and changes
+    nothing anybody can see.
+  */
+  const dup = objLogDuplicates();
+  if (dup.keys) {
+    Logger.log('');
+    Logger.log('%s KEY(S) ARE ON MORE THAN ONE ROW - %s row(s) too many.',
+               dup.keys, dup.extra);
+    Logger.log('While that is true, saving against them does nothing you');
+    Logger.log('can see: the page reads the last row and writes the one it');
+    Logger.log('finds first. Run repairObjLog() to fold them together - it');
+    Logger.log('keeps every mark and note from all of them.');
+  }
   Logger.log('');
   Logger.log('%s %s %s %s %s', padTo('MONTH', 9), padTo('SCORE', 7),
              padTo('ON SCH.', 9), padTo('SILENT', 8), 'MILESTONES RECORDED');

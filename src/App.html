@@ -1628,8 +1628,18 @@
 
     state.view = name;
     paintBack();
-    if (!options.skipSave) saveState();
-    rememberView(name);
+    /*
+      A RESTORE IS NOT A NAVIGATION, and recording it made a failed
+      restore permanent.
+
+      skipSave marks the one call that puts back where somebody already
+      was. If the restore fell back to Home - because the server half of
+      this had not been deployed, or the memory had expired - recording
+      THAT overwrote the remembered screen with "home", so the next
+      reload had nothing better to go on either. One bad landing and the
+      memory was gone for good.
+    */
+    if (!options.skipSave) { saveState(); rememberView(name); }
 
     if (name === 'kpi1') loadKpi1();
     if (name === 'kpi2') loadKpi2();
@@ -9991,12 +10001,26 @@
     return (t.open === undefined ? t.elapsed : t.open);
   }
 
+
+  /**
+   * Which square is "now", or -1 in a month that is not this one.
+   *
+   * The ring means "this is the period you are in". In a month that has
+   * been and gone there is no such period, but objLive returns every
+   * slot for a closed month - so October drew the ring round the 31st,
+   * which says today is the 31st of October.
+   */
+  function objNowSlot(t, data) {
+    if (!data || data.period !== data.current) return -1;
+    return objLive(t) - 1;
+  }
+
   function objStrip(t) {
     let html = '';
-    const live = objLive(t);
+    const now = objNowSlot(t, OBJ.data);
     (t.cells || []).forEach(function (c) {
       html += '<i class="' + (OBJ_CELL[c.state] || '') +
-        (c.slot === live - 1 ? ' is-now' : '') + '"></i>';
+        (c.slot === now ? ' is-now' : '') + '"></i>';
     });
     return '<div class="obj-strip">' + html + '</div>';
   }
@@ -10355,6 +10379,7 @@
       // Open, not elapsed: a monthly slot can be marked all month and only
       // becomes a miss the day after it ends. See objSlotsOpen.
       const live = objLive(t);
+      const now = objNowSlot(t, data);
       const past = slot < live;
       const has = Boolean(notes[String(slot)]);
       let title = (c.state === 'late') ? objMarkedWhen(c.at)
@@ -10371,7 +10396,7 @@
       if (has) title = (title ? title + ' - ' : '') + 'has a note';
       return '<button class="obj-day' + (extra || '') + ' ' +
         (OBJ_CELL[c.state] || '') +
-        (slot === live - 1 ? ' is-now' : '') +
+        (slot === now ? ' is-now' : '') +
         (has ? ' has-note' : '') +
         (openNote && openNote.slot === slot ? ' is-reading' : '') + '"' +
         (past ? '' : ' disabled') +

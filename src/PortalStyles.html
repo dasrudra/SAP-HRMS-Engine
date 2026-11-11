@@ -3891,10 +3891,27 @@
   .obj-pips i {
     flex: 1; height: 6px; border-radius: 3px; background: var(--ob-line);
   }
-  .obj-pips i.is-g { background: var(--ob-green-2); }
-  .obj-pips i.is-a { background: var(--ob-amber-2); }
-  .obj-pips i.is-r { background: var(--ob-red-2); }
-  .obj-pips i.is-now { background: var(--ob-accent); }
+  /*
+     THE SAME FOUR NAMES THE SQUARES USE.
+
+     The pips were painted from the score and carried is-g / is-a / is-r.
+     They are painted from the month's state now, which arrives as the
+     square classes is-y, is-l and is-n - and nobody changed these rules
+     to match, so every pip on the page went grey. A test asserting the
+     CLASS passed the whole time, because the class was right and the
+     colour was missing.
+  */
+  .obj-pips i.is-y { background: var(--ob-green-2); }
+  .obj-pips i.is-l { background: var(--ob-amber-2); }
+  .obj-pips i.is-n { background: var(--ob-red-2); }
+  /* The month being looked at, ringed rather than recoloured: it still
+     has a state of its own to show, and painting over it hid it. */
+  .obj-pips i.is-now {
+    box-shadow: 0 0 0 2px var(--ob-paper), 0 0 0 3.5px var(--ob-accent);
+  }
+  .obj-pips i.is-now:not(.is-y):not(.is-l):not(.is-n) {
+    background: var(--ob-line-2);
+  }
   .obj-pipl { display: flex; gap: 4px; margin-top: 5px; }
   .obj-pipl span {
     flex: 1; font-size: 9.4px; color: var(--ob-faint); text-align: center;
