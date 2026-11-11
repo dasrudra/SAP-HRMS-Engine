@@ -611,7 +611,27 @@ const CONFIG = {
       are. Twenty is more than anybody scrolls and small enough that the
       cell never approaches the 50,000 characters a cell holds.
     */
-    HISTORY_KEPT: 20
+    HISTORY_KEPT: 20,
+
+    /*
+      How long one period's note may be.
+
+      A NOTE PER PERIOD, NOT PER MONTH, and that is what sets this number.
+      The month note could be 4,000 characters because there was one of
+      them; a daily objective in a 31-day month has twenty-six, and they
+      share a single cell. Twenty-six times four thousand is 104,000 in a
+      cell that holds 50,000, so the tab would start refusing writes
+      somewhere around the twelfth note of the month - which is exactly the
+      kind of failure that turns up in March and loses the period.
+
+      A thousand characters is about a hundred and fifty words: enough to
+      say why a day was missed or what was checked, and twenty-six of them
+      come to 28,000 with the JSON around them. objNotesText holds the
+      whole column under the limit as well, so neither bound is left to
+      arithmetic done once in a comment.
+    */
+    NOTE_MAX: 1000,
+    NOTES_CELL_MAX: 45000
   },
 
   /**

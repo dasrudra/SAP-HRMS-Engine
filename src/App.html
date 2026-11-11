@@ -9090,7 +9090,19 @@
     weight: 'ALL',        // the weight filter, on the SMART Objective side
     freq: 'ALL',          // the frequency filter, on the Unique Roles side
     busy: false,          // a Save is in flight - one at a time is right there
-    sending: {}           // which ROWS have a tick in flight, by id
+    sending: {},          // which SQUARES have a tick in flight, by id|slot
+    /*
+      The period whose note is open, and whether it is being written.
+
+      { kind: 'TASK', ref: 'OJT-007', period: '2026-11', slot: 2,
+        editing: false, busy: false }
+
+      One at a time, and it belongs to the card that is open rather than to
+      the page: closing the card closes the note with it.
+    */
+    note: null,
+    // Marks waiting to see whether a second click is coming. See objPress.
+    pending: {}
   };
 
   const OBJ_MONTHS = ['January', 'February', 'March', 'April', 'May', 'June',
@@ -9595,7 +9607,7 @@
     const d = OBJ.draft || {};
     const value = d.value === undefined ? (m.value || 0) : d.value;
     const status = d.status === undefined ? (m.status || '') : d.status;
-    const note = d.note === undefined ? (m.note || '') : d.note;
+    const openNote = objNoteOpenRef('PLAN', m.id);
 
     let control;
     if (m.countType === 'DONE') {
@@ -9646,11 +9658,19 @@
       '<div class="obj-up-body">' +
         '<div>' + control + '</div>' +
         '<div>' +
-          '<label class="obj-fl">Note <i>optional</i></label>' +
-          '<textarea class="obj-note-in" rows="5" maxlength="4000" ' +
-            'data-obj-note placeholder="What was done, and what is left. ' +
-            'Anything here shows in the review.">' + escapeHtml(note) +
-          '</textarea>' +
+          '<label class="obj-fl">The six months ' +
+            '<i>recorded, late, or missed &middot; click one for its ' +
+            'note</i></label>' +
+          objPlanMonths(m, data) +
+          (openNote
+            ? objNotePanel({
+                label: objMonthName(openNote.period),
+                note: objPlanNoteFor(m, openNote.period),
+                mine: Boolean(data.me && data.me.planner)
+              })
+            : '<p class="obj-np-none">Each month keeps its own note - why ' +
+              'the figure is what it is, or why nothing could be recorded. ' +
+              'A month with one has a dot in its corner.</p>') +
         '</div>' +
 
         '<div class="obj-up-foot">' +
@@ -9665,6 +9685,16 @@
         objHistory(m) +
       '</div>' +
     '</div>';
+  }
+
+
+  /** The note on one month of one milestone, or nothing. */
+  function objPlanNoteFor(m, period) {
+    let found = null;
+    (m.months || []).forEach(function (mo) {
+      if (mo.period === period && mo.note) found = mo.note;
+    });
+    return found;
   }
 
 
@@ -9762,6 +9792,202 @@
     if (!d.getTime()) return '';
     return 'Marked ' + d.getDate() + ' ' +
       OBJ_MONTHS[d.getMonth()].slice(0, 3) + ' ' + d.getFullYear();
+  }
+
+
+  /** '12 Nov 2026', the short form the note panel signs itself with. */
+  function objDayStamp(ms) {
+    const d = new Date(Number(ms) || 0);
+    if (!d.getTime()) return '';
+    return d.getDate() + ' ' + OBJ_MONTHS[d.getMonth()].slice(0, 3) + ' ' +
+      d.getFullYear();
+  }
+
+
+  const OBJ_WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday',
+    'Thursday', 'Friday', 'Saturday'];
+
+
+  /**
+   * What one square is, said the way a person would say it.
+   *
+   * A NOTE HAS TO NAME ITS OWN PERIOD or it is a note about nothing. The
+   * square knows it is slot 2; the person writing against it is writing
+   * about Tuesday the 3rd of November, and the panel has to say so -
+   * especially once the notes are read back months later by somebody who
+   * was not there.
+   */
+  function objSlotLabel(freq, slot, period, data) {
+    const f = String(freq || '').toUpperCase();
+    const i = Number(slot) || 0;
+    const bits = String(period || '').split('-');
+    const year = Number(bits[0]);
+    const month = Number(bits[1]);
+
+    if (f === 'DAILY') {
+      const work = ((data && data.days) || {}).work || [];
+      const day = work[i];
+      if (!day || !year || !month) return 'Day ' + (i + 1);
+      const d = new Date(year, month - 1, day);
+      return OBJ_WEEKDAYS[d.getDay()] + ' ' + day + ' ' +
+             OBJ_MONTHS[month - 1] + ' ' + year;
+    }
+
+    if (f === 'WEEKLY') {
+      const from = i * 7 + 1;
+      const total = ((data && data.days) || {}).count || 31;
+      const to = Math.min((i + 1) * 7, total);
+      return 'Week ' + (i + 1) + ', ' + from + ' to ' + to + ' ' +
+             (month ? OBJ_MONTHS[month - 1] : '');
+    }
+
+    if (f === 'QUARTERLY') {
+      return 'The quarter ending ' + objMonthName(period);
+    }
+
+    return objMonthName(period);
+  }
+
+
+  /**
+   * The note panel, under the grid, for the one square that is open.
+   *
+   * INLINE, NEVER FIXED. The Apps Script frame is taller than the window
+   * inside Blogger, so the window scrolls the blog page and not the frame:
+   * anything pinned with position:fixed pins itself to a box nobody can
+   * see all of. This panel is part of the card, under the squares it
+   * belongs to, where the page scrolls it into view like everything else.
+   *
+   * Three states, and the middle one is the point of the whole feature:
+   *
+   *   nothing written    an empty box and a Save
+   *   something written  the note, who wrote it and when, and an Edit
+   *   being written      the box again, with what is there already
+   *
+   * `mine` is whether this person may write. Everybody can READ - a square
+   * is red in public and the reason for it should be too.
+   */
+  function objNotePanel(opts) {
+    const n = OBJ.note;
+    if (!n) return '';
+
+    const note = opts.note || null;
+    const editing = Boolean(n.editing) || !note;
+    const max = 1000;
+    const head = '<div class="obj-np-h"><b>Note</b><span>' +
+      escapeHtml(opts.label) + '</span>' +
+      '<button class="obj-np-x" data-obj-note-shut aria-label="Close">' +
+      '&times;</button></div>';
+
+    if (!opts.mine && !note) {
+      return '<div class="obj-np">' + head +
+        '<p class="obj-np-none">Nothing was written against this one.</p>' +
+        '</div>';
+    }
+
+    if (editing && opts.mine) {
+      // The draft, if there is one, is what has been typed since the box
+      // was opened - see the input listener in wireObjective.
+      const text = (n.draft === undefined) ? (note ? note.t : '') : n.draft;
+      return '<div class="obj-np is-edit">' + head +
+        '<textarea class="obj-np-in" rows="4" maxlength="' + max + '" ' +
+          'data-obj-nbox placeholder="Why this one could not be recorded, ' +
+          'or what was checked. Anybody looking at this square will see ' +
+          'it.">' + escapeHtml(text) + '</textarea>' +
+        '<div class="obj-np-f">' +
+          '<span class="obj-np-who" data-obj-nsay>' +
+            (note ? 'Editing a note saved by ' + escapeHtml(note.by || 'somebody')
+                  : 'Your name and the time are saved with it') + '</span>' +
+          '<button class="obj-btn" data-obj-note-cancel>Cancel</button>' +
+          '<button class="obj-btn is-primary" data-obj-note-keep>' +
+            'Save note</button>' +
+        '</div>' +
+      '</div>';
+    }
+
+    /*
+      WHO SAVED IT, AND WHETHER IT HAS BEEN CHANGED SINCE.
+
+      "Saved by X on the 3rd" and "saved by X on the 3rd, last edited by Y
+      on the 9th" are different accounts of a month, and a panel that
+      showed only the latest name would quietly turn the second into the
+      first. The row"s own timeline keeps what it said before.
+    */
+    let who = 'Saved by ' + escapeHtml(note.by || 'somebody');
+    if (note.made) who += ' on ' + objDayStamp(note.made);
+    if (note.n > 1) {
+      who += ' &middot; edited ' + (note.n === 2 ? 'once' : (note.n - 1) +
+        ' times') + (note.at ? ', last on ' + objDayStamp(note.at) : '');
+    }
+
+    return '<div class="obj-np">' + head +
+      '<p class="obj-np-t">' + escapeHtml(note.t) + '</p>' +
+      '<div class="obj-np-f">' +
+        '<span class="obj-np-who" data-obj-nsay>' + who + '</span>' +
+        (opts.mine
+          ? '<button class="obj-btn" data-obj-note-edit>Edit</button>'
+          : '') +
+      '</div>' +
+    '</div>';
+  }
+
+
+  /** The note open right now, if it is this thing"s and this month"s. */
+  function objNoteOpenOn(kind, ref, period) {
+    const n = OBJ.note;
+    return (n && n.kind === kind && n.ref === ref && n.period === period)
+      ? n : null;
+  }
+
+
+  /**
+   * The note open on this thing in ANY month.
+   *
+   * A milestone shows all six of its months at once, so the note being
+   * read may belong to October while the page is recording November. The
+   * ninety show one month at a time and use the stricter test above.
+   */
+  function objNoteOpenRef(kind, ref) {
+    const n = OBJ.note;
+    return (n && n.kind === kind && n.ref === ref) ? n : null;
+  }
+
+
+  /**
+   * A milestone's six months, as the squares its notes hang off.
+   *
+   * THE SMART OBJECTIVE IS MONITORED TOO, and a milestone is recorded once
+   * a month - so a month IS its monitoring period, the same way a day is a
+   * daily objective's. That makes the four colours mean the same thing on
+   * both sheets: green recorded while the month was still running, yellow
+   * written up after it closed, red a month that ended with nothing, blank
+   * one that has not come round.
+   *
+   * Pressing does not mark: a milestone is recorded by typing its figure,
+   * not by ticking. So a press here opens the month's note, which is the
+   * only other thing a square is for.
+   */
+  function objPlanMonths(m, data) {
+    const open = objNoteOpenRef('PLAN', m.id);
+    let cells = '';
+    (m.months || []).forEach(function (mo) {
+      const future = mo.period > String(data.current || data.period);
+      const has = Boolean(mo.note);
+      let title = objMonthName(mo.period);
+      if (mo.state === 'late' && mo.at) title += ' - ' + objMarkedWhen(mo.at);
+      if (has) title += ' - has a note';
+      cells += '<button class="obj-day is-week ' +
+        (OBJ_CELL[mo.state] || '') +
+        (mo.period === data.period ? ' is-now' : '') +
+        (has ? ' has-note' : '') +
+        (open && open.period === mo.period ? ' is-reading' : '') + '"' +
+        (future ? ' disabled' : '') +
+        ' title="' + escapeHtml(title) + '"' +
+        ' data-obj-mnote="' + escapeHtml(m.id) + '"' +
+        ' data-period="' + escapeHtml(mo.period) + '">' +
+        objMonthShort(mo.period) + '</button>';
+    });
+    return '<div class="obj-days is-months">' + cells + '</div>';
   }
 
 
@@ -9882,17 +10108,33 @@
       the work was done but recorded after its period had closed - and the
       square carries the date it was marked in its tooltip.
     */
+    const notes = t.notes || {};
+    const openNote = objNoteOpenOn('TASK', t.id, data.period);
+
     const cell = function (slot, label, extra) {
       const c = state[slot] || { state: 'pending', at: 0 };
       // Open, not elapsed: a monthly slot can be marked all month and only
       // becomes a miss the day after it ends. See objSlotsOpen.
       const live = objLive(t);
       const past = slot < live;
-      const title = (c.state === 'late') ? objMarkedWhen(c.at)
-                  : (c.state === 'done' && c.at) ? objMarkedWhen(c.at) : '';
+      const has = Boolean(notes[String(slot)]);
+      let title = (c.state === 'late') ? objMarkedWhen(c.at)
+                : (c.state === 'done' && c.at) ? objMarkedWhen(c.at) : '';
+      /*
+        A SQUARE WITH A NOTE SAYS SO WITHOUT BEING OPENED.
+
+        A note nobody can see is a note nobody writes a second time. The
+        corner dot is what makes the red square on the 3rd worth
+        double-clicking - otherwise every square looks equally empty and
+        the only way to find the one that has an explanation on it is to
+        open all twenty-six.
+      */
+      if (has) title = (title ? title + ' - ' : '') + 'has a note';
       return '<button class="obj-day' + (extra || '') + ' ' +
         (OBJ_CELL[c.state] || '') +
-        (slot === live - 1 ? ' is-now' : '') + '"' +
+        (slot === live - 1 ? ' is-now' : '') +
+        (has ? ' has-note' : '') +
+        (openNote && openNote.slot === slot ? ' is-reading' : '') + '"' +
         (past ? '' : ' disabled') +
         (title ? ' title="' + escapeHtml(title) + '"' : '') +
         ' data-obj-tick="' + escapeHtml(t.id) + '" data-slot="' + slot +
@@ -9939,24 +10181,28 @@
       '<div class="obj-up-body">' +
         '<div>' +
           '<label class="obj-fl">' + escapeHtml(objMonthName(data.period)) +
-            ' <i>press to mark, press again to change your mind</i></label>' +
+            ' <i>press to mark, press again to change your mind &middot; ' +
+            'double-click one for its note</i></label>' +
           '<div class="obj-days">' + cells + '</div>' +
+          objNoteCount(notes) +
         '</div>' +
         /*
-          THE NOTE, where the objective's own description used to sit.
+          THE NOTE FOR ONE PERIOD, where the whole month's note used to be.
 
-          The description is in the spreadsheet and does not change; what
-          the person at this screen has to say about this month does. "The
-          POD report was not generated on the 3rd" belongs beside the
-          square that is red because of it.
+          A month note was the wrong unit. Twenty-six squares shared one
+          box, so the sentence explaining the 3rd and the sentence
+          explaining the 19th had to be written into the same paragraph,
+          and whoever wrote the second one had to decide what to do with
+          the first. A note belongs to the square it explains.
         */
-        '<div>' +
-          '<label class="obj-fl">Note <i>for ' +
-            escapeHtml(objMonthName(data.period)) + '</i></label>' +
-          '<textarea class="obj-note-in" rows="5" maxlength="4000" ' +
-            'data-obj-tnote="' + escapeHtml(t.id) + '" placeholder="What ' +
-            'happened this month - anything a square cannot say on its ' +
-            'own.">' + escapeHtml(t.note || '') + '</textarea>' +
+        '<div>' + (openNote
+          ? objNotePanel({
+              label: objSlotLabel(t.frequency, openNote.slot, data.period, data),
+              note: notes[String(openNote.slot)] || null,
+              mine: Boolean(t.mine)
+            })
+          : objNoteHint(t)) +
+          objOldMonthNote(t) +
         '</div>' +
 
         '<div class="obj-up-foot">' +
@@ -9964,11 +10210,41 @@
             (t.by ? 'Last saved by ' + escapeHtml(t.by) : 'Nothing saved yet') +
           '</span>' +
           '<button class="obj-btn" data-obj-close>Close</button>' +
-          '<button class="obj-btn is-primary" data-obj-note-save="' +
-            escapeHtml(t.id) + '">Save note</button>' +
         '</div>' +
       '</div>' +
     '</div>';
+  }
+
+
+  /** 'Notes on 3 of them', under the grid, or nothing. */
+  function objNoteCount(notes) {
+    const n = Object.keys(notes || {}).length;
+    if (!n) return '';
+    return '<div class="obj-nct">' + n + (n === 1 ? ' note' : ' notes') +
+      ' saved against this month</div>';
+  }
+
+
+  /** The empty half of the note column: what double-clicking is for. */
+  function objNoteHint(t) {
+    return '<div class="obj-np is-hint">' +
+      '<div class="obj-np-h"><b>Notes</b><span>one per ' +
+        escapeHtml(String(t.frequency || 'period').toLowerCase()) +
+        ' period</span></div>' +
+      '<p class="obj-np-none">Double-click a square to read or write the ' +
+      'note for that one. A square with a note has a dot in its corner.</p>' +
+    '</div>';
+  }
+
+
+  /**
+   * The note somebody left against the whole month, before notes were kept
+   * per period. Read-only, and absent on every row written since.
+   */
+  function objOldMonthNote(t) {
+    if (!t.note) return '';
+    return '<div class="obj-oldnote"><b>Saved against the month</b>' +
+      '<p>' + escapeHtml(t.note) + '</p></div>';
   }
 
 
@@ -9981,22 +10257,27 @@
   }
 
 
+  /*
+    Recording a milestone is its figure and its status. The note is not
+    here any more: it belongs to a month, and a milestone has six of them
+    - so it hangs off the month squares beside this form, where October's
+    note can be read in November instead of only by stepping back to it.
+  */
   function objSave(id) {
     if (OBJ.busy) return;
     const d = OBJ.draft || {};
-    const note = document.querySelector('[data-obj-note]');
 
     OBJ.busy = true;
     objSay('Saving...');
 
     callServer('recordObjMilestone', id, OBJ.period, {
       value: d.value,
-      status: d.status,
-      note: note ? note.value : undefined
+      status: d.status
     }).then(function () {
       OBJ.busy = false;
       OBJ.openId = '';
       OBJ.draft = null;
+      OBJ.note = null;
       loadObjective(OBJ.period);
     }).catch(function (err) {
       OBJ.busy = false;
@@ -10029,6 +10310,76 @@
    * back. Only that row is busy, not the page. If the server refuses, the
    * square goes back to what it was and says why.
    */
+  /*
+    HOW LONG A MARK WAITS TO SEE WHETHER A SECOND CLICK IS COMING.
+
+    One click marks a square; two open its note. The two cannot both be
+    true the instant the first click lands, so the mark is PAINTED at once
+    and SENT after this - and a second click inside the window cancels the
+    send and puts the square back instead.
+
+    Four hundred milliseconds because that is comfortably longer than a
+    real double-click (a hundred to two hundred) and comfortably under the
+    half-second most systems will still count as one. It costs nothing a
+    person can see: the square has already changed colour: only the
+    network call is held.
+  */
+  const OBJ_DOUBLE = 400;
+
+
+  /**
+   * The second click of a double-click: take the mark back, do not send.
+   *
+   * Returns whether there was anything to take back, which is also the
+   * answer to "was that first click already on its way". Inside the window
+   * it always is not.
+   */
+  function objUnpress(id, slot) {
+    const held = String(id) + '|' + String(slot);
+    const waiting = OBJ.pending[held];
+    if (!waiting) return false;
+
+    clearTimeout(waiting.timer);
+    delete OBJ.pending[held];
+
+    /*
+      PUT THE ROW BACK AS IT WAS, rather than working it out again.
+
+      objRecount GUESSES green from yellow - it has the marks but not the
+      moment each was made, so it reads a square further back than today
+      as caught up on. That guess is right for a mark being made and
+      wrong for one being taken back: double-clicking a green square to
+      read its note left it yellow, because the cancelled press had
+      already wiped the cell the server's own answer was in. So the press
+      keeps the row it is about to change, and cancelling restores it.
+    */
+    const task = objTaskById(id);
+    if (task && waiting.was) {
+      Object.keys(waiting.was).forEach(function (k) {
+        task[k] = waiting.was[k];
+      });
+    }
+    return true;
+  }
+
+
+  /** The derived half of a row, kept so a cancelled press can undo itself. */
+  const OBJ_ROW_KEYS = ['marks', 'cells', 'done', 'missed', 'late', 'silent',
+                        'marked', 'onSchedule', 'due'];
+
+  function objRowSnapshot(t) {
+    const was = {};
+    OBJ_ROW_KEYS.forEach(function (k) {
+      was[k] = (k === 'cells')
+        ? (t.cells || []).map(function (c) {
+            return { slot: c.slot, state: c.state, at: c.at };
+          })
+        : t[k];
+    });
+    return was;
+  }
+
+
   function objTick(id, slot, mark) {
     const task = objTaskById(id);
     /*
@@ -10041,14 +10392,14 @@
       mark the button was drawn with, which undoes the first.
     */
     const held = String(id) + '|' + String(slot);
-    if (!task || OBJ.sending[held]) return;
+    if (!task || OBJ.sending[held] || OBJ.pending[held]) return;
 
     const before = task.marks;
-    OBJ.sending[held] = true;
+    const was = objRowSnapshot(task);
+    const i = Number(slot);
 
     // Paint it now. The server is the authority and will correct this in a
     // moment, but the press has to look like it landed.
-    const i = Number(slot);
     const ch = (mark === 'Y' || mark === 'N') ? mark : '.';
     if (i >= 0 && i < task.marks.length) {
       task.marks = task.marks.slice(0, i) + ch + task.marks.slice(i + 1);
@@ -10056,6 +10407,25 @@
       renderObjStats(OBJ.data);
       renderObjList(OBJ.data);
     }
+
+    OBJ.pending[held] = {
+      was: was,
+      timer: setTimeout(function () {
+        delete OBJ.pending[held];
+        objTickSend(id, slot, mark, before);
+      }, OBJ_DOUBLE)
+    };
+  }
+
+
+  /** The half of a press that reaches the server, once nothing cancelled it. */
+  function objTickSend(id, slot, mark, before) {
+    const task = objTaskById(id);
+    const held = String(id) + '|' + String(slot);
+    if (!task || OBJ.sending[held]) return;
+
+    const i = Number(slot);
+    OBJ.sending[held] = true;
 
     callServer('tickObjTask', id, OBJ.period, i, mark)
       .then(function (fresh) {
@@ -10083,35 +10453,103 @@
 
 
   /**
-   * Saves the note on one of the ninety.
+   * Opens the note on one period, which is what a second click means.
    *
-   * Its own call rather than part of a tick, because somebody writes a
-   * note without changing any square - that is most of why a note exists -
-   * and one that could only be saved by also pressing something would be a
-   * note nobody writes.
+   * The note is state on the page rather than a thing that is fetched: the
+   * month's notes came down with the month. Opening one is therefore
+   * instant, which matters - a panel that took a round trip to tell you a
+   * square has nothing written on it would not be worth the click.
    */
-  function objSaveTaskNote(id) {
-    const task = objTaskById(id);
-    const box = document.querySelector('[data-obj-tnote="' + cssEscape(id) + '"]');
-    if (!task || !box || OBJ.sending[id]) return;
+  function objOpenNote(kind, ref, period, slot) {
+    const now = OBJ.note;
+    // A second press on the square already being read closes it again.
+    if (now && now.kind === kind && now.ref === ref &&
+        now.period === period && now.slot === Number(slot)) {
+      OBJ.note = null;
+    } else {
+      OBJ.note = {
+        kind: kind, ref: ref, period: period, slot: Number(slot),
+        editing: false, draft: undefined, busy: false
+      };
+    }
+    renderObjList(OBJ.data);
+  }
 
-    const text = box.value;
-    OBJ.sending[id] = true;
-    objSay('Saving the note...');
 
-    callServer('saveObjTaskNote', id, OBJ.period, text)
+  /** What is in the note box right now, typed or stored. */
+  function objNoteBoxText() {
+    const box = document.querySelector('[data-obj-nbox]');
+    if (box) return box.value;
+    return (OBJ.note && OBJ.note.draft) || '';
+  }
+
+
+  /** Says something in the note panel"s own footer, not the card"s. */
+  function objNoteSay(text, bad) {
+    const el = document.querySelector('[data-obj-nsay]');
+    if (!el) return;
+    el.textContent = text;
+    el.classList.toggle('is-bad', Boolean(bad));
+  }
+
+
+  /**
+   * Saves the note on one period of one objective, on either sheet.
+   *
+   * ONE ENDPOINT FOR BOTH because it is one idea. A note against the 3rd
+   * of November on a daily objective and a note against November on a
+   * milestone are the same thing recorded against different-sized
+   * periods, and two code paths for that would be two sets of rules about
+   * who may write one.
+   */
+  function objSaveNote() {
+    const n = OBJ.note;
+    if (!n || n.busy) return;
+
+    const text = objNoteBoxText();
+    n.busy = true;
+    n.draft = text;
+    objNoteSay('Saving the note...');
+
+    callServer('saveObjSlotNote', n.kind, n.ref, n.period, n.slot, text)
       .then(function (fresh) {
-        delete OBJ.sending[id];
-        task.note = text;
-        if (fresh && fresh.by) task.by = fresh.by;
-        objSay('Saved against ' + objMonthName(OBJ.period));
+        n.busy = false;
+        n.editing = false;
+        n.draft = undefined;
+        objKeepNote(n, (fresh && fresh.note) || null);
+        renderObjList(OBJ.data);
       })
       .catch(function (err) {
-        delete OBJ.sending[id];
-        objSay(String(err && err.message || err), true);
+        n.busy = false;
+        objNoteSay(String(err && err.message || err), true);
         objWarn(String(err && err.message || err));
         onError(err);
       });
+  }
+
+
+  /**
+   * Puts what the server saved back into the month already loaded.
+   *
+   * Rather than reloading the page for it. getObjectives is six tab reads
+   * and the whole ninety scored; a note is one string, and the answer
+   * carries it.
+   */
+  function objKeepNote(n, note) {
+    if (n.kind === 'PLAN') {
+      const m = objOpenMilestone();
+      if (!m) return;
+      (m.months || []).forEach(function (mo) {
+        if (mo.period === n.period) mo.note = note;
+      });
+      return;
+    }
+
+    const task = objTaskById(n.ref);
+    if (!task) return;
+    task.notes = task.notes || {};
+    if (note) task.notes[String(n.slot)] = note;
+    else delete task.notes[String(n.slot)];
   }
 
 
@@ -10175,8 +10613,10 @@
     t.silent = Math.max(0, t.elapsed - done - missed);
     t.marked = (t.marks.match(/Y/g) || []).length;
     t.onSchedule = t.elapsed === 0 ? true : done === t.elapsed;
-    t.due = t.elapsed > 0 &&
-            t.marks.charAt(Math.max(0, t.elapsed - 1)) === '.';
+    // OPEN, not elapsed - the same test the server makes. Today's square
+    // is the one waiting to be pressed, and it has not elapsed yet.
+    const live = objLive(t);
+    t.due = live > 0 && t.marks.charAt(Math.max(0, live - 1)) === '.';
   }
 
 
@@ -10314,11 +10754,27 @@
     if (!list || list.__wired) return;
     list.__wired = true;
 
+    /*
+      WHAT IS IN THE NOTE BOX SURVIVES A REDRAW.
+
+      The list is rebuilt from innerHTML on every mark and every answer
+      from the server, so a half-written note living only in the textarea
+      would be thrown away by somebody ticking a square next to it. Each
+      keystroke goes into the open note's draft, and the box is drawn from
+      that.
+    */
+    list.addEventListener('input', function (e) {
+      if (e.target.matches('[data-obj-nbox]') && OBJ.note) {
+        OBJ.note.draft = e.target.value;
+      }
+    });
+
     list.addEventListener('click', function (e) {
       const open = e.target.closest('[data-obj-open]');
       if (open) {
         OBJ.openId = open.getAttribute('data-obj-open');
         OBJ.draft = null;
+        OBJ.note = null;
         renderObjList(OBJ.data);
         return;
       }
@@ -10326,6 +10782,7 @@
       if (e.target.closest('[data-obj-close]')) {
         OBJ.openId = '';
         OBJ.draft = null;
+        OBJ.note = null;
         renderObjList(OBJ.data);
         return;
       }
@@ -10344,10 +10801,6 @@
           (m.countType === 'PERCENT' ? 5 : 1));
         OBJ.draft = OBJ.draft || {};
         OBJ.draft.value = m.countType === 'PERCENT' ? Math.min(100, next) : next;
-        // The note is in the DOM and would be lost by a redraw, so it is
-        // carried into the draft before the card is rebuilt.
-        const note = document.querySelector('[data-obj-note]');
-        if (note) OBJ.draft.note = note.value;
         renderObjList(OBJ.data);
         return;
       }
@@ -10356,8 +10809,6 @@
       if (seg) {
         OBJ.draft = OBJ.draft || {};
         OBJ.draft.status = seg.getAttribute('data-s');
-        const note = document.querySelector('[data-obj-note]');
-        if (note) OBJ.draft.note = note.value;
         renderObjList(OBJ.data);
         return;
       }
@@ -10365,17 +10816,54 @@
       const save = e.target.closest('[data-obj-save]');
       if (save) { objSave(save.getAttribute('data-obj-save')); return; }
 
-      const noteSave = e.target.closest('[data-obj-note-save]');
-      if (noteSave) {
-        objSaveTaskNote(noteSave.getAttribute('data-obj-note-save'));
+      // ---- the note panel ----
+      if (e.target.closest('[data-obj-note-shut]')) {
+        OBJ.note = null;
+        renderObjList(OBJ.data);
+        return;
+      }
+      if (e.target.closest('[data-obj-note-edit]')) {
+        if (OBJ.note) { OBJ.note.editing = true; OBJ.note.draft = undefined; }
+        renderObjList(OBJ.data);
+        return;
+      }
+      if (e.target.closest('[data-obj-note-cancel]')) {
+        if (OBJ.note) { OBJ.note.editing = false; OBJ.note.draft = undefined; }
+        renderObjList(OBJ.data);
+        return;
+      }
+      if (e.target.closest('[data-obj-note-keep]')) { objSaveNote(); return; }
+
+      // A milestone's month square has no mark to toggle, so one click
+      // opens its note. See objPlanMonths.
+      const mnote = e.target.closest('[data-obj-mnote]');
+      if (mnote && !mnote.disabled) {
+        objOpenNote('PLAN', mnote.getAttribute('data-obj-mnote'),
+                    mnote.getAttribute('data-period'), 0);
         return;
       }
 
       const tick = e.target.closest('[data-obj-tick]');
       if (tick && !tick.disabled) {
-        objTick(tick.getAttribute('data-obj-tick'),
-                tick.getAttribute('data-slot'),
-                tick.getAttribute('data-mark'));
+        const id = tick.getAttribute('data-obj-tick');
+        const slot = tick.getAttribute('data-slot');
+        /*
+          ONE CLICK MARKS, TWO OPEN THE NOTE.
+
+          Read off the click's own count rather than from a dblclick
+          listener, because the first click redraws the list - so the two
+          clicks land on two different elements and the browser fires
+          dblclick on their common ancestor, which is the whole list and
+          says nothing about which square was pressed. The count is the
+          browser's, worked out from when and where, and it survives the
+          element underneath being replaced.
+        */
+        if (e.detail >= 2) {
+          objUnpress(id, slot);
+          objOpenNote('TASK', id, OBJ.period, slot);
+          return;
+        }
+        objTick(id, slot, tick.getAttribute('data-mark'));
       }
     });
 
@@ -10392,6 +10880,7 @@
         OBJ.group = chip.getAttribute('data-group');
       }
       OBJ.openId = '';
+      OBJ.note = null;
       renderObjFilters(OBJ.data);
       renderObjList(OBJ.data);
     });
@@ -10458,6 +10947,7 @@
     OBJ.sheet = (which === 'task') ? 'task' : 'plan';
     OBJ.openId = '';
     OBJ.draft = null;
+    OBJ.note = null;
     if (OBJ.data) renderObj(OBJ.data);
   }
 
@@ -10471,6 +10961,7 @@
     OBJ.period = periods[next];
     OBJ.openId = '';
     OBJ.draft = null;
+    OBJ.note = null;
     loadObjective(OBJ.period);
   }
 

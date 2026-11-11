@@ -213,6 +213,17 @@ function load(opts) {
     '  Fake.parse = Real.parse; Fake.UTC = Real.UTC;' +
     '  Fake.prototype = Real.prototype;' +
     '  Date = Fake;' +
+    /*
+      AND A WAY TO MOVE IT ON.
+
+      A pinned clock makes two writes in a row land on the same
+      millisecond, so "the first time this was written survived the edit"
+      reads as true whether the code keeps that time or replaces it with
+      now. The assertion passes and the behaviour it exists to protect is
+      gone. Advancing the clock between the two is what tells them apart -
+      and it is also what actually happens, a day later.
+    */
+    '  globalThis.__advance = function (ms) { FIXED += ms; };' +
     '})();', ctx);
 
   vm.runInContext(fs.readFileSync(path.join(SRC, 'Config.gs'), 'utf8'), ctx);
@@ -810,7 +821,7 @@ function load(opts) {
 {
   const ctx = load({ session: { u: '20990002', r: 'USER' } });   // a head
   const r = ctx.recordObjMilestone('t', 'OBJ-002', '2026-11',
-    { value: 2, status: 'ON_TRACK', note: 'Both RCAs closed.' });
+    { value: 2, status: 'ON_TRACK' });
   check('a section head can record a milestone', r.ok === true &&
     r.by === 'Ayesha Rahman');
 
@@ -831,8 +842,29 @@ function load(opts) {
     history.length === 1 && history[0].value === 2 &&
     history[0].by === 'Ayesha Rahman', JSON.stringify(history));
 
-  check('a note that was not sent again is not wiped by the second write',
-    ctx.__tabs.OBJ_LOG.rows[1][6] === 'Both RCAs closed.');
+  /*
+    RECORDING IT IS THE MARK, which is what gives the SMART objective the
+    same four colours the ninety have. November was recorded in November,
+    so its square is green; the same figure typed in January would be
+    yellow, and a November that ended with nothing is red.
+  */
+  check('recording a milestone marks the month it was recorded in',
+    ctx.__tabs.OBJ_LOG.rows[1][3] === 'Y' &&
+    JSON.parse(ctx.__tabs.OBJ_LOG.rows[1][11])['0'] > 0,
+    ctx.__tabs.OBJ_LOG.rows[1][3] + ' ' + ctx.__tabs.OBJ_LOG.rows[1][11]);
+
+  /*
+    AND THE STAMP IS SET ONCE. Correcting November's figure in December is
+    a correction, not a late record of November, and a square that went
+    yellow every time somebody fixed a number would be punishing the fix.
+  */
+  const first = JSON.parse(ctx.__tabs.OBJ_LOG.rows[1][11])['0'];
+  ctx.__advance(26 * 3600 * 1000);          // the next day
+  ctx.recordObjMilestone('t', 'OBJ-002', '2026-11', { value: 3 });
+  const again = JSON.parse(ctx.__tabs.OBJ_LOG.rows[1][11])['0'];
+  check('and correcting it later does not restamp it as a late record',
+    again === first && ctx.__tabs.OBJ_LOG.rows[1][9].getTime() > first,
+    first + ' -> ' + again);
 }
 
 // ===========================================================================
@@ -1403,37 +1435,212 @@ function load(opts) {
 }
 
 // ===========================================================================
-// 18i. a note of its own
+// 18i. one note per period
 // ===========================================================================
+/*
+  A MONTH WAS THE WRONG UNIT FOR A NOTE.
+
+  A daily objective has twenty-six squares in November and had one box
+  underneath all of them, so the sentence explaining why the 3rd is red
+  shared a paragraph with the sentence about the 19th, and whoever wrote
+  the second had to decide what to do with the first. A note belongs to
+  the period it explains - which is the same unit as the square.
+*/
 {
   const ctx = load({ session: { u: '20990001', r: 'USER' } });   // SD member
-  const r = ctx.saveObjTaskNote('t', 'OJT-007', '2026-11',
-    'POD report was not generated on the 3rd.');
-  check('a note saves without marking anything',
-    r.ok === true && r.by === 'Bilal Hossain');
+  // Slot 2 is the 3rd of November: working days run 1, 2, 3, 4, 5, 7, ...
+  const r = ctx.saveObjSlotNote('t', 'TASK', 'OJT-007', '2026-11', 2,
+    'POD report was not generated.');
+  check('a note saves against one period, without marking anything',
+    r.ok === true && r.slot === 2 && r.note.by === 'Bilal Hossain',
+    JSON.stringify(r.note));
 
   const row = ctx.__tabs.OBJ_LOG.rows[1];
   check('it lands on the objective"s own row for that month',
-    row[0] === '2026-11' && row[2] === 'OJT-007' &&
-    row[6] === 'POD report was not generated on the 3rd.' &&
-    row[3] === '', 'marks left alone: ' + JSON.stringify(row[3]));
+    row[0] === '2026-11' && row[2] === 'OJT-007' && row[3] === '',
+    'marks left alone: ' + JSON.stringify(row[3]));
 
-  check('and the page reads it back',
+  const stored = JSON.parse(row[12]);
+  check('and in the Notes column, under the slot it was written against',
+    stored['2'].t === 'POD report was not generated.' &&
+    stored['2'].n === 1 && stored['2'].made === stored['2'].at,
+    JSON.stringify(stored));
+  check('the old month-note column is left alone, not written through',
+    row[6] === '', JSON.stringify(row[6]));
+
+  check('and the page reads it back on the slot it belongs to',
     ctx.getObjectives('t').tasks.list
-      .filter((t) => t.id === 'OJT-007')[0].note ===
-      'POD report was not generated on the 3rd.');
+      .filter((t) => t.id === 'OJT-007')[0].notes['2'].t ===
+      'POD report was not generated.');
+
+  /*
+    TWO PERIODS, TWO NOTES. The second must not land on top of the first,
+    which is the whole difference between this and what it replaced.
+  */
+  ctx.saveObjSlotNote('t', 'TASK', 'OJT-007', '2026-11', 8,
+    'Out at the Chittagong site.');
+  const both = JSON.parse(ctx.__tabs.OBJ_LOG.rows[1][12]);
+  check('a note on another period does not overwrite the first',
+    both['2'].t === 'POD report was not generated.' &&
+    /Chittagong/.test(both['8'].t), Object.keys(both).join(','));
+
+  /*
+    AN EDIT KEEPS THE DATE IT WAS FIRST WRITTEN. "Saved on the 3rd, edited
+    on the 9th" and "saved on the 9th" are different accounts of a month,
+    and only one of them is true.
+  */
+  ctx.__advance(26 * 3600 * 1000);          // the next day
+  ctx.saveObjSlotNote('t', 'TASK', 'OJT-007', '2026-11', 2,
+    'POD report was not generated. SD raised INC-4471.');
+  const edited = JSON.parse(ctx.__tabs.OBJ_LOG.rows[1][12])['2'];
+  check('editing a note counts the edit and keeps when it was first made',
+    edited.n === 2 && edited.made === stored['2'].made &&
+    edited.at > edited.made && /INC-4471/.test(edited.t),
+    JSON.stringify(edited));
+
+  const hist = JSON.parse(ctx.__tabs.OBJ_LOG.rows[1][10]);
+  check('and what it said before the edit is kept on the row"s timeline',
+    hist[0].noteSlot === 2 &&
+    hist[0].noteWas === 'POD report was not generated.',
+    JSON.stringify(hist[0] || {}));
+
+  // CLEARING IT IS HOW IT IS DELETED. There is no other sensible way to
+  // take back something you wrote than emptying the box it is in.
+  ctx.saveObjSlotNote('t', 'TASK', 'OJT-007', '2026-11', 2, '   ');
+  check('an empty note removes it rather than storing a blank one',
+    JSON.parse(ctx.__tabs.OBJ_LOG.rows[1][12])['2'] === undefined,
+    ctx.__tabs.OBJ_LOG.rows[1][12]);
 
   let msg = '';
-  try { ctx.saveObjTaskNote('t', 'OJT-008', '2026-11', 'x'); }
+  try { ctx.saveObjSlotNote('t', 'TASK', 'OJT-008', '2026-11', 0, 'x'); }
   catch (e) { msg = e.message; }
   check('a note on somebody else"s module is refused, like a mark',
     /belongs to the MM module/.test(msg), msg);
 
   msg = '';
   try {
-    ctx.saveObjTaskNote('t', 'OJT-007', '2026-11', 'x'.repeat(5000));
+    ctx.saveObjSlotNote('t', 'TASK', 'OJT-007', '2026-11', 2,
+                        'x'.repeat(5000));
   } catch (e) { msg = e.message; }
-  check('and one that is far too long', /4,000 characters/.test(msg));
+  check('and one too long for a cell that holds twenty-six of them',
+    /1000 characters at most/.test(msg), msg);
+
+  msg = '';
+  try { ctx.saveObjSlotNote('t', 'TASK', 'OJT-007', '2026-11', 99, 'x'); }
+  catch (e) { msg = e.message; }
+  check('and a period the month does not have',
+    /no such period/.test(msg), msg);
+}
+
+
+// ===========================================================================
+// 18j. notes on the SMART objective, which is the same idea
+// ===========================================================================
+{
+  const member = load({ session: { u: '20990001', r: 'USER' } });
+  let msg = '';
+  try { member.saveObjSlotNote('t', 'PLAN', 'OBJ-002', '2026-11', 0, 'x'); }
+  catch (e) { msg = e.message; }
+  check('a team member cannot write against the SMART objective either',
+    /section heads/.test(msg), msg);
+
+  const head = load({ session: { u: '20990002', r: 'USER' } });
+  const r = head.saveObjSlotNote('t', 'PLAN', 'OBJ-002', '2026-11', 0,
+    'The second RCA is with FI.');
+  check('a section head can, and it is kept the same way',
+    r.ok === true && r.note.t === 'The second RCA is with FI.',
+    JSON.stringify(r.note));
+
+  const page = head.getObjectives('t');
+  let m = null;
+  page.plan.rows.forEach(function (row) {
+    row.milestones.forEach(function (x) { if (x.id === 'OBJ-002') m = x; });
+  });
+  const nov = m.months.filter((x) => x.period === '2026-11')[0];
+  check('and the month it belongs to carries it, so any month can be read',
+    nov.note && /second RCA/.test(nov.note.t), JSON.stringify(nov));
+
+  /*
+    WRITING A NOTE IS NOT RECORDING THE MILESTONE, and the square has to
+    keep saying so. "I have written down why I could not do this" and "I
+    have done this" are different claims, and a page that turned the
+    month green for the first would be letting a note stand in for the
+    work.
+  */
+  const before = m.months.filter((x) => x.period === '2026-11')[0];
+  check('but a note on its own does not mark the month as recorded',
+    before.state === 'pending', before.state);
+
+  /*
+    AND THE COLOUR REACHES THE PAGE, not just the function that works it
+    out: October ended with nothing, November is recorded, December has
+    not come round.
+  */
+  head.recordObjMilestone('t', 'OBJ-002', '2026-11', { value: 2 });
+  const after = head.getObjectives('t');
+  let m2 = null;
+  after.plan.rows.forEach(function (row) {
+    row.milestones.forEach(function (x) { if (x.id === 'OBJ-002') m2 = x; });
+  });
+  const states = m2.months.map((x) => x.period + ':' + x.state).join(' ');
+  check('every month comes down with the state its square is drawn from',
+    states === '2026-10:missed 2026-11:done 2026-12:pending ' +
+      '2027-01:pending 2027-02:pending 2027-03:pending', states);
+
+  msg = '';
+  try { head.saveObjSlotNote('t', 'PLAN', 'OBJ-002', '2026-11', 1, 'x'); }
+  catch (e) { msg = e.message; }
+  check('a milestone has one period a month and no second one',
+    /no such period/.test(msg), msg);
+}
+
+
+// ===========================================================================
+// 18k. the SMART objective keeps the same four colours
+// ===========================================================================
+{
+  const ctx = load();
+  const now = new Date(2026, 10, 11, 10, 0, 0);
+  const manual = { id: 'OBJ-002', auto: '' };
+
+  const onTime = { marks: 'Y', status: 'ON_TRACK', value: 2,
+                   markedAt: { '0': new Date(2026, 10, 9, 9, 0).getTime() } };
+  check('a month recorded while it was still running is green',
+    ctx.objPlanMonthState(manual, onTime, '2026-11', now).state === 'done',
+    ctx.objPlanMonthState(manual, onTime, '2026-11', now).state);
+
+  const late = { marks: 'Y', status: 'ON_TRACK', value: 2,
+                 markedAt: { '0': new Date(2026, 10, 2, 9, 0).getTime() } };
+  check('October written up on the 2nd of November is yellow, not green',
+    ctx.objPlanMonthState(manual, late, '2026-10', now).state === 'late',
+    ctx.objPlanMonthState(manual, late, '2026-10', now).state);
+
+  check('a month that ended with nothing recorded is red',
+    ctx.objPlanMonthState(manual, null, '2026-10', now).state === 'missed');
+  check('and the month in progress is blank, not already a miss',
+    ctx.objPlanMonthState(manual, null, '2026-11', now).state === 'pending');
+  check('as is one that has not come round',
+    ctx.objPlanMonthState(manual, null, '2026-12', now).state === 'pending');
+
+  /*
+    A ROW WITH A FIGURE AND NO MARK still counts as recorded. Nothing
+    writes one - recordObjMilestone always marks - but reading it as a
+    miss would be the page calling somebody"s own work absent.
+  */
+  check('a figure with no mark beside it is still a month that was recorded',
+    ctx.objPlanMonthState(manual, { value: 2, marks: '', markedAt: {} },
+                          '2026-10', now).state === 'done');
+
+  /*
+    AND THE THREE THE PORTAL COUNTS ITSELF ARE NEVER LATE OR MISSED.
+    Nobody records them by hand, so a red square would be the page
+    complaining that an automatic thing was not done manually.
+  */
+  const auto = { id: 'OBJ-001', auto: 'UNIQUE_ROLES' };
+  check('a counted milestone is not marked down for an empty log row',
+    ctx.objPlanMonthState(auto, null, '2026-10', now, true).state === 'done' &&
+    ctx.objPlanMonthState(auto, null, '2027-02', now, true).state ===
+      'pending');
 }
 
 // ===========================================================================

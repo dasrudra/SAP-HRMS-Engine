@@ -99,8 +99,23 @@ const OBJ_TASK_COLUMNS = [
  */
 const OBJ_LOG_COLUMNS = [
   'Period', 'Kind', 'Ref ID', 'Marks', 'Value', 'Status', 'Note',
-  'By', 'By ID', 'At', 'History', 'Marked'
+  'By', 'By ID', 'At', 'History', 'Marked', 'Notes'
 ];
+
+/*
+  NOTE AND NOTES ARE DIFFERENT COLUMNS, and the near-identical names are
+  worth a word.
+
+  'Note' was one note for the whole month, which is what the page had when
+  a month was the only unit it knew. 'Notes' is one per PERIOD THAT COUNTS -
+  a note against the 3rd, another against the 9th - which is what the thing
+  is actually for: a square that is red says nobody recorded that day, and
+  the only place the reason can live is beside that day.
+
+  The old column is kept and still read. It is not written any more, and a
+  row that has one shows it under the grid as what it is: a note somebody
+  left against the month before the page could keep them per day.
+*/
 
 
 /**
@@ -582,6 +597,77 @@ function parseObjMarked(cell) {
 }
 
 
+/**
+ * The notes on a row, one per period that counts, parsed.
+ *
+ * SHAPE, and why it is this short:
+ *
+ *   { "2": { t: 'the text', by: 'Bilal Hossain', id: '20000012',
+ *            at: 1762..., made: 1762..., n: 2 } }
+ *
+ * The key is the slot - the 3rd of November is slot 2 of a daily objective
+ * - so a note is tied to the square it explains and cannot drift onto
+ * another one when the month is read again. `made` is the first save and
+ * `at` the last, with `n` the number of saves, so the page can say "saved
+ * by X, edited twice" without a second tab to join against.
+ *
+ * One-letter keys because twenty-six of these share one cell. Spelling
+ * them out costs about 1,400 characters a row for nothing anybody reads.
+ */
+function parseObjNotes(cell) {
+  const text = String(cell || '').trim();
+  if (!text) return {};
+  let got;
+  try {
+    got = JSON.parse(text);
+  } catch (e) {
+    return {};
+  }
+  if (!got || typeof got !== 'object') return {};
+
+  const out = {};
+  Object.keys(got).forEach(function (k) {
+    const slot = Number(k);
+    const v = got[k];
+    if (!(slot >= 0) || !v) return;
+    // A note is its text. One with none is one that was cleared, and it is
+    // dropped rather than kept as an empty box somebody has to look at.
+    const t = String((typeof v === 'string' ? v : v.t) || '');
+    if (!t) return;
+    out[String(slot)] = {
+      t: t,
+      by: String((v && v.by) || ''),
+      id: String((v && v.id) || ''),
+      at: Number((v && v.at) || 0) || 0,
+      made: Number((v && v.made) || (v && v.at) || 0) || 0,
+      n: Number((v && v.n) || 1) || 1
+    };
+  });
+  return out;
+}
+
+
+/**
+ * The notes as they go into the cell, with the cell's own limit enforced.
+ *
+ * A cell holds 50,000 characters and the writer is the only place that can
+ * know it is about to go past them. Refusing the save with a sentence that
+ * says which note to shorten is the one outcome that does not lose
+ * somebody's writing: Sheets would otherwise take the row and truncate it,
+ * and the first anybody would know is a month of notes reading as nothing.
+ */
+function objNotesText(notes) {
+  const text = JSON.stringify(notes || {});
+  const max = CONFIG.OBJECTIVE.NOTES_CELL_MAX || 45000;
+  if (text.length > max) {
+    throw new Error('The notes on this objective have reached the limit of ' +
+                    'what one row can hold. Shorten one of the longer ones ' +
+                    'before adding another.');
+  }
+  return text;
+}
+
+
 /** How many of the first `upto` slots carry this mark. */
 function objMarksCount(marks, mark, upto) {
   const s = String(marks || '');
@@ -752,7 +838,8 @@ function readObjLog() {
       byId: String(r[8] || '').trim(),
       at: at ? at.getTime() : 0,
       history: parseObjHistory(r[10]),
-      markedAt: parseObjMarked(r[11])
+      markedAt: parseObjMarked(r[11]),
+      notes: parseObjNotes(r[12])
     };
     count++;
   });
@@ -873,6 +960,48 @@ function objTaskState(task, marks, period, now, markedAt) {
     // Waiting on somebody: the slot that can be pressed right now is blank.
     due: open > 0 && s.charAt(Math.max(0, open - 1)) === OBJ_PENDING
   };
+}
+
+
+/**
+ * One month of one SMART milestone, in the same four states as a square on
+ * the other sheet.
+ *
+ * THE TWO SHEETS NOW READ THE SAME WAY. A milestone is recorded once a
+ * month, so its month IS its monitoring period and the colours mean what
+ * they mean everywhere else: green recorded while the month was running,
+ * yellow written up after it closed, red a month that ended with nothing,
+ * blank a month that has not come round. It is the same objTaskState doing
+ * the work on a one-slot monthly frequency, rather than a second set of
+ * rules that could disagree with the first.
+ *
+ * A COUNTED MILESTONE IS NEVER LATE AND NEVER MISSED. Nobody records the
+ * three the portal counts for itself - the figure is there the moment the
+ * month is - so marking them red for an empty log row would be the page
+ * complaining that an automatic thing was not done by hand.
+ */
+function objPlanMonthState(milestone, entry, period, now, counted) {
+  if (milestone.auto) {
+    const current = objPeriodOf(objDate(now) || new Date());
+    if (period > current) return { state: 'pending', at: 0, auto: true };
+    return { state: counted ? 'done' : 'pending', at: 0, auto: true };
+  }
+
+  /*
+    A ROW WITH A FIGURE ON IT IS A MONTH THAT WAS RECORDED, mark or no
+    mark. The mark is written by recordObjMilestone, so every row this page
+    creates has one; a row that somehow has a number and no mark is still
+    evidence that somebody recorded the month, and reading it as a miss
+    would be the page calling a person"s own work absent. With no stamp to
+    go on it reads as on time, because there is nothing to say otherwise.
+  */
+  const had = entry && (entry.marks || entry.status ||
+                        (entry.value !== null && entry.value !== undefined));
+  const marks = had ? (entry.marks || OBJ_DONE) : '';
+  const state = objTaskState({ frequency: 'Monthly' }, marks, period, now,
+                             entry ? entry.markedAt : null);
+  const cell = state.cells[0] || { state: 'pending', at: 0 };
+  return { state: cell.state, at: cell.at, auto: false };
 }
 
 
@@ -1299,11 +1428,25 @@ function getObjectives(token, period) {
         const months = periods.map(function (p) {
           const e = log.byKey[objLogKey(p, OBJ_KIND_PLAN, m.id)];
           const ms = objMilestoneScore(m, log, p, { auto: autoAll[p] || {} });
+          const st = objPlanMonthState(m, e, p, now,
+                                       Boolean((autoAll[p] || {})[m.auto]));
+          /*
+            EVERY MONTH"S NOTE, not only the one on screen.
+
+            A milestone"s six squares are its monitoring periods, and
+            double-clicking any of them has to show what was written
+            against it. Fetching that month on its own would be a round
+            trip per square on a page already too slow; six notes on
+            twenty-nine milestones is a few kilobytes.
+          */
           return {
             period: p,
             recorded: Boolean(e) || Boolean(m.auto && p <= current),
             fraction: ms.fraction,
-            status: e ? e.status : ''
+            status: e ? e.status : '',
+            state: st.state,
+            at: st.at,
+            note: (e && e.notes && e.notes['0']) || null
           };
         });
         return {
@@ -1339,6 +1482,10 @@ function getObjectives(token, period) {
       open: state.open, onSchedule: state.onSchedule, due: state.due,
       dueIn: objDueIn(t, want),
       mine: objMayTick(me, t),
+      // One per period that counts, keyed by slot. See parseObjNotes.
+      notes: entry ? entry.notes : {},
+      // The month note, from before notes were kept per period. Shown
+      // under the grid where a row has one; never written any more.
       note: entry ? entry.note : '',
       by: entry ? entry.by : '',
       at: entry ? entry.at : 0
@@ -1406,6 +1553,7 @@ function objWriteLog(period, kind, ref, fields, who) {
   let status = '';
   let note = '';
   let markedAt = {};
+  let notes = {};
 
   if (row !== -1) {
     const had = sheet.getRange(row, 1, 1, OBJ_LOG_COLUMNS.length).getValues()[0];
@@ -1415,10 +1563,11 @@ function objWriteLog(period, kind, ref, fields, who) {
     note = String(had[6] || '');
     history = parseObjHistory(had[10]);
     markedAt = parseObjMarked(had[11]);
+    notes = parseObjNotes(had[12]);
 
     const at = objDate(had[9]);
     if (at) {
-      history.unshift({
+      const entry = {
         at: at.getTime(),
         by: String(had[7] || ''),
         byId: String(had[8] || ''),
@@ -1427,7 +1576,23 @@ function objWriteLog(period, kind, ref, fields, who) {
         status: status,
         note: note,
         marks: marks
-      });
+      };
+      /*
+        WHAT A NOTE SAID BEFORE IT WAS EDITED, and only that.
+
+        The timeline cannot carry the whole Notes column - twenty versions
+        of twenty-six notes is several times what a cell holds - so an edit
+        leaves behind the one note it replaced, cut to a couple of lines.
+        That is enough to answer "what did it say before", which is the
+        only question anybody asks of an edited note, and it is bounded by
+        the number of versions rather than by the number of notes.
+      */
+      if (fields.noteSlot !== undefined) {
+        const was = notes[String(fields.noteSlot)];
+        entry.noteSlot = Number(fields.noteSlot);
+        entry.noteWas = was ? String(was.t).slice(0, 240) : '';
+      }
+      history.unshift(entry);
     }
     history = history.slice(0, CONFIG.OBJECTIVE.HISTORY_KEPT || 20);
   }
@@ -1440,7 +1605,8 @@ function objWriteLog(period, kind, ref, fields, who) {
     fields.note !== undefined ? fields.note : note,
     who.name, who.id, now,
     JSON.stringify(history),
-    JSON.stringify(fields.markedAt !== undefined ? fields.markedAt : markedAt)
+    JSON.stringify(fields.markedAt !== undefined ? fields.markedAt : markedAt),
+    objNotesText(fields.notes !== undefined ? fields.notes : notes)
   ];
 
   if (row === -1) {
@@ -1509,13 +1675,29 @@ function recordObjMilestone(token, milestoneId, period, update) {
     fields.status = s;
   }
 
-  if (u.note !== undefined) {
-    const n = String(u.note || '');
-    if (n.length > 4000) {
-      throw new Error('That note is too long - 4,000 characters at most.');
-    }
-    fields.note = n;
-  }
+  /*
+    RECORDING IT IS THE MARK, and the month it was recorded IN is the thing
+    worth keeping.
+
+    A milestone is recorded once a month, so its month is one slot and it
+    is marked by this call rather than by pressing a square. That gives the
+    SMART objective the same four colours the ninety have: green for a
+    month recorded while it was still running, yellow for one written up
+    afterwards, red for a month that ended with nothing, blank for a month
+    that has not come round. Before this, a figure typed in January for
+    November was indistinguishable from one typed in November, and the only
+    way to find out was to open the timeline on the row.
+
+    The stamp is set ONCE. Correcting November's number in December is a
+    correction, not a late record, and it must not turn the square yellow -
+    so the first recording keeps the date, and the Updates timeline carries
+    the correction as it always has.
+  */
+  const log = readObjLog();
+  const had = log.byKey[objLogKey(p, OBJ_KIND_PLAN, milestone.id)];
+  const hadTimes = (had && had.markedAt) || {};
+  fields.marks = OBJ_DONE;
+  fields.markedAt = { '0': Number(hadTimes['0']) || new Date().getTime() };
 
   const written = objWriteLog(p, OBJ_KIND_PLAN, milestone.id, fields,
                               { name: me.name, id: me.id });
@@ -1532,7 +1714,7 @@ function recordObjMilestone(token, milestoneId, period, update) {
  * from the frequency before writing, so a page holding a stale idea of how
  * long the month is cannot write past the end of it.
  */
-function tickObjTask(token, taskId, period, slot, mark, note) {
+function tickObjTask(token, taskId, period, slot, mark) {
   requireSignedIn(token);
 
   const me = objWhoAmI(token);
@@ -1590,15 +1772,9 @@ function tickObjTask(token, taskId, period, slot, mark, note) {
     delete markedAt[String(i)];
   }
 
+  // A mark is a mark. Notes go through saveObjSlotNote, which keeps one per
+  // period rather than one per month - see the comment on OBJ_LOG_COLUMNS.
   const fields = { marks: marks, markedAt: markedAt };
-  if (note !== undefined) {
-    const n = String(note || '');
-    if (n.length > 4000) {
-      throw new Error('That note is too long - 4,000 characters at most.');
-    }
-    fields.note = n;
-  }
-
   objWriteLog(p, OBJ_KIND_TASK, task.id, fields, { name: me.name, id: me.id });
 
   /*
@@ -1627,17 +1803,32 @@ function tickObjTask(token, taskId, period, slot, mark, note) {
 
 
 /**
- * Saves the note on one objective for one month.
+ * Saves the note on ONE PERIOD of one objective - one day, one week, one
+ * month, one quarter - on either sheet.
  *
- * Separate from tickObjTask because a note is not a mark: somebody writes
- * "the report was not generated on the 3rd" without changing any square,
- * and a note that could only be saved by also pressing something would be
- * a note nobody writes.
+ * ONE NOTE PER MONTH WAS THE WRONG UNIT. A daily objective has twenty-six
+ * squares in November and a single box underneath; the note that explains
+ * why the 3rd is red had to share it with the note about the 19th, and
+ * whoever wrote the second one had to decide whether to delete the first.
+ * The unit of a note is the unit of the thing it explains.
  *
- * Same permission as a tick - it is the same row, and a note on somebody
- * else's module is the same intrusion as a mark on it.
+ * Separate from tickObjTask and recordObjMilestone because a note is not a
+ * mark. Somebody who could not record a day writes down why - that is most
+ * of what this is for - and a note that could only be saved by also
+ * pressing something is a note nobody writes.
+ *
+ * Writing one needs the same permission as recording the thing it is
+ * about: a note on somebody else"s module is the same intrusion as a mark
+ * on it, and a note against the SMART objective is as much a claim about
+ * the department as a number is. READING one needs nothing beyond being
+ * signed in - the whole point is that the reason a square is red should be
+ * visible to whoever is looking at it.
+ *
+ * An empty note deletes the note. There is no separate delete, because the
+ * only sensible way to take back something you wrote is to clear the box
+ * it is in.
  */
-function saveObjTaskNote(token, taskId, period, note) {
+function saveObjSlotNote(token, kind, refId, period, slot, note) {
   requireSignedIn(token);
 
   const me = objWhoAmI(token);
@@ -1647,28 +1838,82 @@ function saveObjTaskNote(token, taskId, period, note) {
                     CONFIG.OBJECTIVE.PERIOD_LABEL + ').');
   }
 
-  const all = objCached('obj.task', 600, readObjTask);
-  let task = null;
-  all.tasks.forEach(function (t) {
-    if (t.id === String(taskId || '').trim()) task = t;
-  });
-  if (!task) throw new Error('There is no objective with that id.');
+  const k = String(kind || '').trim().toUpperCase();
+  const ref = String(refId || '').trim();
+  const i = Number(slot);
+  let slots;
 
-  if (!objMayTick(me, task)) {
-    throw new Error(me.reason ||
-      ('That objective belongs to the ' + task.group + ' module. You can ' +
-       'write notes on the ones for your own module.'));
+  if (k === OBJ_KIND_PLAN) {
+    if (!me.planner) {
+      throw new Error('Notes on the SMART objective are for section heads ' +
+                      'and the department head. You can write them on the ' +
+                      'unique-role objectives for your own module.');
+    }
+    const plan = objCached('obj.plan', 600, readObjPlan);
+    let milestone = null;
+    plan.plan.forEach(function (m) { if (m.id === ref) milestone = m; });
+    if (!milestone) throw new Error('There is no milestone with that id.');
+    // A milestone is recorded once a month, so its month is its one slot.
+    slots = 1;
+  } else if (k === OBJ_KIND_TASK) {
+    const all = objCached('obj.task', 600, readObjTask);
+    let task = null;
+    all.tasks.forEach(function (t) { if (t.id === ref) task = t; });
+    if (!task) throw new Error('There is no objective with that id.');
+    if (!objMayTick(me, task)) {
+      throw new Error(me.reason ||
+        ('That objective belongs to the ' + task.group + ' module. You can ' +
+         'write notes on the ones for your own module.'));
+    }
+    slots = objSlotCount(p, task.frequency);
+  } else {
+    throw new Error('That is not something notes are kept against.');
   }
 
-  const text = String(note === null || note === undefined ? '' : note);
-  if (text.length > 4000) {
-    throw new Error('That note is too long - 4,000 characters at most.');
+  if (!(i >= 0) || i >= slots) {
+    throw new Error('There is no such period in ' + p + ' to write against.');
   }
 
-  objWriteLog(p, OBJ_KIND_TASK, task.id, { note: text },
+  const max = CONFIG.OBJECTIVE.NOTE_MAX || 1000;
+  const text = String(note === null || note === undefined ? '' : note).trim();
+  if (text.length > max) {
+    throw new Error('That note is too long - ' + max + ' characters at ' +
+                    'most, and this one is ' + text.length + '.');
+  }
+
+  const log = readObjLog();
+  const had = log.byKey[objLogKey(p, k, ref)];
+  const notes = {};
+  const hadNotes = (had && had.notes) || {};
+  Object.keys(hadNotes).forEach(function (key) { notes[key] = hadNotes[key]; });
+
+  const key = String(i);
+  const before = notes[key];
+  const at = new Date().getTime();
+
+  if (!text) {
+    delete notes[key];
+  } else {
+    notes[key] = {
+      t: text,
+      by: me.name,
+      id: me.id,
+      at: at,
+      // WHEN IT WAS FIRST WRITTEN survives an edit. "Saved on the 3rd,
+      // edited on the 9th" is a different account of a month from "saved
+      // on the 9th", and only the first one is true.
+      made: (before && before.made) || at,
+      n: ((before && before.n) || 0) + 1
+    };
+  }
+
+  objWriteLog(p, k, ref, { notes: notes, noteSlot: i },
               { name: me.name, id: me.id });
-  return { ok: true, id: task.id, note: text, by: me.name,
-           at: new Date().getTime() };
+
+  return {
+    ok: true, kind: k, id: ref, period: p, slot: i,
+    note: notes[key] || null
+  };
 }
 
 

@@ -4101,6 +4101,98 @@
   }
   .obj-day.is-week { aspect-ratio: auto; min-width: 46px; padding: 0 8px; }
   .obj-days:has(.is-week) { grid-template-columns: repeat(5, 46px); }
+  /* A milestone's six months. Six across, so the period reads as a row. */
+  .obj-days.is-months { grid-template-columns: repeat(6, 46px); }
+
+  /*
+     THE CORNER DOT: this square has a note on it.
+
+     Without it every square looks equally empty and the only way to find
+     the one carrying an explanation is to open all twenty-six. It sits in
+     the corner rather than changing the square's colour, because the
+     colour already means something - whether the period was recorded, and
+     when - and a note is a different fact about the same square.
+  */
+  .obj-day.has-note { position: relative; }
+  .obj-day.has-note::after {
+    content: ''; position: absolute; top: 3px; right: 3px;
+    width: 5px; height: 5px; border-radius: 50%;
+    background: var(--ob-ink); opacity: .55;
+  }
+  .obj-day.is-y.has-note::after  { background: #027a48; opacity: .8; }
+  .obj-day.is-n.has-note::after  { background: #b42318; opacity: .8; }
+  .obj-day.is-l.has-note::after  { background: #b54708; opacity: .8; }
+  /* The square whose note is open, so the panel below has an anchor. */
+  .obj-day.is-reading {
+    box-shadow: 0 0 0 2px var(--ob-ink); border-color: var(--ob-ink);
+  }
+
+  /* ---------------- the note on one period ---------------- */
+  /*
+     INLINE, UNDER THE SQUARES IT BELONGS TO.
+
+     Not a dialog. The Apps Script frame is taller than the browser window
+     once it is inside Blogger, so the window scrolls the blog page rather
+     than the frame: anything with position:fixed pins itself to a
+     rectangle nobody can see all of, which is how the first New objective
+     form ended up cut off at the top with no visible backdrop.
+  */
+  .obj-np {
+    margin-top: 14px; border: 1px solid var(--ob-line);
+    border-radius: 13px; background: var(--ob-paper); padding: 12px 13px 11px;
+  }
+  .obj-np.is-edit { border-color: #a4bcfd; background: #fbfcff; }
+  .obj-np.is-hint { background: transparent; border-style: dashed; }
+  .obj-np-h {
+    display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px;
+  }
+  .obj-np-h b { font-size: 12.5px; letter-spacing: .2px; }
+  .obj-np-h span {
+    font-size: 11.8px; color: var(--ob-mid); flex: 1; min-width: 0;
+  }
+  .obj-np-x {
+    border: 0; background: none; cursor: pointer; font-size: 17px; width: 22px;
+    height: 22px; line-height: 1; border-radius: 7px; color: var(--ob-mid);
+  }
+  .obj-np-x:hover { background: #eef1f6; color: var(--ob-ink); }
+  .obj-np-t {
+    margin: 0 0 9px; font-size: 13.2px; line-height: 1.55;
+    white-space: pre-wrap; overflow-wrap: anywhere;
+  }
+  .obj-np-none {
+    margin: 0; font-size: 12.4px; color: var(--ob-mid); line-height: 1.5;
+  }
+  .obj-np-in {
+    width: 100%; box-sizing: border-box; resize: vertical; padding: 9px 10px;
+    border: 1px solid var(--ob-line-2); border-radius: 10px;
+    font: inherit; font-size: 13px; line-height: 1.5; color: var(--ob-ink);
+    background: var(--ob-paper);
+  }
+  .obj-np-in:focus {
+    outline: none; border-color: #6172f3;
+    box-shadow: 0 0 0 3px rgba(97, 114, 243, .16);
+  }
+  .obj-np-f {
+    display: flex; align-items: center; gap: 8px; margin-top: 9px;
+    flex-wrap: wrap;
+  }
+  .obj-np-who {
+    flex: 1; min-width: 150px; font-size: 11.6px; color: var(--ob-mid);
+  }
+  .obj-np-who.is-bad { color: #b42318; font-weight: 600; }
+  .obj-nct { margin-top: 9px; font-size: 11.6px; color: var(--ob-mid); }
+  /* The note somebody left against a whole month, before notes had periods. */
+  .obj-oldnote {
+    margin-top: 12px; padding: 10px 12px; border-radius: 11px;
+    background: #f7f8fb; border: 1px dashed var(--ob-line-2);
+  }
+  .obj-oldnote b {
+    display: block; font-size: 11.4px; letter-spacing: .3px;
+    text-transform: uppercase; color: var(--ob-mid); margin-bottom: 4px;
+  }
+  .obj-oldnote p {
+    margin: 0; font-size: 12.8px; line-height: 1.55; white-space: pre-wrap;
+  }
 
   /* ---------------- states ---------------- */
   .obj-wait, .obj-empty {

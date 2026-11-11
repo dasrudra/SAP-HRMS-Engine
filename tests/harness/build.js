@@ -295,6 +295,24 @@ const stub = `
     out. Late is the one that cannot be read off the marks - green and
     yellow are the same mark, and only WHEN it was made tells them apart.
   */
+  /*
+    A MILESTONE'S MONTH, in the same four states as a square on the other
+    sheet. Recording it is the mark; the month it was recorded in is what
+    tells green from yellow. See objPlanMonthState on the server.
+  */
+  function objPlanMonth(m, entry, period) {
+    if (m.auto) {
+      return { state: period > OBJ_NOW ? 'pending' : 'done', at: 0 };
+    }
+    if (!entry || !(entry.marks || entry.status ||
+                    (entry.value !== null && entry.value !== undefined))) {
+      return { state: period < OBJ_NOW ? 'missed' : 'pending', at: 0 };
+    }
+    var at = Number((entry.markedAt || {})['0']) || 0;
+    var late = at > 0 && at > objSlotEnd(period, 'Monthly', 0);
+    return { state: late ? 'late' : 'done', at: at };
+  }
+
   function objCells(t, period, marks, elapsed, when) {
     var out = [], late = 0;
     for (var i = 0; i < marks.length; i++) {
@@ -476,19 +494,40 @@ const stub = `
     showing what has.
   */
   OBJ_LOG['2026-11|TASK|OJT-007'] = { marks: 'YYNYYYY...............',
-    by: 'Bilal Hossain', at: Date.now() - 86400000, history: [] };
+    by: 'Bilal Hossain', at: Date.now() - 86400000, history: [],
+    /*
+      A NOTE AGAINST ONE DAY, not against the month. Slot 2 is the 3rd of
+      November, which is the square the page draws red - so the panel has
+      something real to show when that square is double-clicked, and the
+      corner dot has somewhere to appear.
+    */
+    notes: { '2': { t: 'POD report did not generate. Raised with SD, ' +
+                       'ticket INC-4471.',
+                    by: 'Bilal Hossain', id: '20000012',
+                    at: Date.now() - 86400000, made: Date.now() - 86400000,
+                    n: 1 } } };
   OBJ_LOG['2026-11|TASK|OJT-009'] = { marks: 'YYYYYYYY..............',
     by: 'Bilal Hossain', at: Date.now() - 3600000, history: [] };
   OBJ_LOG['2026-11|TASK|OJT-006'] = { marks: 'YY...',
     by: 'Bilal Hossain', at: Date.now() - 7200000, history: [] };
   OBJ_LOG['2026-11|PLAN|OBJ-002'] = { value: 1, status: 'ON_TRACK',
-    note: 'RCA done for the repeated GI posting failure in MM. The second ' +
-      'is in progress with the FI team.',
+    marks: 'Y', markedAt: { '0': Date.now() - 172800000 },
+    notes: { '0': { t: 'RCA done for the repeated GI posting failure in ' +
+                       'MM. The second is in progress with the FI team.',
+                    by: 'Rudra Das', id: '20000001',
+                    at: Date.now() - 172800000, made: Date.now() - 172800000,
+                    n: 1 } },
     by: 'Rudra Das', at: Date.now() - 172800000,
     history: [{ at: Date.now() - 600000000, by: 'Ayesha Rahman', value: 0,
                 status: 'AT_RISK', note: 'Nothing closed yet this month.' }] };
+  /*
+    OCTOBER, RECORDED IN NOVEMBER. The month closed on the 31st and this
+    was written on the 2nd, so its square is the yellow one on the SMART
+    side - the same "done, recorded late" the ninety have had.
+  */
   OBJ_LOG['2026-10|PLAN|OBJ-002'] = { value: 2, status: 'ON_TRACK',
-    note: '', by: 'Ayesha Rahman', at: Date.now() - 900000000, history: [] };
+    marks: 'Y', markedAt: { '0': new Date(2026, 10, 2, 11, 0).getTime() },
+    by: 'Ayesha Rahman', at: Date.now() - 900000000, history: [] };
   OBJ_LOG['2026-11|PLAN|OBJ-009'] = { value: 100, status: 'ON_TRACK',
     note: '', by: 'Rudra Das', at: Date.now() - 200000000, history: [] };
 
@@ -1367,9 +1406,12 @@ const stub = `
               history: e ? (e.history || []) : [],
               months: OBJ_PERIODS.map(function (p) {
                 var pe = OBJ_LOG[p + '|PLAN|' + m.id];
+                var ms = objPlanMonth(m, pe, p);
                 return { period: p, recorded: Boolean(pe),
                          fraction: objFraction(m, p),
-                         status: pe ? pe.status : '' };
+                         status: pe ? pe.status : '',
+                         state: ms.state, at: ms.at,
+                         note: (pe && pe.notes && pe.notes['0']) || null };
               })
             };
           })
@@ -1421,7 +1463,9 @@ const stub = `
                    marks.charAt(objOpen(want, t.frequency) - 1) === '.',
               // The four KPIs are nobody's, and this account owns SD.
               mine: !t.kpi && (t.group === 'SD' || t.group === 'MM'),
-              note: e ? e.note : '', by: e ? e.by : '', at: e ? e.at : 0
+              notes: (e && e.notes) || {},
+              note: e ? (e.note || '') : '', by: e ? e.by : '',
+              at: e ? e.at : 0
             };
           }),
           count: OBJ_TASK.length,
@@ -1445,10 +1489,15 @@ const stub = `
                           status: had.status, note: had.note });
       }
       var u = update || {};
+      // Recording it IS the mark, and the first recording keeps the date -
+      // a correction in December is not a late record of November.
+      var when = (had && had.markedAt && had.markedAt['0']) || Date.now();
       OBJ_LOG[key] = {
         value: u.value === undefined ? (had ? had.value : 0) : Number(u.value),
         status: u.status === undefined ? (had ? had.status : '') : u.status,
-        note: u.note === undefined ? (had ? had.note : '') : u.note,
+        note: had ? had.note : '',
+        notes: (had && had.notes) || {},
+        marks: 'Y', markedAt: { '0': when },
         by: 'Utpal Biswas', at: Date.now(), history: history.slice(0, 20)
       };
       return { ok: true, at: OBJ_LOG[key].at, by: 'Utpal Biswas' };
@@ -1498,6 +1547,7 @@ const stub = `
       else { delete when[String(i)]; }
 
       OBJ_LOG[key] = { marks: marks, note: had.note || '',
+                       notes: had.notes || {},
                        by: 'Utpal Biswas', at: Date.now(), history: [],
                        markedAt: when };
       // Everything the page needs to redraw that one row. A tick used to be
@@ -1520,22 +1570,69 @@ const stub = `
       };
     },
 
-    saveObjTaskNote: function (token, id, period, note) {
-      var t = null;
-      OBJ_TASK.forEach(function (x) { if (x.id === id) t = x; });
-      if (!t) throw new Error('There is no objective with that id.');
-      if (t.kpi || (t.group !== 'SD' && t.group !== 'MM')) {
-        throw new Error('That objective belongs to the ' + t.group +
-                        ' module. You can write notes on the ones for ' +
-                        'your own module.');
+    /*
+      ONE NOTE PER PERIOD, on either sheet. ?refuse=note makes every save
+      fail, which is how a test reaches the path where the panel has to
+      say why rather than quietly keeping what was typed.
+    */
+    saveObjSlotNote: function (token, kind, ref, period, slot, note) {
+      if ((new URLSearchParams(location.search).get('refuse') || '')
+            .split(',').indexOf('note') !== -1) {
+        throw new Error('That objective belongs to the FI module. You can ' +
+                        'write notes on the ones for your own module.');
       }
-      var key = period + '|TASK|' + id;
-      var had = OBJ_LOG[key] || { marks: '', markedAt: {} };
-      had.note = String(note || '');
+      var k = String(kind || '').toUpperCase();
+      var i = Number(slot);
+      var slots;
+
+      if (k === 'PLAN') {
+        var found = null;
+        OBJ_PLAN.forEach(function (r) {
+          r.milestones.forEach(function (m) { if (m.id === ref) found = m; });
+        });
+        if (!found) throw new Error('There is no milestone with that id.');
+        slots = 1;
+      } else {
+        var t = null;
+        OBJ_TASK.forEach(function (x) { if (x.id === ref) t = x; });
+        if (!t) throw new Error('There is no objective with that id.');
+        if (t.kpi || (t.group !== 'SD' && t.group !== 'MM')) {
+          throw new Error('That objective belongs to the ' + t.group +
+                          ' module. You can write notes on the ones for ' +
+                          'your own module.');
+        }
+        slots = objSlots(period, t.frequency);
+      }
+
+      if (!(i >= 0) || i >= slots) {
+        throw new Error('There is no such period in ' + period +
+                        ' to write against.');
+      }
+      var text = String(note === null || note === undefined ? '' : note).trim();
+      if (text.length > 1000) {
+        throw new Error('That note is too long - 1000 characters at most, ' +
+                        'and this one is ' + text.length + '.');
+      }
+
+      var key = period + '|' + k + '|' + ref;
+      var had = OBJ_LOG[key] || { marks: '', markedAt: {}, notes: {} };
+      had.notes = had.notes || {};
+      var before = had.notes[String(i)];
+      var at = Date.now();
+      if (!text) {
+        delete had.notes[String(i)];
+      } else {
+        had.notes[String(i)] = {
+          t: text, by: 'Utpal Biswas', id: '20000000', at: at,
+          made: (before && before.made) || at,
+          n: ((before && before.n) || 0) + 1
+        };
+      }
       had.by = 'Utpal Biswas';
-      had.at = Date.now();
+      had.at = at;
       OBJ_LOG[key] = had;
-      return { ok: true, id: id, note: had.note, by: had.by, at: had.at };
+      return { ok: true, kind: k, id: ref, period: period, slot: i,
+               note: had.notes[String(i)] || null };
     },
 
     createObjMilestone: function (token, draft) {
@@ -1773,8 +1870,24 @@ const stub = `
               return;
             }
 
-            try { if (onOk) onOk(HANDLERS[name].apply(null, args)); }
-            catch (e) { if (onFail) onFail(e); }
+            /*
+              THE ANSWER IS A COPY, as it is across the real boundary.
+
+              google.script.run serialises what the server returns, so the
+              page can never hold a live reference into the server's own
+              state. This fixture used to hand back the very objects in
+              its store, which quietly made some bugs invisible: a page
+              that forgot to keep what a save returned still showed the
+              new text, because the object it was drawing from WAS the
+              stored one and had changed underneath it.
+            */
+            try {
+              if (onOk) {
+                var got = HANDLERS[name].apply(null, args);
+                onOk(got === undefined ? got
+                     : JSON.parse(JSON.stringify(got)));
+              }
+            } catch (e) { if (onFail) onFail(e); }
           }, hold || 4);
         };
       });

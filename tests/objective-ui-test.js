@@ -225,19 +225,76 @@ function parseRgb(text) {
   const shown = () => p.$eval('.obj-step-v', (n) => n.textContent.trim());
   check('the counter opens on what was last recorded', (await shown()) === '1');
 
-  // A note typed BEFORE the counter is pressed. The press redraws the card.
-  await p.fill('[data-obj-note]', 'Second RCA closed with the FI team.');
   await p.click('[data-obj-step="1"]');
   await p.waitForTimeout(250);
 
   check('the counter steps up', (await shown()) === '2');
-  check('and the note typed before the press is still there',
-    (await p.$eval('[data-obj-note]', (n) => n.value)) ===
-      'Second RCA closed with the FI team.',
-    await p.$eval('[data-obj-note]', (n) => n.value));
   check('the shortfall line goes when the target is met',
     !(await p.$eval('.obj-step-of', (n) => n.textContent)).match(/more to meet/),
     await p.$eval('.obj-step-of', (n) => n.textContent.replace(/\s+/g, ' ')));
+
+  /*
+    THE SMART OBJECTIVE IS MONITORED TOO.
+
+    A milestone is recorded once a month, so a month is its monitoring
+    period - and it now carries the same four colours the ninety do:
+    recorded while the month ran, written up after it closed, a month that
+    ended with nothing, a month that has not come round. Before this, a
+    figure typed in January for November was indistinguishable from one
+    typed in November.
+  */
+  const months = () => p.$$eval('.obj-card.is-open .obj-days.is-months > *',
+    (ns) => ns.map((n) => ({
+      t: n.textContent.trim(),
+      cls: n.className.replace('obj-day is-week', '').trim(),
+      dead: Boolean(n.disabled),
+      note: n.classList.contains('has-note')
+    })));
+  const mo = await months();
+  check('a milestone shows its six months as squares, like the ninety',
+    mo.length === 6 && mo[0].t === 'Oct' && mo[5].t === 'Mar',
+    mo.map((x) => x.t).join(','));
+  check('October was recorded in November, so it is yellow and not green',
+    /is-l/.test(mo[0].cls), mo[0].cls);
+  check('November was recorded inside November, so it is green',
+    /is-y/.test(mo[1].cls), mo[1].cls);
+  check('and the months still to come are blank and cannot be written on',
+    mo[3].cls === '' && mo[3].dead === true && mo[5].dead === true,
+    JSON.stringify(mo[3]));
+
+  const mpanel = () => p.$eval('.obj-card.is-open .obj-np',
+    (n) => n.textContent);
+  check('a month that carries a note says so before it is opened',
+    mo[1].note === true && mo[0].note === false,
+    JSON.stringify(mo.map((x) => x.note)));
+
+  await p.click('.obj-days.is-months > *:nth-child(2)');
+  await p.waitForTimeout(300);
+  check('clicking a month opens the note kept against it',
+    /RCA done for the repeated GI posting failure/.test(await mpanel()),
+    await mpanel());
+  check('and names the month it belongs to',
+    /November 2026/.test(await mpanel()), await mpanel());
+
+  /*
+    OCTOBER'S NOTE, READ IN NOVEMBER. The note used to live in one box on
+    the recording form, so the only way to read what was written against
+    October was to step the whole page back to October.
+  */
+  await p.click('.obj-days.is-months > *:nth-child(1)');
+  await p.waitForTimeout(300);
+  check('another month opens its own note without leaving this one',
+    /October 2026/.test(await mpanel()) &&
+    (await p.$eval('#objMonth', (n) => n.textContent)).indexOf('November') !== -1,
+    await p.$eval('#objMonth', (n) => n.textContent));
+  await p.fill('[data-obj-nbox]', 'Closed late - the FI sign-off came in ' +
+    'on the 2nd of November.');
+  await p.click('[data-obj-note-keep]');
+  await p.waitForTimeout(700);
+  const octNote = await p.evaluate(() =>
+    window.__OBJ_LOG__['2026-10|PLAN|OBJ-002'].notes['0']);
+  check('and it saves against THAT month, not the one on screen',
+    octNote && /FI sign-off/.test(octNote.t), JSON.stringify(octNote));
 
   await p.click('[data-obj-save="OBJ-002"]');
   await p.waitForTimeout(600);
@@ -248,8 +305,9 @@ function parseRgb(text) {
     JSON.parse(JSON.stringify(window.__OBJ_LOG__['2026-11|PLAN|OBJ-002'])));
   check('Save sends the figure the counter was showing',
     stored.value === 2, 'stored ' + stored.value);
-  check('and the note with it',
-    stored.note === 'Second RCA closed with the FI team.', stored.note);
+  check('and recording it marks the month it was recorded in',
+    stored.marks === 'Y' && stored.markedAt['0'] > 0,
+    JSON.stringify({ m: stored.marks, at: stored.markedAt }));
   check('and the figure it replaced is kept as history',
     (stored.history || []).length >= 1 && stored.history[0].value === 1,
     JSON.stringify((stored.history || [])[0] || {}));
@@ -321,7 +379,8 @@ function parseRgb(text) {
   await p.click('[data-obj-open="OJT-005"]');
   await p.waitForTimeout(400);
   check('a monthly objective opens onto a panel rather than marking itself',
-    await p.isVisible('.obj-card.is-open [data-obj-tnote="OJT-005"]'));
+    await p.isVisible('.obj-card.is-open .obj-days') &&
+    await p.isVisible('.obj-card.is-open .obj-np'));
   check('and its one slot is named for the month, not numbered W1',
     (await p.$$eval('.obj-card.is-open .obj-day',
       (ns) => ns.map((n) => n.textContent.trim()))).join(',') === 'Nov',
@@ -462,7 +521,7 @@ function parseRgb(text) {
     third.late === true && third.y === false && third.day === '3',
     JSON.stringify(third));
   check('and it carries the date it was marked',
-    /^Marked \d+ \w+ \d{4}$/.test(third.title), third.title);
+    /^Marked \d+ \w+ \d{4}\b/.test(third.title), third.title);
 
   await p.click('.obj-day:nth-child(3)');
   await p.waitForTimeout(700);
@@ -543,57 +602,192 @@ function parseRgb(text) {
     (await sent()) - sentBefore + ' of 2 presses reached the server');
 
   /*
-    THE SAME ROW TWICE, THOUGH, IS ONE PRESS.
+    THE SAME SQUARE TWICE IS NOT TWO PRESSES - IT IS A DOUBLE-CLICK.
 
-    The guard is per row rather than per page, and this is the half of it
-    that does any work: an impatient second press on the SAME square would
-    otherwise send a second tick that undoes the first, because the button
-    still carries the mark it had when it was drawn.
+    Which is how a note is opened, so the mark must not happen at all: a
+    second press would otherwise send the mark the button was drawn with
+    and undo the first, and somebody double-clicking a green square to
+    read its note would clear it and, on re-marking, turn it yellow. So
+    the first click is painted at once and HELD, and the second takes it
+    back rather than sending anything.
   */
   const sameBefore = await sent();
-  await p.evaluate(() => { window.__slowNext = 900; });
-  await p.click('.obj-day:nth-child(4)');
-  await p.click('.obj-day:nth-child(4)');
-  await p.waitForTimeout(1800);
-  check('but pressing the same row twice before it answers sends once',
-    (await sent()) - sameBefore === 1,
-    (await sent()) - sameBefore + ' calls for a double press');
+  const marksNow = () => p.evaluate(() =>
+    window.__OBJ_LOG__['2026-11|TASK|OJT-007'].marks);
+  // The colour and nothing else: is-reading only says which square's note
+  // is open, which is the whole point of the press being tested.
+  const classOf = (nth) => p.$eval('.obj-day:nth-child(' + nth + ')',
+    (n) => n.className.replace(/\bis-reading\b/g, '')
+            .replace(/\s+/g, ' ').trim());
+  const wasMarks = await marksNow();
+  const wasClass = await classOf(4);
+
+  await p.dblclick('.obj-day:nth-child(4)');
+  await p.waitForTimeout(900);
+  check('a double-click on a square sends no mark at all',
+    (await sent()) - sameBefore === 0,
+    (await sent()) - sameBefore + ' calls for a double-click');
+  check('and leaves what was recorded exactly as it was',
+    (await marksNow()) === wasMarks,
+    wasMarks + ' -> ' + (await marksNow()));
+  /*
+    AND THE SQUARE LOOKS UNTOUCHED TOO.
+
+    The first click paints before it sends - that is what makes marking
+    feel instant - so taking it back has to put the colour back as well as
+    cancel the call. Reading only the store would miss a square left
+    sitting green over a server that never heard about it.
+  */
+  check('and the square itself goes back to the colour it had',
+    (await classOf(4)) === wasClass,
+    wasClass + ' -> ' + (await classOf(4)));
 
   /*
-    THE NOTE BOX, where the objective's own description used to sit.
+    AT THE SPEED A PERSON ACTUALLY DOUBLE-CLICKS.
 
-    The description is in the spreadsheet and does not change; what the
-    person at this screen has to say about this month does - and it has to
-    save on its own, because writing a note without touching any square is
-    most of why a note exists.
+    Playwright's dblclick fires both clicks about as fast as the machine
+    can, which a mark held for even a moment would survive. A person
+    takes a tenth of a second or so, and in that gap a hold that is too
+    short lets the first click reach the server - so the note opens AND
+    the square is toggled behind it.
   */
-  check('the panel carries a note box rather than the sheet"s description',
-    await p.isVisible('[data-obj-tnote="OJT-007"]') &&
-    !/from the sheet/.test(
-      await p.$eval('.obj-card.is-open', (n) => n.textContent)));
+  const humanBefore = await sent();
+  const wasClass5 = await classOf(5);
+  // Driven through the mouse rather than two clicks, because Playwright
+  // puts the click count in the event itself: two page.click calls are
+  // two FIRST clicks however close together, which is not what a person
+  // does. This is one click, a pause, then a second click that says it is
+  // the second - which is exactly what the browser reports.
+  await p.hover('.obj-day:nth-child(5)');
+  await p.mouse.down({ clickCount: 1 });
+  await p.mouse.up({ clickCount: 1 });
+  await p.waitForTimeout(130);
+  await p.mouse.down({ clickCount: 2 });
+  await p.mouse.up({ clickCount: 2 });
+  await p.waitForTimeout(900);
+  check('two clicks a tenth of a second apart are still one double-click',
+    (await sent()) - humanBefore === 0 && (await classOf(5)) === wasClass5,
+    (await sent()) - humanBefore + ' sent, ' + wasClass5 +
+      ' -> ' + (await classOf(5)));
 
-  await p.fill('[data-obj-tnote="OJT-007"]',
-    'POD report was not generated on the 3rd. Raised with SD.');
-  await p.click('[data-obj-note-save="OJT-007"]');
+  /*
+    A NOTE PER PERIOD, which is the unit the thing is actually about.
+
+    One note for the whole month was the wrong size: twenty-six squares
+    shared a single box, so the sentence explaining the 3rd and the
+    sentence explaining the 19th had to be written into the same
+    paragraph. A square that is red says nobody recorded that day; the
+    reason belongs against THAT day.
+  */
+  const panel = () => p.$eval('.obj-card.is-open .obj-np',
+    (n) => n.textContent);
+  check('double-clicking a square opens the note for that one period',
+    await p.isVisible('.obj-card.is-open .obj-np'));
+  /*
+    AND THE COLUMN IT OPENS IN IS FOR NOTES, not for the objective's own
+    description. The description lives in the spreadsheet and never
+    changes; printing it beside the squares filled the one piece of room
+    the panel has with something nobody at this screen can act on.
+  */
+  const card = await p.$eval('.obj-card.is-open', (n) => n.textContent);
+  // What the fixture's OJT-007 carries in its Description column.
+  const desc = 'Checks proof of delivery (pod) vs. billing.';
+  check('and the panel is about notes rather than the sheet"s description',
+    card.indexOf(desc) === -1, card.slice(0, 120));
+  check('and the panel names the period, not the month',
+    /Thursday 5 November 2026/.test(await panel()), await panel());
+
+  /*
+    THE SQUARE THAT ALREADY HAS ONE. The 3rd was missed and somebody wrote
+    down why - which is the whole point of the feature, so it has to come
+    back with who wrote it and when.
+  */
+  await p.dblclick('.obj-day:nth-child(3)');
+  await p.waitForTimeout(400);
+  check('a square with a note shows what was written against it',
+    /POD report did not generate/.test(await panel()), await panel());
+  check('and who saved it, and when',
+    /Saved by Bilal Hossain on \d+ \w+ \d{4}/.test(await panel()),
+    await panel());
+  check('a saved note is read first and edited on purpose',
+    !(await p.isVisible('.obj-card.is-open [data-obj-nbox]')) &&
+    await p.isVisible('[data-obj-note-edit]'));
+
+  // WHICH SQUARES HAVE ONE, without opening any of them.
+  const dotted = await p.$$eval('.obj-card.is-open .obj-day.has-note',
+    (ns) => ns.map((n) => n.textContent.trim()));
+  check('the square carrying it is marked, so it can be found',
+    dotted.join(',') === '3', dotted.join(','));
+
+  await p.click('[data-obj-note-edit]');
+  await p.waitForTimeout(250);
+  await p.fill('[data-obj-nbox]', 'POD report did not generate. SD raised ' +
+    'INC-4471; cleared on the 4th.');
+  await p.click('[data-obj-note-keep]');
   await p.waitForTimeout(800);
 
-  const saved = await p.evaluate(() =>
-    window.__OBJ_LOG__['2026-11|TASK|OJT-007'].note);
-  check('a note saves on its own, without marking anything',
-    saved === 'POD report was not generated on the 3rd. Raised with SD.',
-    saved);
-  check('and the panel says where it went',
-    /Saved against November 2026/.test(
-      await p.$eval('.obj-card.is-open [data-obj-say]', (n) => n.textContent)),
-    await p.$eval('.obj-card.is-open [data-obj-say]', (n) => n.textContent));
+  const slotNote = () => p.evaluate(() =>
+    window.__OBJ_LOG__['2026-11|TASK|OJT-007'].notes['2']);
+  check('an edit saves against the slot it was opened on',
+    /cleared on the 4th/.test((await slotNote()).t), (await slotNote()).t);
+  check('and the first time it was written is not lost to the edit',
+    (await slotNote()).made < (await slotNote()).at,
+    JSON.stringify(await slotNote()));
+  check('and it is counted as an edit, by whoever made it',
+    (await slotNote()).n === 2 && (await slotNote()).by === 'Utpal Biswas',
+    JSON.stringify(await slotNote()));
+  check('the panel says it has been edited since it was written',
+    /edited once/.test(await panel()), await panel());
+
+  /*
+    A NOTE ON A SQUARE THAT HAS NONE, which is the ordinary case: an empty
+    box, and nothing in the store until it is saved.
+  */
+  await p.dblclick('.obj-day:nth-child(9)');
+  await p.waitForTimeout(400);
+  check('an empty period opens straight into a box to write in',
+    await p.isVisible('[data-obj-nbox]') &&
+    (await p.$eval('[data-obj-nbox]', (n) => n.value)) === '');
+  await p.fill('[data-obj-nbox]', 'Out at the Chittagong site; no access.');
+  await p.click('[data-obj-note-keep]');
+  await p.waitForTimeout(800);
+  const ninth = await p.evaluate(() =>
+    window.__OBJ_LOG__['2026-11|TASK|OJT-007'].notes['7']);
+  check('a note on a missed day saves without marking the day',
+    ninth && /Chittagong/.test(ninth.t), JSON.stringify(ninth));
+  check('and writing one marks nothing',
+    (await marksNow()).charAt(7) !== 'Y', await marksNow());
+
+  /*
+    IT SURVIVES A TICK NEXT TO IT. The list is rebuilt from innerHTML on
+    every mark, so a half-written note living only in the textarea would
+    be thrown away by somebody pressing the square beside it.
+  */
+  await p.dblclick('.obj-day:nth-child(10)');
+  await p.waitForTimeout(400);
+  await p.fill('[data-obj-nbox]', 'Half a sentence so far');
+  await p.click('.obj-day:nth-child(1)');
+  await p.waitForTimeout(900);
+  check('what is half-written survives a mark made beside it',
+    (await p.$eval('[data-obj-nbox]', (n) => n.value)) ===
+      'Half a sentence so far',
+    await p.$eval('[data-obj-nbox]', (n) => n.value));
+
+  await p.click('[data-obj-note-shut]');
+  await p.waitForTimeout(250);
+  check('and the panel closes without saving it',
+    !(await p.isVisible('.obj-card.is-open .obj-np.is-edit')) &&
+    !(await p.evaluate(() =>
+      window.__OBJ_LOG__['2026-11|TASK|OJT-007'].notes['8'])));
 
   await p.click('[data-obj-close]');
   await p.waitForTimeout(300);
   await p.click('[data-obj-open="OJT-007"]');
   await p.waitForTimeout(450);
-  check('and it is still there when the panel is opened again',
-    (await p.$eval('[data-obj-tnote="OJT-007"]', (n) => n.value)) ===
-      'POD report was not generated on the 3rd. Raised with SD.');
+  await p.dblclick('.obj-day:nth-child(3)');
+  await p.waitForTimeout(400);
+  check('a saved note is still there when the panel is opened again',
+    /cleared on the 4th/.test(await panel()), await panel());
 
   await p.click('[data-obj-close]');
   await p.waitForTimeout(300);
