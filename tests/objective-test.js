@@ -566,18 +566,25 @@ function load(opts) {
   check('a percentage milestone scores its row in full at 100',
     near(ctx.objScore(plan, lead, '2026-11', null).score, 10));
 
-  // DONE is yes or no, and only the status says so.
+  /*
+    DONE IS YES OR NO, AND THE SQUARE IS WHAT SAYS SO.
+
+    It used to be a status picked from three buttons, beside a row of
+    month squares that meant the same thing and were free to disagree
+    with it. One way to say a month happened, and it is the one every
+    other row on this page uses.
+  */
   const done = { byKey: {} };
   done.byKey[ctx.objLogKey('2026-11', 'PLAN', 'OBJ-008')] =
-    { value: null, status: 'DONE', marks: '', history: [] };
-  check('a done/not-done milestone scores on its status',
+    { value: null, status: '', marks: 'Y', history: [] };
+  check('a done/not-done milestone scores on its mark',
     near(ctx.objScore(plan, done, '2026-11', null).score, 20),
     'Commercial is weight 20 with one milestone');
 
   const notDone = { byKey: {} };
   notDone.byKey[ctx.objLogKey('2026-11', 'PLAN', 'OBJ-008')] =
-    { value: null, status: 'ON_TRACK', marks: '', history: [] };
-  check('"on track" is not "done" for a done/not-done milestone',
+    { value: null, status: 'ON_TRACK', marks: '.', history: [] };
+  check('and a row with the old "on track" status on it scores nothing',
     ctx.objScore(plan, notDone, '2026-11', null).score === 0);
 }
 
@@ -834,15 +841,14 @@ function load(opts) {
 // ===========================================================================
 {
   const ctx = load({ session: { u: '20990002', r: 'USER' } });   // a head
-  const r = ctx.recordObjMilestone('t', 'OBJ-002', '2026-11',
-    { value: 2, status: 'ON_TRACK' });
+  const r = ctx.recordObjMilestone('t', 'OBJ-002', '2026-11', { value: 2 });
   check('a section head can record a milestone', r.ok === true &&
     r.by === 'Ayesha Rahman');
 
   const row = ctx.__tabs.OBJ_LOG.rows[1];
   check('the log holds the month, the kind, the reference and the value',
     row[0] === '2026-11' && row[1] === 'PLAN' && row[2] === 'OBJ-002' &&
-    row[4] === 2 && row[5] === 'ON_TRACK');
+    row[4] === 2);
   check('who recorded it and when are stored with it',
     row[7] === 'Ayesha Rahman' && row[8] === '20990002' && row[9]);
 
@@ -857,28 +863,31 @@ function load(opts) {
     history[0].by === 'Ayesha Rahman', JSON.stringify(history));
 
   /*
-    RECORDING IT IS THE MARK, which is what gives the SMART objective the
-    same four colours the ninety have. November was recorded in November,
-    so its square is green; the same figure typed in January would be
-    yellow, and a November that ended with nothing is red.
+    RECORDING A FIGURE LEAVES THE MARK ALONE.
+
+    It used to set it, on the grounds that typing a figure is reviewing
+    the month. That made the square impossible to take back: press it to
+    clear November, save the figure for any reason, and November was
+    marked again. From the outside that is "I unclick it and it does not
+    save", and it is the second time the same two-things-in-one-place
+    mistake has cost a month of recording.
   */
-  check('recording a milestone marks the month it was recorded in',
+  ctx.tickObjMilestone('t', 'OBJ-002', '2026-11', 'Y');
+  check('the square is what marks the month',
     ctx.__tabs.OBJ_LOG.rows[1][3] === 'Y' &&
     JSON.parse(ctx.__tabs.OBJ_LOG.rows[1][11])['0'] > 0,
     ctx.__tabs.OBJ_LOG.rows[1][3] + ' ' + ctx.__tabs.OBJ_LOG.rows[1][11]);
 
-  /*
-    AND THE STAMP IS SET ONCE. Correcting November's figure in December is
-    a correction, not a late record of November, and a square that went
-    yellow every time somebody fixed a number would be punishing the fix.
-  */
-  const first = JSON.parse(ctx.__tabs.OBJ_LOG.rows[1][11])['0'];
-  ctx.__advance(26 * 3600 * 1000);          // the next day
+  ctx.tickObjMilestone('t', 'OBJ-002', '2026-11', '.');
+  ctx.__advance(26 * 3600 * 1000);
   ctx.recordObjMilestone('t', 'OBJ-002', '2026-11', { value: 3 });
-  const again = JSON.parse(ctx.__tabs.OBJ_LOG.rows[1][11])['0'];
-  check('and correcting it later does not restamp it as a late record',
-    again === first && ctx.__tabs.OBJ_LOG.rows[1][9].getTime() > first,
-    first + ' -> ' + again);
+  check('and a figure saved after it was cleared does not mark it again',
+    ctx.__tabs.OBJ_LOG.rows[1][3] === '.' &&
+    JSON.stringify(JSON.parse(ctx.__tabs.OBJ_LOG.rows[1][11])) === '{}',
+    ctx.__tabs.OBJ_LOG.rows[1][3] + ' ' + ctx.__tabs.OBJ_LOG.rows[1][11]);
+  check('while the figure itself is saved',
+    Number(ctx.__tabs.OBJ_LOG.rows[1][4]) === 3,
+    JSON.stringify(ctx.__tabs.OBJ_LOG.rows[1][4]));
 }
 
 // ===========================================================================
@@ -926,13 +935,6 @@ function load(opts) {
     head.recordObjMilestone('t', 'OBJ-002', '2026-11', { value: -3 });
   } catch (e) { msg = e.message; }
   check('a negative count is refused', /not a number/.test(msg));
-
-  msg = '';
-  try {
-    head.recordObjMilestone('t', 'OBJ-002', '2026-11', { status: 'FINE' });
-  } catch (e) { msg = e.message; }
-  check('a status that is not one of the four is refused',
-    /not a status/.test(msg));
 
   check('nothing refused was written',
     head.__tabs.OBJ_LOG.rows.length === 1,
@@ -1644,10 +1646,11 @@ function load(opts) {
         return hit || r.milestones.filter((x) => x.id === 'OBJ-002')[0];
       }, null).value);
 
+  ctx.tickObjMilestone('t', 'OBJ-002', '2026-11', 'Y');
   const nov = ctx.getObjectives('t').plan.rows.reduce(function (hit, r) {
     return hit || r.milestones.filter((x) => x.id === 'OBJ-002')[0];
   }, null).months.filter((x) => x.period === '2026-11')[0];
-  check('and the month it recorded is marked, not left blank',
+  check('and a mark made against it lands where the page reads it too',
     nov.state === 'done', nov.state);
 
   check('it still does not add a row', ctx.__tabs.OBJ_LOG.rows.length === 3,
@@ -1877,7 +1880,7 @@ function load(opts) {
     out: October ended with nothing, November is recorded, December has
     not come round.
   */
-  head.recordObjMilestone('t', 'OBJ-002', '2026-11', { value: 2 });
+  head.tickObjMilestone('t', 'OBJ-002', '2026-11', 'Y');
   const after = head.getObjectives('t');
   let m2 = null;
   after.plan.rows.forEach(function (row) {

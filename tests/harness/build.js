@@ -1419,6 +1419,7 @@ const stub = `
               value: e ? e.value : (m.auto ? objAutoValue(m, want) : 0),
               fraction: f,
               status: e ? e.status : '', note: e ? e.note : '',
+              recorded: Boolean(e && e.value !== null && e.value !== undefined),
               by: e ? e.by : '', at: e ? e.at : 0,
               history: e ? (e.history || []) : [],
               months: OBJ_PERIODS.map(function (p) {
@@ -1513,13 +1514,14 @@ const stub = `
       var u = update || {};
       // Recording it IS the mark, and the first recording keeps the date -
       // a correction in December is not a late record of November.
-      var when = (had && had.markedAt && had.markedAt['0']) || Date.now();
       OBJ_LOG[key] = {
         value: u.value === undefined ? (had ? had.value : 0) : Number(u.value),
-        status: u.status === undefined ? (had ? had.status : '') : u.status,
+        status: had ? had.status : '',
         note: had ? had.note : '',
         notes: (had && had.notes) || {},
-        marks: 'Y', markedAt: { '0': when },
+        // The figure only. The mark is the square - see recordObjMilestone.
+        marks: (had && had.marks) || '',
+        markedAt: (had && had.markedAt) || {},
         by: 'Utpal Biswas', at: Date.now(), history: history.slice(0, 20)
       };
       return { ok: true, at: OBJ_LOG[key].at, by: 'Utpal Biswas' };
@@ -1980,10 +1982,21 @@ const stub = `
     // Script sandbox, where it cannot see its own address bar. Without it the
     // page always opened on KPI 1 and no suite could reach another screen.
     url: {
+      /*
+        COUNTED, and answered as slowly as ?slowurl= asks for.
+
+        The page used to call this twice on every load - once for the
+        token and again for the screen - and on the Blogger embed the
+        second one took twelve seconds, so the page drew Home and jumped
+        later. Both halves are reachable from here: how many times it is
+        asked, and what happens when the answer is slow.
+      */
       getLocation: function (cb) {
+        window.__URL_CALLS = (window.__URL_CALLS || 0) + 1;
         var p = {};
         new URLSearchParams(location.search).forEach(function (v, k) { p[k] = v; });
-        setTimeout(function () { cb({ parameter: p, hash: '' }); }, 2);
+        var slow = Number(p.slowurl || 0) || 2;
+        setTimeout(function () { cb({ parameter: p, hash: '' }); }, slow);
       }
     },
     history: { replace: function () {} }, host: { close: function () {} } } };

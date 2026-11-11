@@ -135,6 +135,67 @@ function parseRgb(text) {
     ratio(bandInk, bandBg) >= 4.5, ratio(bandInk, bandBg).toFixed(2) + ':1');
 
   /*
+    THE ADDRESS BAR IS READ ONCE.
+
+    It used to be read twice on every load - once for the sign-in token
+    and again, later, for the screen to open on. The first answered
+    quickly, which is why the page came up signed in; the second did
+    not, and on the Blogger embed it was measured at twelve seconds. So
+    the page gave up, drew Home, and jumped to where somebody had
+    actually been once the answer finally arrived.
+  */
+  check('the address bar is asked once for the whole page, not twice',
+    (await p.evaluate(() => window.__URL_CALLS)) === 1,
+    (await p.evaluate(() => window.__URL_CALLS)) + ' calls');
+
+  /*
+    AND A SLOW ANSWER NO LONGER COSTS THE FIRST SCREEN.
+
+    ?slowurl= holds getLocation open for that many milliseconds, which
+    is the whole of what went wrong: whatever it costs, it is paid once,
+    before the bootstrap, and the screen is decided from an answer that
+    is already in hand.
+  */
+  {
+    const r = await b.newPage({ viewport: { width: 1200, height: 900 } });
+    await r.goto(FILE + '?last=objective&slowurl=2500');
+    await r.waitForSelector('#view-objective:not([hidden])', { timeout: 15000 });
+    check('a slow address bar does not land the page on Home first',
+      await r.evaluate(() => {
+        const h = document.getElementById('view-home');
+        return !h || h.hidden;
+      }));
+    check('and it was still only asked once',
+      (await r.evaluate(() => window.__URL_CALLS)) === 1,
+      (await r.evaluate(() => window.__URL_CALLS)) + ' calls');
+    await r.close();
+  }
+
+  /*
+    AND IF IT NEVER ANSWERS AT ALL, the page still comes up.
+
+    getLocation can simply not call back inside the sandbox. The page
+    then has no token and no screen to go to, and the right thing to
+    show is the sign-in card - not a blank screen with a spinner on it
+    for as long as somebody is willing to wait.
+  */
+  {
+    const r = await b.newPage({ viewport: { width: 1200, height: 900 } });
+    await r.goto(FILE + '?slowurl=600000');
+    await r.waitForTimeout(4000);
+    /*
+      "Got to a screen" is not "a view element is not hidden" - the home
+      view starts that way in the markup, before any of this has run. It
+      is whether the page DECIDED: showView records what it settled on,
+      and nothing else sets it.
+    */
+    check('an address bar that never answers still gets to a screen',
+      await r.evaluate(() => Boolean(window.__SHOWN_VIEW__)),
+      String(await r.evaluate(() => window.__SHOWN_VIEW__)));
+    await r.close();
+  }
+
+  /*
     AND IT OPENS THERE NEXT TIME, without the address bar being consulted
     at all. ?last= is the harness's stand-in for what the server
     remembers; the real one comes down with the bootstrap, which the page
@@ -515,7 +576,7 @@ function parseRgb(text) {
     JSON.parse(JSON.stringify(window.__OBJ_LOG__['2026-11|PLAN|OBJ-002'])));
   check('Save sends the figure the counter was showing',
     stored.value === 2, 'stored ' + stored.value);
-  check('and recording it marks the month it was recorded in',
+  check('and recording it leaves the mark exactly as the square left it',
     stored.marks === 'Y' && stored.markedAt['0'] > 0,
     JSON.stringify({ m: stored.marks, at: stored.markedAt }));
   check('and the figure it replaced is kept as history',
@@ -525,6 +586,71 @@ function parseRgb(text) {
   check('the card closes and shows the new figure',
     !(await p.isVisible('.obj-card.is-open')) &&
     /2 of 2/.test(await p.$eval('#objList', (n) => n.textContent)));
+
+  /*
+    NO STATUS BUTTONS. "On track / At risk / Missed" was an opinion about
+    a number already on the screen, typed by the person being measured -
+    and on a yes-or-no milestone it was a SECOND way of saying what the
+    month square says, free to disagree with it.
+  */
+  await p.click('[data-obj-open="OBJ-002"]');
+  await p.waitForTimeout(400);
+  check('there is nothing to pick between on track, at risk and missed',
+    !(await p.isVisible('.obj-card.is-open [data-obj-status]')) &&
+    !/At risk/.test(await p.$eval('.obj-card.is-open', (n) => n.textContent)));
+
+  /*
+    A YES-OR-NO MILESTONE HAS NO FIGURE AND NO STATUS EITHER.
+
+    Its months are the whole of the answer: green says it happened that
+    month. It used to carry Done / In progress / Not done beside the
+    same six squares, two controls saying one thing.
+  */
+  await p.click('[data-obj-close]');
+  await p.waitForTimeout(300);
+  await p.click('[data-obj-open="OBJ-008"]');
+  await p.waitForTimeout(400);
+  const yn = await p.$eval('.obj-card.is-open', (n) => n.textContent);
+  check('a done-or-not milestone offers no status buttons',
+    !(await p.isVisible('.obj-card.is-open [data-obj-status]')) &&
+    !/Not done|In progress|At risk/.test(yn), yn.slice(0, 120));
+  check('and no counter to type a figure into',
+    !(await p.isVisible('.obj-card.is-open .obj-step')) &&
+    !(await p.isVisible('.obj-card.is-open [data-obj-save]')));
+  check('its six months are there to be pressed instead',
+    (await p.$$eval('.obj-card.is-open .obj-days.is-months > *',
+      (ns) => ns.length)) === 6);
+  await p.click('[data-obj-close]');
+  await p.waitForTimeout(300);
+  await p.click('[data-obj-open="OBJ-002"]');
+  await p.waitForTimeout(400);
+
+  /*
+    AND SAVING A FIGURE DOES NOT PUT THE MARK BACK.
+
+    Recording used to set the mark as well, which made the square
+    impossible to take back: clear November, save a figure for any
+    reason, and November was marked again. From the outside that is
+    exactly "I unclick it and it does not save".
+  */
+  await p.click('.obj-days.is-months > *:nth-child(2)');     // clear November
+  await p.waitForTimeout(900);
+  check('clearing a month leaves it clear',
+    (await planLog('2026-11')).marks === '.',
+    JSON.stringify(await planLog('2026-11')));
+
+  await p.click('[data-obj-step="1"]');
+  await p.waitForTimeout(250);
+  await p.click('[data-obj-save="OBJ-002"]');
+  await p.waitForTimeout(1000);
+  check('and a figure saved afterwards does not mark it again',
+    (await planLog('2026-11')).marks === '.',
+    JSON.stringify(await planLog('2026-11')));
+  check('while the figure itself is saved',
+    (await p.evaluate(() =>
+      window.__OBJ_LOG__['2026-11|PLAN|OBJ-002'].value)) === 3,
+    String(await p.evaluate(() =>
+      window.__OBJ_LOG__['2026-11|PLAN|OBJ-002'].value)));
 
   // =========================================================================
   // 4. the milestone that is counted, not typed

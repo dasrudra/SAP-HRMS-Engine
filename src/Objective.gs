@@ -1197,7 +1197,17 @@ function objMilestoneScore(milestone, log, period, context) {
   }
 
   if (type === 'DONE') {
-    const done = Boolean(entry && entry.status === 'DONE');
+    /*
+      THE SQUARE IS THE ANSWER for a yes-or-no milestone.
+
+      It used to be a status somebody picked from three buttons - Done,
+      In progress, Not done - beside a row of month squares that meant
+      the same thing and disagreed with it freely. There is one way to
+      say a month happened now, and it is the one every other row on
+      this page uses.
+    */
+    const done = Boolean(entry) &&
+                 objMarksRead(entry.marks, 1).charAt(0) === OBJ_DONE;
     return { fraction: done ? 1 : 0, value: done ? 1 : 0, target: 1,
              auto: '', entry: entry };
   }
@@ -1534,6 +1544,10 @@ function getObjectives(token, period) {
           countType: m.countType, target: s.target, per: m.per,
           auto: m.auto,
           value: s.value, fraction: s.fraction,
+          // Whether a figure has been typed for the month on screen,
+          // which is a different question from whether it was marked.
+          recorded: Boolean(entry && entry.value !== null &&
+                            entry.value !== undefined),
           status: entry ? entry.status : '',
           note: entry ? entry.note : '',
           by: entry ? entry.by : '',
@@ -1799,37 +1813,19 @@ function recordObjMilestone(token, milestoneId, period, update) {
     fields.value = v;
   }
 
-  if (u.status !== undefined) {
-    const s = String(u.status || '').trim().toUpperCase();
-    const allowed = ['ON_TRACK', 'AT_RISK', 'MISSED', 'DONE', ''];
-    if (allowed.indexOf(s) === -1) throw new Error('That is not a status.');
-    fields.status = s;
-  }
-
   /*
-    RECORDING IT IS THE MARK, and the month it was recorded IN is the thing
-    worth keeping.
+    THE FIGURE ONLY. THE MARK IS THE SQUARE.
 
-    A milestone is recorded once a month, so its month is one slot and it
-    is marked by this call rather than by pressing a square. That gives the
-    SMART objective the same four colours the ninety have: green for a
-    month recorded while it was still running, yellow for one written up
-    afterwards, red for a month that ended with nothing, blank for a month
-    that has not come round. Before this, a figure typed in January for
-    November was indistinguishable from one typed in November, and the only
-    way to find out was to open the timeline on the row.
+    This used to set the mark as well, on the grounds that typing a
+    figure is reviewing the month. It made the square impossible to take
+    back: press it to clear November, save the figure for any reason,
+    and November was marked again - which is exactly what "I unclick it
+    and it does not save" looks like from the outside.
 
-    The stamp is set ONCE. Correcting November's number in December is a
-    correction, not a late record, and it must not turn the square yellow -
-    so the first recording keeps the date, and the Updates timeline carries
-    the correction as it always has.
+    They are two claims and they are allowed to disagree. "We completed
+    two RCAs" is what was achieved; "somebody reviewed this in November"
+    is the monitoring, and only the square says that.
   */
-  const log = readObjLog();
-  const had = log.byKey[objLogKey(p, OBJ_KIND_PLAN, milestone.id)];
-  const hadTimes = (had && had.markedAt) || {};
-  fields.marks = OBJ_DONE;
-  fields.markedAt = { '0': Number(hadTimes['0']) || new Date().getTime() };
-
   const written = objWriteLog(p, OBJ_KIND_PLAN, milestone.id, fields,
                               { name: me.name, id: me.id });
   return { ok: true, at: written.at, by: written.by };

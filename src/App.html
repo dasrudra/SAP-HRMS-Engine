@@ -173,6 +173,72 @@
    * before. Reading storage first would mean a link opened with one person's
    * token handing back the previous person's session instead.
    */
+  /**
+   * THE ADDRESS BAR, ASKED ONCE FOR THE WHOLE PAGE.
+   *
+   * google.script.url.getLocation is the only way to read the query from
+   * inside the Apps Script sandbox, and it was being called TWICE on
+   * every load - once for the sign-in token, and again, later, for the
+   * screen to open on. The first answered quickly, which is why the page
+   * came up signed in. The second did not: on the Blogger embed it was
+   * measured off a screen recording at twelve seconds, long enough that
+   * the page had given up waiting, drawn Home, and then jumped to the
+   * Objectives page once it finally arrived.
+   *
+   * There is only one address bar and it does not change while the page
+   * is loading. So it is read once, the answer is kept, and everything
+   * that wants it gets the same one. By the time the screen has to be
+   * decided the answer is already here, and nothing waits at all.
+   *
+   * `late` is for the case the fallback fires first: the answer is still
+   * an answer when it turns up, and the one thing worth doing with it is
+   * going to the screen a shared link pointed at.
+   */
+  const URL_WAS = { asked: false, ready: false, params: null,
+                    waiting: [], late: [] };
+
+  function urlParams(done) {
+    if (URL_WAS.ready) return done(URL_WAS.params);
+    URL_WAS.waiting.push(done);
+    if (URL_WAS.asked) return;
+    URL_WAS.asked = true;
+
+    const settle = function (p) {
+      if (URL_WAS.ready) return;
+      URL_WAS.ready = true;
+      URL_WAS.params = p || {};
+      const queue = URL_WAS.waiting.slice();
+      URL_WAS.waiting.length = 0;
+      queue.forEach(function (fn) { fn(URL_WAS.params); });
+    };
+
+    try {
+      if (window.google && google.script && google.script.url) {
+        google.script.url.getLocation(function (location) {
+          const p = (location && location.parameter) || {};
+          if (URL_WAS.ready) {
+            // It arrived after we gave up. Still worth having.
+            URL_WAS.params = p;
+            URL_WAS.late.slice().forEach(function (fn) { fn(p); });
+            return;
+          }
+          settle(p);
+        });
+        // It can also simply never call back inside the sandbox, and a
+        // page that waits forever shows a blank screen rather than the
+        // sign-in card - which is the safe thing to show.
+        setTimeout(function () { settle(null); }, 1500);
+        return;
+      }
+    } catch (e) { /* no sandbox - there is nothing to read */ }
+    settle(null);
+  }
+
+
+  /** Called if the address bar answers after the page gave up on it. */
+  function urlParamsLate(fn) { URL_WAS.late.push(fn); }
+
+
   function loadToken(done) {
     // The developer shortcut, if ?admin=1 was asked for AND the server agreed.
     // Checked before anything else: it is the freshest answer there is, minted
@@ -185,38 +251,15 @@
       }
     } catch (e) { /* not there - carry on and ask for the sign-in */ }
 
-    const fallBackToStorage = function () {
+    urlParams(function (p) {
+      if (p[TOKEN_PARAM]) { AUTH.token = p[TOKEN_PARAM]; return done(); }
       try {
         AUTH.token = sessionStorage.getItem(TOKEN_STORE) || '';
       } catch (e) {
         AUTH.token = '';   // blocked or private mode - nothing to recover
       }
       done();
-    };
-
-    try {
-      if (window.google && google.script && google.script.url) {
-        let answered = false;
-        google.script.url.getLocation(function (location) {
-          if (answered) return;
-          answered = true;
-          const p = (location && location.parameter) || {};
-          if (p[TOKEN_PARAM]) { AUTH.token = p[TOKEN_PARAM]; return done(); }
-          fallBackToStorage();
-        });
-        // getLocation can simply never call back inside the sandbox. Without
-        // this the page would sit on a blank screen forever rather than
-        // showing the sign-in card, which is the safe thing to do anyway.
-        setTimeout(function () {
-          if (answered) return;
-          answered = true;
-          fallBackToStorage();
-        }, 1500);
-        return;
-      }
-    } catch (e) { /* fall through to storage */ }
-
-    fallBackToStorage();
+    });
   }
 
 
@@ -1588,6 +1631,14 @@
     document.querySelectorAll('.view').forEach(function (el) { el.hidden = true; });
     const target = document.getElementById('view-' + name);
     if (target) target.hidden = false;
+    /*
+      WHICH SCREEN THE PAGE SETTLED ON, as opposed to which one the
+      markup happened to leave visible. The home view is not hidden to
+      begin with, so "a view is showing" is true before any of this has
+      run - and a test asking that question cannot tell a page that
+      decided from one still waiting to.
+    */
+    window.__SHOWN_VIEW__ = name;
 
     applyShell(name);
 
@@ -1863,58 +1914,43 @@
     }
 
     /*
-      THE SCREEN IS DECIDED NOW; THE FILTERS CAN ARRIVE LATE.
+      THE ADDRESS BAR HAS ALREADY BEEN READ.
 
-      getLocation is the only way to read the address bar from inside the
-      sandbox, and inside the Blogger embed it has been measured at twelve
-      seconds. Waiting for it meant twelve seconds of the Home page before
-      the Objectives page somebody had reloaded appeared - and NOT waiting
-      for it meant sessionStorage, which the sandbox wipes by handing out
-      a fresh origin on each load, so that was Home too.
+      This used to make its own getLocation call - the SECOND on the
+      page, after the one that fetches the sign-in token - and wait on
+      it. On the Blogger embed that second call was measured at twelve
+      seconds, so the page gave up, drew Home, and jumped to where
+      somebody had actually been once it finally arrived. The first call
+      was never slow; that is why the page came up signed in.
 
-      So the view comes from the server, which the page is already waiting
-      on, and nothing is held up for the address bar. The address bar is
-      still read and still wins when it names a view, because a shared
-      deep link has to go where it points - it simply arrives when it
-      arrives, and by then it almost always agrees.
+      There is one address bar and it does not change while the page is
+      loading, so it is read once and shared (see urlParams). By the
+      time this runs - after the bootstrap round trip - the answer is
+      already in hand, and nothing here waits at all.
+
+      WHAT WINS, in order: the URL, because a shared deep link has to go
+      where it points; then whatever this browser kept; then the screen
+      the server remembers for this person. The last of those is the one
+      that survives the sandbox handing out a fresh origin on each load.
     */
-    const remembered = readStorage() ||
-      (state.lastView ? { view: state.lastView } : null);
+    urlParams(function (p) {
+      if (p.view || p.month) return finish(p);
+      finish(readStorage() ||
+             (state.lastView ? { view: state.lastView } : null));
+    });
 
-    try {
-      if (window.google && google.script && google.script.url) {
-        google.script.url.getLocation(function (location) {
-          const p = (location && location.parameter) || {};
-
-          if (settled) {
-            if (p.view && p.view !== state.view &&
-                document.getElementById('view-' + p.view)) {
-              state.view = p.view;
-              showView(p.view, { skipSave: true });
-            }
-            // The filters it also carries, which nothing else knows.
-            if (!p.view && (p.month || p.cmpKpi)) applyLateParams(p);
-            return;
-          }
-
-          if (p.view || p.month) return finish(p);
-          finish(remembered);
-        });
-        /*
-          A SHORT ONE, because there is now something to settle ON.
-
-          This used to wait a second and a half in the hope that
-          getLocation would answer first. It does not have to hope any
-          more: the remembered view is already here, so the only thing
-          the wait buys is a chance of using the URL's filters on the
-          first paint instead of a moment later.
-        */
-        setTimeout(function () { finish(remembered); }, 350);
+    // And if it turns up after everything gave up on it, it still names
+    // the screen a shared link was built around.
+    urlParamsLate(function (p) {
+      if (!settled) return;
+      if (p.view && p.view !== state.view &&
+          document.getElementById('view-' + p.view)) {
+        state.view = p.view;
+        showView(p.view, { skipSave: true });
         return;
       }
-    } catch (e) { /* fall through */ }
-
-    finish(remembered);
+      if (!p.view && (p.month || p.cmpKpi)) applyLateParams(p);
+    });
   }
 
 
@@ -9345,7 +9381,7 @@
         (r.milestones || []).forEach(function (m) {
           total++;
           if (m.fraction >= 1) met++; else short++;
-          if (m.auto) auto++; else if (!m.status && m.fraction < 1) needs++;
+          if (m.auto) auto++; else if (!m.recorded && m.fraction < 1) needs++;
         });
       });
       const score = data.score ? data.score.score : 0;
@@ -9752,9 +9788,17 @@
     } else if (m.auto === 'LEARN') {
       note = '<span class="is-auto">counted automatically</span> from ' +
         'Learnings &middot; ' + m.value + ' updated this month';
-    } else if (m.status) {
+    } else if (m.countType === 'DONE') {
+      const mo = (m.months || []).filter(function (x) {
+        return x.period === data.period;
+      })[0] || {};
+      note = mo.state === 'done' || mo.state === 'late'
+        ? 'Marked by ' + escapeHtml(m.by || 'somebody') +
+          (mo.state === 'late' ? ' &middot; after the month closed' : '')
+        : 'Not marked for ' + escapeHtml(objMonthName(data.period));
+    } else if (m.recorded) {
       note = 'Recorded by ' + escapeHtml(m.by || 'somebody') +
-        (m.countType === 'DONE' ? '' : ' &middot; ' + m.value + ' of ' + m.target);
+        ' &middot; ' + m.value + ' of ' + m.target;
     } else {
       note = 'Nothing recorded for ' + escapeHtml(objMonthName(data.period));
       const behind = (m.months || []).filter(function (mo) {
@@ -9769,9 +9813,12 @@
     const act = m.auto === 'UNIQUE_ROLES'
       ? '<button class="obj-btn is-wide" data-obj-sheet="task">View the 90</button>'
       : (can
-          ? '<button class="obj-btn is-wide' + (m.status ? '' : ' is-primary') +
+          ? '<button class="obj-btn is-wide' +
+            ((m.recorded || m.countType === 'DONE') ? '' : ' is-primary') +
             '" data-obj-open="' + escapeHtml(m.id) + '">' +
-            (m.status ? 'Update' : 'Record') + '</button>'
+            (m.countType === 'DONE' ? 'Open'
+                                    : (m.recorded ? 'Update' : 'Record')) +
+            '</button>'
           /*
             READING IS NOT RECORDING, and a dead button said otherwise.
 
@@ -9808,17 +9855,27 @@
   function objPlanOpen(m, data, colour) {
     const d = OBJ.draft || {};
     const value = d.value === undefined ? (m.value || 0) : d.value;
-    const status = d.status === undefined ? (m.status || '') : d.status;
     const openNote = objNoteOpenRef('PLAN', m.id);
 
+    /*
+      THE FIGURE, AND NOTHING ELSE.
+
+      There used to be a row of On track / At risk / Missed buttons under
+      this. Nobody sets them: a status typed by the person being measured
+      is an opinion about a number that is already on the screen, and for
+      a yes-or-no milestone it was a SECOND way of saying what the month
+      square says - two controls meaning the same thing and free to
+      disagree. The square is the record of the month; this is the
+      achievement in it.
+    */
+    const yesNo = (m.countType === 'DONE');
     let control;
-    if (m.countType === 'DONE') {
-      control = '<label class="obj-fl">Has it been done?</label>' +
-        '<div class="obj-seg" data-obj-status>' +
-          objSeg('DONE', 'Done', status) +
-          objSeg('AT_RISK', 'In progress', status) +
-          objSeg('MISSED', 'Not done', status) +
-        '</div>';
+    if (yesNo) {
+      control = '<label class="obj-fl">This one is done or it is not' +
+          ' <i>press the month beside it</i></label>' +
+        '<p class="obj-np-none">Marking a month green says it happened in ' +
+        'that month. There is no figure to type - the square is the whole ' +
+        'of the answer, and it comes off again if it is pressed twice.</p>';
     } else {
       const unit = m.countType === 'PERCENT' ? '%' : '';
       const short = Math.max(0, m.target - value);
@@ -9834,12 +9891,6 @@
             (short > 0 ? '<br><span class="is-warn">' + short + unit +
               ' more to meet it</span>' : '') +
           '</div>' +
-        '</div>' +
-        '<label class="obj-fl" style="margin-top:22px">Status</label>' +
-        '<div class="obj-seg" data-obj-status>' +
-          objSeg('ON_TRACK', 'On track', status) +
-          objSeg('AT_RISK', 'At risk', status) +
-          objSeg('MISSED', 'Missed', status) +
         '</div>';
     }
 
@@ -9876,12 +9927,15 @@
         '</div>' +
 
         '<div class="obj-up-foot">' +
-          '<span class="obj-up-who" data-obj-say>Saved against ' +
-            escapeHtml(objMonthName(data.period)) +
-            ' &middot; your name and the time are recorded</span>' +
-          '<button class="obj-btn" data-obj-close>Cancel</button>' +
-          '<button class="obj-btn is-primary" data-obj-save="' +
-            escapeHtml(m.id) + '">Save update</button>' +
+          '<span class="obj-up-who" data-obj-say>' + (yesNo
+            ? 'Marked against ' + escapeHtml(objMonthName(data.period)) +
+              ' &middot; your name and the time are recorded'
+            : 'Saved against ' + escapeHtml(objMonthName(data.period)) +
+              ' &middot; your name and the time are recorded') + '</span>' +
+          '<button class="obj-btn" data-obj-close>' +
+            (yesNo ? 'Close' : 'Cancel') + '</button>' +
+          (yesNo ? '' : '<button class="obj-btn is-primary" data-obj-save="' +
+            escapeHtml(m.id) + '">Save update</button>') +
         '</div>' +
 
         objHistory(m) +
@@ -9900,12 +9954,6 @@
   }
 
 
-  function objSeg(value, label, chosen) {
-    return '<button type="button" data-s="' + value + '"' +
-      (chosen === value ? ' class="is-on"' : '') + '>' + label + '</button>';
-  }
-
-
   /**
    * The Updates timeline.
    *
@@ -9914,7 +9962,7 @@
    * what they said about it can be.
    */
   function objHistory(m) {
-    const now = m.status || m.value ? [{
+    const now = m.recorded ? [{
       at: m.at, by: m.by, value: m.value, status: m.status, note: m.note
     }] : [];
     const all = now.concat(m.history || []);
@@ -10535,8 +10583,7 @@
     objSay('Saving...');
 
     callServer('recordObjMilestone', id, OBJ.period, {
-      value: d.value,
-      status: d.status
+      value: d.value
     }).then(function () {
       OBJ.busy = false;
       OBJ.openId = '';
@@ -11162,14 +11209,6 @@
           (m.countType === 'PERCENT' ? 5 : 1));
         OBJ.draft = OBJ.draft || {};
         OBJ.draft.value = m.countType === 'PERCENT' ? Math.min(100, next) : next;
-        renderObjList(OBJ.data);
-        return;
-      }
-
-      const seg = e.target.closest('[data-obj-status] button');
-      if (seg) {
-        OBJ.draft = OBJ.draft || {};
-        OBJ.draft.status = seg.getAttribute('data-s');
         renderObjList(OBJ.data);
         return;
       }
