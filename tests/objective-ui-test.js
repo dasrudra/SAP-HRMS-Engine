@@ -134,6 +134,96 @@ function parseRgb(text) {
   check('and the title on the band is legible against the band',
     ratio(bandInk, bandBg) >= 4.5, ratio(bandInk, bandBg).toFixed(2) + ':1');
 
+  /*
+    AND IT OPENS THERE NEXT TIME, without the address bar being consulted
+    at all. ?last= is the harness's stand-in for what the server
+    remembers; the real one comes down with the bootstrap, which the page
+    is already waiting for, so it costs nothing and is there before the
+    first paint.
+  */
+  {
+    const r = await b.newPage({ viewport: { width: 1200, height: 900 } });
+    const t0 = Date.now();
+    await r.goto(FILE + '?last=objective');
+    await r.waitForSelector('#view-objective:not([hidden])', { timeout: 8000 });
+    const took = Date.now() - t0;
+    check('a reload opens straight on the screen it was left on',
+      await r.isVisible('#view-objective'), took + 'ms');
+    check('and does not show the home page on the way there',
+      await r.evaluate(() => {
+        const h = document.getElementById('view-home');
+        return !h || h.hidden;
+      }));
+    check('and gets there without waiting for the address bar',
+      took < 4000, took + 'ms to the right screen');
+    await r.close();
+  }
+
+  /*
+    A REFUSED MARK GOES BACK, AND SAYS WHY.
+
+    The page only draws a pressable square where the server will accept
+    one, so a refusal in normal use comes from a race - somebody's role
+    changed, the month rolled over. The square has already been painted
+    by then, and leaving it painted over a server that refused it is the
+    worst of the three possible outcomes.
+  */
+  {
+    const r = await b.newPage({ viewport: { width: 1200, height: 900 } });
+    await r.goto(FILE + '?refuse=mtick');
+    await r.waitForTimeout(1400);
+    await r.click('.portal-tab[data-view="objective"]');
+    await r.waitForTimeout(800);
+    await r.click('[data-obj-open="OBJ-002"]');
+    await r.waitForTimeout(500);
+    const cls = () => r.$eval('.obj-days.is-months > *:nth-child(2)',
+      (n) => n.className);
+    const was = await cls();
+    await r.click('.obj-days.is-months > *:nth-child(2)');
+    await r.waitForTimeout(1200);
+    check('a mark the server refuses goes back to the colour it was',
+      (await cls()) === was, was + ' -> ' + (await cls()));
+    check('and the page says why, where it can be seen',
+      await r.isVisible('#objWarn') &&
+      /section heads/.test(await r.$eval('#objWarn', (n) => n.textContent)),
+      await r.$eval('#objWarn', (n) => n.textContent));
+    await r.close();
+  }
+
+  /*
+    AND SOMEBODY WHO MAY NOT RECORD IS NOT OFFERED THE PRESS.
+
+    Reading is open to everybody - a square is red in public and the
+    reason for it should be too - so the square still opens its note on
+    a double-click. It simply has no mark to send.
+  */
+  {
+    const r = await b.newPage({ viewport: { width: 1200, height: 900 } });
+    await r.goto(FILE + '?planner=0');
+    await r.waitForTimeout(1400);
+    await r.click('.portal-tab[data-view="objective"]');
+    await r.waitForTimeout(800);
+    await r.click('[data-obj-open="OBJ-002"]');
+    await r.waitForTimeout(500);
+    const sq = '.obj-days.is-months > *:nth-child(2)';
+    const was = await r.$eval(sq, (n) => n.className);
+    await r.click(sq);
+    await r.waitForTimeout(1000);
+    check('a team member pressing a milestone"s month marks nothing',
+      (await r.$eval(sq, (n) => n.className)) === was &&
+      (await r.evaluate(() => window.__calls.tickObjMilestone || 0)) === 0,
+      was);
+    await r.dblclick(sq);
+    await r.waitForTimeout(500);
+    check('but can still read the note on it',
+      /RCA done for the repeated GI posting failure/.test(
+        await r.$eval('.obj-card.is-open .obj-np', (n) => n.textContent)));
+    check('and is offered no way to change it',
+      !(await r.isVisible('[data-obj-note-edit]')) &&
+      !(await r.isVisible('[data-obj-nbox]')));
+    await r.close();
+  }
+
   // =========================================================================
   // 2. the two-sheet toggle
   // =========================================================================
@@ -160,6 +250,56 @@ function parseRgb(text) {
   await p.waitForTimeout(400);
   check('and back again',
     (await onTab()) === 'plan' && (await cards()) === planCards);
+
+  /*
+    THE FOUR TILES, which were four of the same card.
+
+    A label, a number and a grey bar, differing only in the words - so
+    nothing told you which one was the warning and which the
+    reassurance, and three of the four bars measured against a
+    denominator the card never named. Each one now carries a tone on its
+    rail and its icon, a meter that is segmented where it is comparing
+    two things, and a line saying what the number is out of.
+  */
+  const tiles = () => p.$$eval('#objStats .obj-stat', (ns) => ns.map((n) => ({
+    tone: (/is-(good|behind|waiting|quiet)/.exec(n.className) || [])[1] || '',
+    label: n.querySelector('.obj-stat-l').textContent.trim(),
+    icon: Boolean(n.querySelector('.obj-stat-i svg')),
+    foot: (n.querySelector('.obj-stat-f') || {}).textContent || '',
+    bars: Array.prototype.slice.call(n.querySelectorAll('.obj-stat-b i'))
+      .map((i) => (/is-([gran])\b/.exec(i.className) || [])[1] || '?')
+  })));
+
+  const planTiles = await tiles();
+  check('there are four tiles and each carries a tone of its own',
+    planTiles.length === 4 && planTiles.every((t) => t.tone),
+    planTiles.map((t) => t.label + '=' + t.tone).join(', '));
+  check('each has an icon rather than being four of the same card',
+    planTiles.every((t) => t.icon));
+  check('and a line saying what the number is out of',
+    planTiles.every((t) => t.foot.trim().length > 8),
+    JSON.stringify(planTiles.map((t) => t.foot.trim())));
+
+  await p.click('#objTabTask');
+  await p.waitForTimeout(400);
+  const taskTiles = await tiles();
+  check('the Unique Roles tiles have their own tones too',
+    taskTiles.length === 4 &&
+    taskTiles[0].label === 'On schedule so far' &&
+    taskTiles[1].tone === 'behind',
+    taskTiles.map((t) => t.label + '=' + t.tone).join(', '));
+  /*
+    ONE TRACK, TWO SEGMENTS. "On schedule" is a comparison - the ones
+    that are against the ones that are not - and that comparison belongs
+    in one bar rather than in a green bar on one card and a red bar on
+    another that the eye has to put together.
+  */
+  check('the on-schedule meter draws both halves of its own comparison',
+    taskTiles[0].bars.join(',') === 'g,r', taskTiles[0].bars.join(','));
+  check('and a tile measuring one thing draws one bar',
+    taskTiles[3].bars.length === 1, taskTiles[3].bars.join(','));
+  await p.click('#objTabPlan');
+  await p.waitForTimeout(400);
 
   // =========================================================================
   // 2b. the weight belongs in a filter, not on every card
@@ -246,7 +386,8 @@ function parseRgb(text) {
   const months = () => p.$$eval('.obj-card.is-open .obj-days.is-months > *',
     (ns) => ns.map((n) => ({
       t: n.textContent.trim(),
-      cls: n.className.replace('obj-day is-week', '').trim(),
+      cls: n.className.replace('obj-day is-week', '')
+             .replace('is-reading', '').replace(/\s+/g, ' ').trim(),
       dead: Boolean(n.disabled),
       note: n.classList.contains('has-note')
     })));
@@ -255,9 +396,9 @@ function parseRgb(text) {
     mo.length === 6 && mo[0].t === 'Oct' && mo[5].t === 'Mar',
     mo.map((x) => x.t).join(','));
   check('October was recorded in November, so it is yellow and not green',
-    /is-l/.test(mo[0].cls), mo[0].cls);
+    /\bis-l\b/.test(mo[0].cls), mo[0].cls);
   check('November was recorded inside November, so it is green',
-    /is-y/.test(mo[1].cls), mo[1].cls);
+    /\bis-y\b/.test(mo[1].cls), mo[1].cls);
   check('and the months still to come are blank and cannot be written on',
     mo[3].cls === '' && mo[3].dead === true && mo[5].dead === true,
     JSON.stringify(mo[3]));
@@ -268,11 +409,80 @@ function parseRgb(text) {
     mo[1].note === true && mo[0].note === false,
     JSON.stringify(mo.map((x) => x.note)));
 
+  /*
+    AND THE SQUARE IS PRESSED, NOT JUST READ.
+
+    This was the one part of the two sheets that still worked
+    differently: a milestone's months opened notes and nothing else, so
+    the SMART objective was the sheet you could not tick. A month is its
+    monitoring period and it behaves like a day on the other sheet -
+    press to mark, press again to clear, red on its own once the month
+    has gone, yellow for a mark made after it closed.
+  */
+  const planLog = (period) => p.evaluate((k) => {
+    const r = window.__OBJ_LOG__[k + '|PLAN|OBJ-002'] || {};
+    return { marks: r.marks || '', at: (r.markedAt || {})['0'] ? 1 : 0 };
+  }, period);
+  const month = async (nth) => (await months())[nth - 1];
+
   await p.click('.obj-days.is-months > *:nth-child(2)');
-  await p.waitForTimeout(300);
-  check('clicking a month opens the note kept against it',
-    /RCA done for the repeated GI posting failure/.test(await mpanel()),
-    await mpanel());
+  await p.waitForTimeout(900);
+  check('pressing a marked month clears it, and it is not red in its own ' +
+    'month',
+    !/\bis-[ynl]\b/.test((await month(2)).cls) &&
+    (await planLog('2026-11')).marks === '.',
+    (await month(2)).cls + ' / ' + JSON.stringify(await planLog('2026-11')));
+
+  await p.click('.obj-days.is-months > *:nth-child(2)');
+  await p.waitForTimeout(900);
+  check('and pressing it again marks it green',
+    /\bis-y\b/.test((await month(2)).cls) &&
+    (await planLog('2026-11')).marks === 'Y' &&
+    (await planLog('2026-11')).at === 1,
+    (await month(2)).cls);
+
+  /*
+    A MONTH THAT HAS BEEN AND GONE GOES RED ON ITS OWN. Nobody presses a
+    button that says "we did not do this" - a miss is what an unmarked
+    month that has closed IS.
+  */
+  await p.click('.obj-days.is-months > *:nth-child(1)');
+  await p.waitForTimeout(900);
+  check('clearing a month that has already closed turns it red by itself',
+    /\bis-n\b/.test((await month(1)).cls), (await month(1)).cls);
+  await p.click('.obj-days.is-months > *:nth-child(1)');
+  await p.waitForTimeout(900);
+  check('and marking a closed month is late, so it is yellow',
+    /\bis-l\b/.test((await month(1)).cls), (await month(1)).cls);
+
+  /*
+    THE GUESS IS CORRECTED BY THE ANSWER.
+
+    The page paints the square before it sends, so pressing feels
+    instant - but it can only GUESS green from yellow, because it does
+    not hold the moment the month closed. Marking October now is late,
+    and if the answer were not put back the square would sit green over
+    a server that has recorded it as yellow.
+  */
+  await p.evaluate(() => { window.__slowNext = 1200; });
+  await p.click('.obj-days.is-months > *:nth-child(1)');   // clear October
+  await p.waitForTimeout(1600);
+  await p.evaluate(() => { window.__slowNext = 1200; });
+  await p.click('.obj-days.is-months > *:nth-child(1)');   // and mark it again
+  await p.waitForTimeout(500);
+  check('a month marked after it closed is yellow before the server answers',
+    /\bis-l\b/.test((await month(1)).cls), (await month(1)).cls);
+  await p.waitForTimeout(1400);
+  check('and is still yellow once the answer lands',
+    /\bis-l\b/.test((await month(1)).cls), (await month(1)).cls);
+
+  const stillMarked = await planLog('2026-11');
+  await p.dblclick('.obj-days.is-months > *:nth-child(2)');
+  await p.waitForTimeout(900);
+  check('double-clicking a month opens its note and marks nothing',
+    /RCA done for the repeated GI posting failure/.test(await mpanel()) &&
+    JSON.stringify(await planLog('2026-11')) === JSON.stringify(stillMarked),
+    JSON.stringify(await planLog('2026-11')));
   check('and names the month it belongs to',
     /November 2026/.test(await mpanel()), await mpanel());
 
@@ -281,8 +491,8 @@ function parseRgb(text) {
     the recording form, so the only way to read what was written against
     October was to step the whole page back to October.
   */
-  await p.click('.obj-days.is-months > *:nth-child(1)');
-  await p.waitForTimeout(300);
+  await p.dblclick('.obj-days.is-months > *:nth-child(1)');
+  await p.waitForTimeout(500);
   check('another month opens its own note without leaving this one',
     /October 2026/.test(await mpanel()) &&
     (await p.$eval('#objMonth', (n) => n.textContent)).indexOf('November') !== -1,
@@ -328,20 +538,36 @@ function parseRgb(text) {
   check('it offers the way down to the ninety instead',
     await p.isVisible('#objList .obj-card [data-obj-sheet="task"]'));
 
-  // THE PIPS, on the counted milestone, which is where they are easiest to
-  // get wrong. Nothing has elapsed in February, so nothing in February can
-  // be late, so the ninety score a clean 1 there - and a pip painted from
-  // the score alone would show next February green in November.
+  /*
+    THE PIPS SAY WHAT THE SQUARES SAY.
+
+    They used to be painted from the FRACTION - how much of its target
+    each month met - while the squares inside the open card were painted
+    from whether the month was recorded and when. The same October could
+    be amber on the card and yellow in the panel, meaning two unrelated
+    things, with nothing on screen to say which was which. Achievement is
+    the per cent and the bar right beside them; the pips are monitoring,
+    like every other row of squares on this page.
+
+    This is the counted milestone, which the portal records for itself -
+    so every month up to this one is marked, and the ones after it are
+    blank rather than green. A pip painted from the score alone showed
+    next February green in November, because nothing has elapsed there.
+  */
   const pips = await p.$$eval('#objList .obj-card:first-child .obj-pips i',
     (ns) => ns.map((n) => n.className || '-'));
   check('the six pips run October to March',
     pips.length === 6, pips.length + ' pips');
   check('the month being looked at is marked out, and the ones after it ' +
     'are blank rather than green',
-    pips[1] === 'is-now' && pips.slice(2).every((c) => c === '-'),
+    /\bis-now\b/.test(pips[1]) && pips.slice(2).every((c) => c === '-'),
     pips.join(' | '));
   check('and a month that has been and gone is coloured',
-    pips[0] !== '-' && pips[0] !== 'is-now', pips[0]);
+    /\bis-[ynl]\b/.test(pips[0]), pips[0]);
+  check('and they use the same four colours the squares do',
+    pips.every((c) => c === '-' ||
+      /^(is-[ynl] ?)?(is-now)?$/.test(c.trim())),
+    pips.join(' | '));
 
   await p.click('#objList .obj-card [data-obj-sheet="task"]');
   await p.waitForTimeout(400);
@@ -532,6 +758,27 @@ function parseRgb(text) {
   check('and the square goes back to being a plain miss',
     (await cells())[2].nn === true && (await cells())[2].late === false,
     JSON.stringify((await cells())[2]));
+
+  /*
+    AND THE ANSWER CORRECTS THE GUESS.
+
+    The square is painted before the press is sent, so marking feels
+    instant - but the page can only GUESS green from yellow, because it
+    does not hold the moment each period closed. It reads the most
+    recently closed slot as on time, and the 9th is not: marking it
+    today is catching up. If the server's answer were not put back the
+    square would sit green over a row the server has recorded as late,
+    and nothing on screen would ever say otherwise.
+  */
+  await p.click('.obj-day:nth-child(9)');
+  await p.waitForTimeout(1500);
+  check('a day marked long after it closed settles yellow, not green',
+    (await cells())[8].late === true && (await cells())[8].y === false,
+    JSON.stringify((await cells())[8]));
+  await p.click('.obj-day:nth-child(9)');
+  await p.waitForTimeout(1200);
+  check('and clearing it puts it back to a plain miss',
+    (await cells())[8].nn === true, JSON.stringify((await cells())[8]));
 
   /*
     A GREEN SQUARE CLEARS THE SAME WAY.
@@ -940,8 +1187,8 @@ function parseRgb(text) {
   await p.waitForTimeout(400);
   const octPips = await p.$$eval('#objList .obj-card:first-child .obj-pips i',
     (ns) => ns.map((n) => n.className || '-'));
-  check('from October, November is still a month that has happened',
-    octPips[0] === 'is-now' && octPips[1] !== '-' &&
+  check('from October, November is still a month that has been marked',
+    /\bis-now\b/.test(octPips[0]) && /\bis-[ynl]\b/.test(octPips[1]) &&
     octPips.slice(2).every((c) => c === '-'),
     octPips.join(' | '));
   await p.click('#objTabTask');

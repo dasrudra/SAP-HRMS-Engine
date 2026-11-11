@@ -139,6 +139,14 @@ const OBJ_MISSED  = 'N';
 const OBJ_KIND_PLAN = 'PLAN';
 const OBJ_KIND_TASK = 'TASK';
 
+/*
+  How many past updates the page is given. The row keeps HISTORY_KEPT of
+  them so a correction is never lost; the Updates timeline draws this many,
+  and sending the rest to twenty-nine milestones on every load was several
+  kilobytes an objective that nothing ever read.
+*/
+const OBJ_HISTORY_SHOWN = 8;
+
 
 /**
  * Read once, remember for a few minutes, hand back a copy.
@@ -963,6 +971,45 @@ function objTaskState(task, marks, period, now, markedAt) {
 }
 
 
+/*
+  THE CELLS, SMALL ENOUGH TO SEND.
+
+  objTaskState hands back one object per slot - {slot, state, at} - which
+  is the right shape to work with and the wrong one to put on a wire.
+  Measured: 945 bytes for a single daily objective's twenty-six squares,
+  and there are ninety objectives, so the colours alone were eighty-five
+  kilobytes of a hundred-and-fifty kilobyte answer. Through the Apps
+  Script sandbox bridge, which serialises everything twice, that is a
+  visible part of why this page took seconds to appear.
+
+  One character per slot says the same thing in a thirtieth of the room,
+  and the times go beside it for only the slots that have one - which is
+  what the tooltips need and no more. The page expands it once on arrival
+  and everything downstream of that is unchanged.
+
+  The SERVER still decides every colour. This is a shorter way of saying
+  the same answer, not the page working it out for itself.
+*/
+const OBJ_STATE_CHAR = { done: 'y', late: 'l', missed: 'n', pending: '.' };
+
+function objStateChars(cells) {
+  let out = '';
+  (cells || []).forEach(function (c) {
+    out += OBJ_STATE_CHAR[c.state] || OBJ_PENDING;
+  });
+  return out;
+}
+
+/** Only the slots that carry a time: what "Marked 10 Nov" is drawn from. */
+function objCellTimes(cells) {
+  const out = {};
+  (cells || []).forEach(function (c) {
+    if (c.at) out[String(c.slot)] = c.at;
+  });
+  return out;
+}
+
+
 /**
  * One month of one SMART milestone, in the same four states as a square on
  * the other sheet.
@@ -988,17 +1035,21 @@ function objPlanMonthState(milestone, entry, period, now, counted) {
   }
 
   /*
-    A ROW WITH A FIGURE ON IT IS A MONTH THAT WAS RECORDED, mark or no
-    mark. The mark is written by recordObjMilestone, so every row this page
-    creates has one; a row that somehow has a number and no mark is still
-    evidence that somebody recorded the month, and reading it as a miss
-    would be the page calling a person"s own work absent. With no stamp to
-    go on it reads as on time, because there is nothing to say otherwise.
+    THE MARK IS THE WHOLE ANSWER, and nothing else is consulted.
+
+    An earlier version also read a month as recorded when the row carried
+    a figure, on the grounds that a number is evidence somebody was there.
+    That reading cannot survive the square being pressable: un-ticking a
+    month you had ticked would leave the figure behind, the figure would
+    say "recorded", and the square would refuse to go out. A square that
+    will not clear is worse than one that is occasionally generous.
+
+    So the figure is the achievement and the mark is the monitoring, and
+    they are allowed to disagree - which they should, because "we hit the
+    target" and "somebody checked this month" are different claims.
   */
-  const had = entry && (entry.marks || entry.status ||
-                        (entry.value !== null && entry.value !== undefined));
-  const marks = had ? (entry.marks || OBJ_DONE) : '';
-  const state = objTaskState({ frequency: 'Monthly' }, marks, period, now,
+  const state = objTaskState({ frequency: 'Monthly' },
+                             entry ? entry.marks : '', period, now,
                              entry ? entry.markedAt : null);
   const cell = state.cells[0] || { state: 'pending', at: 0 };
   return { state: cell.state, at: cell.at, auto: false };
@@ -1427,7 +1478,6 @@ function getObjectives(token, period) {
         // month and the pips are the only place that shows the shape of it.
         const months = periods.map(function (p) {
           const e = log.byKey[objLogKey(p, OBJ_KIND_PLAN, m.id)];
-          const ms = objMilestoneScore(m, log, p, { auto: autoAll[p] || {} });
           const st = objPlanMonthState(m, e, p, now,
                                        Boolean((autoAll[p] || {})[m.auto]));
           /*
@@ -1441,9 +1491,6 @@ function getObjectives(token, period) {
           */
           return {
             period: p,
-            recorded: Boolean(e) || Boolean(m.auto && p <= current),
-            fraction: ms.fraction,
-            status: e ? e.status : '',
             state: st.state,
             at: st.at,
             note: (e && e.notes && e.notes['0']) || null
@@ -1451,15 +1498,28 @@ function getObjectives(token, period) {
         });
         return {
           id: m.id, rowId: m.rowId, category: m.category, weight: m.weight,
-          objective: m.objective, milestone: m.milestone, outcome: m.outcome,
+          objective: m.objective, milestone: m.milestone,
           countType: m.countType, target: s.target, per: m.per,
-          owner: m.owner, auto: m.auto,
+          auto: m.auto,
           value: s.value, fraction: s.fraction,
           status: entry ? entry.status : '',
           note: entry ? entry.note : '',
           by: entry ? entry.by : '',
           at: entry ? entry.at : 0,
-          history: entry ? entry.history : [],
+          /*
+            AS MANY AS THE TIMELINE DRAWS, which is eight. The row keeps
+            twenty so a correction is never lost, but the other twelve
+            were being sent for all twenty-nine milestones on every load
+            and shown on none of them.
+          */
+          history: entry
+            ? entry.history.slice(0, OBJ_HISTORY_SHOWN).map(function (h) {
+                // What the timeline prints, and not the marks string it
+                // also keeps - twenty-six characters a line for nobody.
+                return { at: h.at, by: h.by, value: h.value,
+                         status: h.status, note: h.note };
+              })
+            : [],
           months: months
         };
       })
@@ -1472,13 +1532,20 @@ function getObjectives(token, period) {
     const state = objTaskState(t, entry ? entry.marks : '', want, now,
                                entry ? entry.markedAt : null);
     return {
+      /*
+        WHAT THE PAGE DRAWS, and nothing else. Measurement, Remarks and
+        Responsible Person are real columns of the sheet that no part of
+        this screen puts on screen - three hundred bytes an objective,
+        ninety times over, serialised twice on the way out for nobody.
+      */
       id: t.id, category: t.category, name: t.name, group: t.group,
       area: t.area, kpi: t.kpi, description: t.description,
-      target: t.target, method: t.method, frequency: t.frequency,
-      owner: t.owner,
+      target: t.target, frequency: t.frequency,
       marks: state.marks, slots: state.slots, elapsed: state.elapsed,
       done: state.done, missed: state.missed, silent: state.silent,
-      marked: state.marked, late: state.late, cells: state.cells,
+      marked: state.marked, late: state.late,
+      // See objStateChars: the colours, one character each.
+      states: objStateChars(state.cells), times: objCellTimes(state.cells),
       open: state.open, onSchedule: state.onSchedule, due: state.due,
       dueIn: objDueIn(t, want),
       mine: objMayTick(me, t),
@@ -1795,10 +1862,83 @@ function tickObjTask(token, taskId, period, slot, mark) {
     id: task.id,
     marks: state.marks, slots: state.slots, elapsed: state.elapsed,
     done: state.done, missed: state.missed, silent: state.silent,
-    marked: state.marked, late: state.late, cells: state.cells,
+    marked: state.marked, late: state.late,
+    states: objStateChars(state.cells), times: objCellTimes(state.cells),
     open: state.open, onSchedule: state.onSchedule, due: state.due,
     by: me.name, at: new Date().getTime()
   };
+}
+
+
+/**
+ * Marks, or unmarks, one month of one SMART milestone.
+ *
+ * THE SAME PRESS THE NINETY HAVE. A milestone is monitored once a month,
+ * so a month is its square, and pressing it means exactly what pressing a
+ * day means on the other sheet: somebody looked at this, this month. Press
+ * again and the mark comes off. A month that ends unmarked goes red on its
+ * own, and a mark made after the month closed is yellow with the date it
+ * was made - all of that from objTaskState, so the two sheets cannot drift
+ * into meaning different things by the same colour.
+ *
+ * THE FIGURE AND THE MARK ARE DIFFERENT CLAIMS, and this is the call that
+ * makes that true. "We completed two RCAs" is the achievement and is typed;
+ * "somebody reviewed this in November" is the monitoring and is pressed.
+ * Recording a figure also marks the month, because typing it IS reviewing
+ * it - but un-ticking afterwards clears the square and leaves the figure,
+ * which is the only way a square can be taken back at all.
+ *
+ * Section heads, the department head and admins, like recording: these
+ * twenty-nine are what the department is scored on.
+ */
+function tickObjMilestone(token, milestoneId, period, mark) {
+  requireSignedIn(token);
+
+  const me = objWhoAmI(token);
+  if (!me.planner) {
+    throw new Error('Marking the SMART objective is for section heads and ' +
+                    'the department head. You can tick the unique-role ' +
+                    'objectives for your own module.');
+  }
+
+  const periods = objPeriods();
+  const p = String(period || '').trim();
+  if (periods.indexOf(p) === -1) {
+    throw new Error('That month is outside the objective period (' +
+                    CONFIG.OBJECTIVE.PERIOD_LABEL + ').');
+  }
+
+  const plan = objCached('obj.plan', 600, readObjPlan);
+  let milestone = null;
+  plan.plan.forEach(function (m) {
+    if (m.id === String(milestoneId || '').trim()) milestone = m;
+  });
+  if (!milestone) throw new Error('There is no milestone with that id.');
+
+  if (milestone.auto) {
+    throw new Error('That milestone is counted by the portal itself, so ' +
+                    'there is nothing to tick. It moves when the thing it ' +
+                    'counts moves.');
+  }
+
+  const log = readObjLog();
+  const had = log.byKey[objLogKey(p, OBJ_KIND_PLAN, milestone.id)];
+  const marks = (mark === OBJ_DONE) ? OBJ_DONE : OBJ_PENDING;
+
+  // When, as well as whether - it is what tells green from yellow. Clearing
+  // the mark clears the time with it, so marking again is a fresh claim.
+  const markedAt = {};
+  if (marks === OBJ_DONE) markedAt['0'] = new Date().getTime();
+
+  objWriteLog(p, OBJ_KIND_PLAN, milestone.id,
+              { marks: marks, markedAt: markedAt },
+              { name: me.name, id: me.id });
+
+  const state = objPlanMonthState(milestone,
+    { marks: marks, markedAt: markedAt }, p, new Date(), false);
+
+  return { ok: true, id: milestone.id, period: p, marks: marks,
+           state: state.state, at: state.at, by: me.name };
 }
 
 

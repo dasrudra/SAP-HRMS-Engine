@@ -1189,6 +1189,79 @@ function load(opts) {
 }
 
 // ===========================================================================
+// 18c-ii. the answer is small enough to send
+// ===========================================================================
+/*
+  WHAT THIS IS GUARDING, measured rather than assumed.
+
+  Every byte here crosses the Apps Script sandbox bridge, which serialises
+  the whole answer twice. The first version sent one object per slot per
+  objective - {slot, state, at} - which came to 945 bytes for a single
+  daily objective"s twenty-six squares. Ninety objectives of those is
+  eighty-five kilobytes of colour, and the page took seconds to appear.
+
+  A ceiling rather than an exact figure: the point is that somebody adding
+  a field to the row finds out here if it is an expensive one.
+*/
+{
+  const ctx = load();
+  const page = ctx.getObjectives('t');
+  const tasks = page.tasks.list.length;
+  const milestones = page.plan.count;
+
+  const perTask = JSON.stringify(page.tasks).length / tasks;
+  check('a unique-role objective costs a few hundred bytes, not a few ' +
+    'thousand',
+    perTask < 500, Math.round(perTask) + ' bytes each');
+
+  const daily = page.tasks.list.filter((t) => t.slots > 20)[0];
+  check('the colours of a whole month are a string, not an object a slot',
+    typeof daily.states === 'string' && daily.states.length === daily.slots &&
+    daily.cells === undefined,
+    JSON.stringify(daily.states));
+  check('and only the slots that were marked carry a time',
+    Object.keys(daily.times).length === 0, JSON.stringify(daily.times));
+
+  const perMilestone = JSON.stringify(page.plan).length / milestones;
+  check('a milestone costs under a kilobyte, with its six months on it',
+    perMilestone < 1000, Math.round(perMilestone) + ' bytes each');
+
+  /*
+    AND ONLY AS MUCH TIMELINE AS THE TIMELINE DRAWS.
+
+    The row keeps twenty past versions so that a correction is never an
+    erasure. The Updates panel shows eight, and the other twelve were
+    being sent for all twenty-nine milestones on every load and read by
+    nobody - a couple of kilobytes a milestone for a scroll that does
+    not exist.
+  */
+  const deep = load({ session: { u: '20990002', r: 'USER' } });
+  for (let i = 0; i < 14; i++) {
+    deep.__advance(60000);
+    deep.recordObjMilestone('t', 'OBJ-002', '2026-11', { value: i });
+  }
+  const m = deep.getObjectives('t').plan.rows
+    .reduce(function (hit, r) {
+      return hit || r.milestones.filter((x) => x.id === 'OBJ-002')[0];
+    }, null);
+  // Thirteen, not fourteen: the first write had no row to push onto the
+  // timeline, so fourteen records leave thirteen versions behind them.
+  check('thirteen corrections are kept, and eight are sent',
+    JSON.parse(deep.__tabs.OBJ_LOG.rows[1][10]).length === 13 &&
+    m.history.length === 8,
+    'kept ' + JSON.parse(deep.__tabs.OBJ_LOG.rows[1][10]).length +
+      ', sent ' + m.history.length);
+  check('and the marks string is not sent on each of them',
+    m.history.every((h) => h.marks === undefined),
+    JSON.stringify(m.history[0]));
+
+  // The sheet has these columns and no part of this screen draws them.
+  check('columns nothing draws are not sent at all',
+    daily.method === undefined && daily.owner === undefined,
+    JSON.stringify({ m: daily.method, o: daily.owner }));
+}
+
+// ===========================================================================
 // 18d. the month is worked out once, not sixteen thousand times
 // ===========================================================================
 {
@@ -1369,9 +1442,13 @@ function load(opts) {
   // Marking day 4 (slot 3 is the 4th) long after it closed reads as late.
   const page = ctx.getObjectives('t');
   const t7 = page.tasks.list.filter((t) => t.id === 'OJT-007')[0];
+  // One character per slot on the wire - see objStateChars. 'l' is late.
   check('and the page is told which squares are late',
-    t7.cells[5].state === 'late' && t7.cells[3].state === 'missed',
-    'slot 5 ' + t7.cells[5].state + ', slot 3 ' + t7.cells[3].state);
+    t7.states.charAt(5) === 'l' && t7.states.charAt(3) === 'n',
+    t7.states);
+  check('and the time each was marked, for the ones that carry one',
+    t7.times['5'] > 0 && t7.times['3'] === undefined,
+    JSON.stringify(t7.times));
 }
 
 // ===========================================================================
@@ -1433,6 +1510,82 @@ function load(opts) {
   check('in December it is due, and says nothing about a later month',
     dec.slots === 1 && dec.dueIn === '', dec.slots + ' / ' + dec.dueIn);
 }
+
+// ===========================================================================
+// 18h-ii. a milestone's month is a square, and it is pressed
+// ===========================================================================
+/*
+  THE ONE PART OF THE TWO SHEETS THAT STILL WORKED DIFFERENTLY.
+
+  A milestone's months showed a colour and opened a note, and that was
+  all: the SMART objective was the sheet you could not tick. It is
+  monitored once a month, so a month is its square and it answers to the
+  same press a day does on the other sheet.
+*/
+{
+  const head = load({ session: { u: '20990002', r: 'USER' } });
+
+  const r = head.tickObjMilestone('t', 'OBJ-002', '2026-11', 'Y');
+  check('a section head can mark a milestone"s month',
+    r.ok === true && r.state === 'done' && r.at > 0, JSON.stringify(r));
+  check('and it lands on the row as a mark, not as a figure',
+    head.__tabs.OBJ_LOG.rows[1][3] === 'Y' &&
+    head.__tabs.OBJ_LOG.rows[1][4] === '',
+    JSON.stringify(head.__tabs.OBJ_LOG.rows[1].slice(3, 5)));
+
+  const off = head.tickObjMilestone('t', 'OBJ-002', '2026-11', '.');
+  check('pressing it again clears it, and November is not yet a miss',
+    off.state === 'pending' && head.__tabs.OBJ_LOG.rows[1][3] === '.',
+    off.state);
+  check('and the time goes with the mark',
+    JSON.stringify(JSON.parse(head.__tabs.OBJ_LOG.rows[1][11])) === '{}',
+    head.__tabs.OBJ_LOG.rows[1][11]);
+
+  /*
+    A MONTH THAT HAS BEEN AND GONE IS RED WHEN CLEARED and yellow when
+    marked, because marking it now is catching up. Nobody presses a
+    button that says "we did not do this".
+  */
+  const oct = head.tickObjMilestone('t', 'OBJ-002', '2026-10', 'Y');
+  check('marking a month that has already closed is late, so yellow',
+    oct.state === 'late', oct.state);
+  check('and clearing it turns red on its own',
+    head.tickObjMilestone('t', 'OBJ-002', '2026-10', '.').state === 'missed');
+
+  /*
+    THE FIGURE AND THE MARK ARE DIFFERENT CLAIMS. Un-ticking a month has
+    to leave the figure where it is - and the square has to stay out.
+  */
+  head.recordObjMilestone('t', 'OBJ-002', '2026-10', { value: 2 });
+  const cleared = head.tickObjMilestone('t', 'OBJ-002', '2026-10', '.');
+  const row = head.__tabs.OBJ_LOG.rows.filter(function (x) {
+    return String(x[0]) === '2026-10' && x[2] === 'OBJ-002';
+  })[0];
+  check('un-ticking a month leaves its figure alone',
+    Number(row[4]) === 2, JSON.stringify(row[4]));
+  check('and the square stays out rather than being relit by the figure',
+    cleared.state === 'missed', cleared.state);
+
+  let msg = '';
+  const member = load({ session: { u: '20990001', r: 'USER' } });
+  try { member.tickObjMilestone('t', 'OBJ-002', '2026-11', 'Y'); }
+  catch (e) { msg = e.message; }
+  check('a team member cannot mark the SMART objective',
+    /section heads/.test(msg), msg);
+
+  msg = '';
+  try { head.tickObjMilestone('t', 'OBJ-001', '2026-11', 'Y'); }
+  catch (e) { msg = e.message; }
+  check('and a milestone the portal counts for itself has nothing to tick',
+    /counted by the portal/.test(msg), msg);
+
+  msg = '';
+  try { head.tickObjMilestone('t', 'OBJ-002', '2027-09', 'Y'); }
+  catch (e) { msg = e.message; }
+  check('and a month outside the period is refused',
+    /outside the objective period/.test(msg), msg);
+}
+
 
 // ===========================================================================
 // 18i. one note per period
@@ -1623,13 +1776,22 @@ function load(opts) {
     ctx.objPlanMonthState(manual, null, '2026-12', now).state === 'pending');
 
   /*
-    A ROW WITH A FIGURE AND NO MARK still counts as recorded. Nothing
-    writes one - recordObjMilestone always marks - but reading it as a
-    miss would be the page calling somebody"s own work absent.
+    THE MARK IS THE WHOLE ANSWER, and a figure left beside it is not.
+
+    This used to read a row carrying a number as recorded, on the grounds
+    that a number is evidence somebody was there. That cannot survive the
+    square being pressable: un-ticking a month leaves the figure behind,
+    and a square that reads the figure would light itself straight back
+    up. A square that will not clear is worse than one that is generous.
   */
-  check('a figure with no mark beside it is still a month that was recorded',
+  check('a figure left behind by an un-tick does not keep the square lit',
     ctx.objPlanMonthState(manual, { value: 2, marks: '', markedAt: {} },
-                          '2026-10', now).state === 'done');
+                          '2026-10', now).state === 'missed',
+    ctx.objPlanMonthState(manual, { value: 2, marks: '', markedAt: {} },
+                          '2026-10', now).state);
+  check('and in the month in progress it is simply not marked yet',
+    ctx.objPlanMonthState(manual, { value: 2, marks: '.', markedAt: {} },
+                          '2026-11', now).state === 'pending');
 
   /*
     AND THE THREE THE PORTAL COUNTS ITSELF ARE NEVER LATE OR MISSED.

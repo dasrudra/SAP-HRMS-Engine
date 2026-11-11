@@ -47,6 +47,9 @@
     team: null,
 
     view: 'home',
+    // The screen the server remembers this person on, from the bootstrap.
+    // See restoreState - it is what a reload opens on.
+    lastView: '',
     month: null,
     boot: null,
     kpi: null,        // the month on screen, kept so filters redraw without a
@@ -1194,6 +1197,9 @@
   function onBootstrap(boot) {
     state.boot = boot;
     if (boot && boot.role) state.role = boot.role;
+    // Where this person was when they last had the page open. See
+    // restoreState: it is what stops a reload landing on Home.
+    if (boot && boot.lastView) state.lastView = String(boot.lastView);
     hide('loader');
     applyRole();
 
@@ -1623,6 +1629,7 @@
     state.view = name;
     paintBack();
     if (!options.skipSave) saveState();
+    rememberView(name);
 
     if (name === 'kpi1') loadKpi1();
     if (name === 'kpi2') loadKpi2();
@@ -1710,6 +1717,28 @@
     'kpi2Month', 'fModule', 'fZone',
     'cmpKpi', 'cmpM1', 'cmpM2', 'cmpM3', 'cmpM4'
   ];
+
+  /**
+   * Tells the server which screen this is, so a reload comes back to it.
+   *
+   * FIRE AND FORGET, and deliberately not awaited anywhere. The page does
+   * not need the answer and nothing on screen depends on it; the worst a
+   * failure costs is landing on Home after a refresh, which is what
+   * happened before this existed. Sent only when the screen actually
+   * changes, so clicking the tab you are already on costs nothing.
+   */
+  let rememberedView = '';
+  function rememberView(name) {
+    if (!name || name === rememberedView || !AUTH.token) return;
+    if (state.restoring) return;
+    rememberedView = name;
+    try {
+      google.script.run
+        .withFailureHandler(function () { rememberedView = ''; })
+        .rememberView(AUTH.token, name);
+    } catch (e) { rememberedView = ''; }
+  }
+
 
   function saveState() {
     if (state.restoring) return;      // don't overwrite what we're restoring
@@ -1823,44 +1852,83 @@
       done();
     }
 
+    /*
+      THE SCREEN IS DECIDED NOW; THE FILTERS CAN ARRIVE LATE.
+
+      getLocation is the only way to read the address bar from inside the
+      sandbox, and inside the Blogger embed it has been measured at twelve
+      seconds. Waiting for it meant twelve seconds of the Home page before
+      the Objectives page somebody had reloaded appeared - and NOT waiting
+      for it meant sessionStorage, which the sandbox wipes by handing out
+      a fresh origin on each load, so that was Home too.
+
+      So the view comes from the server, which the page is already waiting
+      on, and nothing is held up for the address bar. The address bar is
+      still read and still wins when it names a view, because a shared
+      deep link has to go where it points - it simply arrives when it
+      arrives, and by then it almost always agrees.
+    */
+    const remembered = readStorage() ||
+      (state.lastView ? { view: state.lastView } : null);
+
     try {
       if (window.google && google.script && google.script.url) {
         google.script.url.getLocation(function (location) {
           const p = (location && location.parameter) || {};
 
-          /*
-            THE LATE ANSWER IS STILL AN ANSWER.
-
-            getLocation is the slow part of starting up, and on the Blogger
-            embed it routinely takes longer than the fallback below allows.
-            When that happens the fallback settles on sessionStorage -
-            which is empty, because the Apps Script sandbox hands out a
-            fresh origin on every load - and the view falls back to Home.
-            So somebody who reloaded the Objectives page watched it think
-            for six seconds and then land somewhere else.
-
-            The parameters were correct all along; they simply arrived
-            second. Rather than make everybody wait longer for them, take
-            them when they come.
-          */
           if (settled) {
             if (p.view && p.view !== state.view &&
                 document.getElementById('view-' + p.view)) {
               state.view = p.view;
               showView(p.view, { skipSave: true });
             }
+            // The filters it also carries, which nothing else knows.
+            if (!p.view && (p.month || p.cmpKpi)) applyLateParams(p);
             return;
           }
 
           if (p.view || p.month) return finish(p);
-          finish(readStorage());
+          finish(remembered);
         });
-        setTimeout(function () { finish(readStorage()); }, 1500);
+        /*
+          A SHORT ONE, because there is now something to settle ON.
+
+          This used to wait a second and a half in the hope that
+          getLocation would answer first. It does not have to hope any
+          more: the remembered view is already here, so the only thing
+          the wait buys is a chance of using the URL's filters on the
+          first paint instead of a moment later.
+        */
+        setTimeout(function () { finish(remembered); }, 350);
         return;
       }
     } catch (e) { /* fall through */ }
 
-    finish(readStorage());
+    finish(remembered);
+  }
+
+
+  /**
+   * Filters that arrived after the page had already drawn itself.
+   *
+   * The view is settled from the server now, so a late getLocation has
+   * nothing to say about WHICH screen - but it may still carry the month
+   * and the comparison a link was built around, and dropping those would
+   * make a shared link open the right screen on the wrong data.
+   */
+  function applyLateParams(p) {
+    state.restoring = true;
+    if (p.month) {
+      state.month = p.month;
+      syncMonthPicker(true);
+    }
+    state.compareRan = p.ran === '1';
+    state.pending = p;
+    applyPendingTo(['cmpKpi']);
+    fillComparePeriods(comparePeriodList());
+    applyPendingTo(['cmpM1', 'cmpM2', 'cmpM3', 'cmpM4', 'kpi2Month']);
+    state.restoring = false;
+    if (state.view) showView(state.view, { skipSave: true });
   }
 
 
@@ -9142,6 +9210,7 @@
     // and only the server can work out what it was.
     callServer('getObjectives', period || OBJ.period || '')
       .then(function (data) {
+        ((data.tasks && data.tasks.list) || []).forEach(objExpand);
         OBJ.data = data;
         OBJ.period = data.period;
         renderObj(data);
@@ -9190,41 +9259,118 @@
   }
 
 
+  /*
+    THE FOUR TILES, which have to earn the room they take.
+
+    They were four of the same card: a label, a number and a grey bar,
+    differing only in the words. Nothing told you which one was the
+    warning and which was the reassurance, and three of the four bars
+    were measuring against a denominator the card never named.
+
+    Each one now has a TONE - good, behind, waiting, quiet - carried by
+    its rail, its icon and its meter, so the shape of the month reads
+    before any of the words do. The meter is SEGMENTED where there is
+    more than one thing in it: "on schedule" draws the ones that are and
+    the ones that are not in the same bar, which is the comparison the
+    card is actually making. And each carries a line of context, because
+    a number with no denominator is a number nobody can act on.
+  */
+  function objIcon(name) {
+    const d = {
+      check: 'M20 6 9 17l-5-5',
+      alert: 'M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 ' +
+             '1.7-3L14.7 3.9a2 2 0 0 0-3.4 0z',
+      clock: 'M12 6v6l4 2M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0z',
+      user:  'M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M16 7a4 4 0 1 1-8 0 ' +
+             '4 4 0 0 1 8 0z',
+      star:  'm12 2 3.1 6.3 6.9 1-5 4.9 1.2 6.8-6.2-3.3-6.2 3.3L7 14.2 2 ' +
+             '9.3l6.9-1L12 2z',
+      bolt:  'M13 2 3 14h9l-1 8 10-12h-9l1-8z',
+      target: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 18a6 6 0 1 0 0-12 ' +
+              '6 6 0 0 0 0 12zM12 14a2 2 0 1 0 0-4 2 2 0 0 0 0 4z',
+      pen:   'M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z'
+    };
+    return '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" ' +
+      'stroke="currentColor" stroke-width="2" stroke-linecap="round" ' +
+      'stroke-linejoin="round"><path d="' + (d[name] || d.check) + '"/></svg>';
+  }
+
+
+  /**
+   * One tile.
+   *
+   * `parts` is what goes in the meter: [{pct, tone}], drawn left to right
+   * in one track. One part is a plain bar; two is a comparison.
+   */
+  function objTile(o) {
+    let meter = '';
+    (o.parts || []).forEach(function (part) {
+      if (!(part.pct > 0)) return;
+      meter += '<i class="is-' + part.tone + '" style="width:' +
+        Math.max(1.5, Math.min(100, part.pct)) + '%"></i>';
+    });
+
+    return '<div class="obj-stat is-' + o.tone + '">' +
+      '<div class="obj-stat-h">' +
+        '<span class="obj-stat-l">' + escapeHtml(o.label) + '</span>' +
+        '<span class="obj-stat-i">' + objIcon(o.icon) + '</span>' +
+      '</div>' +
+      '<div class="obj-stat-v">' + o.value +
+        (o.unit ? '<em>' + escapeHtml(o.unit) + '</em>' : '') + '</div>' +
+      '<div class="obj-stat-b">' + meter + '</div>' +
+      '<div class="obj-stat-f">' + o.foot + '</div>' +
+    '</div>';
+  }
+
+
   function renderObjStats(data) {
     const box = document.getElementById('objStats');
     if (!box) return;
-
-    const tile = function (label, value, unit, pct, fill) {
-      return '<div class="obj-stat"><div class="obj-stat-l">' +
-        escapeHtml(label) + '</div><div class="obj-stat-v">' + value +
-        (unit ? '<em>' + unit + '</em>' : '') + '</div>' +
-        '<div class="obj-stat-b"><i class="' + fill + '" style="width:' +
-        Math.max(0, Math.min(100, pct)) + '%"></i></div></div>';
-    };
+    const pc = function (n, of) { return of ? (n / of) * 100 : 0; };
 
     if (OBJ.sheet === 'plan') {
       const rows = data.plan.rows || [];
-      let total = 0, met = 0, needs = 0, auto = 0;
+      let total = 0, met = 0, needs = 0, auto = 0, short = 0;
       rows.forEach(function (r) {
         (r.milestones || []).forEach(function (m) {
           total++;
-          if (m.fraction >= 1) met++;
+          if (m.fraction >= 1) met++; else short++;
           if (m.auto) auto++; else if (!m.status && m.fraction < 1) needs++;
         });
       });
       const score = data.score ? data.score.score : 0;
       const outOf = data.score ? data.score.outOf : 100;
+      const share = pc(score, outOf);
 
       box.innerHTML =
-        tile('Period achievement', score, ' / ' + outOf,
-             outOf ? (score / outOf) * 100 : 0,
-             score / (outOf || 100) >= .7 ? 'obj-fill-g' : 'obj-fill-a') +
-        tile('Milestones on track', met, ' of ' + total,
-             total ? (met / total) * 100 : 0, 'obj-fill-g') +
-        tile('Needs an update', needs, '', total ? (needs / total) * 100 : 0,
-             'obj-fill-a') +
-        tile('Counted automatically', auto, ' of ' + total,
-             total ? (auto / total) * 100 : 0, 'obj-fill-n');
+        objTile({
+          label: 'Period achievement', icon: 'target',
+          tone: share >= 70 ? 'good' : share >= 40 ? 'waiting' : 'behind',
+          value: score, unit: ' / ' + outOf,
+          parts: [{ pct: share, tone: share >= 70 ? 'g' : share >= 40 ? 'a' : 'r' }],
+          foot: 'weighted across ' + rows.length + ' categories'
+        }) +
+        objTile({
+          label: 'Milestones on target', icon: 'check', tone: 'good',
+          value: met, unit: ' of ' + total,
+          parts: [{ pct: pc(met, total), tone: 'g' }],
+          foot: short ? short + ' still short of target' : 'all of them met'
+        }) +
+        objTile({
+          label: 'Needs an update', icon: 'pen',
+          tone: needs ? 'waiting' : 'good',
+          value: needs, unit: '',
+          parts: [{ pct: pc(needs, total), tone: 'a' }],
+          foot: needs
+            ? 'nothing recorded yet for ' + escapeHtml(objMonthShort(data.period))
+            : 'every one recorded this month'
+        }) +
+        objTile({
+          label: 'Counted for you', icon: 'bolt', tone: 'quiet',
+          value: auto, unit: ' of ' + total,
+          parts: [{ pct: pc(auto, total), tone: 'n' }],
+          foot: 'from the ninety, Knowledge and Learnings'
+        });
       return;
     }
 
@@ -9240,17 +9386,46 @@
     const behind = arrived.length - on;
     const waitingOnYou = live.filter(function (t) { return t.due && t.mine; }).length;
     const mine = list.filter(function (t) { return t.mine; }).length;
+    const late = list.reduce(function (n, t) { return n + (t.late || 0); }, 0);
+    const silent = list.reduce(function (n, t) { return n + (t.silent || 0); }, 0);
+    const waiting = live.length - arrived.length;
 
     box.innerHTML =
-      tile('On schedule so far', on, ' of ' + arrived.length,
-           arrived.length ? (on / arrived.length) * 100 : 0, 'obj-fill-g') +
-      tile('Behind', behind, '',
-           arrived.length ? (behind / arrived.length) * 100 : 0, 'obj-fill-r') +
-      tile('Waiting for you', waitingOnYou, '',
-           live.length ? (waitingOnYou / live.length) * 100 : 0, 'obj-fill-a') +
-      tile('Yours to tick', mine, ' of ' + list.length,
-           list.length ? (mine / list.length) * 100 : 0, 'obj-fill-n');
+      objTile({
+        label: 'On schedule so far', icon: 'check',
+        tone: behind ? 'waiting' : 'good',
+        value: on, unit: ' of ' + arrived.length,
+        parts: [{ pct: pc(on, arrived.length), tone: 'g' },
+                { pct: pc(behind, arrived.length), tone: 'r' }],
+        foot: waiting ? waiting + ' not due yet this month'
+                      : 'every one of them has come round'
+      }) +
+      objTile({
+        label: 'Behind', icon: 'alert',
+        tone: behind ? 'behind' : 'good',
+        value: behind, unit: '',
+        parts: [{ pct: pc(behind, arrived.length), tone: 'r' }],
+        foot: silent ? silent + ' period' + (silent === 1 ? '' : 's') +
+                       ' passed unmarked'
+                     : 'nothing has been missed'
+      }) +
+      objTile({
+        label: 'Waiting for you', icon: 'clock',
+        tone: waitingOnYou ? 'waiting' : 'good',
+        value: waitingOnYou, unit: '',
+        parts: [{ pct: pc(waitingOnYou, mine || live.length), tone: 'a' }],
+        foot: waitingOnYou ? 'open one and press the square for today'
+                           : 'nothing of yours is waiting'
+      }) +
+      objTile({
+        label: 'Yours to tick', icon: 'user', tone: 'quiet',
+        value: mine, unit: ' of ' + list.length,
+        parts: [{ pct: pc(mine, list.length), tone: 'n' }],
+        foot: late ? late + ' marked late, and counted'
+                   : 'the rest belong to other modules'
+      });
   }
+
 
 
   function renderObjHead(data) {
@@ -9519,16 +9694,22 @@
    * alone would paint next February green in November.
    */
   function objPips(m, data) {
-    const now = String(data.current || data.period);
+    /*
+      THE SAME SIX COLOURS THE SQUARES USE, and for the same reason.
+
+      The pips used to be painted from the FRACTION - how much of the
+      target each month met - while the squares inside the open card were
+      painted from whether the month was recorded and when. So the same
+      October could be amber on the card and yellow in the panel, meaning
+      two different things, and nothing on screen said which was which.
+      Achievement is already the per cent and the bar beside these. The
+      pips are the monitoring, like every other row of squares on this
+      page.
+    */
     let pips = '', letters = '';
     (m.months || []).forEach(function (mo) {
-      let cls = '';
-      if (mo.period > now) cls = '';                    // not yet
-      else if (mo.period === data.period) cls = 'is-now';
-      else if (mo.fraction >= 1) cls = 'is-g';
-      else if (mo.recorded || mo.fraction > 0) cls = 'is-a';
-      else cls = 'is-r';
-      pips += '<i class="' + cls + '"></i>';
+      pips += '<i class="' + (OBJ_CELL[mo.state] || '') +
+        (mo.period === data.period ? ' is-now' : '') + '"></i>';
       letters += '<span>' + objMonthLetter(mo.period) + '</span>';
     });
     return '<div class="obj-pips">' + pips + '</div>' +
@@ -9567,7 +9748,7 @@
     } else {
       note = 'Nothing recorded for ' + escapeHtml(objMonthName(data.period));
       const behind = (m.months || []).filter(function (mo) {
-        return mo.period <= data.period && !mo.recorded && !m.auto;
+        return mo.state === 'missed' && !m.auto;
       }).length;
       if (behind > 1) {
         note += ' &middot; <span class="is-bad">' + behind +
@@ -9581,7 +9762,18 @@
           ? '<button class="obj-btn is-wide' + (m.status ? '' : ' is-primary') +
             '" data-obj-open="' + escapeHtml(m.id) + '">' +
             (m.status ? 'Update' : 'Record') + '</button>'
-          : '<button class="obj-btn is-wide" disabled>Heads only</button>');
+          /*
+            READING IS NOT RECORDING, and a dead button said otherwise.
+
+            A team member got "Heads only" greyed out, which closed the
+            card entirely - so the six months, their colours and the
+            notes explaining them were visible to section heads alone.
+            The notes exist to remove ambiguity about what was monitored
+            and why; the people the ambiguity is about could not read a
+            single one. They open it and find nothing to press.
+          */
+          : '<button class="obj-btn is-wide" data-obj-open="' +
+            escapeHtml(m.id) + '">Open</button>');
 
     return '<div class="obj-card">' +
       '<div>' +
@@ -9659,8 +9851,8 @@
         '<div>' + control + '</div>' +
         '<div>' +
           '<label class="obj-fl">The six months ' +
-            '<i>recorded, late, or missed &middot; click one for its ' +
-            'note</i></label>' +
+            '<i>press to mark, press again to change your mind &middot; ' +
+            'double-click one for its note</i></label>' +
           objPlanMonths(m, data) +
           (openNote
             ? objNotePanel({
@@ -9749,6 +9941,36 @@
 
 
   // ------------------------------------------------------------------ tasks
+  /*
+    THE COLOURS, EXPANDED ONCE ON ARRIVAL.
+
+    The server sends them as one character per slot and a time for only
+    the slots that have one - see objStateChars. Ninety objectives of
+    twenty-six squares each came to eighty-five kilobytes as objects and
+    come to a few as characters, which on the Apps Script bridge is a
+    visible part of how long this page takes to appear.
+
+    Expanded here, once, into exactly the shape everything downstream
+    already expects, so nothing else had to learn the short form.
+  */
+  const OBJ_STATE_OF = { y: 'done', l: 'late', n: 'missed', '.': 'pending' };
+
+  function objExpand(t) {
+    const chars = String(t.states || '');
+    const times = t.times || {};
+    const cells = [];
+    for (let i = 0; i < chars.length; i++) {
+      cells.push({
+        slot: i,
+        state: OBJ_STATE_OF[chars.charAt(i)] || 'pending',
+        at: Number(times[String(i)]) || 0
+      });
+    }
+    t.cells = cells;
+    return t;
+  }
+
+
   /**
    * The slots of a month, as the server coloured them.
    *
@@ -9969,22 +10191,39 @@
    */
   function objPlanMonths(m, data) {
     const open = objNoteOpenRef('PLAN', m.id);
+    const mine = Boolean(data.me && data.me.planner) && !m.auto;
     let cells = '';
     (m.months || []).forEach(function (mo) {
       const future = mo.period > String(data.current || data.period);
       const has = Boolean(mo.note);
       let title = objMonthName(mo.period);
-      if (mo.state === 'late' && mo.at) title += ' - ' + objMarkedWhen(mo.at);
+      if ((mo.state === 'late' || mo.state === 'done') && mo.at) {
+        title += ' - ' + objMarkedWhen(mo.at);
+      }
+      if (m.auto) title += ' - counted by the portal, nothing to tick';
       if (has) title += ' - has a note';
+      /*
+        STILL PRESSABLE WHEN THERE IS NOTHING TO TICK.
+
+        A counted milestone has no mark to make, and somebody who is not
+        a section head may not make one - but both of them can still read
+        the note, and a disabled button cannot be double-clicked at all.
+        So the square stays live with no mark to send: one click does
+        nothing, two open the note. Only a month that has not come round
+        is dead, because there is nothing yet to say about it.
+      */
       cells += '<button class="obj-day is-week ' +
         (OBJ_CELL[mo.state] || '') +
         (mo.period === data.period ? ' is-now' : '') +
         (has ? ' has-note' : '') +
+        (mine ? '' : ' is-fixed') +
         (open && open.period === mo.period ? ' is-reading' : '') + '"' +
         (future ? ' disabled' : '') +
         ' title="' + escapeHtml(title) + '"' +
-        ' data-obj-mnote="' + escapeHtml(m.id) + '"' +
-        ' data-period="' + escapeHtml(mo.period) + '">' +
+        ' data-obj-tick="' + escapeHtml(m.id) + '"' +
+        ' data-kind="PLAN" data-slot="0"' +
+        ' data-period="' + escapeHtml(mo.period) + '"' +
+        ' data-mark="' + (mine ? objNextMark(mo.state) : '') + '">' +
         objMonthShort(mo.period) + '</button>';
     });
     return '<div class="obj-days is-months">' + cells + '</div>';
@@ -10327,6 +10566,12 @@
   const OBJ_DOUBLE = 400;
 
 
+  /** One square, on either sheet, named so a press can be held for it. */
+  function objHeld(kind, ref, period, slot) {
+    return kind + '|' + ref + '|' + period + '|' + slot;
+  }
+
+
   /**
    * The second click of a double-click: take the mark back, do not send.
    *
@@ -10334,8 +10579,7 @@
    * answer to "was that first click already on its way". Inside the window
    * it always is not.
    */
-  function objUnpress(id, slot) {
-    const held = String(id) + '|' + String(slot);
+  function objUnpress(held) {
     const waiting = OBJ.pending[held];
     if (!waiting) return false;
 
@@ -10343,22 +10587,17 @@
     delete OBJ.pending[held];
 
     /*
-      PUT THE ROW BACK AS IT WAS, rather than working it out again.
+      PUT IT BACK AS IT WAS, rather than working it out again.
 
       objRecount GUESSES green from yellow - it has the marks but not the
       moment each was made, so it reads a square further back than today
       as caught up on. That guess is right for a mark being made and
       wrong for one being taken back: double-clicking a green square to
       read its note left it yellow, because the cancelled press had
-      already wiped the cell the server's own answer was in. So the press
-      keeps the row it is about to change, and cancelling restores it.
+      already wiped the cell the server's own answer was in. So every
+      press keeps what it is about to change, and cancelling restores it.
     */
-    const task = objTaskById(id);
-    if (task && waiting.was) {
-      Object.keys(waiting.was).forEach(function (k) {
-        task[k] = waiting.was[k];
-      });
-    }
+    if (waiting.undo) waiting.undo();
     return true;
   }
 
@@ -10391,7 +10630,7 @@
       happen twice is the same square - an impatient second press sends the
       mark the button was drawn with, which undoes the first.
     */
-    const held = String(id) + '|' + String(slot);
+    const held = objHeld('TASK', id, OBJ.period, slot);
     if (!task || OBJ.sending[held] || OBJ.pending[held]) return;
 
     const before = task.marks;
@@ -10409,12 +10648,108 @@
     }
 
     OBJ.pending[held] = {
-      was: was,
+      undo: function () {
+        const t = objTaskById(id);
+        if (!t) return;
+        Object.keys(was).forEach(function (k) { t[k] = was[k]; });
+      },
       timer: setTimeout(function () {
         delete OBJ.pending[held];
         objTickSend(id, slot, mark, before);
       }, OBJ_DOUBLE)
     };
+  }
+
+
+  /**
+   * The same press, on a SMART milestone's month.
+   *
+   * A milestone is monitored once a month, so a month is its square and it
+   * behaves exactly as a day does on the other sheet: press to mark, press
+   * again to clear, a month that ends unmarked goes red on its own, and a
+   * mark made after the month closed is yellow carrying the date. It was
+   * the one part of the two sheets that still worked differently - the
+   * squares opened notes and nothing else - and there was no good reason
+   * for the SMART objective to be the sheet you cannot tick.
+   *
+   * The figure beside it is a separate claim and is left alone. "We did
+   * two RCAs" and "somebody reviewed this in November" are different
+   * things to say, and only the second one is a square.
+   */
+  function objPlanTick(id, period, mark) {
+    const m = objMilestoneById(id);
+    const held = objHeld('PLAN', id, period, 0);
+    if (!m || OBJ.sending[held] || OBJ.pending[held]) return;
+
+    let mo = null;
+    (m.months || []).forEach(function (x) { if (x.period === period) mo = x; });
+    if (!mo) return;
+
+    const was = { state: mo.state, at: mo.at };
+    const marked = (mark === 'Y');
+    /*
+      GREEN OR YELLOW, GUESSED, until the server says - the same guess the
+      other sheet makes. A month still running is on time; one already
+      closed is being caught up on.
+    */
+    mo.state = marked
+      ? (period < String(OBJ.data.current || period) ? 'late' : 'done')
+      : (period < String(OBJ.data.current || period) ? 'missed' : 'pending');
+    mo.at = marked ? Date.now() : 0;
+    renderObjList(OBJ.data);
+
+    OBJ.pending[held] = {
+      undo: function () { mo.state = was.state; mo.at = was.at; },
+      timer: setTimeout(function () {
+        delete OBJ.pending[held];
+        objPlanTickSend(id, period, mark, was);
+      }, OBJ_DOUBLE)
+    };
+  }
+
+
+  function objPlanTickSend(id, period, mark, was) {
+    const held = objHeld('PLAN', id, period, 0);
+    if (OBJ.sending[held]) return;
+    OBJ.sending[held] = true;
+
+    callServer('tickObjMilestone', id, period, mark)
+      .then(function (fresh) {
+        delete OBJ.sending[held];
+        const m = objMilestoneById(id);
+        if (m && fresh) {
+          (m.months || []).forEach(function (x) {
+            if (x.period !== period) return;
+            x.state = fresh.state;
+            x.at = fresh.at;
+          });
+        }
+        renderObjList(OBJ.data);
+      })
+      .catch(function (err) {
+        delete OBJ.sending[held];
+        const m = objMilestoneById(id);
+        if (m) {
+          (m.months || []).forEach(function (x) {
+            if (x.period !== period) return;
+            x.state = was.state;
+            x.at = was.at;
+          });
+        }
+        renderObjList(OBJ.data);
+        objWarn(String(err && err.message || err));
+        onError(err);
+      });
+  }
+
+
+  /** One of the twenty-nine, by id, out of what is loaded. */
+  function objMilestoneById(id) {
+    let found = null;
+    ((OBJ.data && OBJ.data.plan.rows) || []).forEach(function (r) {
+      (r.milestones || []).forEach(function (m) { if (m.id === id) found = m; });
+    });
+    return found;
   }
 
 
@@ -10432,10 +10767,11 @@
         delete OBJ.sending[held];
         if (fresh && fresh.id) {
           ['marks', 'slots', 'elapsed', 'done', 'missed', 'silent',
-           'marked', 'late', 'cells', 'open', 'onSchedule', 'due',
+           'marked', 'late', 'states', 'times', 'open', 'onSchedule', 'due',
            'by', 'at'].forEach(function (k) {
             if (fresh[k] !== undefined) task[k] = fresh[k];
           });
+          objExpand(task);
         }
         renderObjStats(OBJ.data);
         renderObjList(OBJ.data);
@@ -10834,19 +11170,20 @@
       }
       if (e.target.closest('[data-obj-note-keep]')) { objSaveNote(); return; }
 
-      // A milestone's month square has no mark to toggle, so one click
-      // opens its note. See objPlanMonths.
-      const mnote = e.target.closest('[data-obj-mnote]');
-      if (mnote && !mnote.disabled) {
-        objOpenNote('PLAN', mnote.getAttribute('data-obj-mnote'),
-                    mnote.getAttribute('data-period'), 0);
-        return;
-      }
+      /*
+        ONE SQUARE, ONE HANDLER, BOTH SHEETS.
 
+        A milestone's month and one of the ninety's days are the same
+        thing - the period that objective is monitored over - so they
+        answer to the same press rather than to two sets of rules that
+        could drift apart. Only where the mark is sent differs.
+      */
       const tick = e.target.closest('[data-obj-tick]');
       if (tick && !tick.disabled) {
         const id = tick.getAttribute('data-obj-tick');
         const slot = tick.getAttribute('data-slot');
+        const kind = tick.getAttribute('data-kind') || 'TASK';
+        const period = tick.getAttribute('data-period') || OBJ.period;
         /*
           ONE CLICK MARKS, TWO OPEN THE NOTE.
 
@@ -10859,11 +11196,16 @@
           element underneath being replaced.
         */
         if (e.detail >= 2) {
-          objUnpress(id, slot);
-          objOpenNote('TASK', id, OBJ.period, slot);
+          objUnpress(objHeld(kind, id, period, slot));
+          objOpenNote(kind, id, period, slot);
           return;
         }
-        objTick(id, slot, tick.getAttribute('data-mark'));
+        // No mark to send: a counted milestone, or somebody who may read
+        // the notes but not record against them. The square still opens.
+        const mark = tick.getAttribute('data-mark');
+        if (!mark) return;
+        if (kind === 'PLAN') objPlanTick(id, period, mark);
+        else objTick(id, slot, mark);
       }
     });
 

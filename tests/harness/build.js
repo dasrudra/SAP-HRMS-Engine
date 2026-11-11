@@ -304,13 +304,27 @@ const stub = `
     if (m.auto) {
       return { state: period > OBJ_NOW ? 'pending' : 'done', at: 0 };
     }
-    if (!entry || !(entry.marks || entry.status ||
-                    (entry.value !== null && entry.value !== undefined))) {
+    // THE MARK IS THE WHOLE ANSWER. A figure left behind by an un-tick
+    // must not keep the square lit - see objPlanMonthState on the server.
+    if (!entry || entry.marks !== 'Y') {
       return { state: period < OBJ_NOW ? 'missed' : 'pending', at: 0 };
     }
     var at = Number((entry.markedAt || {})['0']) || 0;
     var late = at > 0 && at > objSlotEnd(period, 'Monthly', 0);
     return { state: late ? 'late' : 'done', at: at };
+  }
+
+  /* One character per slot, as the server sends them. See objStateChars. */
+  var OBJ_STATE_CHAR = { done: 'y', late: 'l', missed: 'n', pending: '.' };
+  function objStateChars(cells) {
+    var out = '';
+    (cells || []).forEach(function (c) { out += OBJ_STATE_CHAR[c.state] || '.'; });
+    return out;
+  }
+  function objCellTimes(cells) {
+    var out = {};
+    (cells || []).forEach(function (c) { if (c.at) out[String(c.slot)] = c.at; });
+    return out;
   }
 
   function objCells(t, period, marks, elapsed, when) {
@@ -829,6 +843,9 @@ const stub = `
         appName: ${jsonA(CONFIG.APP_NAME)},
         appVersion: ${jsonA(CONFIG.APP_VERSION)},
         role: ROLE, username: '20000000', mode: 'EXEC',
+        // The screen the server remembers. ?last=objective sets it, which
+        // is how a test reproduces a reload landing back where it was.
+        lastView: new URLSearchParams(location.search).get('last') || '',
         departments: ${jsonA(CONFIG.DEPARTMENTS)},
         kpiList: ${jsonA(CONFIG.KPI_ORDER.map((k) => CONFIG.KPI[k]))},
         // ?nopolicy=1 empties the approved policy's address, which is what
@@ -1448,11 +1465,11 @@ const stub = `
             var missed = objCount(marks, 'N', elapsed);
             var st = objCells(t, want, marks, elapsed, e ? e.markedAt : null);
             return {
-              cells: st.cells, late: st.late, dueIn: objDueIn(t, want),
+              states: objStateChars(st.cells), times: objCellTimes(st.cells),
+              late: st.late, dueIn: objDueIn(t, want),
               id: t.id, category: t.category, name: t.name, group: t.group,
               area: t.area, kpi: t.kpi, description: t.description,
-              target: t.target, method: t.method, frequency: t.frequency,
-              owner: 'SAP Support Team',
+              target: t.target, frequency: t.frequency,
               marks: marks, slots: slots, elapsed: elapsed,
               done: done, missed: missed,
               silent: Math.max(0, elapsed - done - missed),
@@ -1476,7 +1493,12 @@ const stub = `
         score: { period: want, score: Math.round(score * 10) / 10,
                  outOf: 100, rows: [] },
         me: { id: '20000000', name: 'Utpal Biswas', admin: true,
-              planner: true, groups: ['SD', 'MM'], all: true, reason: '' }
+              // ?planner=0 is somebody who may read the SMART objective
+              // and not record against it - a team member rather than a
+              // section head. The squares still open their notes.
+              planner: new URLSearchParams(location.search)
+                .get('planner') !== '0',
+              groups: ['SD', 'MM'], all: true, reason: '' }
       };
     },
 
@@ -1557,7 +1579,8 @@ const stub = `
       var missed = objCount(marks, 'N', elapsed);
       var st = objCells(t, period, marks, elapsed, when);
       return {
-        cells: st.cells, late: st.late,
+        states: objStateChars(st.cells), times: objCellTimes(st.cells),
+        late: st.late,
         ok: true, id: t.id, marks: marks, slots: slots, elapsed: elapsed,
         done: done, missed: missed,
         silent: Math.max(0, elapsed - done - missed),
@@ -1568,6 +1591,51 @@ const stub = `
              marks.charAt(objOpen(period, t.frequency) - 1) === '.',
         by: 'Utpal Biswas', at: Date.now()
       };
+    },
+
+    /*
+      A MILESTONE'S MONTH IS A SQUARE, pressed like a day on the other
+      sheet. ?refuse=mtick makes every press fail, which is the path
+      where the square has to go back and say why.
+    */
+    /*
+      WHICH SCREEN SOMEBODY WAS LAST ON. Fire and forget on the page, so
+      the stub only has to exist and remember - a test reads it back to
+      check the page tells the server where it is.
+    */
+    rememberView: function (token, view) {
+      window.__LAST_VIEW__ = String(view || '');
+      return { ok: true };
+    },
+
+    tickObjMilestone: function (token, id, period, mark) {
+      if ((new URLSearchParams(location.search).get('refuse') || '')
+            .split(',').indexOf('mtick') !== -1) {
+        throw new Error('Marking the SMART objective is for section heads ' +
+                        'and the department head.');
+      }
+      var found = null;
+      OBJ_PLAN.forEach(function (r) {
+        r.milestones.forEach(function (m) { if (m.id === id) found = m; });
+      });
+      if (!found) throw new Error('There is no milestone with that id.');
+      if (found.auto) {
+        throw new Error('That milestone is counted by the portal itself, ' +
+                        'so there is nothing to tick.');
+      }
+      var key = period + '|PLAN|' + id;
+      var had = OBJ_LOG[key] || { notes: {} };
+      var marks = (mark === 'Y') ? 'Y' : '.';
+      var when = {};
+      if (marks === 'Y') when['0'] = Date.now();
+      had.marks = marks;
+      had.markedAt = when;
+      had.by = 'Utpal Biswas';
+      had.at = Date.now();
+      OBJ_LOG[key] = had;
+      var st = objPlanMonth(found, had, period);
+      return { ok: true, id: id, period: period, marks: marks,
+               state: st.state, at: st.at, by: 'Utpal Biswas' };
     },
 
     /*

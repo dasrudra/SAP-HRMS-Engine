@@ -112,6 +112,62 @@ function safeBackupHealth() {
 }
 
 
+/*
+  WHICH SCREEN SOMEBODY WAS LAST ON.
+
+  Kept in the script cache rather than a tab: it is a convenience, it is
+  worth nothing to anybody else, and a tab write on every tab click would
+  be a spreadsheet edit per navigation. Six hours is longer than a working
+  day is long in one sitting; after that a reload opens on Home, which is
+  where somebody coming back the next morning would want to be anyway.
+
+  Keyed by the portal username, not by the Apps Script user - the web app
+  runs as its owner, so every visitor is the same Google account.
+*/
+const VIEW_MEMORY_SECONDS = 6 * 3600;
+
+function viewMemoryKey(username) {
+  return 'view.' + String(username || '').trim().toLowerCase();
+}
+
+
+/** The screen this person was last on, or '' if nothing is remembered. */
+function lastViewOf(username) {
+  if (!username) return '';
+  try {
+    return CacheService.getScriptCache().get(viewMemoryKey(username)) || '';
+  } catch (e) {
+    return '';            // no cache is not a reason to fail the bootstrap
+  }
+}
+
+
+/**
+ * Remembers the screen somebody is on, so a reload goes back to it.
+ *
+ * Fire and forget: the page does not wait for this and does not care
+ * whether it worked. The worst a failure costs is landing on Home after a
+ * refresh, which is what happened before this existed.
+ */
+function rememberView(token, view) {
+  const session = currentSession(token);
+  if (!session) return { ok: false };
+
+  const name = String(view || '').trim().toLowerCase();
+  // A short, known-shaped name. This goes nowhere near a query or a page,
+  // but a cache key built from unchecked input is a habit worth not having.
+  if (!/^[a-z0-9-]{1,32}$/.test(name)) return { ok: false };
+
+  try {
+    CacheService.getScriptCache()
+      .put(viewMemoryKey(session.u), name, VIEW_MEMORY_SECONDS);
+  } catch (e) {
+    return { ok: false };
+  }
+  return { ok: true };
+}
+
+
 /**
  * Everything the page needs on first load, in ONE server call.
  *
@@ -172,6 +228,25 @@ function getBootstrap(token) {
     // from here rather than repeating them, so a figure printed on the toggle
     // cannot disagree with the figure the server scored against.
     kpi1Standards: [CONFIG.KPI.RESOLUTION, CONFIG.KPI.RESOLUTION_EAS],
+
+    /*
+      THE SCREEN THIS PERSON WAS LAST ON, so a reload goes back to it.
+
+      It used to come from google.script.url.getLocation, which is the
+      only thing on this page that can read the address bar from inside
+      the sandbox - and inside the Blogger embed that call took twelve
+      seconds to answer. The page cannot wait that long to decide what to
+      draw, so it drew Home, and twelve seconds later jumped to wherever
+      you had actually been. Reloading the Objectives page meant watching
+      the home page for the better part of a quarter of a minute.
+
+      This arrives with the bootstrap, which the page is already waiting
+      for, so it costs nothing and is there before the first paint. The
+      address bar is still read, and still wins when it carries a view -
+      a shared deep link has to go where it points - it just no longer
+      holds up the first screen.
+    */
+    lastView: lastViewOf(session.username),
 
     // For the count beside the New logins switch on the Accounts screen.
     teamSize: CONFIG.TEAM_SIZE,

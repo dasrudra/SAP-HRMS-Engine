@@ -297,6 +297,98 @@ check('every function the page calls is defined somewhere in it',
   neverWritten.length ? 'never defined: ' + neverWritten.join(', ')
                       : defined.size + ' functions, all of them real');
 
+/*
+  AND EVERY SERVER FUNCTION IT ASKS FOR EXISTS ON THE SERVER.
+
+  The two halves of this app are in different files and nothing links
+  them: a call goes out as a STRING, through google.script.run, and a
+  name that is spelt wrong fails at the moment somebody presses the
+  button - silently, in a failure handler, with the square going back to
+  what it was and a message that says the server refused. Which is
+  exactly what a real refusal looks like.
+*/
+{
+  const serverFiles = fs.readdirSync(SRC).filter((f) => /\.gs$/.test(f));
+  const onServer = new Set();
+  serverFiles.forEach(function (f) {
+    const text = fs.readFileSync(path.join(SRC, f), 'utf8');
+    let hit;
+    const re = /^function\s+([A-Za-z_$][\w$]*)\s*\(/gm;
+    while ((hit = re.exec(text)) !== null) onServer.add(hit[1]);
+  });
+
+  const asked = new Set();
+  let call;
+  const callRe = /callServer\(\s*'([A-Za-z_$][\w$]*)'/g;
+  while ((call = callRe.exec(APP_JS)) !== null) asked.add(call[1]);
+  /*
+    The handler chain sits between google.script.run and the endpoint, so
+    the endpoint is not the FIRST name after it - it is whichever name in
+    the chain is not a handler. Taking the first one found nothing but
+    withFailureHandler, and a misspelt endpoint three lines below it went
+    straight past this check.
+  */
+  const NOT_AN_ENDPOINT =
+    /^(with(Success|Failure)Handler|then|catch|finally|bind|call|apply)$/;
+  /*
+    WALK THE CHAIN, balancing the brackets.
+
+    The endpoint is not the first name after google.script.run - the
+    handlers come first, and their arguments are whole functions with
+    their own brackets and semicolons in them. Reading forward to the
+    first name, or to the first semicolon, found withFailureHandler and
+    then whatever happened to be inside it, so a misspelt endpoint three
+    lines below went straight past. This steps along the chain properly:
+    name, skip its arguments, name, until one is not a handler.
+  */
+  const chainEndpoint = function (text, from) {
+    let k = from;
+    for (;;) {
+      while (k < text.length && /\s/.test(text.charAt(k))) k++;
+      if (text.charAt(k) !== '.') return '';
+      k++;
+      const start = k;
+      while (k < text.length && /[\w$]/.test(text.charAt(k))) k++;
+      const name = text.slice(start, k);
+      while (k < text.length && /\s/.test(text.charAt(k))) k++;
+      if (text.charAt(k) !== '(') return '';
+      if (!NOT_AN_ENDPOINT.test(name)) return name;
+      let depth = 0;
+      for (; k < text.length; k++) {
+        if (text.charAt(k) === '(') depth++;
+        else if (text.charAt(k) === ')') { depth--; if (!depth) { k++; break; } }
+      }
+    }
+  };
+
+  let at = APP_JS.indexOf('google.script.run');
+  while (at !== -1) {
+    const name = chainEndpoint(APP_JS, at + 'google.script.run'.length);
+    if (name) asked.add(name);
+    at = APP_JS.indexOf('google.script.run', at + 1);
+  }
+
+  const missing = Array.from(asked).filter((n) => !onServer.has(n)).sort();
+  check('every server function the page calls is defined in a .gs file',
+    missing.length === 0,
+    missing.length ? 'no such function: ' + missing.join(', ')
+                   : asked.size + ' endpoints, all of them real');
+}
+
+/*
+  THE SCREEN SOMEBODY WAS LAST ON travels from one file to the other, and
+  neither end can see the other. It used to be read from the address bar
+  through getLocation, which inside the Blogger embed took twelve seconds
+  - long enough that the page gave up, drew Home, and corrected itself
+  afterwards. The fix is only a fix if both halves are wired up.
+*/
+check('the bootstrap carries the screen this person was last on',
+  /lastView:\s*lastViewOf\(/.test(CODE_GS) &&
+  /function lastViewOf/.test(CODE_GS) && /function rememberView/.test(CODE_GS));
+check('and the page restores from it rather than waiting for the address bar',
+  /boot\.lastView/.test(APP) && /state\.lastView\s*\?/.test(APP) &&
+  /rememberView\(name\)/.test(APP));
+
 
 // ---------------------------------------------------------------------------
 // nothing restores a button to the label it was given while working
