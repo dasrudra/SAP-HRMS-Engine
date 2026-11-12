@@ -4340,4 +4340,449 @@
     .obj-filters { margin-left: 0; width: 100%; }
   }
 
+
+  /* =======================================================================
+     MEETING MINUTES
+     =======================================================================
+
+     THE SECOND LIGHT PAGE, and for the same reason Objectives is the first:
+     somebody is on this for half an hour at a time filling in cells, and a
+     working surface wants paper under it rather than navy.
+
+     It borrows the Objectives band deliberately. Two screens that the team
+     WRITES to, sitting next to each other in the navigation, should look
+     like two screens of one thing - and inventing a second band colour for
+     the second working page is how a portal starts looking assembled.
+
+     BELOW THE BAR IT IS NOT OURS. Everything inside .mn-slide is the
+     section's own deck - its colours, its table shapes, its fonts - and
+     almost none of it is themed from here. The four sections each kept a
+     layout their people read at speed, and a house style imposed over the
+     top would cost four teams their habits to gain a consistent-looking
+     screenshot. What this file styles is the room around the slide.
+  */
+  #view-minutes {
+    --mn-ink: #101828;
+    --mn-mid: #475467;
+    --mn-dim: #667085;
+    --mn-faint: #98a2b3;
+    --mn-line: #eaecf0;
+    --mn-line-2: #d0d5dd;
+    --mn-paper: #fff;
+
+    --mn-band-1: #272465;
+    --mn-band-2: #3b33b4;
+    --mn-band-3: #4f46e5;
+    --mn-accent: #4338ca;
+
+    display: block;
+    min-height: 100%;
+    /* Opaque: .portal-sky is behind every view, and a transparent page
+       shows navy through it. Same as Objectives. */
+    background:
+      radial-gradient(1100px 520px at 88% 12%,
+        #eef1fc 0%, rgba(238, 241, 252, 0) 62%),
+      radial-gradient(820px 460px at 4% 96%,
+        #e9f5f1 0%, rgba(233, 245, 241, 0) 60%),
+      #f7f8fb;
+    color: var(--mn-ink);
+  }
+
+  .portal[data-page="minutes"] .portal-sky { height: 100%; border-radius: 0; }
+
+  /* ---------------- the band ---------------- */
+  .mn-band {
+    position: relative; overflow: hidden;
+    padding: 26px 0 28px;
+    background:
+      radial-gradient(880px 320px at 86% -45%,
+        rgba(129, 140, 248, .60) 0%, rgba(129, 140, 248, 0) 72%),
+      radial-gradient(720px 300px at 8% 140%,
+        rgba(34, 211, 238, .30) 0%, rgba(34, 211, 238, 0) 70%),
+      linear-gradient(118deg, var(--mn-band-1) 0%,
+        var(--mn-band-2) 52%, var(--mn-band-3) 100%);
+    box-shadow: 0 14px 34px -22px rgba(49, 46, 129, .9);
+  }
+  .mn-band::after {
+    content: ''; position: absolute; left: 0; right: 0; bottom: 0;
+    height: 1px; background: rgba(255, 255, 255, .16);
+  }
+  .mn-band-in {
+    position: relative; z-index: 1;
+    max-width: 1500px; margin: 0 auto; padding: 0 28px;
+    display: flex; align-items: flex-start; gap: 20px; flex-wrap: wrap;
+  }
+  .mn-h1 {
+    margin: 0; font-size: 25px; font-weight: 660; letter-spacing: -.5px;
+    color: #fff;
+  }
+  .mn-sub {
+    margin: 5px 0 0; font-size: 13.2px; color: rgba(255, 255, 255, .70);
+  }
+
+  /* ---------------- the four-section toggle ---------------- */
+  .mn-toggle {
+    margin-left: auto;
+    display: inline-flex; padding: 4px; border-radius: 12px;
+    background: rgba(255, 255, 255, .13);
+    border: 1px solid rgba(255, 255, 255, .22);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .12);
+    flex-wrap: wrap;
+  }
+  .mn-tab {
+    font: inherit; font-size: 13px; font-weight: 580; cursor: pointer;
+    padding: 9px 15px; border-radius: 9px; border: 0; background: none;
+    color: rgba(255, 255, 255, .76);
+    display: flex; align-items: center; gap: 7px; white-space: nowrap;
+    transition: background .14s, color .14s;
+  }
+  .mn-tab:hover { color: #fff; background: rgba(255, 255, 255, .10); }
+  .mn-tab.is-on {
+    background: #fff; color: #1b1a4d;
+    box-shadow: 0 1px 3px rgba(16, 24, 40, .18);
+  }
+  .mn-tab u {
+    text-decoration: none; font-size: 11px; font-weight: 700;
+    padding: 1px 7px; border-radius: 20px;
+    background: rgba(255, 255, 255, .17); color: inherit;
+  }
+  .mn-tab.is-on u { background: #eef1fc; color: #3b33b4; }
+  /*
+    The same four accents the EAS Team page gives the four sections, so a
+    section is one colour across the portal rather than one per page.
+  */
+  .mn-tab[data-accent="0"].is-on { box-shadow: inset 0 0 0 2px #4cc9f0; }
+  .mn-tab[data-accent="1"].is-on { box-shadow: inset 0 0 0 2px #5b9cf8; }
+  .mn-tab[data-accent="2"].is-on { box-shadow: inset 0 0 0 2px #7b86f0; }
+  .mn-tab[data-accent="3"].is-on { box-shadow: inset 0 0 0 2px #9d7bef; }
+
+  /* ---------------- the body ---------------- */
+  .mn-body { max-width: 1500px; margin: 0 auto; padding: 20px 28px 54px; }
+
+  .mn-warn {
+    margin: 0 0 14px; padding: 10px 14px; border-radius: 10px;
+    font-size: 13px; font-weight: 520;
+    background: #eef4ff; border: 1px solid #c7d7fe; color: #2b4a9b;
+  }
+  .mn-warn.is-bad {
+    background: #fef3f2; border-color: #fecdca; color: #b42318;
+  }
+
+  .mn-desk { display: grid; grid-template-columns: 252px minmax(0, 1fr);
+             gap: 18px; align-items: start; }
+
+  /* ---------------- the list of meetings ---------------- */
+  .mn-side-head {
+    margin: 0 0 9px; font-size: 11px; font-weight: 700; letter-spacing: .8px;
+    text-transform: uppercase; color: var(--mn-faint);
+  }
+  .mn-list { display: flex; flex-direction: column; gap: 6px; }
+  .mn-mtg {
+    font: inherit; text-align: left; cursor: pointer; width: 100%;
+    padding: 9px 11px; border-radius: 10px;
+    border: 1px solid var(--mn-line); background: var(--mn-paper);
+    display: block; position: relative;
+    transition: border-color .14s, background .14s;
+  }
+  .mn-mtg:hover { border-color: #b2ccff; background: #fbfcff; }
+  .mn-mtg.is-on { border-color: var(--mn-accent); background: #f4f3ff; }
+  .mn-mtg b { display: block; font-size: 13.2px; font-weight: 620;
+              color: var(--mn-ink); }
+  .mn-mtg i { font-style: normal; font-size: 11.4px; color: var(--mn-dim);
+              display: block; margin-top: 1px; }
+  .mn-tag {
+    float: right; font-size: 9.5px; font-weight: 800; letter-spacing: .5px;
+    padding: 2px 7px; border-radius: 20px; margin-left: 6px;
+  }
+  .mn-tag.is-d { background: #fef0c7; color: #93370d; }
+  .mn-tag.is-f { background: #d1fadf; color: #05603a; }
+
+  .mn-new {
+    font: inherit; font-size: 12.6px; font-weight: 600; cursor: pointer;
+    width: 100%; margin-top: 10px; padding: 9px 10px; border-radius: 10px;
+    border: 1px dashed #b2ccff; background: #f4f7ff; color: #2b5fc4;
+  }
+  .mn-new:hover { background: #eaf1ff; border-color: #8fb6ff; }
+  .mn-none, .mn-side-note {
+    margin: 8px 2px 0; font-size: 12px; line-height: 1.5;
+    color: var(--mn-dim);
+  }
+
+  /* ---------------- the bar above the slide ---------------- */
+  .mn-bar {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    margin-bottom: 12px;
+  }
+  .mn-when { display: flex; gap: 8px; }
+  .mn-when label { display: flex; align-items: center; gap: 6px; }
+  .mn-when span {
+    font-size: 11px; font-weight: 700; letter-spacing: .6px;
+    text-transform: uppercase; color: var(--mn-faint);
+  }
+  .mn-when input {
+    font: inherit; font-size: 12.8px; color: var(--mn-ink);
+    padding: 6px 9px; border-radius: 8px;
+    border: 1px solid var(--mn-line-2); background: var(--mn-paper);
+  }
+  .mn-when input:disabled { background: #f6f7f9; color: var(--mn-dim); }
+  .mn-acts { display: flex; gap: 7px; margin-left: auto; }
+  .mn-btn {
+    font: inherit; font-size: 12.6px; font-weight: 600; cursor: pointer;
+    padding: 7px 14px; border-radius: 8px;
+    border: 1px solid var(--mn-line-2); background: var(--mn-paper);
+    color: #344054;
+  }
+  .mn-btn:hover { background: #f6f7f9; }
+  .mn-btn.is-primary {
+    background: var(--mn-accent); border-color: var(--mn-accent); color: #fff;
+  }
+  .mn-btn.is-primary:hover { background: #3730a3; }
+  /*
+    SAVE LOOKS DIFFERENT WHEN THERE IS SOMETHING TO SAVE. A page whose Save
+    button looks identical whether or not anything has been typed is a page
+    people press Save on twice to be sure, and leave without pressing when
+    they are in a hurry.
+  */
+  .mn-btn.is-wanted { box-shadow: 0 0 0 3px rgba(67, 56, 202, .22); }
+  .mn-btn.is-warn { color: #b42318; border-color: #fecdca; }
+  .mn-btn.is-warn:hover { background: #fef3f2; }
+  .mn-said { width: 100%; font-size: 11.4px; color: var(--mn-faint); }
+
+  /* ---------------- the slide, and the room it sits in ---------------- */
+  .mn-frame {
+    position: relative; overflow: hidden;
+    border: 1px solid #d7dce3; border-radius: 10px; background: #fff;
+    box-shadow: 0 10px 28px rgba(16, 24, 40, .10);
+  }
+  /*
+    The canvas is a fixed 1280x720 and the TRANSFORM is what makes it fit.
+    transform-origin at the top left so the scaled box starts in the corner
+    of the frame rather than being centred on its own middle, which left it
+    hanging off two edges at anything but 1:1.
+  */
+  .mn-stage { width: 1280px; height: 720px; transform-origin: 0 0; }
+
+  .mn-wait, .mn-empty {
+    padding: 48px 28px; text-align: center; color: var(--mn-dim);
+    font-size: 13.4px;
+  }
+  .mn-empty strong { display: block; font-size: 15px; color: var(--mn-ink);
+                     margin-bottom: 5px; }
+  .mn-empty span { display: block; max-width: 420px; margin: 0 auto;
+                   line-height: 1.55; }
+
+  /* =======================================================================
+     INSIDE THE SLIDE - the section's own deck
+
+     Sizes here are in the canvas's own 1280x720 pixels and are never
+     responsive. The whole point of the canvas is that the slide is the same
+     shape on a laptop, on a projector and in the exported deck; a rule that
+     reflowed at some width would break exactly that.
+     ======================================================================= */
+  .mn-slide {
+    width: 100%; height: 100%; background: #fff; overflow: hidden;
+    display: flex; flex-direction: column;
+    font-family: Calibri, Carlito, "Segoe UI", system-ui, sans-serif;
+    color: #1d1d1b;
+  }
+
+  /* ---- the title block ---- */
+  .mn-band-slide { flex: none; padding: 14px 24px; text-align: center; }
+  .mn-band-slide.is-inset { margin: 10px 14px 0; border: 1px solid #000; }
+  .mn-band-slide.is-bleed { margin: 0; }
+  .mn-band-slide h1 {
+    margin: 0; font-size: 27px; font-weight: 700; line-height: 1.15;
+  }
+  .mn-band-slide p { margin: 3px 0 0; font-size: 17px; line-height: 1.25; }
+  .mn-band-slide p.is-purpose { font-style: italic; font-weight: 600; }
+  .mn-band-slide p.is-when { font-weight: 600; }
+  .mn-band-slide p.is-atts { font-size: 14px; }
+  .mn-band-slide.is-plain { background: #fff; }
+  .mn-band-slide.is-plain h1 { font-size: 19px; letter-spacing: .2px; }
+  .mn-band-slide.is-plain p { font-size: 16px; }
+
+  /* ---- the body ---- */
+  .mn-cols { flex: 1 1 auto; display: flex; gap: 10px;
+             padding: 8px 14px 6px; min-height: 0; }
+  .mn-col { flex: 1 1 50%; min-width: 0; display: flex;
+            flex-direction: column; gap: 9px; }
+  .mn-col.is-panel { border: 3px solid #104862; padding: 8px 9px 10px; }
+  .mn-wide { flex: none; padding: 0 14px 6px; }
+  .mn-flow { flex: 1 1 auto; display: flex; flex-direction: column; gap: 9px;
+             padding: 8px 14px 10px; min-height: 0; }
+  .mn-flow.is-bleed { padding: 0; }
+  .mn-flow.is-bleed .mn-block,
+  .mn-flow.is-bleed .mn-tblwrap,
+  .mn-flow.is-bleed table.mn-tbl { height: 100%; }
+
+  .mn-scahead { flex: none; }
+  .mn-scatitle, .mn-scaatts { border: 1px solid #104862; padding: 5px 8px; }
+  .mn-scatitle { text-align: center; }
+  .mn-scatitle b { display: block; font-size: 16px; font-weight: 700; }
+  /*
+    THE CHILD COMBINATOR MATTERS. The editable host field is a span INSIDE
+    one of these lines, and a descendant selector turned it into a block of
+    its own that collapsed to nothing.
+  */
+  .mn-scatitle > span { display: block; font-size: 11px; font-weight: 700; }
+  .mn-scaatts { margin-top: 5px; font-size: 11px; line-height: 1.3; }
+
+  .mn-block { position: relative; }
+  .mn-block h2 {
+    margin: 0 0 4px; font-size: 13.5px; font-weight: 700; line-height: 1.2;
+  }
+  .mn-block.is-retired h2::after {
+    content: " (no longer on the agenda)";
+    font-weight: 400; font-size: 11px; color: #98a2b3;
+  }
+
+  /* ---- tables ---- */
+  .mn-tblwrap { position: relative; }
+  table.mn-tbl {
+    width: 100%; border-collapse: collapse; table-layout: fixed;
+    font-size: 12px; line-height: 1.25;
+  }
+  .mn-tbl th, .mn-tbl td.mn-td {
+    border: 1px solid var(--mn-rule, #b4b4b4);
+    padding: 4px 6px; text-align: left; vertical-align: middle;
+    overflow-wrap: break-word;
+    /*
+      pre-wrap is what keeps a multi-line cell on several lines. It matters
+      for the READ-ONLY cells - another section's minutes, and every cell
+      while presenting. On an editable one the browser's own stylesheet
+      forces pre-wrap anyway, which is why a test that asked an editable
+      cell about this proved nothing.
+    */
+    white-space: pre-wrap;
+  }
+  .mn-tbl th { font-weight: 700; text-align: center; white-space: normal; }
+  .mn-tbl td.is-group { font-weight: 600; }
+  .mn-tbl td.is-mid { text-align: center; }
+
+  /* ---- editing, in the cell ---- */
+  .mn-td[contenteditable], .mn-val[contenteditable], .mn-in[contenteditable] {
+    outline: none; cursor: text;
+  }
+  .mn-td[contenteditable]:hover {
+    box-shadow: inset 0 0 0 1px rgba(67, 56, 202, .32);
+  }
+  .mn-td[contenteditable]:focus,
+  .mn-val[contenteditable]:focus,
+  .mn-in[contenteditable]:focus {
+    box-shadow: inset 0 0 0 2px var(--mn-accent, #4338ca);
+    background-image: linear-gradient(rgba(67, 56, 202, .05),
+                                      rgba(67, 56, 202, .05));
+  }
+  .mn-in[contenteditable] {
+    display: inline-block; min-width: 90px; padding: 0 3px;
+    border-bottom: 1px dashed rgba(0, 0, 0, .28);
+  }
+  /*
+    An empty editable field says what belongs in it. One that says nothing
+    is indistinguishable from a field somebody filled in with a space, and
+    on a slide about to be presented that matters.
+  */
+  .mn-in[contenteditable]:empty::before {
+    content: attr(data-mn-hint); color: #98a2b3; font-style: italic;
+  }
+  .mn-blank { color: #c6cbd2; font-style: normal; }
+
+  /*
+    THE ROW CONTROLS TAKE NO COLUMN. A control column that appeared only
+    while editing would mean the table somebody lays out and the table they
+    project are different widths. This cell is zero-width and its button
+    hangs outside the table's right edge.
+  */
+  .mn-tbl td.mn-rowx { width: 0; padding: 0; border: 0; position: relative; }
+  .mn-tbl td.mn-rowx button {
+    position: absolute; top: 50%; left: 3px; transform: translateY(-50%);
+    width: 17px; height: 17px; line-height: 15px; padding: 0;
+    border-radius: 50%; border: 1px solid #fecdca; background: #fff;
+    color: #b42318; font-size: 12px; cursor: pointer; opacity: 0;
+    transition: opacity .12s;
+  }
+  .mn-tbl tr:hover td.mn-rowx button { opacity: 1; }
+  .mn-tbl td.mn-rowx button:hover { background: #fef3f2; }
+
+  .mn-addrow {
+    font: inherit; font-size: 10.5px; font-weight: 600; cursor: pointer;
+    margin-top: 2px; padding: 2px 8px; border-radius: 20px;
+    border: 1px dashed #c7d7fe; background: #f7f9ff; color: #3b5bb5;
+  }
+  .mn-addrow:hover { background: #eef4ff; }
+
+  /* ---- free text ---- */
+  .mn-notes { font-size: 12.5px; line-height: 1.45; }
+  .mn-line { display: flex; gap: 6px; padding: 1px 0; }
+  .mn-line::before {
+    content: "\2022"; color: #1d1d1b; flex: none; width: 10px;
+  }
+  .mn-lbl { font-weight: 600; flex: none; }
+  .mn-val { white-space: pre-wrap; flex: 1 1 auto; min-width: 20px; }
+  .mn-val:empty::after { content: "\2014"; color: #c6cbd2; }
+
+  /* ---- the logos ---- */
+  .mn-foot {
+    flex: none; display: flex; justify-content: space-between;
+    align-items: center; padding: 2px 16px 6px;
+    font-size: 13px; font-weight: 800; letter-spacing: .6px;
+    font-style: italic;
+  }
+  .mn-foot span { color: #1f5fa8; }
+
+  /* =======================================================================
+     PRESENTING
+
+     NOT a position:fixed overlay. This app runs in an Apps Script iframe
+     inside a Blogger post, and that iframe is taller than the window - the
+     window scrolls the Blogger page, not the iframe - so anything fixed is
+     fixed to the middle of something nobody can see all of. It is the same
+     reason the Objectives panel sits in the flow.
+
+     So presenting takes the chrome away and gives the slide the width.
+     ======================================================================= */
+  #view-minutes.is-present .mn-band,
+  #view-minutes.is-present .mn-side,
+  #view-minutes.is-present .mn-bar,
+  #view-minutes.is-present .mn-warn { display: none; }
+
+  #view-minutes.is-present .mn-body { max-width: none; padding: 0; }
+  #view-minutes.is-present .mn-desk { display: block; }
+  #view-minutes.is-present .mn-frame {
+    border: 0; border-radius: 0; box-shadow: none;
+  }
+  /*
+    On a real screen the slide is centred in whatever is left over, so the
+    letterbox is dark rather than a white margin the projector shows as a
+    glowing band either side of the deck.
+  */
+  #mnFrame:fullscreen { background: #0d1117; }
+  /*
+    The way back out. Escape is wired too, but a key with nothing on screen
+    telling you about it is a key nobody presses.
+  */
+  #view-minutes.is-present .mn-main::after {
+    content: "Press Escape to stop presenting";
+    display: block; text-align: center; padding: 8px;
+    font-size: 11.5px; color: var(--mn-faint);
+  }
+
+  /* ---------------- narrower windows ---------------- */
+  /*
+    Only the room AROUND the slide reflows. The canvas keeps its shape and
+    simply scales down, which is the point of it - a meeting read on a phone
+    is small, not rearranged into something the projector will not match.
+  */
+  @media (max-width: 1049px) {
+    .mn-desk { grid-template-columns: 1fr; }
+    .mn-list { flex-direction: row; overflow-x: auto; padding-bottom: 4px; }
+    .mn-mtg { min-width: 168px; }
+    .mn-new { width: auto; }
+  }
+  @media (max-width: 760px) {
+    .mn-band-in, .mn-body { padding-left: 18px; padding-right: 18px; }
+    .mn-toggle { margin-left: 0; width: 100%; }
+    .mn-acts { margin-left: 0; width: 100%; flex-wrap: wrap; }
+  }
+
 </style>
