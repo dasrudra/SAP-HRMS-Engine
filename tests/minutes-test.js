@@ -450,6 +450,20 @@ function meeting(id, code, date, body, extra) {
         if (!b.lines || !b.lines.length) note(where, 'no lines');
         return;
       }
+      /*
+        A `field` block is a header field drawn in the body - FI/CO prints
+        its attendance that way, under a bar of its own, rather than on the
+        title line. It names the field it edits and has no table.
+      */
+      if (b.type === 'field') {
+        if (['attendees', 'host', 'minutesBy', 'purpose']
+              .indexOf(b.field) === -1) {
+          note(where, 'field is ' + b.field);
+        }
+        if (!b.title) note(where, 'a field block with no label');
+        return;
+      }
+      if (b.type !== 'table') { note(where, 'type is ' + b.type); return; }
 
       const n = b.columns.length;
       (b.groups || []).forEach(function (i) {
@@ -1080,22 +1094,25 @@ function meeting(id, code, date, body, extra) {
 {
   const ctx = load({ meetings: [meeting('FICO-20261029', 'FICO', '2026-10-29',
     { v: 1, head: { purpose: '', minutesBy: '' },
-      blocks: [{ id: 'ops', type: 'table', rows: [
-        ['1.  FI/TR', 'DEPZ', 'RMG', 'Something somebody typed'],
+      blocks: [{ id: 'findings', type: 'table', rows: [
+        ['1.  Monthly Closing', 'DEPZ', 'Something somebody typed', ''],
         // A SHORT ROW, on purpose. A meeting saved before a column was
         // added holds fewer cells than the seed now defines, and the first
         // version of this fixture gave every row its full four - so the
         // padding below was asserted against rows that needed none and the
         // assertion passed whatever the code did.
         ['2.  CO', 'CEPZ'],
-        ['9.  AN EXTRA ROW', 'KEPZ', 'MG', 'And its status']
+        ['9.  AN EXTRA ROW', 'KEPZ', 'Normal Trend', 'And its action']
       ] }] })], session: { u: '20000011', r: 'USER' } });
 
-  const ops = ctx.getMinutes('t', 'FICO').meeting.blocks[0];
+  const ops = ctx.getMinutes('t', 'FICO').meeting.blocks.filter(function (b) {
+    return b.id === 'findings';
+  })[0];
   check('the columns come from the seed',
-    ops.columns.map((c) => c.key).join(',') === 'module,zone,sector,status',
+    ops.columns.map((c) => c.key).join(',') === 'process,zone,status,action',
     ops.columns.map((c) => c.key).join(','));
-  check('and the labels with them', ops.columns[0].label === 'Module');
+  check('and the labels with them',
+    ops.columns[0].label === 'Application Process');
   check('the rows come from the sheet',
     ops.rows.length === 3, ops.rows.length + ' rows, expected 3');
   check('including the one somebody added',

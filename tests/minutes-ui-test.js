@@ -523,42 +523,58 @@ function apart(a, b) {
   await openSection('FICO');
   await p.waitForTimeout(400);
   check('FI/CO draws one wide table', (await p.$$('#mnStage .mn-flow')).length === 1);
+
+  /*
+    FI/CO'S CURRENT DECK, not the one it abandoned in May.
+
+    The first version of this suite asserted a brown header and a
+    twelve-row Module/Zone/Status table, because the seed had been built
+    from the LAST slide in the file - which is the oldest. Every section
+    puts each new meeting at the FRONT. FI/CO changed to pale blue, five
+    titled sections and two small tables on 12 May 2026, and the meetings
+    before that are imported with their old table intact as a retired
+    block.
+  */
   const ficoHead = parseRgb(await p.$eval('#mnStage .mn-tbl th', (n) =>
     getComputedStyle(n).backgroundColor));
-  check('and its header is the deck\'s brown',
-    painted(ficoHead) && apart(ficoHead, [124, 52, 20]) < 12,
+  check('its table headers are the deck\'s pale blue',
+    painted(ficoHead) && apart(ficoHead, [192, 228, 244]) < 14,
     'rgba(' + ficoHead.join(',') + ')');
-  check('with its band text light enough to read on it',
+  check('with dark text on it, because the fill is light',
+    lum(parseRgb(await p.$eval('#mnStage .mn-tbl th', (n) =>
+      getComputedStyle(n).color))) < 0.3);
+  check('and its band text is dark too, on a pale band',
     lum(parseRgb(await p.$eval('#mnStage .mn-band-slide h1', (n) =>
+      getComputedStyle(n).color))) < 0.3);
+
+  /*
+    ITS SECTION TITLES ARE FILLED BARS, which is how the eye finds its way
+    down a slide carrying five of them. Drawn as plain bold text the slide
+    still reads - it just stops being that deck.
+  */
+  const bar = parseRgb(await p.$eval('#mnStage .mn-block h2', (n) =>
+    getComputedStyle(n).backgroundColor));
+  check('its block titles are drawn as filled bars',
+    painted(bar) && apart(bar, [16, 72, 96]) < 14, 'rgba(' + bar.join(',') + ')');
+  check('with light text on them',
+    lum(parseRgb(await p.$eval('#mnStage .mn-block h2', (n) =>
       getComputedStyle(n).color))) > 0.8);
 
-  /*
-    FI/CO BANDS RMG AGAINST MG inside each zone, and that banding is how
-    somebody reads a twelve-row table across a room. A zebra that stopped
-    being painted would leave a perfectly tidy table nobody can scan.
-  */
-  const rowA = parseRgb(await p.$eval(
-    '#mnStage [data-mn-block="ops"] tr[data-mn-row="0"] td[data-mn-c="3"]',
-    (n) => getComputedStyle(n).backgroundColor));
-  const rowB = parseRgb(await p.$eval(
-    '#mnStage [data-mn-block="ops"] tr[data-mn-row="1"] td[data-mn-c="3"]',
-    (n) => getComputedStyle(n).backgroundColor));
-  check('and consecutive rows are BOTH painted, and differently',
-    painted(rowA) && painted(rowB) && apart(rowA, rowB) > 20,
-    'rgba(' + rowA.join(',') + ') vs rgba(' + rowB.join(',') + ')');
-
-  check('its first two columns both merge downward',
-    (await p.$$('#mnStage [data-mn-block="ops"] td[rowspan]')).length === 8,
-    String((await p.$$('#mnStage [data-mn-block="ops"] td[rowspan]')).length));
+  check('the findings table merges its process column down its zones',
+    (await p.$$eval('#mnStage [data-mn-block="findings"] td[rowspan]',
+      (ns) => ns.map((n) => Number(n.getAttribute('rowspan'))))).join(',') === '3',
+    (await p.$$eval('#mnStage [data-mn-block="findings"] td[rowspan]',
+      (ns) => ns.map((n) => n.getAttribute('rowspan')))).join(','));
 
   /*
-    'Status' IS ONE HEADING OVER TWO COLUMNS. Reading the deck's XML it looks
-    like a header row that slipped; the rendered slide shows a merged cell.
-    Getting that wrong puts the word over the wrong column.
+    AND ATTENDANCE IS A BLOCK, not a line on the title. FI/CO prints it
+    under a bar of its own; drawing it in both places would show the same
+    names twice and offer two places to correct one spelling.
   */
-  check('and Status is one heading spanning two columns',
-    await p.$eval('#mnStage [data-mn-block="ops"] th:last-of-type',
-      (n) => n.getAttribute('colspan')) === '2');
+  check('attendance is a block of its own',
+    (await p.$$('#mnStage [data-mn-block="attendance"]')).length === 1);
+  check('and is not repeated on the title line',
+    (await p.$$('#mnStage .mn-band-slide .is-atts')).length === 0);
 
   // =========================================================================
   // 9. somebody else's section

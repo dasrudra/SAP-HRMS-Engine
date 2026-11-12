@@ -199,12 +199,26 @@ const MIN_SECTIONS = [
     name: 'Financial Applications',
     short: 'FI / CO',
     subs: ['Financial Applications'],
-    title: 'Weekly Meeting (FI/CO)',
-    purpose: 'To review Financial Application operational status across all ' +
-             'plants, prevent issues and keep everyone aligned',
+    title: 'By-Weekly  Meeting FI/CO',
+    purpose: '',
     layout: 'wide',
-    theme: { band: '#7c3414', head: '#7c3414', ink: '#ffffff',
-             rule: '#e8d0c8', title: '#ffffff' }
+    /*
+      FI/CO CHANGED ITS DECK IN MAY and the first version of this file
+      missed it, because it was built from the LAST slide in the file -
+      which is the oldest. All four sections put each new meeting at the
+      FRONT, so the newest meeting is slide 1 and the last slide is where
+      the deck started.
+
+      The brown, twelve-row Module/Zone/Status table that used to be here
+      is what FI/CO used until 12 May 2026. Every meeting before that is
+      imported with it intact, as a retired block; this is the layout they
+      have used since.
+    */
+    bars: true,
+    bandAtts: false,
+    theme: { band: '#c8ecfc', head: '#c0e4f4', ink: '#104860',
+             rule: '#9fd4ec', title: '#104860',
+             bar: '#104860', barInk: '#ffffff' }
   },
   {
     code: 'SDMM',
@@ -347,31 +361,48 @@ const MIN_SEEDS = {
     and MG rows.
   */
   FICO: [
-    { id: 'ops', type: 'table', side: 'full',
-      title: 'Operational Issues/Escalations',
-      groups: [0, 1],
-      tones: ['#f8e8e8'],
-      zebra: '#f4d4cc',
+    { id: 'attendance', type: 'field', side: 'full', field: 'attendees',
+      title: 'Meeting Attendance :', hint: 'who came' },
+
+    { id: 'findings', type: 'table', side: 'full',
+      title: 'Application Process Findings :',
+      groups: [0],
       columns: [
-        { key: 'module', label: 'Module', width: 27 },
-        { key: 'zone',   label: 'Zone',   width: 25 },
-        { key: 'sector', label: 'Status', width: 24, span: 2 },
-        { key: 'status', label: '',       width: 24 }
+        { key: 'process', label: 'Application Process', width: 26 },
+        { key: 'zone',    label: 'Zone',                width: 8 },
+        { key: 'status',  label: 'Status',              width: 32 },
+        { key: 'action',  label: 'Action Plan',         width: 34 }
       ],
       rows: [
-        ['1.  FI/TR', 'DEPZ', 'RMG', 'Normal Trend'],
-        ['',          '',     'MG',  'Normal Trend'],
-        ['',          'KEPZ', 'RMG', 'Normal Trend'],
-        ['',          '',     'MG',  'Normal Trend'],
-        ['',          'CEPZ', 'RMG', 'Normal Trend'],
-        ['',          '',     'MG',  'Normal Trend'],
-        ['2.  CO',    'DEPZ', 'RMG', 'Normal Trend'],
-        ['',          '',     'MG',  'Normal Trend'],
-        ['',          'KEPZ', 'RMG', 'Normal Trend'],
-        ['',          '',     'MG',  'Normal Trend'],
-        ['',          'CEPZ', 'RMG', 'Normal Trend'],
-        ['',          '',     'MG',  'Normal Trend']
-      ] }
+        ['1.  Monthly Closing\n2.  Accounts Operational escalation\n' +
+         '3.  Finance (TR) related escalation.\n4.  CO related escalation.',
+         'DEPZ', 'Normal Trend', ''],
+        ['', 'CEPZ', 'Normal Trend', ''],
+        ['', 'KEPZ', 'Normal Trend', '']
+      ] },
+
+    { id: 'followup', type: 'table', side: 'full',
+      title: 'Follow-up Objectives :',
+      groups: [0],
+      columns: [
+        { key: 'objective', label: 'Objective Description', width: 34 },
+        { key: 'zone',      label: 'Zone',                  width: 8 },
+        { key: 'status',    label: 'Status',                width: 58 }
+      ],
+      rows: [
+        ['1. Standard Cost Checking - [Daily]\n2. Documents Overview\n' +
+         '3. Bank Statements Reconciliation - [Daily]',
+         'CEPZ', 'Objective regularly follow-up by responsible person.'],
+        ['', 'DEPZ', 'Objective regularly follow-up by responsible person.'],
+        ['', 'KEPZ', 'Objective regularly follow-up by responsible person.']
+      ] },
+
+    { id: 'knowledge', type: 'notes', side: 'full',
+      title: 'Knowledge/ Application Process Sharing :',
+      lines: [{ key: 'text', label: '', value: '' }] },
+
+    { id: 'remarks', type: 'notes', side: 'full', title: 'Remarks :',
+      lines: [{ key: 'text', label: '', value: '' }] }
   ],
 
   /*
@@ -1081,6 +1112,7 @@ function minPayload(me, section, meetingId) {
       return { code: s.code, name: s.name, short: s.short,
                sub: minSubOf(s), title: s.title,
                purpose: s.purpose, layout: s.layout, theme: s.theme,
+               bars: Boolean(s.bars), bandAtts: s.bandAtts !== false,
                count: counts[s.code], mayWrite: minMayWrite(me, s.code) };
     }),
     section: code,

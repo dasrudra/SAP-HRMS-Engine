@@ -11828,21 +11828,21 @@
           '<div class="mn-col' + (panel ? ' is-panel' : '') + '"' +
             (panel ? ' style="border-color:' + t.head + '"' : '') + '>' +
             (panel ? minScaHead(meeting, section, edit) : '') +
-            side('left').map(function (b) { return minBlockHtml(b, t, edit); }).join('') +
+            side('left').map(function (b) { return minBlockHtml(b, t, edit, meeting); }).join('') +
           '</div>' +
           '<div class="mn-col' + (panel ? ' is-panel' : '') + '"' +
             (panel ? ' style="border-color:' + t.head + '"' : '') + '>' +
-            side('right').map(function (b) { return minBlockHtml(b, t, edit); }).join('') +
+            side('right').map(function (b) { return minBlockHtml(b, t, edit, meeting); }).join('') +
           '</div>' +
         '</div>' +
         (full.length
           ? '<div class="mn-wide">' +
-            full.map(function (b) { return minBlockHtml(b, t, edit); }).join('') +
+            full.map(function (b) { return minBlockHtml(b, t, edit, meeting); }).join('') +
             '</div>'
           : '');
     } else {
       body = '<div class="mn-flow' + (bleed ? ' is-bleed' : '') + '">' +
-        blocks.map(function (b) { return minBlockHtml(b, t, edit); }).join('') +
+        blocks.map(function (b) { return minBlockHtml(b, t, edit, meeting); }).join('') +
         '</div>';
     }
 
@@ -11884,14 +11884,22 @@
       (section.code === 'PP' ? ' is-bleed' : ' is-inset') +
       '" style="background:' + t.band + ';color:' + t.title + '">' +
       '<h1>' + escapeHtml(section.title) + '</h1>' +
-      '<p class="is-purpose">' +
-        minField(meeting.purpose || section.purpose, 'purpose', edit,
-                 'what this meeting is for') + '</p>' +
+      ((meeting.purpose || section.purpose || edit)
+        ? '<p class="is-purpose">' +
+          minField(meeting.purpose || section.purpose, 'purpose', edit,
+                   'what this meeting is for') + '</p>'
+        : '') +
       '<p class="is-when">Date &amp; Time: ' + escapeHtml(when) + '</p>' +
       '<p class="is-when">Minutes by: ' +
         minField(meeting.minutesBy, 'minutesBy', edit, 'who wrote this up') +
         '</p>' +
-      (meeting.attendees || edit
+      /*
+        UNLESS THE SECTION PRINTS IT IN THE BODY. FI/CO gives attendance a
+        bar of its own under the title, so putting it on the title line as
+        well would show the same names twice and offer two places to
+        correct one spelling.
+      */
+      (section.bandAtts !== false && (meeting.attendees || edit)
         ? '<p class="is-atts">Attendees: ' +
           minField(meeting.attendees, 'attendees', edit, 'who came') + '</p>'
         : '') +
@@ -11934,17 +11942,36 @@
   }
 
 
-  function minBlockHtml(block, theme, edit) {
-    const body = block.type === 'notes'
-      ? minNotesHtml(block, edit)
-      : minTableHtml(block, theme, edit);
+  function minBlockHtml(block, theme, edit, meeting) {
+    /*
+      A FIELD BLOCK is a header field drawn in the body. FI/CO prints its
+      attendance under a bar of its own rather than on the title line, and
+      the alternative - a notes block holding a second copy of the same
+      names - would be two places to correct one spelling.
+    */
+    let body;
+    if (block.type === 'field') {
+      body = '<div class="mn-fieldbox">' +
+        minField((meeting || {})[block.field], block.field, edit,
+                 block.hint || '') + '</div>';
+    } else if (block.type === 'notes') {
+      body = minNotesHtml(block, edit);
+    } else {
+      body = minTableHtml(block, theme, edit);
+    }
+
+    const head = block.title
+      ? (theme.bar
+          ? '<h2 class="is-bar" style="background:' + theme.bar + ';color:' +
+            theme.barInk + '">' + escapeHtml(block.title) + '</h2>'
+          : '<h2>' + escapeHtml(block.title) + '</h2>')
+      : '';
 
     return '<div class="mn-block' + (block.retired ? ' is-retired' : '') +
       '" data-mn-block="' + escapeHtml(block.id) + '" data-mn-type="' +
-      (block.type === 'notes' ? 'notes' : 'table') + '" data-mn-cols="' +
-      ((block.columns || []).length) + '">' +
-      (block.title ? '<h2>' + escapeHtml(block.title) + '</h2>' : '') +
-      body + '</div>';
+      (block.type === 'notes' ? 'notes'
+        : block.type === 'field' ? 'field' : 'table') + '" data-mn-cols="' +
+      ((block.columns || []).length) + '">' + head + body + '</div>';
   }
 
 
@@ -12122,6 +12149,8 @@
 
     stage.querySelectorAll('[data-mn-block]').forEach(function (el) {
       const id = el.getAttribute('data-mn-block');
+      // A field block's value is a header field, collected by minHeads.
+      if (el.getAttribute('data-mn-type') === 'field') return;
       if (el.getAttribute('data-mn-type') === 'notes') {
         const lines = [];
         el.querySelectorAll('[data-mn-line]').forEach(function (n) {
