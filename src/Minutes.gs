@@ -974,10 +974,18 @@ function getMinutes(token, section, meetingId) {
     me: { id: me.id, name: me.name, section: me.section, head: me.head,
           admin: me.admin, write: me.write, remove: me.remove,
           reason: me.reason },
+    /*
+      THE THEME TRAVELS WITH THE SECTION. It was left out of the first
+      version of this payload, and the page went on drawing perfectly
+      correct tables with no colour in them at all - the four decks reduced
+      to four identical grey grids, which is the one thing this feature was
+      not allowed to do. Nothing threw; `theme.head` was simply undefined
+      and the inline background came out as the word "undefined".
+    */
     sections: MIN_SECTIONS.map(function (s) {
       return { code: s.code, name: s.name, sub: s.sub, title: s.title,
-               purpose: s.purpose, layout: s.layout, count: counts[s.code],
-               mayWrite: minMayWrite(me, s.code) };
+               purpose: s.purpose, layout: s.layout, theme: s.theme,
+               count: counts[s.code], mayWrite: minMayWrite(me, s.code) };
     }),
     section: code,
     list: list,

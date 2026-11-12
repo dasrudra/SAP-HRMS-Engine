@@ -954,6 +954,26 @@ function meeting(id, code, date, body, extra) {
     got.sections.filter((s) => s.code === 'FICO')[0].count === 1);
 
   /*
+    AND EVERY SECTION CARRIES ITS PALETTE. Left out of this payload, the
+    page draws perfectly correct tables with no colour in any of them - the
+    four decks reduced to four identical grey grids. Nothing throws:
+    theme.head is undefined, the inline style reads "background:undefined",
+    and the browser ignores it. It took a screenshot to notice.
+  */
+  const unthemed = got.sections.filter(function (s) {
+    return !s.theme || !/^#[0-9a-f]{6}$/.test(String(s.theme.head)) ||
+           !/^#[0-9a-f]{6}$/.test(String(s.theme.band)) ||
+           !/^#[0-9a-f]{6}$/.test(String(s.theme.title));
+  });
+  check('and carries its own palette with it',
+    unthemed.length === 0,
+    unthemed.map(function (s) { return s.code; }).join(','));
+  check('a section also says which layout it wants',
+    got.sections.every(function (s) {
+      return s.layout === 'wide' || s.layout === 'split';
+    }));
+
+  /*
     THE LIST CARRIES NO BODIES. The page is a list beside one document; a
     list that carried every body would send twenty-nine PP meetings to draw
     one, over a connection where the whole point is that it is slow.

@@ -122,6 +122,13 @@
       <button class="portal-tab" data-view="learnings">Learnings</button>
       <button class="portal-tab" data-view="projects">Projects</button>
       <button class="portal-tab" data-view="objective">Objective</button>
+      <!--
+        MINUTES sits beside Objective because they are the same kind of
+        screen - a working surface the team writes to, rather than a page it
+        reads - and because half of what a section's meeting reviews is on
+        the Objective tab next door.
+      -->
+      <button class="portal-tab" data-view="minutes">Minutes</button>
       <button class="portal-tab" data-view="links">Links</button>
     </nav>
     </div>
@@ -1111,6 +1118,87 @@
         <div class="obj-list" id="objList"></div>
       </div>
 
+    </section>
+
+    <!--
+      ---- MEETING MINUTES ----
+
+      NOT a .portal-page, for the same reason Objectives is not: the band has
+      to run the full width of the window and .portal-page is a 1180px
+      column. Everything inside is in .mn-*.
+
+      FOUR SECTIONS, FOUR LAYOUTS, ONE SHELL. The four standing meetings each
+      kept their own PowerPoint deck and their own shape - FI/CO's single
+      wide table, SD's two side-by-side control tables, Supply Chain's two
+      columns of small tables, PP's one wide zone table. Those shapes are
+      what each section reads at speed, so the portal keeps all four rather
+      than imposing a house style on the lot.
+
+      THE SLIDE IS A FIXED 1280x720 CANVAS, scaled to whatever room it has.
+      One set of sizes then works for editing, for presenting and for the
+      deck export, and nothing reflows between them - which is the point,
+      because somebody who lays a meeting out on their screen is going to
+      present it on a projector.
+
+      Empty markup, like Objectives. A meeting is a row in the spreadsheet;
+      this file is a shell that does not change.
+    -->
+    <section class="view mn" id="view-minutes" hidden>
+
+      <div class="mn-band">
+        <div class="mn-band-in">
+          <div class="mn-band-words">
+            <h1 class="mn-h1">Meeting minutes</h1>
+            <p class="mn-sub" id="mnSub">Loading the meetings&#x2026;</p>
+          </div>
+          <!--
+            role="tablist", like the Objectives toggle: it IS a switch
+            between four views of one page, and that is the thing a screen
+            reader has a word for. Filled by renderMinTabs().
+          -->
+          <div class="mn-toggle" role="tablist" id="mnTabs"
+               aria-label="Which section's meetings"></div>
+        </div>
+      </div>
+
+      <div class="mn-body">
+        <!--
+          Where a refused press says so. Same reasoning as the Objectives
+          page: most of what can be refused here happens with nothing else
+          on screen to put a message in, and a Save that silently does
+          nothing looks exactly like a Save that worked.
+        -->
+        <div class="mn-warn" id="mnWarn" role="status" hidden></div>
+
+        <div class="mn-desk">
+          <aside class="mn-side" aria-label="Meetings">
+            <h2 class="mn-side-head" id="mnSideHead">&mdash;</h2>
+            <div class="mn-list" id="mnList"></div>
+            <!--
+              Hidden until the server says this is your section. A button
+              that greets everybody and then refuses them is worse than one
+              that is not there.
+            -->
+            <button class="mn-new" id="mnNew" type="button" hidden>
+              <span aria-hidden="true">+</span> New meeting
+            </button>
+            <p class="mn-side-note" id="mnSideNote" hidden></p>
+          </aside>
+
+          <div class="mn-main">
+            <div class="mn-bar" id="mnBar"></div>
+            <!--
+              The slide. #mnStage is the 1280x720 canvas; .mn-frame is
+              whatever room the window has, and the scale between them is
+              set by fitMinSlide() because CSS cannot measure one box
+              against another.
+            -->
+            <div class="mn-frame" id="mnFrame">
+              <div class="mn-stage" id="mnStage"></div>
+            </div>
+          </div>
+        </div>
+      </div>
     </section>
 
     <!--
