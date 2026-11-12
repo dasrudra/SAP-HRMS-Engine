@@ -102,6 +102,10 @@ function parseRgb(text) {
   return [n[0], n[1], n[2], n.length > 3 ? n[3] : 1];
 }
 function painted(c) { return Boolean(c) && c[3] > 0.05; }
+function ratio(a, b) {
+  const l1 = lum(a), l2 = lum(b);
+  return (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
+}
 function apart(a, b) {
   if (!a || !b) return 0;
   return Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]) + Math.abs(a[2] - b[2]);
@@ -154,13 +158,51 @@ function apart(a, b) {
   check('and the router recorded the decision',
     await p.evaluate(() => window.__SHOWN_VIEW__) === 'minutes');
 
-  const bandBg = parseRgb(await p.$eval('.mn-band', (n) =>
-    getComputedStyle(n).backgroundColor));
+  /*
+    THE HEADER IS LIGHT NOW, and the assertion that used to be here passed
+    whatever happened.
+
+    It read "the band is dark and the page under it is light", measured off
+    .mn-band's background. That background is transparent in this design,
+    which computes to rgba(0, 0, 0, 0) - and with the alpha dropped, black.
+    The check went on passing while meaning nothing. The same trap as the
+    unpainted table cell further down.
+
+    What actually matters on a light header is that the title can be read
+    on it, so that is what is measured.
+  */
   const bodyBg = parseRgb(await p.$eval('#view-minutes', (n) =>
     getComputedStyle(n).backgroundColor));
-  check('the band is dark and the page under it is light',
-    lum(bandBg) < 0.12 && lum(bodyBg) > 0.8,
-    'band ' + lum(bandBg).toFixed(3) + ' body ' + lum(bodyBg).toFixed(3));
+  const titleInk = parseRgb(await p.$eval('.mn-h1', (n) =>
+    getComputedStyle(n).color));
+  check('the page is light', painted(bodyBg) && lum(bodyBg) > 0.8,
+    'rgba(' + bodyBg.join(',') + ')');
+  check('and its title is dark enough to read on it',
+    ratio(titleInk, bodyBg) >= 7,
+    'contrast ' + ratio(titleInk, bodyBg).toFixed(1) + ':1');
+
+  /*
+    THE TABS ARE FOLDER TABS - the open one is the same colour as the sheet
+    below it and the others are not, which is the whole of what says they
+    open it. Drawn all one colour they are a row of buttons, and which
+    section is open stops being visible at a glance.
+  */
+  const sheetBg = parseRgb(await p.$eval('.mn-body', (n) =>
+    getComputedStyle(n).backgroundColor));
+  const onBg = parseRgb(await p.$eval('.mn-tab.is-on', (n) =>
+    getComputedStyle(n).backgroundColor));
+  const offBg = parseRgb(await p.$eval('.mn-tab:not(.is-on)', (n) =>
+    getComputedStyle(n).backgroundColor));
+  check('the open tab is the same colour as the sheet it opens',
+    painted(onBg) && apart(onBg, sheetBg) < 8,
+    'rgba(' + onBg.join(',') + ') vs sheet rgba(' + sheetBg.join(',') + ')');
+  check('and the closed ones are not',
+    painted(offBg) && apart(offBg, sheetBg) > 12,
+    'rgba(' + offBg.join(',') + ')');
+  const edge = parseRgb(await p.$eval('.mn-tab.is-on', (n) =>
+    getComputedStyle(n, '::before').backgroundColor));
+  check('and the open tab carries its section\'s colour along the top',
+    painted(edge) && lum(edge) < 0.75, 'rgba(' + edge.join(',') + ')');
 
   /*
     THE ONE THAT WOULD BE INVISIBLE. Every other portal page is white text

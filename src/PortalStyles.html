@@ -4380,115 +4380,110 @@
     /* Opaque: .portal-sky is behind every view, and a transparent page
        shows navy through it. Same as Objectives. */
     background:
-      radial-gradient(1100px 520px at 88% 12%,
-        #eef1fc 0%, rgba(238, 241, 252, 0) 62%),
-      radial-gradient(820px 460px at 4% 96%,
-        #e9f5f1 0%, rgba(233, 245, 241, 0) 60%),
-      #f7f8fb;
+      radial-gradient(1100px 520px at 88% 4%,
+        #eef1fc 0%, rgba(238, 241, 252, 0) 58%),
+      #f6f7f9;
     color: var(--mn-ink);
   }
 
   .portal[data-page="minutes"] .portal-sky { height: 100%; border-radius: 0; }
 
-  /* ---------------- the band ---------------- */
+  /* ---------------- the header, and the folder tabs ----------------
+
+     A LIGHT HEADER, NOT A BAND. Objectives gets a dark blue band because it
+     is one page you arrive at; this is four documents you move between, and
+     a tab is the thing that says so. Tabs attached to the sheet they open -
+     the shape of a folder divider - carry that in a way a row of pills
+     floating on a coloured band does not, and they leave the top of the
+     window to the title rather than to decoration.
+  */
   .mn-band {
-    position: relative; overflow: hidden;
-    padding: 26px 0 28px;
-    background:
-      radial-gradient(880px 320px at 86% -45%,
-        rgba(129, 140, 248, .60) 0%, rgba(129, 140, 248, 0) 72%),
-      radial-gradient(720px 300px at 8% 140%,
-        rgba(34, 211, 238, .30) 0%, rgba(34, 211, 238, 0) 70%),
-      linear-gradient(118deg, var(--mn-band-1) 0%,
-        var(--mn-band-2) 52%, var(--mn-band-3) 100%);
-    box-shadow: 0 14px 34px -22px rgba(49, 46, 129, .9);
+    position: relative;
+    padding: 20px 0 0;
+    background: transparent;
   }
-  .mn-band::after {
-    content: ''; position: absolute; left: 0; right: 0; bottom: 0;
-    height: 1px; background: rgba(255, 255, 255, .16);
+  .mn-band-in {
+    position: relative; z-index: 1;
+    max-width: 1500px; margin: 0 auto; padding: 0 28px;
+    display: flex; align-items: flex-end; gap: 20px; flex-wrap: wrap;
   }
+  .mn-band-words { width: 100%; }
+  .mn-h1 {
+    margin: 0; font-size: 25px; font-weight: 680; letter-spacing: -.5px;
+    color: var(--mn-ink);
+  }
+  .mn-sub { margin: 4px 0 14px; font-size: 13.2px; color: var(--mn-dim); }
+
+  /* ---------------- the four-section tabs ---------------- */
+  .mn-toggle {
+    display: flex; gap: 6px; flex-wrap: wrap;
+    /* Over the sheet's top rule, so the open tab joins it. */
+    margin-bottom: -1px;
+  }
+  .mn-tab {
+    font: inherit; font-size: 12.6px; font-weight: 600; cursor: pointer;
+    padding: 9px 15px 10px; border: 1px solid #dfe3e8; border-bottom: none;
+    border-radius: 9px 9px 0 0; background: #eceff3; color: var(--mn-mid);
+    display: flex; align-items: center; gap: 7px; white-space: nowrap;
+    position: relative; transition: background .12s, color .12s;
+  }
+  .mn-tab:hover { background: #f4f6f9; color: var(--mn-ink); }
+  .mn-tab.is-on {
+    background: var(--mn-paper); color: var(--mn-ink);
+    /* The open tab covers the rule beneath it, which is what joins the two. */
+    box-shadow: 0 1px 0 0 var(--mn-paper);
+  }
+  /*
+    A COLOURED EDGE ALONG THE TOP OF THE OPEN TAB, in the four accents the
+    EAS Team page already gives these sections - so a section is one colour
+    across the portal rather than one per page.
+  */
+  .mn-tab.is-on::before {
+    content: ''; position: absolute; left: -1px; right: -1px; top: -1px;
+    height: 3px; border-radius: 9px 9px 0 0; background: var(--mn-accent);
+  }
+  .mn-tab[data-accent="0"].is-on::before { background: #4cc9f0; }
+  .mn-tab[data-accent="1"].is-on::before { background: #5b9cf8; }
+  .mn-tab[data-accent="2"].is-on::before { background: #7b86f0; }
+  .mn-tab[data-accent="3"].is-on::before { background: #9d7bef; }
+  .mn-tab u {
+    text-decoration: none; font-size: 11px; font-weight: 700;
+    padding: 1px 7px; border-radius: 20px;
+    background: rgba(16, 24, 40, .07); color: var(--mn-dim);
+  }
+  .mn-tab.is-on u { background: #eef1fc; color: #3b33b4; }
 
   /*
-    THE PAGE IS WAITING, said in a line rather than a spinner.
-
-    What is on screen while a refresh is in flight is usually still
-    correct - a section that was fetched a minute ago - so covering it with
-    an overlay would undo the whole point of drawing it at once. A moving
-    line under the band says "there is more coming" without taking the page
-    away from somebody who can already read it.
+    THE PAGE IS WAITING, said as a line across the top of the sheet rather
+    than a spinner over it. What is on screen is usually still correct - a
+    section fetched a minute ago - so covering it would undo the point of
+    having drawn it at once.
   */
-  #view-minutes.is-busy .mn-band::after {
+  #view-minutes .mn-body { position: relative; }
+  #view-minutes .mn-body::before {
+    content: ''; position: absolute; left: 0; right: 0; top: 0; height: 2px;
+    background: transparent; pointer-events: none;
+  }
+  #view-minutes.is-busy .mn-body::before {
     background: linear-gradient(90deg,
-      rgba(255, 255, 255, .16) 0%, rgba(255, 255, 255, .16) 30%,
-      #a5b4fc 45%, #c7d2fe 55%, rgba(255, 255, 255, .16) 70%,
-      rgba(255, 255, 255, .16) 100%);
+      transparent 0%, transparent 30%, #818cf8 45%, #c7d2fe 55%,
+      transparent 70%, transparent 100%);
     background-size: 260% 100%;
-    height: 2px;
     animation: mn-wait 1.1s linear infinite;
   }
   @keyframes mn-wait {
     from { background-position: 130% 0; }
     to   { background-position: -130% 0; }
   }
-  /*
-    Nobody should watch a bar to find out whether a click registered, so
-    this is deliberately quiet and deliberately not on the critical path:
-    a browser that honours prefers-reduced-motion simply gets the line.
-  */
   @media (prefers-reduced-motion: reduce) {
-    #view-minutes.is-busy .mn-band::after { animation: none; }
+    #view-minutes.is-busy .mn-body::before { animation: none; }
   }
-  .mn-band-in {
-    position: relative; z-index: 1;
-    max-width: 1500px; margin: 0 auto; padding: 0 28px;
-    display: flex; align-items: flex-start; gap: 20px; flex-wrap: wrap;
-  }
-  .mn-h1 {
-    margin: 0; font-size: 25px; font-weight: 660; letter-spacing: -.5px;
-    color: #fff;
-  }
-  .mn-sub {
-    margin: 5px 0 0; font-size: 13.2px; color: rgba(255, 255, 255, .70);
-  }
-
-  /* ---------------- the four-section toggle ---------------- */
-  .mn-toggle {
-    margin-left: auto;
-    display: inline-flex; padding: 4px; border-radius: 12px;
-    background: rgba(255, 255, 255, .13);
-    border: 1px solid rgba(255, 255, 255, .22);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .12);
-    flex-wrap: wrap;
-  }
-  .mn-tab {
-    font: inherit; font-size: 12.4px; font-weight: 580; cursor: pointer;
-    padding: 9px 13px; border-radius: 9px; border: 0; background: none;
-    color: rgba(255, 255, 255, .76);
-    display: flex; align-items: center; gap: 7px; white-space: nowrap;
-    transition: background .14s, color .14s;
-  }
-  .mn-tab:hover { color: #fff; background: rgba(255, 255, 255, .10); }
-  .mn-tab.is-on {
-    background: #fff; color: #1b1a4d;
-    box-shadow: 0 1px 3px rgba(16, 24, 40, .18);
-  }
-  .mn-tab u {
-    text-decoration: none; font-size: 11px; font-weight: 700;
-    padding: 1px 7px; border-radius: 20px;
-    background: rgba(255, 255, 255, .17); color: inherit;
-  }
-  .mn-tab.is-on u { background: #eef1fc; color: #3b33b4; }
-  /*
-    The same four accents the EAS Team page gives the four sections, so a
-    section is one colour across the portal rather than one per page.
-  */
-  .mn-tab[data-accent="0"].is-on { box-shadow: inset 0 0 0 2px #4cc9f0; }
-  .mn-tab[data-accent="1"].is-on { box-shadow: inset 0 0 0 2px #5b9cf8; }
-  .mn-tab[data-accent="2"].is-on { box-shadow: inset 0 0 0 2px #7b86f0; }
-  .mn-tab[data-accent="3"].is-on { box-shadow: inset 0 0 0 2px #9d7bef; }
 
   /* ---------------- the body ---------------- */
-  .mn-body { max-width: 1500px; margin: 0 auto; padding: 20px 28px 54px; }
+  .mn-body {
+    max-width: 1500px; margin: 0 auto; padding: 20px 28px 54px;
+    background: var(--mn-paper); border-top: 1px solid #dfe3e8;
+  }
 
   .mn-warn {
     margin: 0 0 14px; padding: 10px 14px; border-radius: 10px;
