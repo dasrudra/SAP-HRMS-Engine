@@ -172,25 +172,38 @@ function parseRgb(text) {
   }
 
   /*
-    AND IF IT NEVER ANSWERS AT ALL, the page still comes up.
+    AND IF IT NEVER ANSWERS AT ALL, the page waits rather than guessing.
 
-    getLocation can simply not call back inside the sandbox. The page
-    then has no token and no screen to go to, and the right thing to
-    show is the sign-in card - not a blank screen with a spinner on it
-    for as long as somebody is willing to wait.
+    getLocation can simply not call back inside the sandbox. With
+    nothing else knowing where to go, the page used to paint Home and
+    then jump somewhere else once the answer turned up - which looks
+    broken, loads data nobody asked for, and moves under somebody who
+    has started reading. It holds its loader instead, and after a few
+    seconds settles on Home, because by then nothing is going to tell
+    it otherwise.
+
+    "Got to a screen" is not "a view element is not hidden" - the home
+    view starts that way in the markup, before any of this has run. It
+    is whether the page DECIDED: showView records what it settled on,
+    and nothing else sets it.
   */
   {
     const r = await b.newPage({ viewport: { width: 1200, height: 900 } });
     await r.goto(FILE + '?slowurl=600000');
-    await r.waitForTimeout(4000);
-    /*
-      "Got to a screen" is not "a view element is not hidden" - the home
-      view starts that way in the markup, before any of this has run. It
-      is whether the page DECIDED: showView records what it settled on,
-      and nothing else sets it.
-    */
-    check('an address bar that never answers still gets to a screen',
-      await r.evaluate(() => Boolean(window.__SHOWN_VIEW__)),
+    await r.waitForTimeout(3000);
+    check('an address bar that never answers does not make the page guess',
+      !(await r.evaluate(() => window.__SHOWN_VIEW__)),
+      'settled early on ' + await r.evaluate(() => window.__SHOWN_VIEW__));
+    check('and it is holding its loader rather than showing a wrong screen',
+      await r.evaluate(() => {
+        const l = document.getElementById('loader');
+        const shown = document.querySelectorAll('.view:not([hidden])');
+        return Boolean(l && !l.hidden) && shown.length === 0;
+      }));
+
+    await r.waitForTimeout(5000);
+    check('and after a few seconds it settles on Home by itself',
+      (await r.evaluate(() => window.__SHOWN_VIEW__)) === 'home',
       String(await r.evaluate(() => window.__SHOWN_VIEW__)));
     await r.close();
   }
@@ -322,12 +335,13 @@ function parseRgb(text) {
     rail and its icon, a meter that is segmented where it is comparing
     two things, and a line saying what the number is out of.
   */
-  const tiles = () => p.$$eval('#objStats .obj-stat', (ns) => ns.map((n) => ({
-    tone: (/is-(good|behind|waiting|quiet)/.exec(n.className) || [])[1] || '',
-    label: n.querySelector('.obj-stat-l').textContent.trim(),
-    icon: Boolean(n.querySelector('.obj-stat-i svg')),
-    foot: (n.querySelector('.obj-stat-f') || {}).textContent || '',
-    bars: Array.prototype.slice.call(n.querySelectorAll('.obj-stat-b i'))
+  // The shared .tile out of Styles.html, the same one the KPI pages use.
+  const tiles = () => p.$$eval('#objStats .tile', (ns) => ns.map((n) => ({
+    tone: (/\bt-(g|r|a|blue|teal)\b/.exec(n.className) || [])[1] || '',
+    label: n.querySelector('.tile-label').textContent.trim(),
+    icon: Boolean(n.querySelector('.tile-ico svg')),
+    foot: (n.querySelector('.tile-note') || {}).textContent || '',
+    bars: Array.prototype.slice.call(n.querySelectorAll('.tile-bar i'))
       .map((i) => (/is-([gran])\b/.exec(i.className) || [])[1] || '?')
   })));
 
@@ -337,6 +351,17 @@ function parseRgb(text) {
     planTiles.map((t) => t.label + '=' + t.tone).join(', '));
   check('each has an icon rather than being four of the same card',
     planTiles.every((t) => t.icon));
+  /*
+    AND IT IS THE TILE THE REST OF THE APP USES, washed in its tone,
+    rather than a second component that looks like it. Two components
+    for one job is how a page stops looking like one page.
+  */
+  check('the tone is actually painted on the card, not only named',
+    (await p.$$eval('#objStats .tile', (ns) => ns.map((n) =>
+      getComputedStyle(n).getPropertyValue('--tone').trim())))
+      .every((v) => v && v !== 'none'),
+    (await p.$$eval('#objStats .tile', (ns) => ns.map((n) =>
+      getComputedStyle(n).getPropertyValue('--tone').trim()))).join(' | '));
   check('and a line saying what the number is out of',
     planTiles.every((t) => t.foot.trim().length > 8),
     JSON.stringify(planTiles.map((t) => t.foot.trim())));
@@ -347,7 +372,7 @@ function parseRgb(text) {
   check('the Unique Roles tiles have their own tones too',
     taskTiles.length === 4 &&
     taskTiles[0].label === 'On schedule so far' &&
-    taskTiles[1].tone === 'behind',
+    taskTiles[1].tone === 'r',
     taskTiles.map((t) => t.label + '=' + t.tone).join(', '));
   /*
     ONE TRACK, TWO SEGMENTS. "On schedule" is a comparison - the ones

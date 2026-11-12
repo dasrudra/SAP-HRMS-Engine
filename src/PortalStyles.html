@@ -3672,89 +3672,33 @@
     another coloured block - the numbers still have to be the loudest thing
     on them.
   */
-  .obj-stat {
-    position: relative; overflow: hidden;
-    background:
-      linear-gradient(180deg, rgba(67, 56, 202, .045), rgba(67, 56, 202, 0) 62%),
-      var(--ob-paper);
-    border: 1px solid #e4e8f5;
-    border-radius: 15px; padding: 15px 17px 14px;
-    box-shadow: 0 1px 2px rgba(16, 24, 40, .04);
-    transition: transform .16s ease, box-shadow .16s ease,
-                border-color .16s ease;
-  }
   /*
-    THE RAIL ACROSS THE TOP SAYS WHICH KIND OF CARD THIS IS.
+    THE FOUR TILES ARE THE SHARED .tile NOW - the same component, tones
+    and washes the KPI Engine's figures use, out of Styles.html. They
+    used to be a card of their own: a white box with a coloured rail
+    across the top, two screens away from tiles that are washed in their
+    tone and carry the icon beside the label. Two components for one job
+    is how a page stops looking like one page.
 
-    Four identical cards differing only in their words made you read all
-    four to find the one that needed attention. The rail, the icon and
-    the meter all carry one tone, so the shape of the month is legible
-    before any of the text is - and the tones are the same four the
-    squares use, so green means the same thing everywhere on this page.
+    What is left here is only what this page adds to them: a slightly
+    tighter grid, the unit beside the figure, and a meter that can be
+    segmented where the tile is comparing two things.
   */
-  .obj-stat::before {
-    content: ''; position: absolute; left: 0; right: 0; top: 0; height: 3px;
-    background: linear-gradient(90deg, var(--ob-band-2), var(--ob-band-3));
-    opacity: .5;
-  }
-  .obj-stat.is-good::before   { background: #12b76a; opacity: .85; }
-  .obj-stat.is-behind::before { background: #f04438; opacity: .85; }
-  .obj-stat.is-waiting::before{ background: #f79009; opacity: .85; }
-  .obj-stat.is-quiet::before  { background: #98a2b3; opacity: .7; }
-  .obj-stat:hover {
-    transform: translateY(-2px);
-    border-color: #c7d2f7;
-    box-shadow: 0 10px 24px -12px rgba(49, 46, 129, .34);
-  }
-
-  .obj-stat-h {
-    display: flex; align-items: flex-start; justify-content: space-between;
-    gap: 10px;
-  }
-  .obj-stat-l {
-    font-size: 11.6px; color: var(--ob-dim); font-weight: 530;
-    letter-spacing: .1px;
-  }
-  /* The icon chip, tinted to the card's tone. Decoration that carries
-     meaning: it is the same signal as the rail, where the eye already is. */
-  .obj-stat-i {
-    flex: none; width: 28px; height: 28px; border-radius: 9px;
-    display: grid; place-items: center;
-    background: #eef1f8; color: #667085;
-  }
-  .obj-stat-i svg { width: 15px; height: 15px; }
-  .obj-stat.is-good .obj-stat-i    { background: #e7f8ef; color: #039855; }
-  .obj-stat.is-behind .obj-stat-i  { background: #fdeceb; color: #d92d20; }
-  .obj-stat.is-waiting .obj-stat-i { background: #fef3e2; color: #dc6803; }
-  .obj-stat.is-quiet .obj-stat-i   { background: #eef1f8; color: #667085; }
-
-  .obj-stat-v {
-    font-size: 31px; font-weight: 300; letter-spacing: -1.2px;
-    margin-top: 4px; line-height: 1;
-  }
-  .obj-stat-v em {
-    font-size: 14px; font-style: normal; color: var(--ob-faint);
-    font-weight: 400; letter-spacing: 0;
+  .obj-stats { gap: 14px; margin-bottom: 24px; }
+  #objStats .tile-value em {
+    font-size: 15px; font-style: normal; font-weight: 400;
+    letter-spacing: 0; color: var(--text-dim); margin-left: 4px;
   }
   /*
-    ONE TRACK, SEGMENTED. Where a card is comparing two things - the ones
+    ONE TRACK, SEGMENTED. Where a tile is comparing two things - the ones
     on schedule against the ones that are not - they belong in the same
-    bar, because that comparison is the whole of what the card says.
+    bar, because that comparison is the whole of what it says.
   */
-  .obj-stat-b {
-    display: flex; gap: 2px; height: 6px; border-radius: 4px;
-    background: #eef0f5; overflow: hidden; margin-top: 11px;
-  }
-  .obj-stat-b i { display: block; height: 100%; }
-  .obj-stat-b i.is-g { background: linear-gradient(90deg, #32d583, #12b76a); }
-  .obj-stat-b i.is-r { background: linear-gradient(90deg, #fda29b, #f04438); }
-  .obj-stat-b i.is-a { background: linear-gradient(90deg, #fec84b, #f79009); }
-  .obj-stat-b i.is-n { background: linear-gradient(90deg, #cdd3e1, #98a2b3); }
-
-  .obj-stat-f {
-    margin-top: 9px; font-size: 11.4px; line-height: 1.4;
-    color: var(--ob-faint);
-  }
+  #objStats .tile-bar { display: flex; gap: 2px; }
+  #objStats .tile-bar i.is-g { background: #12b76a; }
+  #objStats .tile-bar i.is-r { background: #f04438; }
+  #objStats .tile-bar i.is-a { background: #f79009; }
+  #objStats .tile-bar i.is-n { background: #98a2b3; }
 
   /* ---------------- the month picker ---------------- */
   .obj-listhead {

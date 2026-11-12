@@ -300,9 +300,13 @@ const stub = `
     sheet. Recording it is the mark; the month it was recorded in is what
     tells green from yellow. See objPlanMonthState on the server.
   */
-  function objPlanMonth(m, entry, period) {
+  function objPlanMonth(m, entry, period, fraction) {
     if (m.auto) {
-      return { state: period > OBJ_NOW ? 'pending' : 'done', at: 0 };
+      // Coloured by what was counted, not by whether counting worked.
+      if (period > OBJ_NOW) return { state: 'pending', at: 0 };
+      var got = Number(fraction) || 0;
+      return { state: got >= 1 ? 'done' : (got > 0 ? 'part' : 'missed'),
+               at: 0 };
     }
     // THE MARK IS THE WHOLE ANSWER. A figure left behind by an un-tick
     // must not keep the square lit - see objPlanMonthState on the server.
@@ -1424,11 +1428,13 @@ const stub = `
               history: e ? (e.history || []) : [],
               months: OBJ_PERIODS.map(function (p) {
                 var pe = OBJ_LOG[p + '|PLAN|' + m.id];
-                var ms = objPlanMonth(m, pe, p);
+                var ms = objPlanMonth(m, pe, p, objFraction(m, p));
                 return { period: p, recorded: Boolean(pe),
                          fraction: objFraction(m, p),
                          status: pe ? pe.status : '',
                          state: ms.state, at: ms.at,
+                         says: m.auto ? (Math.round(objFraction(m, p) * 100) +
+                                         '% counted') : '',
                          note: (pe && pe.notes && pe.notes['0']) || null };
               })
             };

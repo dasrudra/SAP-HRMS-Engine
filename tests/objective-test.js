@@ -1945,15 +1945,52 @@ function load(opts) {
                           '2026-11', now).state === 'pending');
 
   /*
-    AND THE THREE THE PORTAL COUNTS ITSELF ARE NEVER LATE OR MISSED.
-    Nobody records them by hand, so a red square would be the page
-    complaining that an automatic thing was not done manually.
+    A COUNTED MONTH IS COLOURED BY WHAT WAS COUNTED, not by whether the
+    portal was able to count it.
+
+    It used to go green for any month that had begun, because the
+    counting always succeeds - so a milestone reading "0 of 85 due so
+    far" drew a green October underneath it. The page was saying the
+    month was fine on a month where nothing had been recorded at all.
+    There is no mark here and never will be; the only thing the square
+    knows is how the figure did.
   */
   const auto = { id: 'OBJ-001', auto: 'UNIQUE_ROLES' };
-  check('a counted milestone is not marked down for an empty log row',
-    ctx.objPlanMonthState(auto, null, '2026-10', now, true).state === 'done' &&
-    ctx.objPlanMonthState(auto, null, '2027-02', now, true).state ===
+  check('a counted month that met its target is green',
+    ctx.objPlanMonthState(auto, null, '2026-10', now, true, 1).state === 'done');
+  check('one that got part of the way is amber, not green',
+    ctx.objPlanMonthState(auto, null, '2026-10', now, true, 0.4).state ===
+      'part');
+  check('and one where nothing was counted at all is red',
+    ctx.objPlanMonthState(auto, null, '2026-10', now, true, 0).state ===
+      'missed',
+    ctx.objPlanMonthState(auto, null, '2026-10', now, true, 0).state);
+  check('a month that has not come round is still blank',
+    ctx.objPlanMonthState(auto, null, '2027-02', now, true, 0).state ===
       'pending');
+
+  /*
+    AND THE NUMBERS TRAVEL WITH THE COLOUR.
+
+    "Red" on a counted milestone has to be readable as "nothing was
+    recorded that month", not guessed at. The square carries the figure
+    it was coloured from, so the colour is never the whole story.
+  */
+  const page = ctx.getObjectives('t', '2026-11');
+  let counted = null;
+  page.plan.rows.forEach(function (row) {
+    row.milestones.forEach(function (x) {
+      if (x.auto === 'UNIQUE_ROLES') counted = x;
+    });
+  });
+  check('a counted month says how many were on schedule',
+    /^\d+ of \d+ on schedule$/.test(
+      counted.months.filter((x) => x.period === '2026-11')[0].says),
+    counted.months.filter((x) => x.period === '2026-11')[0].says);
+  check('and a typed milestone carries no such line, having nothing counted',
+    page.plan.rows.reduce(function (hit, row) {
+      return hit || row.milestones.filter((x) => !x.auto)[0];
+    }, null).months[0].says === '');
 }
 
 // ===========================================================================

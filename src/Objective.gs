@@ -1059,11 +1059,31 @@ function objCellTimes(cells) {
  * month is - so marking them red for an empty log row would be the page
  * complaining that an automatic thing was not done by hand.
  */
-function objPlanMonthState(milestone, entry, period, now, counted) {
+function objPlanMonthState(milestone, entry, period, now, counted, fraction) {
   if (milestone.auto) {
+    /*
+      A COUNTED MONTH IS COLOURED BY WHAT WAS COUNTED.
+
+      It used to go green for any month the portal could count at all -
+      which is every month that has begun - so a milestone reading "0 of
+      85 due so far" drew a green October underneath it. That is the
+      page saying the month was fine on a month where nothing was
+      recorded at all, and it is worse than no colour.
+
+      There is no mark to show here and never will be: nobody records
+      these by hand. So the square says how the counted figure did,
+      which is the only thing it knows - met it, part of it, or none of
+      it. The tooltip carries the actual numbers so the colour is never
+      the whole story.
+    */
     const current = objPeriodOf(objDate(now) || new Date());
     if (period > current) return { state: 'pending', at: 0, auto: true };
-    return { state: counted ? 'done' : 'pending', at: 0, auto: true };
+    if (!counted) return { state: 'pending', at: 0, auto: true };
+    const got = Number(fraction) || 0;
+    return {
+      state: got >= 1 ? 'done' : (got > 0 ? 'part' : 'missed'),
+      at: 0, auto: true
+    };
   }
 
   /*
@@ -1085,6 +1105,18 @@ function objPlanMonthState(milestone, entry, period, now, counted) {
                              entry ? entry.markedAt : null);
   const cell = state.cells[0] || { state: 'pending', at: 0 };
   return { state: cell.state, at: cell.at, auto: false };
+}
+
+
+/** 'nine of eighty-five on schedule', for a counted month's tooltip. */
+function objCountedSays(milestone, auto, scored) {
+  if (milestone.auto === 'UNIQUE_ROLES') {
+    const u = auto.UNIQUE_ROLES;
+    if (!u) return '';
+    return u.on + ' of ' + u.due + ' on schedule';
+  }
+  if (!scored) return '';
+  return scored.value + ' of ' + scored.target;
 }
 
 
@@ -1520,8 +1552,17 @@ function getObjectives(token, period) {
         // month and the pips are the only place that shows the shape of it.
         const months = periods.map(function (p) {
           const e = log.byKey[objLogKey(p, OBJ_KIND_PLAN, m.id)];
+          /*
+            A counted milestone needs its figure for that month to be
+            coloured by it; a typed one is coloured by its mark and does
+            not need scoring six times over on every page load.
+          */
+          const ms = m.auto
+            ? objMilestoneScore(m, log, p, { auto: autoAll[p] || {} })
+            : null;
           const st = objPlanMonthState(m, e, p, now,
-                                       Boolean((autoAll[p] || {})[m.auto]));
+                                       Boolean((autoAll[p] || {})[m.auto]),
+                                       ms ? ms.fraction : 0);
           /*
             EVERY MONTH"S NOTE, not only the one on screen.
 
@@ -1535,6 +1576,9 @@ function getObjectives(token, period) {
             period: p,
             state: st.state,
             at: st.at,
+            // What the portal counted that month, for the tooltip. The
+            // colour alone cannot say "0 of 85"; this can.
+            says: ms ? objCountedSays(m, autoAll[p] || {}, ms) : '',
             note: (e && e.notes && e.notes['0']) || null
           };
         });

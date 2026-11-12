@@ -194,8 +194,8 @@
    * an answer when it turns up, and the one thing worth doing with it is
    * going to the screen a shared link pointed at.
    */
-  const URL_WAS = { asked: false, ready: false, params: null,
-                    waiting: [], late: [] };
+  const URL_WAS = { asked: false, ready: false, answered: false,
+                    params: null, waiting: [], late: [] };
 
   function urlParams(done) {
     if (URL_WAS.ready) return done(URL_WAS.params);
@@ -216,6 +216,7 @@
       if (window.google && google.script && google.script.url) {
         google.script.url.getLocation(function (location) {
           const p = (location && location.parameter) || {};
+          URL_WAS.answered = true;
           if (URL_WAS.ready) {
             // It arrived after we gave up. Still worth having.
             URL_WAS.params = p;
@@ -1874,6 +1875,25 @@
   }
 
 
+  /**
+   * Keeps the page on its loader while it does not yet know what to show.
+   *
+   * The home view is not hidden in the markup - it is what the page looks
+   * like before any of this runs - so "do not show Home yet" means hiding
+   * every view, not choosing a different one.
+   */
+  function holdScreen(on) {
+    try {
+      const loader = document.getElementById('loader');
+      if (loader) loader.hidden = !on;
+      if (!on) return;
+      document.querySelectorAll('.view').forEach(function (el) {
+        el.hidden = true;
+      });
+    } catch (e) { /* nothing to hold - let the page do what it would */ }
+  }
+
+
   function restoreState(done) {
     let settled = false;
 
@@ -1935,8 +1955,36 @@
     */
     urlParams(function (p) {
       if (p.view || p.month) return finish(p);
-      finish(readStorage() ||
-             (state.lastView ? { view: state.lastView } : null));
+
+      const remembered = readStorage() ||
+        (state.lastView ? { view: state.lastView } : null);
+      if (remembered || URL_WAS.answered) return finish(remembered);
+
+      /*
+        NOTHING KNOWS WHERE TO GO, AND THE ADDRESS BAR HAS NOT ANSWERED.
+
+        Not "answered with nothing" - not answered at all, which is the
+        one case left where this page used to land on Home and then jump
+        somewhere else a few seconds later. Painting the wrong screen
+        and correcting it is the worst of the three things it could do:
+        it looks broken, it loads data nobody asked for, and it moves
+        under somebody who has started reading.
+
+        So it waits, with the loader still up, for the answer it already
+        asked for. Six seconds is longer than this has ever taken and
+        short enough not to look stuck; after that Home is the honest
+        answer, because by then nothing is going to tell us otherwise.
+      */
+      holdScreen(true);
+      const giveUp = setTimeout(function () {
+        holdScreen(false);
+        finish(null);
+      }, 6000);
+      urlParamsLate(function (late) {
+        clearTimeout(giveUp);
+        holdScreen(false);
+        if (!settled) finish((late.view || late.month) ? late : null);
+      });
     });
 
     // And if it turns up after everything gave up on it, it still names
@@ -9348,6 +9396,20 @@
    * `parts` is what goes in the meter: [{pct, tone}], drawn left to right
    * in one track. One part is a plain bar; two is a comparison.
    */
+  /*
+    THE SAME TILE THE KPI PAGES USE, not a second one that looks like it.
+
+    These were a card of their own - a white box with a coloured rail
+    across the top - sitting two screens away from the tiles on the KPI
+    Engine, which are washed in their tone and carry the icon beside the
+    label. Two components for one job is how a page stops looking like
+    one page. This is .tile out of the shared stylesheet, with its own
+    tone families, so there is one place to change how a figure tile
+    looks and the Objectives page follows it.
+  */
+  const OBJ_TILE_TONE = { good: 't-g', behind: 't-r', waiting: 't-a',
+                          quiet: 't-blue' };
+
   function objTile(o) {
     let meter = '';
     (o.parts || []).forEach(function (part) {
@@ -9356,15 +9418,15 @@
         Math.max(1.5, Math.min(100, part.pct)) + '%"></i>';
     });
 
-    return '<div class="obj-stat is-' + o.tone + '">' +
-      '<div class="obj-stat-h">' +
-        '<span class="obj-stat-l">' + escapeHtml(o.label) + '</span>' +
-        '<span class="obj-stat-i">' + objIcon(o.icon) + '</span>' +
+    return '<div class="tile ' + (OBJ_TILE_TONE[o.tone] || 't-blue') + '">' +
+      '<div class="tile-top">' +
+        '<span class="tile-ico">' + objIcon(o.icon) + '</span>' +
+        '<span class="tile-label">' + escapeHtml(o.label) + '</span>' +
       '</div>' +
-      '<div class="obj-stat-v">' + o.value +
+      '<div class="tile-value">' + o.value +
         (o.unit ? '<em>' + escapeHtml(o.unit) + '</em>' : '') + '</div>' +
-      '<div class="obj-stat-b">' + meter + '</div>' +
-      '<div class="obj-stat-f">' + o.foot + '</div>' +
+      (meter ? '<div class="tile-bar">' + meter + '</div>' : '') +
+      '<div class="tile-note">' + o.foot + '</div>' +
     '</div>';
   }
 
@@ -10037,7 +10099,14 @@
    * when it was made against when its period closed - and only the server
    * knows the first and should be trusted on the second.
    */
-  const OBJ_CELL = { done: 'is-y', late: 'is-l', missed: 'is-n', pending: '' };
+  /*
+    `part` is a counted milestone that got some of the way. It only ever
+    appears on the three the portal counts for itself, where there is no
+    mark to make and the square says how the figure did instead - so it
+    is amber like a late mark, and the tooltip carries the numbers.
+  */
+  const OBJ_CELL = { done: 'is-y', late: 'is-l', missed: 'is-n',
+                     part: 'is-l', pending: '' };
 
   /*
     THE RING GOES ROUND THE SLOT IN PROGRESS, which is the last OPEN one
@@ -10272,7 +10341,10 @@
       if ((mo.state === 'late' || mo.state === 'done') && mo.at) {
         title += ' - ' + objMarkedWhen(mo.at);
       }
-      if (m.auto) title += ' - counted by the portal, nothing to tick';
+      if (m.auto) {
+        title += mo.says ? ' - ' + mo.says
+                         : ' - counted by the portal, nothing to tick';
+      }
       if (has) title += ' - has a note';
       /*
         STILL PRESSABLE WHEN THERE IS NOTHING TO TICK.
