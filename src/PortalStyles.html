@@ -4407,6 +4407,37 @@
     content: ''; position: absolute; left: 0; right: 0; bottom: 0;
     height: 1px; background: rgba(255, 255, 255, .16);
   }
+
+  /*
+    THE PAGE IS WAITING, said in a line rather than a spinner.
+
+    What is on screen while a refresh is in flight is usually still
+    correct - a section that was fetched a minute ago - so covering it with
+    an overlay would undo the whole point of drawing it at once. A moving
+    line under the band says "there is more coming" without taking the page
+    away from somebody who can already read it.
+  */
+  #view-minutes.is-busy .mn-band::after {
+    background: linear-gradient(90deg,
+      rgba(255, 255, 255, .16) 0%, rgba(255, 255, 255, .16) 30%,
+      #a5b4fc 45%, #c7d2fe 55%, rgba(255, 255, 255, .16) 70%,
+      rgba(255, 255, 255, .16) 100%);
+    background-size: 260% 100%;
+    height: 2px;
+    animation: mn-wait 1.1s linear infinite;
+  }
+  @keyframes mn-wait {
+    from { background-position: 130% 0; }
+    to   { background-position: -130% 0; }
+  }
+  /*
+    Nobody should watch a bar to find out whether a click registered, so
+    this is deliberately quiet and deliberately not on the critical path:
+    a browser that honours prefers-reduced-motion simply gets the line.
+  */
+  @media (prefers-reduced-motion: reduce) {
+    #view-minutes.is-busy .mn-band::after { animation: none; }
+  }
   .mn-band-in {
     position: relative; z-index: 1;
     max-width: 1500px; margin: 0 auto; padding: 0 28px;
@@ -4430,8 +4461,8 @@
     flex-wrap: wrap;
   }
   .mn-tab {
-    font: inherit; font-size: 13px; font-weight: 580; cursor: pointer;
-    padding: 9px 15px; border-radius: 9px; border: 0; background: none;
+    font: inherit; font-size: 12.4px; font-weight: 580; cursor: pointer;
+    padding: 9px 13px; border-radius: 9px; border: 0; background: none;
     color: rgba(255, 255, 255, .76);
     display: flex; align-items: center; gap: 7px; white-space: nowrap;
     transition: background .14s, color .14s;

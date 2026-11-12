@@ -2140,6 +2140,15 @@ ${embed(read('Minutes.gs'))}
             */
             try {
               if (onOk) {
+                /*
+                  EVERY CALL IS COUNTED. "How many times does pressing this
+                  button ask the server" is not a question the page can be
+                  asked afterwards, and it is exactly the question behind
+                  a screen that feels slow - a save that writes and then
+                  reads the whole page back is two waits for one press.
+                */
+                window.__CALLS__ = window.__CALLS__ || {};
+                window.__CALLS__[name] = (window.__CALLS__[name] || 0) + 1;
                 var got = HANDLERS[name].apply(null, args);
                 onOk(got === undefined ? got
                      : JSON.parse(JSON.stringify(got)));

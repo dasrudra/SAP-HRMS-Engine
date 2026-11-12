@@ -172,6 +172,24 @@ function apart(a, b) {
     lum(sideInk) < 0.3, 'ink ' + lum(sideInk).toFixed(3));
 
   check('all four sections have a tab', (await p.$$('.mn-tab')).length === 4);
+  /*
+    BY THEIR SECTION NAME, which is what the organogram and the TEAM tab
+    call them. The first version used the module shorthand - FI / CO, SD &
+    MM_PUR - which is what the DECKS are called, not what the sections are.
+  */
+  check('and each is named for its section, not its modules',
+    (await p.$$eval('.mn-tab', (ns) => ns.map((n) =>
+      n.firstChild.textContent.trim()))).join(' | ') ===
+    'Financial Applications | Sales & Customer Applications | ' +
+    'Supply Chain Applications | Manufacturing Applications',
+    (await p.$$eval('.mn-tab', (ns) => ns.map((n) =>
+      n.firstChild.textContent.trim()))).join(' | '));
+  check('the nav calls the page By-Weekly',
+    await p.$eval('.portal-tab[data-view="minutes"]',
+      (n) => n.textContent.trim()) === 'By-Weekly');
+  check('and the page calls itself By-Weekly Meeting Minutes',
+    await p.$eval('.mn-h1', (n) => n.textContent.trim()) ===
+    'By-Weekly Meeting Minutes');
   check('and the one that is open is marked',
     await p.$eval('.mn-tab.is-on', (n) => n.getAttribute('data-mn-section')) === 'SCA');
 
@@ -402,6 +420,69 @@ function apart(a, b) {
     rowsOf(await stored('SCA-20261110'), 'mdIssue')[0][1]
       .indexOf('STILL BEING WRITTEN') !== -1,
     JSON.stringify(rowsOf(await stored('SCA-20261110'), 'mdIssue')[0][1]));
+
+  // =========================================================================
+  // 6c. what pressing things costs
+  // =========================================================================
+  /*
+    THE COMPLAINT THAT STARTED THIS SECTION, measured rather than felt.
+
+    Off a screen recording, pressing a section tab did nothing at all for
+    between one and a half and three and a half seconds: no highlight, no
+    movement, nothing, because the tabs were redrawn from the server's
+    answer. Three things fix it and all three are asserted here - the press
+    is acknowledged at once, a section already fetched is drawn from memory,
+    and a save is one round trip rather than two.
+  */
+  const calls = () => p.evaluate(() => Object.assign({}, window.__CALLS__));
+
+  // ---- the press is acknowledged before anything is fetched ----
+  await p.evaluate(() => {
+    document.querySelector('[data-mn-section="FICO"]').click();
+  });
+  const marked = await p.$eval('[data-mn-section="FICO"]',
+    (n) => n.classList.contains('is-on'));
+  check('a tab lights up on the press, not on the answer', marked === true);
+  check('and the one left behind goes out at the same moment',
+    await p.$eval('[data-mn-section="SCA"]',
+      (n) => n.classList.contains('is-on')) === false);
+  check('and the page shows it is waiting',
+    await p.$eval('#view-minutes', (n) => n.classList.contains('is-busy')) === true);
+  await p.waitForTimeout(900);
+  check('and stops when the answer lands',
+    await p.$eval('#view-minutes', (n) => n.classList.contains('is-busy')) === false);
+
+  // ---- a section already fetched costs nothing to go back to ----
+  const beforeBack = (await calls()).getMinutes;
+  await p.evaluate(() => {
+    document.querySelector('[data-mn-section="SCA"]').click();
+  });
+  const drewAtOnce = await p.$eval('#mnStage',
+    (n) => n.querySelectorAll('[data-mn-block]').length);
+  check('going back to a section already fetched draws it at once',
+    drewAtOnce > 0, drewAtOnce + ' blocks, synchronously');
+  await p.waitForTimeout(900);
+  check('and still refreshes it behind the drawing',
+    (await calls()).getMinutes === beforeBack + 1,
+    beforeBack + ' -> ' + (await calls()).getMinutes);
+
+  // ---- a save is one round trip ----
+  const beforeSave = await calls();
+  await p.click(cell);
+  await p.keyboard.press('End');
+  await p.keyboard.type('.');
+  await p.click('[data-mn-save]');
+  await p.waitForTimeout(1400);
+  const afterSave = await calls();
+  check('a save writes once',
+    (afterSave.saveMinutes || 0) === (beforeSave.saveMinutes || 0) + 1,
+    (beforeSave.saveMinutes || 0) + ' -> ' + (afterSave.saveMinutes || 0));
+  check('and does not read the whole page back afterwards',
+    (afterSave.getMinutes || 0) === (beforeSave.getMinutes || 0),
+    (beforeSave.getMinutes || 0) + ' -> ' + (afterSave.getMinutes || 0));
+  check('while still showing what the server stored, not what was typed',
+    (await p.$eval('#mnSaid', (n) => n.textContent)).indexOf('Saved by') === 0,
+    await p.$eval('#mnSaid', (n) => n.textContent));
 
   // =========================================================================
   // 7. adding and removing a row

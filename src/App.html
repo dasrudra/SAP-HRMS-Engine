@@ -11521,7 +11521,26 @@
     dirty: false,       // something has been typed since the last save
     busy: false,        // a save is in flight
     present: false,
-    fitted: ''          // the last fit applied, to skip pointless restyles
+    fitted: '',         // the last fit applied, to skip pointless restyles
+    /*
+      WHAT HAS ALREADY BEEN FETCHED, by section.
+
+      The four tabs were a full round trip each, every time, including
+      going back to one looked at ten seconds earlier. Measured off a
+      screen recording that was between one and a half and three and a
+      half seconds of nothing happening per press. A section already
+      fetched is drawn from here at once and refreshed quietly behind the
+      drawing, so the second visit costs nothing and the first costs what
+      it has to.
+    */
+    cache: {},
+    /*
+      Which request the page is still interested in. Answers come back in
+      whatever order the bridge delivers them, so without this a slow
+      answer for the tab somebody has already left lands on top of the one
+      they are looking at.
+    */
+    want: 0
   };
 
   // The canvas every slide is drawn on, before scaling. 16:9.
@@ -11531,26 +11550,80 @@
 
   function loadMinutes(section, id) {
     const stage = document.getElementById('mnStage');
-    if (stage && !MIN.data) {
+    const code = String(section || MIN.section || '').toUpperCase();
+
+    /*
+      DRAW WHAT WE ALREADY HAVE, FIRST. A section looked at before is on
+      screen immediately and the request behind it only corrects it. The
+      page stops being a sequence of waits and becomes a page that is
+      occasionally a few seconds out of date, which is the right trade for
+      four tabs over a bridge this slow.
+    */
+    const had = !id && code && MIN.cache[code];
+    if (had) {
+      MIN.data = had;
+      MIN.section = had.section;
+      MIN.id = had.meeting ? had.meeting.id : '';
+      MIN.dirty = false;
+      renderMin(had);
+    } else if (stage && !MIN.data) {
       stage.innerHTML = '<div class="mn-wait">Loading the meetings...</div>';
     }
 
-    callServer('getMinutes', section || MIN.section || '', id || '')
+    minBusy(true);
+    const mine = ++MIN.want;
+
+    callServer('getMinutes', code, id || '')
       .then(function (data) {
-        MIN.data = data;
-        MIN.section = data.section;
-        MIN.id = data.meeting ? data.meeting.id : '';
-        MIN.dirty = false;
-        renderMin(data);
+        // Somebody has pressed something else since. Keep the answer for
+        // when they come back, and leave the screen alone.
+        minTake(data);
+        if (mine !== MIN.want) return;
+        minBusy(false);
+        minShow(data);
       })
       .catch(function (err) {
-        if (stage) {
+        if (mine !== MIN.want) return;
+        minBusy(false);
+        if (stage && !MIN.data) {
           stage.innerHTML = '<div class="mn-empty"><strong>Could not load</strong>' +
             '<span>' + escapeHtml(String(err && err.message || err)) +
             '</span></div>';
+        } else {
+          minSay('That did not refresh: ' +
+                 String(err && err.message || err), true);
         }
         onError(err);
       });
+  }
+
+
+  /** Keep a payload for next time, whether or not it is wanted now. */
+  function minTake(data) {
+    if (data && data.section) MIN.cache[data.section] = data;
+  }
+
+
+  /** Put a payload on screen. */
+  function minShow(data) {
+    MIN.data = data;
+    MIN.section = data.section;
+    MIN.id = data.meeting ? data.meeting.id : '';
+    MIN.dirty = false;
+    renderMin(data);
+  }
+
+
+  /**
+   * The page is waiting on the server.
+   *
+   * A thin line under the band rather than a spinner over the content: the
+   * content is usually still correct, just possibly a few seconds old, and
+   * covering it over would undo the point of drawing it at once.
+   */
+  function minBusy(on) {
+    const view = document.getElementById('view-minutes');
+    if (view) view.classList.toggle('is-busy', Boolean(on));
   }
 
 
@@ -12228,10 +12301,15 @@
       }
       minDirty(false);
       minSay('Saved.');
-      // Re-read rather than patch what is on screen: the server trims,
-      // caps and rebuilds every cell, and a page that kept its own version
-      // of what it just sent is a page that disagrees with the sheet.
-      loadMinutes(MIN.section, MIN.id);
+      /*
+        THE ANSWER IS THE PAGE. The server trims, caps and rebuilds every
+        cell, so what is on screen has to be replaced by what it stored -
+        but it sends that back with the save now, so this costs nothing.
+        It used to be a second round trip, which doubled the wait on the
+        one button people press most.
+      */
+      if (res.data) { minTake(res.data); minShow(res.data); }
+      else loadMinutes(MIN.section, MIN.id);
     }).catch(function (err) {
       MIN.busy = false;
       minSay(String(err && err.message || err), true);
@@ -12272,7 +12350,8 @@
           ? 'Started, copied from ' + minNiceDate((last && last.date) || '') +
             '. Change what has moved on.'
           : 'Started from this section\u2019s standing agenda.');
-        loadMinutes(MIN.section, res.id);
+        if (res.data) { minTake(res.data); minShow(res.data); }
+        else loadMinutes(MIN.section, res.id);
       })
       .catch(function (err) {
         MIN.busy = false;
@@ -12301,7 +12380,8 @@
       MIN.id = '';
       minDirty(false);
       minSay('Deleted.');
-      loadMinutes(MIN.section, '');
+      if (res.data) { minTake(res.data); minShow(res.data); }
+      else loadMinutes(MIN.section, '');
     }).catch(function (err) {
       MIN.busy = false;
       minSay(String(err && err.message || err), true);
@@ -12321,7 +12401,8 @@
           return;
         }
         minSay(final ? 'Marked final.' : 'Back to draft.');
-        loadMinutes(MIN.section, MIN.id);
+        if (res.data) { minTake(res.data); minShow(res.data); }
+        else loadMinutes(MIN.section, MIN.id);
       })
       .catch(function (err) {
         MIN.busy = false;
@@ -12339,8 +12420,32 @@
     }
     minDirty(false);
     minSay('');
-    if (section) MIN.section = section;
+    if (section) { MIN.section = section; minMarkTab(section); }
     loadMinutes(section || MIN.section, id || '');
+  }
+
+
+  /**
+   * Light the pressed tab up now, before anything is fetched.
+   *
+   * THE WHOLE COMPLAINT, in one function. The tabs were redrawn from the
+   * server's answer, so pressing one did nothing at all for between one and
+   * a half and three and a half seconds - no highlight, no movement,
+   * nothing. People press it again. A control that does not acknowledge the
+   * press is broken however fast the thing behind it is, and this is the
+   * half of the fix that does not depend on the network at all.
+   */
+  function minMarkTab(code) {
+    document.querySelectorAll('[data-mn-section]').forEach(function (el) {
+      const on = el.getAttribute('data-mn-section') === code;
+      el.classList.toggle('is-on', on);
+      el.setAttribute('aria-selected', on ? 'true' : 'false');
+    });
+    const head = document.getElementById('mnSideHead');
+    const known = ((MIN.data && MIN.data.sections) || []).filter(function (x) {
+      return x.code === code;
+    })[0];
+    if (head && known) head.textContent = known.name;
   }
 
 

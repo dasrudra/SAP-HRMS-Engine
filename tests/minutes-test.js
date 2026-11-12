@@ -301,15 +301,51 @@ function meeting(id, code, date, body, extra) {
   check('and an unknown code is null', ctx.minSection('XX') === null);
 
   /*
-    The four subs must be the organogram's own, because that is the join.
-    Spelt differently here, nobody can write anything and the only symptom
-    is a missing button.
+    THIS IS WHERE THE WORST BUG SO FAR GOT THROUGH, so the replacement is
+    worth explaining.
+
+    The assertion used to be that the four Sub-Departments here were exactly
+    the keys of CONFIG.SECTION_MODULES. That list is older than the TEAM tab
+    and still calls one section 'Sales Applications' where the directory
+    says 'Sales & Customer Applications' - so the test did not catch the
+    wrong name, it REQUIRED it, and a whole section lost its write button
+    with a green suite above it.
+
+    A unit test cannot know what the live TEAM tab says; only checkMinutes
+    can, which is why that now prints every Sub-Department it finds. What
+    IS checkable here is that the table is coherent: every section has at
+    least one spelling, no two sections claim the same one, and the older
+    Config.gs names all still resolve to something rather than being
+    dropped on the way.
   */
-  const subs = ctx.MIN_SECTIONS.map((s) => s.sub).sort();
-  const org = Object.keys(ctx.CONFIG.SECTION_MODULES).sort();
-  check('and the four subs are exactly the organogram sections',
-    JSON.stringify(subs) === JSON.stringify(org),
-    subs.join(' | ') + '   vs   ' + org.join(' | '));
+  const noSpelling = ctx.MIN_SECTIONS.filter(function (s) {
+    return !s.subs || !s.subs.length || !s.subs[0];
+  });
+  check('every section says how the directory spells it',
+    noSpelling.length === 0,
+    noSpelling.map(function (s) { return s.code; }).join(','));
+
+  const claimed = {};
+  const clash = [];
+  ctx.MIN_SECTIONS.forEach(function (s) {
+    (s.subs || []).forEach(function (name) {
+      const key = name.toUpperCase();
+      if (claimed[key]) clash.push(name + ': ' + claimed[key] + ' and ' + s.code);
+      claimed[key] = s.code;
+    });
+  });
+  check('and no two sections claim the same spelling',
+    clash.length === 0, clash.join('; '));
+
+  const orphan = Object.keys(ctx.CONFIG.SECTION_MODULES).filter(function (name) {
+    return !ctx.minSectionOfSub(name);
+  });
+  check('and every older Config.gs section name still resolves',
+    orphan.length === 0, orphan.join(' | '));
+
+  check('the tab shows the section\'s own name',
+    ctx.minSection('SDMM').name === 'Sales & Customer Applications',
+    ctx.minSection('SDMM').name);
 }
 
 
@@ -626,6 +662,23 @@ function meeting(id, code, date, body, extra) {
   check('a second meeting the same day gets its own id',
     again.ok === true && again.id === 'FICO-20261112-2', again.id);
 
+  /*
+    AND THE ANSWER CARRIES THE PAGE WITH IT.
+
+    A save used to be two round trips - write, then read the whole page back
+    - and over the Apps Script bridge that is two waits of a second or more
+    for one press of one button. The write answers with the page now, so a
+    page that still called getMinutes afterwards would be paying for a trip
+    it no longer needs.
+  */
+  check('starting a meeting answers with the page, not just an id',
+    Boolean(again.data) && again.data.ok === true,
+    JSON.stringify(Object.keys(again)));
+  check('and the new meeting is the one it opens',
+    again.data.meeting.id === again.id, again.data.meeting.id);
+  check('and the list in it already has it',
+    again.data.list.some(function (m) { return m.id === again.id; }));
+
   check('the lock was taken and released each time',
     ctx.__locks.taken === 2 && ctx.__locks.released === 2,
     ctx.__locks.taken + ' taken, ' + ctx.__locks.released + ' released');
@@ -745,6 +798,14 @@ function meeting(id, code, date, body, extra) {
     ctx.__tab.rows[1][4] + ' / ' + ctx.__tab.rows[1][5]);
   check('and minutesBy went into the body, because it is on the slide',
     bodyOf(ctx, 1).head.minutesBy === 'The minute taker');
+
+  check('a save answers with the page too',
+    Boolean(saved.data) && saved.data.meeting.id === 'PP-20261029',
+    JSON.stringify(Object.keys(saved)));
+  check('and what it carries is what was just written',
+    saved.data.meeting.blocks.filter(function (b) {
+      return b.id === 'ops';
+    })[0].rows[0][3] === 'Routing(Sweater)');
 
   check('who saved it is recorded', ctx.__tab.rows[1][8] === 'PP Member');
   check('with their employee ID', ctx.__tab.rows[1][9] === '20000042');
@@ -1139,7 +1200,19 @@ function meeting(id, code, date, body, extra) {
   ] } });
   const second = drifted.checkMinutes();
   check('a section the directory does not match is reported',
-    /Sales Applications/.test(second), second);
+    /NO DIRECTORY SECTION MATCHES[^\n]*Sales & Customer Applications/.test(second),
+    second);
+
+  /*
+    AND IT PRINTS WHAT THE DIRECTORY ACTUALLY SAYS. Naming the section that
+    did not match tells somebody that something is wrong and not what to
+    type; the two strings side by side is the whole diagnosis.
+  */
+  check('and every Sub-Department it found is listed beside it',
+    /Sub-Departments on the TEAM tab/.test(second) &&
+    /Sales Application\b/.test(second), second);
+  check('with the ones it could not place marked as such',
+    /not one of the four meeting sections/.test(second), second);
   check('and the ones that do match are not',
     !/NO DIRECTORY SECTION MATCHES[^\n]*Financial/.test(second), second);
   check('and that report does not sign off as healthy either',

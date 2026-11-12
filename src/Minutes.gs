@@ -122,6 +122,34 @@ function minMeetTab() {
  * that has not been updated yet, which is the state every deployment is in
  * for the few minutes between pasting one file and pasting the next.
  */
+/**
+ * A value worth not working out twice, for a few minutes.
+ *
+ * Never throws and never refuses to answer: CacheService is simply absent
+ * in some contexts, and a page that fell over because a cache was missing
+ * would be worse than a slow one. A failed read or write costs the speed
+ * and nothing else.
+ */
+function minCached(key, seconds, build) {
+  let cache = null;
+  try { cache = CacheService.getScriptCache(); } catch (e) { cache = null; }
+
+  if (cache) {
+    try {
+      const had = cache.get(key);
+      if (had) return JSON.parse(had);
+    } catch (e) { /* a bad entry is no entry */ }
+  }
+
+  const made = build();
+  if (cache) {
+    try { cache.put(key, JSON.stringify(made), seconds); }
+    catch (e) { /* too big, or unavailable; it still works, just slower */ }
+  }
+  return made;
+}
+
+
 function minTabName(name) {
   const sheets = (typeof CONFIG !== 'undefined' && CONFIG && CONFIG.SHEETS) || {};
   return sheets[name] || name;
@@ -168,8 +196,9 @@ function minTabName(name) {
 const MIN_SECTIONS = [
   {
     code: 'FICO',
-    name: 'FI / CO',
-    sub: 'Financial Applications',
+    name: 'Financial Applications',
+    short: 'FI / CO',
+    subs: ['Financial Applications'],
     title: 'Weekly Meeting (FI/CO)',
     purpose: 'To review Financial Application operational status across all ' +
              'plants, prevent issues and keep everyone aligned',
@@ -179,18 +208,29 @@ const MIN_SECTIONS = [
   },
   {
     code: 'SDMM',
-    name: 'SD & MM_PUR',
-    sub: 'Sales Applications',
+    name: 'Sales & Customer Applications',
+    short: 'SD & MM_PUR',
+    /*
+      TWO SPELLINGS, and the first is the one the directory uses.
+
+      Config.gs's SECTION_MODULES still calls this section 'Sales
+      Applications' - an older name that no longer matches the TEAM tab -
+      and seeding from that list cost the whole section its write button,
+      silently, until checkMinutes was run. Both are accepted so that
+      correcting one list does not break the other.
+    */
+    subs: ['Sales & Customer Applications', 'Sales Applications'],
     title: 'SD & MM_PUR Bi-Weekly Connect',
-    purpose: 'Sales & Customer Applications',
+    purpose: 'Sales and customer applications across all zones',
     layout: 'split',
     theme: { band: '#ffffff', head: '#deeaf6', ink: '#1d1d1b',
              rule: '#b4b4b4', title: '#7030a0' }
   },
   {
     code: 'SCA',
-    name: 'Supply Chain',
-    sub: 'Supply Chain Applications',
+    name: 'Supply Chain Applications',
+    short: 'Supply Chain',
+    subs: ['Supply Chain Applications'],
     title: 'Supply Chain Application',
     purpose: 'Master data and inventory management across all zones',
     layout: 'split',
@@ -199,8 +239,9 @@ const MIN_SECTIONS = [
   },
   {
     code: 'PP',
-    name: 'PP',
-    sub: 'Manufacturing Applications',
+    name: 'Manufacturing Applications',
+    short: 'PP',
+    subs: ['Manufacturing Applications'],
     title: 'Weekly Connect (PP)',
     purpose: 'To review operational status across all sites',
     layout: 'wide',
@@ -208,6 +249,7 @@ const MIN_SECTIONS = [
              rule: '#ffffff', title: '#ffffff' }
   }
 ];
+
 
 
 /** A section by its code, or null. */
@@ -231,9 +273,18 @@ function minSectionOfSub(sub) {
   const want = String(sub || '').trim().toUpperCase();
   if (!want) return '';
   for (let i = 0; i < MIN_SECTIONS.length; i++) {
-    if (MIN_SECTIONS[i].sub.toUpperCase() === want) return MIN_SECTIONS[i].code;
+    const spellings = MIN_SECTIONS[i].subs || [];
+    for (let k = 0; k < spellings.length; k++) {
+      if (spellings[k].toUpperCase() === want) return MIN_SECTIONS[i].code;
+    }
   }
   return '';
+}
+
+
+/** What to call a section in a sentence: its own name. */
+function minSubOf(section) {
+  return (section && section.subs && section.subs[0]) || '';
 }
 
 
@@ -821,8 +872,44 @@ function minWhoAmI(token) {
     me.remove = me.write.slice();
   }
 
+  /*
+    THE DIRECTORY READ IS CACHED, and leaving it uncached was most of why
+    this page felt slow.
+
+    Every call to getMinutes asked minWhoAmI which section somebody is in,
+    and minWhoAmI read the WHOLE TEAM tab to answer it - so switching
+    between the four tabs cost four full directory reads, measured off a
+    screen recording at between one and a half and three and a half seconds
+    each, with nothing on screen in between.
+
+    The answer is two short strings - your section, and whether you head one
+    - and neither changes during a sitting. Keyed on the employee ID and the
+    role, so signing in as an admin does not inherit the viewer's cached
+    answer. The same thing objWhoAmI does, and for the same reason.
+  */
   let team = null;
-  try { team = readTeam(); } catch (e) { team = null; }
+  try {
+    team = minCached('min.team.' + id + '.' + (admin ? 'a' : 'u'), 600,
+                     function () {
+      const read = readTeam();
+      // Trimmed to what this function uses. The whole directory carries
+      // photo URLs and phone numbers, which have no business in a cache
+      // and would push the entry past the 100KB one holds.
+      const flat = [];
+      const add = function (person, section) {
+        if (!person) return;
+        flat.push({ id: String(person.id || ''), name: person.name || '',
+                    leads: person.leads || '', section: section || '' });
+      };
+      add(read.lead, read.lead ? read.lead.section : '');
+      (read.sections || []).forEach(function (sec) {
+        add(sec.head, sec.name);
+        (sec.members || []).forEach(function (m) { add(m, sec.name); });
+      });
+      return { flat: flat };
+    });
+  } catch (e) { team = null; }
+
   if (!team) {
     me.reason = 'The team directory could not be read, so your section is ' +
                 'not known.';
@@ -830,17 +917,13 @@ function minWhoAmI(token) {
   }
 
   let found = null;
-  const look = function (person, section) {
-    if (!person || found) return;
-    if (String(person.id || '') === id) {
-      found = { person: person, section: section };
+  const everyone = (team && team.flat) || [];
+  for (let i = 0; i < everyone.length; i++) {
+    if (everyone[i].id === id) {
+      found = { person: everyone[i], section: everyone[i].section };
+      break;
     }
-  };
-  look(team.lead, team.lead ? team.lead.section : '');
-  (team.sections || []).forEach(function (s) {
-    look(s.head, s.name);
-    (s.members || []).forEach(function (m) { look(m, s.name); });
-  });
+  }
 
   if (!found) {
     me.reason = 'Your employee ID is not in the team directory, so there is ' +
@@ -936,8 +1019,20 @@ function minMayRemove(me, code) {
  */
 function getMinutes(token, section, meetingId) {
   requireSignedIn(token);
+  return minPayload(minWhoAmI(token), section, meetingId);
+}
 
-  const me = minWhoAmI(token);
+
+/**
+ * The same answer, for a caller that already knows who is asking.
+ *
+ * SPLIT OUT SO THAT A WRITE CAN ANSWER WITH IT. A save used to be two round
+ * trips - write, then read the whole page back - and over the Apps Script
+ * bridge that is two waits of a second or more each, for one press of one
+ * button. Now the write returns the page in its answer and the second trip
+ * is gone.
+ */
+function minPayload(me, section, meetingId) {
   const all = readMinutes();
 
   let want = null;
@@ -983,7 +1078,8 @@ function getMinutes(token, section, meetingId) {
       and the inline background came out as the word "undefined".
     */
     sections: MIN_SECTIONS.map(function (s) {
-      return { code: s.code, name: s.name, sub: s.sub, title: s.title,
+      return { code: s.code, name: s.name, short: s.short,
+               sub: minSubOf(s), title: s.title,
                purpose: s.purpose, layout: s.layout, theme: s.theme,
                count: counts[s.code], mayWrite: minMayWrite(me, s.code) };
     }),
@@ -1120,7 +1216,8 @@ function newMinutes(token, section, date, time) {
   const me = minWhoAmI(token);
   if (!minMayWrite(me, code)) {
     return { ok: false, error: me.reason ||
-             'Only ' + def.sub + ' can start a meeting in ' + def.name + '.' };
+             'Only ' + minSubOf(def) + ' can start a meeting in ' +
+             def.name + '.' };
   }
 
   const when = minDate(date);
@@ -1185,7 +1282,8 @@ function newMinutes(token, section, date, time) {
     ]);
 
     return { ok: true, id: id, copied: Boolean(previous),
-             from: previous ? previous.id : '' };
+             from: previous ? previous.id : '',
+             data: minPayload(me, code, id) };
   } finally {
     try { lock.releaseLock(); } catch (e) { /* released anyway */ }
   }
@@ -1229,7 +1327,7 @@ function saveMinutes(token, meetingId, update) {
     const def = minSection(meeting.section);
     if (!minMayWrite(me, meeting.section)) {
       return { ok: false, error: me.reason ||
-               'Only ' + (def ? def.sub : 'that section') +
+               'Only ' + (def ? minSubOf(def) : 'that section') +
                ' can write these minutes.' };
     }
 
@@ -1283,7 +1381,8 @@ function saveMinutes(token, meetingId, update) {
     history.unshift({ by: me.name, id: me.id, at: stamp, what: 'saved' });
     put(at.history, JSON.stringify(history.slice(0, MIN_HISTORY_KEPT)));
 
-    return { ok: true, id: id, at: stamp, by: me.name };
+    return { ok: true, id: id, at: stamp, by: me.name,
+             data: minPayload(me, meeting.section, id) };
   } finally {
     try { lock.releaseLock(); } catch (e) { /* released anyway */ }
   }
@@ -1329,7 +1428,8 @@ function deleteMinutes(token, meetingId) {
     }
 
     sheet.deleteRow(meeting.row);
-    return { ok: true, id: id };
+    return { ok: true, id: id,
+             data: minPayload(me, meeting.section, '') };
   } finally {
     try { lock.releaseLock(); } catch (e) { /* released anyway */ }
   }
@@ -1393,7 +1493,8 @@ function checkMinutes() {
   });
 
   MIN_SECTIONS.forEach(function (s) {
-    lines.push('  ' + s.code + '  ' + counts[s.code] + '  ' + s.sub);
+    lines.push('  ' + s.code + '  ' + counts[s.code] + '  ' +
+               minSubOf(s));
   });
 
   if (unreadable.length) {
@@ -1417,19 +1518,37 @@ function checkMinutes() {
   */
   try {
     const team = readTeam();
-    const seen = {};
-    (team.sections || []).forEach(function (s) { seen[s.name] = true; });
-    const missing = MIN_SECTIONS.filter(function (s) {
-      let hit = false;
-      Object.keys(seen).forEach(function (name) {
-        if (String(name).trim().toUpperCase() === s.sub.toUpperCase()) hit = true;
-      });
-      return !hit;
+    const names = (team.sections || []).map(function (sec) { return sec.name; });
+
+    /*
+      WHAT THE DIRECTORY ACTUALLY SAYS, printed every time rather than only
+      on a fault. The first version named the section that had not matched
+      and stopped there, which tells you something is wrong and not what to
+      type - and the thing it was failing against, 'Sales & Customer
+      Applications' against a seeded 'Sales Applications', is invisible
+      unless both strings are in front of you.
+    */
+    lines.push('Sub-Departments on the TEAM tab, and what each resolves to:');
+    names.forEach(function (name) {
+      const code = minSectionOfSub(name);
+      lines.push('  ' + (code || '--  ') + '  ' + name +
+                 (code ? '' : '   (not one of the four meeting sections)'));
+    });
+
+    const matched = {};
+    names.forEach(function (name) {
+      const code = minSectionOfSub(name);
+      if (code) matched[code] = true;
+    });
+    const missing = MIN_SECTIONS.filter(function (sec) {
+      return !matched[sec.code];
     });
     if (missing.length) {
       faults += missing.length;
       lines.push('NO DIRECTORY SECTION MATCHES, so nobody in it can write: ' +
-                 missing.map(function (s) { return s.sub; }).join(', '));
+                 missing.map(minSubOf).join(', '));
+      lines.push('  Fix the Sub-Department cell on TEAM, or add the spelling ' +
+                 'it uses to that section\'s `subs` in Minutes.gs.');
     }
   } catch (e) {
     faults++;
