@@ -81,7 +81,17 @@ const markupIds = {};
 const MADE_AT_RUNTIME = {
   // Drawn by App.html into the empty-state of the modules panel, then bound a
   // few lines later - see the "rebuild from modules" button.
-  rebuildFromModules: true
+  rebuildFromModules: true,
+
+  // The Minutes bar. renderMinBar() writes the whole strip into #mnBar on
+  // every draw, because what is in it depends on the meeting: the date and
+  // time are disabled for a section that is not yours, and Save, Delete and
+  // Mark final each appear only for somebody entitled to press them. Writing
+  // the controls into Portal.html and then hiding most of them for most
+  // people would put the permission rule in two places.
+  mnDate: true,
+  mnTime: true,
+  mnSave: true
 };
 
 const wanted = {};
