@@ -129,12 +129,16 @@ const FILE = 'file://' + PAGE;
   // not. Asserted as a whole rather than by counting, so a tab quietly
   // dropped or reordered is caught by name.
   //
-  // Minutes was added after that list and sits beside Objective, because the
-  // two are the same kind of screen - a working surface the team writes to -
-  // and because half of what a section's meeting reviews is on the Objective
-  // tab next door. Links stays last.
+  // By-Weekly was added after that list and sits beside Objective, because
+  // the two are the same kind of screen - a working surface the team writes
+  // to - and because half of what a section's meeting reviews is on the
+  // Objective tab next door. Links stays last.
+  //
+  // It is called By-Weekly and not Minutes because that is what the team
+  // calls the meetings; the view is still addressed as ?view=minutes, so
+  // nothing saved stops working.
   const WANTED = ['Home', 'About us', 'EAS Team', 'KPI Engine', 'Customers',
-                  'Learnings', 'Projects', 'Objective', 'Minutes', 'Links'];
+                  'Learnings', 'Projects', 'Objective', 'By-Weekly', 'Links'];
   check('all ten tabs are there, in the order they were given',
     JSON.stringify(tabs.map((t) => t.label)) === JSON.stringify(WANTED),
     tabs.map((t) => t.label).join(' | '));
