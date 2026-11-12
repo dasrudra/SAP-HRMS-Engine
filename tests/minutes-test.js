@@ -380,6 +380,105 @@ function meeting(id, code, date, body, extra) {
 
 
 // ===========================================================================
+// 2b. the seeds describe a table that can actually be drawn
+// ===========================================================================
+/*
+  THE SEEDS ARE A DRAWING INSTRUCTION, and a wrong one fails silently: a
+  span that runs off the end swallows a column's heading, a group index
+  pointing at a column that is not there merges nothing, a row longer than
+  the columns drops cells off the right. None of it throws. All of it
+  reaches the slide somebody presents.
+*/
+{
+  const ctx = load();
+  const faults = [];
+  const note = (where, what) => faults.push(where + ': ' + what);
+
+  ctx.MIN_SECTIONS.forEach(function (section) {
+    const theme = section.theme || {};
+    ['band', 'head', 'ink', 'rule', 'title'].forEach(function (key) {
+      if (!/^#[0-9a-f]{6}$/.test(String(theme[key]))) {
+        note(section.code, 'theme.' + key + ' is ' + theme[key]);
+      }
+    });
+    if (section.layout !== 'wide' && section.layout !== 'split') {
+      note(section.code, 'layout is ' + section.layout);
+    }
+
+    ctx.MIN_SEEDS[section.code].forEach(function (b) {
+      const where = section.code + '/' + b.id;
+      if (['left', 'right', 'full'].indexOf(b.side) === -1) {
+        note(where, 'side is ' + b.side);
+      }
+      if (b.type === 'notes') {
+        if (!b.lines || !b.lines.length) note(where, 'no lines');
+        return;
+      }
+
+      const n = b.columns.length;
+      (b.groups || []).forEach(function (i) {
+        if (!(i >= 0 && i < n)) note(where, 'group column ' + i + ' of ' + n);
+      });
+      (b.tones || []).forEach(function (t) {
+        if (!/^#[0-9a-f]{6}$/.test(t)) note(where, 'tone ' + t);
+      });
+      if (b.zebra && !/^#[0-9a-f]{6}$/.test(b.zebra)) note(where, 'zebra ' + b.zebra);
+
+      // Widths add up to the full table.
+      const total = b.columns.reduce(function (sum, c) { return sum + c.width; }, 0);
+      if (total < 98 || total > 102) note(where, 'widths total ' + total);
+
+      // Spans stay inside the table, and every unlabelled column is either
+      // covered by one or is the deliberate blank beside a merged heading.
+      const covered = {};
+      b.columns.forEach(function (c, i) {
+        const span = c.span || 1;
+        if (i + span > n) note(where, 'column ' + i + ' spans past the end');
+        for (let k = 1; k < span; k++) covered[i + k] = true;
+      });
+      b.columns.forEach(function (c, i) {
+        if (!c.label && !covered[i]) {
+          note(where, 'column ' + i + ' (' + c.key + ') has no heading and ' +
+                      'nothing spans over it');
+        }
+      });
+
+      // No row is wider than the table it is drawn in.
+      (b.rows || []).forEach(function (row, r) {
+        if (row.length > n) note(where, 'row ' + r + ' has ' + row.length +
+                                        ' cells for ' + n + ' columns');
+      });
+    });
+  });
+
+  check('every seed describes a table that can be drawn',
+    faults.length === 0, faults.join('; '));
+
+  /*
+    AND THE ONE THAT MATTERS TO A READER ACROSS THE ROOM: the three sections
+    that colour-code their rows still do. The tint is not decoration on SD
+    and PP - it is how somebody finds the daily block, or their own zone,
+    without reading a word.
+  */
+  const flat = [];
+  [['SDMM', 'sd'], ['SDMM', 'mm'], ['PP', 'ops']].forEach(function (pair) {
+    const block = ctx.MIN_SEEDS[pair[0]].filter(function (b) {
+      return b.id === pair[1];
+    })[0];
+    const tones = (block && block.tones) || [];
+    // Three runs, and the first and second must differ - a table whose
+    // daily and weekly blocks are the same colour has lost the distinction
+    // even though it still has a `tones` array.
+    if (tones.length < 3 || tones[0] === tones[1]) {
+      flat.push(pair.join('/') + ': ' + JSON.stringify(tones));
+    }
+  });
+  check('SD and PP keep their colour-coded row groups, each run distinct ' +
+        'from the next', flat.length === 0, flat.join('; '));
+}
+
+
+// ===========================================================================
 // 3. who may write
 // ===========================================================================
 {

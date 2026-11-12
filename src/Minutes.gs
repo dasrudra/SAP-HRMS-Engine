@@ -147,6 +147,24 @@ function minTabName(name) {
  * Sales Applications. Same section, two names, and the directory's spelling
  * is the one that has to match.
  */
+/*
+  EACH SECTION'S `theme` IS ITS DECK'S OWN PALETTE, read off the deck rather
+  than chosen here. FI/CO is brown, PP is navy over a bright blue header
+  band, Supply Chain is a dark teal on pale blue, SD is colour-coded by how
+  often each check runs. Those are not decoration: on SD the tint is how
+  somebody finds the daily block without reading, and on PP it is how they
+  find their zone.
+
+  The values were sampled from the rendered slides, not from the theme
+  accents in the file - PowerPoint tints a table cell's scheme colour before
+  it draws it, so the accent in the XML (a saturated orange) is nothing like
+  the pale peach anybody actually sees.
+
+    band   the title block behind the meeting's name and date
+    head   a table's header row
+    ink    the text on band and head
+    rule   the line between cells
+*/
 const MIN_SECTIONS = [
   {
     code: 'FICO',
@@ -155,7 +173,9 @@ const MIN_SECTIONS = [
     title: 'Weekly Meeting (FI/CO)',
     purpose: 'To review Financial Application operational status across all ' +
              'plants, prevent issues and keep everyone aligned',
-    layout: 'wide'
+    layout: 'wide',
+    theme: { band: '#7c3414', head: '#7c3414', ink: '#ffffff',
+             rule: '#e8d0c8', title: '#ffffff' }
   },
   {
     code: 'SDMM',
@@ -163,7 +183,9 @@ const MIN_SECTIONS = [
     sub: 'Sales Applications',
     title: 'SD & MM_PUR Bi-Weekly Connect',
     purpose: 'Sales & Customer Applications',
-    layout: 'split'
+    layout: 'split',
+    theme: { band: '#ffffff', head: '#deeaf6', ink: '#1d1d1b',
+             rule: '#b4b4b4', title: '#7030a0' }
   },
   {
     code: 'SCA',
@@ -171,7 +193,9 @@ const MIN_SECTIONS = [
     sub: 'Supply Chain Applications',
     title: 'Supply Chain Application',
     purpose: 'Master data and inventory management across all zones',
-    layout: 'split'
+    layout: 'split',
+    theme: { band: '#ecf9fe', head: '#104862', ink: '#ffffff',
+             rule: '#ffffff', title: '#0070c0' }
   },
   {
     code: 'PP',
@@ -179,7 +203,9 @@ const MIN_SECTIONS = [
     sub: 'Manufacturing Applications',
     title: 'Weekly Connect (PP)',
     purpose: 'To review operational status across all sites',
-    layout: 'wide'
+    layout: 'wide',
+    theme: { band: '#204494', head: '#0070c0', ink: '#ffffff',
+             rule: '#ffffff', title: '#ffffff' }
   }
 ];
 
@@ -220,11 +246,27 @@ function minSectionOfSub(sub) {
 
   A BLOCK is one thing on the slide:
 
-    type 'table'   columns + rows. `group` names a column index whose blank
-                   cells continue the value above them - the merged first
-                   column of SD's control tables and PP's zone column. The
-                   page draws that as a merged cell and the deck export
-                   merges it for real.
+    type 'table'   columns + rows. `groups` lists the column indexes whose
+                   blank cells continue the value above them - SD's
+                   frequency column, PP's zone column, and both of FI/CO's
+                   first two. The page draws those as merged cells and the
+                   deck export merges them for real.
+
+                   `tones` tints each run of that first group column in
+                   turn, cycling: SD's daily block peach, weekly green,
+                   monthly peach; PP's three zones lavender, mint, pink.
+                   By RUN and not by the text in the cell, so renaming a
+                   group does not silently recolour the table.
+
+                   `zebra` alternates a second tint within each run, which
+                   is how FI/CO separates RMG from MG.
+
+                   A column may carry `span` to widen its heading over the
+                   columns after it - FI/CO's single 'Status' heading sits
+                   over both the sector and the status - `tint` or
+                   `cellTint` to colour its header or its cells, and `plain`
+                   to sit out the row tone. SD uses the last of those to
+                   tint what is CHECKED and leave what it SAID on white.
 
     type 'notes'   one or more labelled free-text lines. `lines` is a list
                    of { key, label }; a single unlabelled line is the common
@@ -240,24 +282,29 @@ function minSectionOfSub(sub) {
 const MIN_SEEDS = {
 
   /*
-    FI/CO. One wide table under one heading.
+    FI/CO. One wide table under one heading, in the deck's brown.
 
-    THE DECK'S HEADER ROW IS OFF BY ONE and this seed reproduces it. The
-    printed headers are Module | Zone | Status | (blank), while the cells
-    underneath hold Module | Zone | Sector | Status - so the word 'Status'
-    sits over the RMG/MG column and the real status column has no heading at
-    all. The keys below are honest about what each column holds; the labels
-    are what the deck prints today. Changing the two labels is a one-line
-    fix whenever the section wants it.
+    'STATUS' IS ONE HEADING OVER TWO COLUMNS, not a header row that has
+    slipped. Reading the file's XML it looks like an off-by-one - the third
+    column is headed Status and holds RMG or MG, and the fourth has no
+    heading at all - and an earlier version of this comment said exactly
+    that. The rendered slide shows a single merged Status cell spanning
+    both, which is correct and reads correctly. It is reproduced with
+    `span`.
+
+    Module and Zone both merge downward, so every zone covers its own RMG
+    and MG rows.
   */
   FICO: [
     { id: 'ops', type: 'table', side: 'full',
       title: 'Operational Issues/Escalations',
-      group: 0,
+      groups: [0, 1],
+      tones: ['#f8e8e8'],
+      zebra: '#f4d4cc',
       columns: [
         { key: 'module', label: 'Module', width: 27 },
         { key: 'zone',   label: 'Zone',   width: 25 },
-        { key: 'sector', label: 'Status', width: 24 },
+        { key: 'sector', label: 'Status', width: 24, span: 2 },
         { key: 'status', label: '',       width: 24 }
       ],
       rows: [
@@ -288,14 +335,20 @@ const MIN_SEEDS = {
   SDMM: [
     { id: 'sd', type: 'table', side: 'left',
       title: 'SD-Key Control Management',
-      group: 0,
+      groups: [0],
+      tones: ['#fbe2d5', '#dcefd5', '#fbe2d5'],   // daily, weekly, monthly
       columns: [
-        { key: 'freq',     label: 'Activity', width: 10 },
+        { key: 'freq',     label: 'Activity', width: 10, span: 2,
+          tint: '#deeaf6' },
         { key: 'activity', label: '',         width: 40 },
-        { key: 'resp',     label: 'Resp.',    width: 12 },
-        { key: 'depz',     label: 'DEPZ',     width: 13 },
-        { key: 'cepz',     label: 'CEPZ',     width: 12 },
-        { key: 'kepz',     label: 'KEPZ',     width: 13 }
+        { key: 'resp',     label: 'Resp.',    width: 12, tint: '#f2e2f2',
+          cellTint: '#dcefd5' },
+        { key: 'depz',     label: 'DEPZ',     width: 13, tint: '#dae3f3',
+          plain: true },
+        { key: 'cepz',     label: 'CEPZ',     width: 12, tint: '#f2e2f2',
+          plain: true },
+        { key: 'kepz',     label: 'KEPZ',     width: 13, tint: '#dcefd5',
+          plain: true }
       ],
       rows: [
         ['Daily Activity',   'POD vs. Billing',                      'RMG/MG', 'Normal', 'Normal', 'Normal'],
@@ -316,11 +369,13 @@ const MIN_SEEDS = {
 
     { id: 'mm', type: 'table', side: 'right',
       title: 'MM_PUR. Key Point Monitoring',
-      group: 0,
+      groups: [0],
+      tones: ['#fbe2d5', '#ffffff', '#fbe2d5'],   // daily, weekly, monthly
       columns: [
-        { key: 'freq',     label: 'Activity', width: 15 },
+        { key: 'freq',     label: 'Activity', width: 15, span: 2,
+          tint: '#deeaf6' },
         { key: 'activity', label: '',         width: 43 },
-        { key: 'resp',     label: 'Resp.',    width: 10 },
+        { key: 'resp',     label: 'Resp.',    width: 10, cellTint: '#dcefd5' },
         { key: 'cepz',     label: 'CEPZ',     width: 11 },
         { key: 'kepz',     label: 'KEPZ',     width: 10 },
         { key: 'depz',     label: 'DEPZ',     width: 11 }
@@ -358,6 +413,7 @@ const MIN_SEEDS = {
   SCA: [
     { id: 'mdIssue', type: 'table', side: 'left',
       title: 'MD/ Master Data Processing Issue & Escalations:',
+      tones: ['#ecf9fe'],
       columns: [
         { key: 'zone',   label: 'Zone',              width: 10 },
         { key: 'issue',  label: 'Issue Description', width: 41 },
@@ -372,6 +428,7 @@ const MIN_SEEDS = {
 
     { id: 'mdWeight', type: 'table', side: 'left',
       title: 'MD/ Net weight Info update (Weekly):',
+      tones: ['#ecf9fe'],
       columns: [
         { key: 'zone',   label: 'Zone',   width: 10 },
         { key: 'status', label: 'Status', width: 73 },
@@ -389,7 +446,8 @@ const MIN_SEEDS = {
 
     { id: 'mmFind', type: 'table', side: 'right',
       title: 'MM/ Inventory Management (Application Process Findings):',
-      group: 0,
+      groups: [0],
+      tones: ['#ecf9fe'],
       columns: [
         { key: 'process', label: 'Application Process', width: 33 },
         { key: 'zone',    label: 'Zone',                width: 22 },
@@ -406,7 +464,8 @@ const MIN_SEEDS = {
 
     { id: 'mmObj', type: 'table', side: 'right',
       title: 'MM/ Follow-up Objectives (Inventory Management):',
-      group: 0,
+      groups: [0],
+      tones: ['#ecf9fe'],
       columns: [
         { key: 'objective', label: 'Objective Description', width: 57 },
         { key: 'zone',      label: 'Zone',                  width: 22 },
@@ -441,7 +500,10 @@ const MIN_SEEDS = {
   */
   PP: [
     { id: 'ops', type: 'table', side: 'full', title: '',
-      group: 0,
+      groups: [0],
+      // lavender, mint, pink - one per zone, which is how somebody finds
+      // their own three rows on a slide across the room.
+      tones: ['#e8e8fc', '#a4ecdc', '#f4e8f4'],
       columns: [
         { key: 'zone',   label: 'Zone',                  width: 15 },
         { key: 'sector', label: 'Sector',                width: 18 },
