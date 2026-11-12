@@ -128,9 +128,14 @@ const FILE = 'file://' + PAGE;
   // every page and carries replies, which a page with an address on it does
   // not. Asserted as a whole rather than by counting, so a tab quietly
   // dropped or reordered is caught by name.
+  //
+  // Minutes was added after that list and sits beside Objective, because the
+  // two are the same kind of screen - a working surface the team writes to -
+  // and because half of what a section's meeting reviews is on the Objective
+  // tab next door. Links stays last.
   const WANTED = ['Home', 'About us', 'EAS Team', 'KPI Engine', 'Customers',
-                  'Learnings', 'Projects', 'Objective', 'Links'];
-  check('all nine tabs are there, in the order they were given',
+                  'Learnings', 'Projects', 'Objective', 'Minutes', 'Links'];
+  check('all ten tabs are there, in the order they were given',
     JSON.stringify(tabs.map((t) => t.label)) === JSON.stringify(WANTED),
     tabs.map((t) => t.label).join(' | '));
 
