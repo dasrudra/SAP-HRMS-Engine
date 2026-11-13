@@ -147,6 +147,14 @@
     broken.
   */
   .portal[data-page="links"] .portal-sky { height: 100%; border-radius: 0; }
+  /*
+    AND THE PAGE THE LINKS PAGE OPENS. Without this the sky stops at its
+    default 232px and the rest of the screen is the pale body underneath -
+    where every word on this page, being white, is invisible. It is not a
+    subtle fault and it is not a visible one either: the text is all still
+    there, in white, on white.
+  */
+  .portal[data-page="byweekly"] .portal-sky { height: 100%; border-radius: 0; }
 
   /*
     The two layers above it. Transparent backgrounds, so the sky shows
@@ -4340,5 +4348,108 @@
     .obj-filters { margin-left: 0; width: 100%; }
   }
 
+
+
+  /* =======================================================================
+     BY-WEEKLY MEETINGS
+     =======================================================================
+
+     Four discs, one per section, each opening that section's deck where it
+     lives. Reached from the Links page, and sitting on the same dark sky
+     every other page here does - so nothing in this block is a light-page
+     colour.
+  */
+  .bw-back {
+    font: inherit; font-size: 12.6px; font-weight: 600; cursor: pointer;
+    display: inline-flex; align-items: center; gap: 6px;
+    margin-bottom: 14px; padding: 6px 12px 6px 9px; border-radius: 20px;
+    border: 1px solid rgba(255, 255, 255, .22);
+    background: rgba(255, 255, 255, .07); color: rgba(255, 255, 255, .86);
+  }
+  .bw-back:hover {
+    background: rgba(255, 255, 255, .13); color: #fff;
+  }
+
+  .bw-ring {
+    display: flex; flex-wrap: wrap; gap: 26px;
+    justify-content: center; padding: 26px 0 10px;
+  }
+
+  .bw-pick {
+    flex: 0 0 auto; width: 188px;
+    display: flex; flex-direction: column; align-items: center; gap: 12px;
+    text-decoration: none; color: inherit; cursor: pointer;
+    padding: 18px 10px 16px; border-radius: 18px;
+    border: 1px solid transparent; background: transparent;
+    transition: background .15s, border-color .15s, transform .15s;
+  }
+  .bw-pick:hover {
+    background: rgba(255, 255, 255, .06);
+    border-color: rgba(255, 255, 255, .16);
+    transform: translateY(-2px);
+  }
+
+  /*
+    THE DISC. The section's own colour as a ring rather than a fill: four
+    saturated circles on a dark page is a traffic light, and the name under
+    each one is what somebody is actually reading.
+  */
+  .bw-disc {
+    width: 104px; height: 104px; border-radius: 50%;
+    display: grid; place-items: center;
+    color: var(--bw, #8fb6ff);
+    background:
+      radial-gradient(circle at 50% 38%,
+        rgba(255, 255, 255, .10) 0%, rgba(255, 255, 255, 0) 62%),
+      rgba(11, 27, 54, .72);
+    border: 2px solid var(--bw, #8fb6ff);
+    box-shadow: 0 0 0 6px rgba(255, 255, 255, .03),
+                0 10px 26px -14px var(--bw, #8fb6ff);
+    transition: box-shadow .15s, transform .15s;
+  }
+  .bw-pick:hover .bw-disc {
+    box-shadow: 0 0 0 7px rgba(255, 255, 255, .06),
+                0 14px 30px -12px var(--bw, #8fb6ff);
+  }
+  .bw-disc svg { width: 42px; height: 42px; }
+
+  .bw-name {
+    font-size: 15px; font-weight: 640; color: #fff; text-align: center;
+    line-height: 1.25;
+  }
+  .bw-note {
+    font-size: 11.6px; color: rgba(255, 255, 255, .62); text-align: center;
+    margin-top: -6px;
+  }
+
+  /*
+    A SECTION WITH NO ADDRESS still gets its circle, greyed and not
+    clickable. A button that quietly vanished would read as the page being
+    broken rather than as a cell nobody has filled in.
+  */
+  .bw-pick.is-off { cursor: default; opacity: .45; }
+  .bw-pick.is-off:hover {
+    background: transparent; border-color: transparent; transform: none;
+  }
+  .bw-pick.is-off .bw-disc {
+    color: rgba(255, 255, 255, .55);
+    border-color: rgba(255, 255, 255, .34);
+    box-shadow: none;
+  }
+
+  .bw-wait {
+    text-align: center; color: rgba(255, 255, 255, .7); font-size: 13.4px;
+    padding: 34px 0;
+  }
+
+  /* A card on the Links page that opens a page here rather than a site. */
+  button.link-card { font: inherit; text-align: left; width: 100%; }
+
+  @media (max-width: 760px) {
+    .bw-ring { gap: 14px; }
+    .bw-pick { width: 140px; }
+    .bw-disc { width: 86px; height: 86px; }
+    .bw-disc svg { width: 34px; height: 34px; }
+  }
 
 </style>

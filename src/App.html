@@ -1497,7 +1497,7 @@
     // switching it to a bare [data-view], which would also pick up any
     // element that happens to carry one for a reason other than navigating.
     document.querySelectorAll('.nav-item, .portal-tab, .portal-brand, ' +
-                              '.portal-cta, .kn-portal, .kn-back')
+                              '.portal-cta, .kn-portal, .kn-back, .bw-back')
       .forEach(function (button) {
         // An external link wears .portal-cta for the look and carries no
         // data-view. Without this guard showView(undefined) falls back to
@@ -1713,6 +1713,7 @@
     // state.team inside loadTeam, so tabbing back and forth costs nothing.
     if (name === 'team') loadTeam();
     if (name === 'links') renderLinks();
+    if (name === 'byweekly') loadByWeekly();
     if (name === 'about') renderAbout();
     if (name === 'partners') renderPartners();
     if (name === 'home') renderServiceLayers();
@@ -8544,7 +8545,7 @@
     if (!body) return;
 
     const links = (window.__EAS_LINKS__ || []).filter(function (l) {
-      return l && l.url;
+      return l && (l.url || l.view);
     });
 
     if (!links.length) {
@@ -8570,8 +8571,18 @@
     body.innerHTML =
       '<div class="link-stack">' +
       links.map(function (link) {
-        return '<a class="link-card" href="' + escapeHtml(link.url) + '" ' +
-           'target="_blank" rel="noopener noreferrer">' +
+        /*
+          ONE ENTRY GOES NOWHERE. By-Weekly Meetings opens a page inside
+          the portal rather than a site, so it is a button carrying a
+          data-view - which wireNavigation already routes - and not an
+          anchor with nothing in its href.
+        */
+        const open = link.view
+          ? '<button class="link-card is-inside" type="button" data-view="' +
+            escapeHtml(link.view) + '">'
+          : '<a class="link-card" href="' + escapeHtml(link.url) + '" ' +
+            'target="_blank" rel="noopener noreferrer">';
+        return open +
           '<span class="link-card-mark">' +
             '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" ' +
                  'stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" ' +
@@ -8587,12 +8598,29 @@
             '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" ' +
                  'stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" ' +
                  'aria-hidden="true">' +
-              '<path d="M6.5 3h-3A1.5 1.5 0 0 0 2 4.5v8A1.5 1.5 0 0 0 3.5 14h8a1.5 1.5 0 0 0 1.5-1.5v-3M9.5 2H14v4.5M14 2L7.5 8.5"/>' +
+              (link.view
+                ? '<path d="M6 3.5L10.5 8 6 12.5"/>'
+                : '<path d="M6.5 3h-3A1.5 1.5 0 0 0 2 4.5v8A1.5 1.5 0 0 0 3.5 14h8a1.5 1.5 0 0 0 1.5-1.5v-3M9.5 2H14v4.5M14 2L7.5 8.5"/>') +
             '</svg>' +
           '</span>' +
-        '</a>';
+        (link.view ? '</button>' : '</a>');
       }).join('') +
       '</div>';
+
+    /*
+      AND THE INSIDE ONE IS WIRED HERE, not by wireNavigation.
+
+      That function runs once at boot over a fixed list of selectors and
+      binds what it finds. These cards do not exist then - renderLinks
+      draws them when somebody opens the page - so adding .link-card to
+      that list would still never bind one. The first version of this
+      looked completely correct and did nothing at all when pressed.
+    */
+    body.querySelectorAll('.link-card[data-view]').forEach(function (card) {
+      card.addEventListener('click', function () {
+        showView(card.dataset.view);
+      });
+    });
   }
 
 
@@ -11458,6 +11486,89 @@
    * Presentation only - nothing is keyed on the result. The full name is what
    * every table, filter and stored figure uses.
    */
+  // =========================================================================
+  // BY-WEEKLY MEETINGS - four buttons, four decks
+  // =========================================================================
+  //
+  // Each section keeps its bi-weekly meeting as a PowerPoint on somebody's
+  // OneDrive. This is the one place that knows where all four are.
+  //
+  // THE ADDRESSES ARE NOT IN THE SOURCE. They are personal OneDrive links
+  // carrying their owner's work email in the path, and this repository is
+  // public - so they live on the BY_WEEKLY tab and are fetched once per
+  // sitting. See ByWeekly.gs.
+
+  const BW = { links: null, busy: false };
+
+  function loadByWeekly() {
+    const body = document.getElementById('byWeeklyBody');
+    if (!body) return;
+
+    // Four short strings that change about once a year. Fetched once per
+    // sitting; coming back to the page costs nothing.
+    if (BW.links) { renderByWeekly(BW.links); return; }
+    if (BW.busy) return;
+
+    BW.busy = true;
+    body.innerHTML = '<p class="bw-wait">Loading&#x2026;</p>';
+
+    callServer('getByWeeklyLinks')
+      .then(function (data) {
+        BW.busy = false;
+        BW.links = (data && data.links) || [];
+        renderByWeekly(BW.links);
+      })
+      .catch(function (err) {
+        BW.busy = false;
+        body.innerHTML = '<p class="bw-wait">Could not load the addresses: ' +
+          escapeHtml(String(err && err.message || err)) + '</p>';
+        onError(err);
+      });
+  }
+
+
+  function renderByWeekly(links) {
+    const body = document.getElementById('byWeeklyBody');
+    if (!body) return;
+
+    body.innerHTML = links.map(function (link) {
+      /*
+        A SECTION WITH NO ADDRESS STILL GETS ITS CIRCLE, greyed, saying so.
+        A button that quietly vanished would read as the page being broken
+        rather than as a cell somebody has not filled in yet - and the one
+        person who can fix it is whoever notices.
+      */
+      const inside =
+        '<span class="bw-disc" style="--bw: ' + escapeHtml(link.accent) + '">' +
+          '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+               'stroke-width="1.6" stroke-linecap="round" ' +
+               'stroke-linejoin="round" aria-hidden="true">' +
+            '<rect x="3" y="4" width="18" height="12.5" rx="1.6"/>' +
+            '<path d="M8.5 20h7M12 16.5V20"/>' +
+            '<path d="M7 8.5h6M7 12h4"/>' +
+          '</svg>' +
+        '</span>' +
+        '<span class="bw-name">' + escapeHtml(link.name) + '</span>';
+
+      if (!link.url) {
+        return '<span class="bw-pick is-off" title="No address on the ' +
+          'BY_WEEKLY tab yet">' + inside +
+          '<span class="bw-note">no link yet</span></span>';
+      }
+      /*
+        target="_blank" is required rather than preferred: this page runs
+        inside the Apps Script sandbox iframe and a same-frame navigation
+        to another origin is refused by the browser. rel stops the opened
+        page reaching back through window.opener and keeps the internal
+        googleusercontent address out of SharePoint's referrer log.
+      */
+      return '<a class="bw-pick" href="' + escapeHtml(link.url) + '" ' +
+        'target="_blank" rel="noopener noreferrer">' + inside +
+        '<span class="bw-note">Open the deck</span></a>';
+    }).join('');
+  }
+
+
   // =========================================================================
   // ACCOUNTS - the master screen
   // =========================================================================

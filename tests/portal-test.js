@@ -1456,7 +1456,9 @@ const FILE = 'file://' + PAGE;
 
     const cards = await q.$$eval('#linksBody .link-card', (ns) => ns.map((a) => ({
       name: a.querySelector('.link-card-text strong').textContent.trim(),
+      tag: a.tagName,
       href: a.getAttribute('href'),
+      view: a.getAttribute('data-view'),
       target: a.getAttribute('target'),
       rel: a.getAttribute('rel')
     })));
@@ -1467,15 +1469,91 @@ const FILE = 'file://' + PAGE;
       cards.map((c) => c.name).join(' | '));
 
     check('and each one points where Config.gs says',
-      JSON.stringify(cards.map((c) => c.href)) ===
-        JSON.stringify(wanted.map((l) => l.url)),
+      JSON.stringify(cards.map((c) => c.href || null)) ===
+        JSON.stringify(wanted.map((l) => l.url || null)),
       cards.length + ' addresses');
 
-    check('every card opens in a new tab, with opener and referrer closed off',
-      cards.length > 0 && cards.every((c) =>
+    /*
+      THE OUTWARD ONES ONLY. One card on this page does not leave the
+      portal - By-Weekly Meetings opens the four section decks inside it -
+      and that one is a button carrying a data-view, not an anchor. Asking
+      it for target="_blank" would be asking the wrong question, and
+      dropping the check for all of them to accommodate it would give up
+      the thing the check is for.
+    */
+    const away = cards.filter((c) => c.tag === 'A');
+    check('every card that leaves the portal opens in a new tab, with ' +
+          'opener and referrer closed off',
+      away.length > 0 && away.every((c) =>
         c.target === '_blank' && /noopener/.test(c.rel || '') &&
         /noreferrer/.test(c.rel || '')),
-      cards.filter((c) => c.target !== '_blank').length + ' without target');
+      away.filter((c) => c.target !== '_blank').length + ' without target');
+
+    /*
+      AND THE ONE THAT STAYS IS A BUTTON WITH A data-view. Written as an
+      anchor it would need an href, and an anchor with no href is not
+      focusable and not clickable - the card would simply do nothing, which
+      is the failure this records.
+    */
+    const inside = cards.filter((c) => c.tag !== 'A');
+    check('and the one that stays inside is a button routed by data-view',
+      inside.length === 1 && inside[0].name === 'By-Weekly Meetings' &&
+      inside[0].view === 'byweekly' && inside[0].href === null,
+      JSON.stringify(inside));
+
+    // ---- and the page it opens ----
+    await q.click('.link-card[data-view="byweekly"]');
+    await q.waitForTimeout(900);
+
+    check('pressing it opens the By-Weekly page',
+      await q.evaluate(() => window.__SHOWN_VIEW__) === 'byweekly');
+
+    const discs = await q.$$eval('#byWeeklyBody .bw-pick', (ns) => ns.map((n) => ({
+      name: n.querySelector('.bw-name').textContent.trim(),
+      tag: n.tagName,
+      href: n.getAttribute('href'),
+      target: n.getAttribute('target'),
+      rel: n.getAttribute('rel'),
+      off: n.classList.contains('is-off')
+    })));
+
+    check('with one circle per section, in the order asked for',
+      discs.map((d) => d.name).join(' | ') ===
+        'Supply Chain | Sales & Customer | Manufacturing | Financial',
+      discs.map((d) => d.name).join(' | '));
+
+    check('each one that has an address opens it in a new tab, closed off',
+      discs.filter((d) => !d.off).every((d) =>
+        d.tag === 'A' && /^https?:/.test(d.href || '') &&
+        d.target === '_blank' && /noopener/.test(d.rel || '') &&
+        /noreferrer/.test(d.rel || '')),
+      JSON.stringify(discs.filter((d) => !d.off).map((d) => d.target)));
+
+    /*
+      A SECTION WITH NO ADDRESS STILL GETS ITS CIRCLE, greyed and not a
+      link. One that quietly vanished would read as the page being broken
+      rather than as a cell on BY_WEEKLY nobody has filled in - and the
+      person who notices is the one who can fix it.
+    */
+    const off = discs.filter((d) => d.off);
+    check('and a section with no address is shown, greyed, not dropped',
+      off.length === 1 && off[0].name === 'Manufacturing' &&
+      off[0].tag !== 'A', JSON.stringify(off));
+
+    /*
+      THE WORDS CAN BE READ. This page is white text, and it sits on the
+      sky - which stops at 232px unless a page asks for the full height.
+      Without that rule every word here is white on the pale body
+      underneath: all present, all invisible.
+    */
+    const skyTall = await q.evaluate(() => {
+      const sky = document.querySelector('.portal-sky');
+      const page = document.getElementById('view-byweekly');
+      return sky.getBoundingClientRect().height >=
+             page.getBoundingClientRect().bottom - 2;
+    });
+    check('and the dark sky covers the whole page, so the white text reads',
+      skyTall === true);
 
     // NAMED, NOT DERIVED. Everything above reads its expectation out of
     // the same list the page was drawn from, which proves the page draws

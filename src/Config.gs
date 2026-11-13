@@ -569,7 +569,14 @@ const CONFIG = {
     */
     OBJ_PLAN:  'OBJ_PLAN',
     OBJ_TASK:  'OBJ_TASK',
-    OBJ_LOG:   'OBJ_LOG'
+    OBJ_LOG:   'OBJ_LOG',
+
+    /*
+      Where each section's meeting deck lives. Four rows, one address each.
+      See the header of ByWeekly.gs for why the addresses are on a tab and
+      not in this file.
+    */
+    BY_WEEKLY: 'BY_WEEKLY'
   },
 
   /**
@@ -1776,6 +1783,15 @@ function portalLinks() {
       url: 'https://gw2.youngone.com/covicore/login.do',
       hero: 'Open Groupware & ITSM', row: 2 },
 
+    /*
+      THE ONE ENTRY HERE THAT DOES NOT LEAVE THE PORTAL. It carries `view`
+      instead of `url`, and opens the page of four section buttons rather
+      than a site - because the four addresses behind it are personal
+      OneDrive links and belong on a tab, not in a public file. See
+      ByWeekly.gs.
+    */
+    { name: 'By-Weekly Meetings', view: 'byweekly' },
+
     // Links-page only. Both are reference rather than daily work, and four
     // buttons under the headline is already the most a front page can say
     // without becoming a menu.
@@ -1798,7 +1814,7 @@ function portalLinks() {
 
     { name: 'LinkedIn', url: 'https://www.linkedin.com/' }
 
-  ].filter(function (link) { return link && link.url; });
+  ].filter(function (link) { return link && (link.url || link.view); });
 }
 
 

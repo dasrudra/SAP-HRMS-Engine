@@ -813,6 +813,28 @@ const stub = `
                mode: 'EXEC' };
     },
 
+    /*
+      The four section decks. THREE ADDRESSES AND ONE GAP, deliberately:
+      the page has to draw a section whose link nobody has pasted yet as a
+      greyed circle that says so, and a fixture where everything is filled
+      in never exercises that.
+
+      Not real addresses. The real ones are personal OneDrive links on the
+      BY_WEEKLY tab, and this file is in a public repository.
+    */
+    getByWeeklyLinks: function () {
+      return { ok: true, links: [
+        { key: 'SCA',  name: 'Supply Chain',     accent: '#4cc9f0',
+          url: 'https://example.invalid/sca.pptx' },
+        { key: 'SDMM', name: 'Sales & Customer', accent: '#5b9cf8',
+          url: 'https://example.invalid/sdmm.pptx' },
+        { key: 'PP',   name: 'Manufacturing',    accent: '#9d7bef',
+          url: '' },
+        { key: 'FICO', name: 'Financial',        accent: '#7b86f0',
+          url: 'https://example.invalid/fico.pptx' }
+      ] };
+    },
+
     // IT HAS TO REFUSE AN EMPLOYEE ID NOBODY HAS USED, and say which of the
     // two things went wrong. Signing anybody in whatever they typed meant the
     // sign-in card's own error states could not be driven at all - including
@@ -1894,7 +1916,8 @@ const stub = `
     getTeam: 80,
     getUploads: 80,
     getLearning: 60,
-    getKnowledge: 50
+    getKnowledge: 50,
+    getByWeeklyLinks: 60
   };
 
   // google.script.run, as Apps Script presents it: chainable handlers, then a

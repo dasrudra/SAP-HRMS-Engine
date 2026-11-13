@@ -1114,6 +1114,40 @@
     </section>
 
     <!--
+      ---- BY-WEEKLY MEETINGS ----
+
+      Four buttons, one per section, each opening that section's meeting
+      deck where it actually lives - on the owner's OneDrive.
+
+      REACHED FROM THE LINKS PAGE, not from the navigation. It is a place
+      to go and not a place to work, which is what the Links page is for,
+      and a tenth tab for four addresses would have been a tab people pass
+      every day to use twice a month.
+
+      Empty markup. The addresses are on the BY_WEEKLY tab, because they
+      are personal OneDrive links and this repository is public - see the
+      header of ByWeekly.gs. renderByWeekly() in App.html draws it.
+    -->
+    <section class="view portal-page" id="view-byweekly" hidden>
+      <div class="portal-page-head">
+        <button class="bw-back" type="button" data-view="links">
+          <svg viewBox="0 0 16 16" width="13" height="13" fill="none"
+               stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
+               stroke-linejoin="round" aria-hidden="true">
+            <path d="M9.5 3.5L5 8l4.5 4.5"/>
+          </svg>
+          Links
+        </button>
+        <h1 class="portal-page-title">By-Weekly Meetings</h1>
+        <p class="portal-page-sub">
+          Each section&#x2019;s meeting deck, where it lives. Opens in a new
+          tab and signs in with your Microsoft account.
+        </p>
+      </div>
+      <div class="bw-ring" id="byWeeklyBody"></div>
+    </section>
+
+    <!--
       ---- LINKS ----
       Drawn by renderLinks() in App.html, because the addresses live in CONFIG
       and this file's scriptlets are never processed - include() pastes it in
