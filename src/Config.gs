@@ -569,27 +569,7 @@ const CONFIG = {
     */
     OBJ_PLAN:  'OBJ_PLAN',
     OBJ_TASK:  'OBJ_TASK',
-    OBJ_LOG:   'OBJ_LOG',
-
-    /*
-      THE MEETING MINUTES. One row per meeting, for all four sections. See
-      the header of Minutes.gs.
-
-      The four sections each ran their own PowerPoint deck - one slide per
-      meeting, copied forward from the last one and edited - so a meeting
-      existed on whichever laptop the deck was on and nowhere else. This tab
-      is that record, with the metadata people search on in real columns and
-      the body of the meeting as JSON beside it.
-
-      WRITTEN BY THE PAGE, not typed. setupMinutesTabs() creates it, and the
-      first meeting in a section is started from the portal so that whoever
-      started it is recorded as having done so.
-
-      The names, the attendees and everything typed in a meeting live here
-      rather than in this file, for the same reason the objectives do: this
-      repository is public.
-    */
-    MIN_MEET:  'MIN_MEET'
+    OBJ_LOG:   'OBJ_LOG'
   },
 
   /**

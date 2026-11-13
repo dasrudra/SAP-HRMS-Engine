@@ -17,19 +17,6 @@ const fs = require('fs'), path = require('path'), vm = require('vm');
 const SRC = process.env.EAS_SRC || path.join(__dirname, '..', '..', 'src');
 const read = (f) => fs.readFileSync(path.join(SRC, f), 'utf8');
 
-/*
-  A source file pasted into the page below, through ${...}.
-
-  THE INSTINCT TO ESCAPE IT IS WRONG, and this comment is here because
-  following that instinct cost an afternoon. A template literal processes
-  escapes in its LITERAL text only; a ${} interpolation inserts the string's
-  runtime value byte for byte and never looks at it again. So a .gs file
-  goes in exactly as it is - and doubling its backslashes first turns every
-  /\d{4}/ in it into /\\d{4}/, which matches a literal backslash and
-  therefore nothing. The file parses, the page loads, and one function
-  quietly stops recognising a date.
-*/
-const embed = (text) => String(text);
 
 // Config.gs is the one source of truth for names, targets and formulas, so the
 // fixture reads it rather than carrying its own copy. The copy is how the last
@@ -820,174 +807,12 @@ const stub = `
     // 'OFFLINE' would pass while being unable to cope with a missing key.
   };
 
-  /*
-    MINUTES - the real server file, running in the page.
-
-    WHY THIS ONE IS NOT A HAND-WRITTEN FIXTURE, when Objectives above is.
-
-    Objectives needed a fixture that SCORES, and writing the scoring out here
-    is what lets the suite catch a page that draws 67 out of 100 above
-    untouched milestones. Minutes needs no arithmetic at all. What it needs is
-    for the page to be driven against the real contract - the real block
-    definitions, the real merge rules, the real copy-the-last-meeting
-    behaviour - because almost everything that can go wrong on that screen is
-    the page and the server disagreeing about the shape of a meeting.
-
-    So Minutes.gs itself is pasted in below, wrapped in the few Apps Script
-    services it touches. A fixture that re-stated its rules could drift from
-    them, and the first thing to notice would be a user.
-  */
-  var MINUTES = (function () {
-    var MEET_HEAD = ['Meeting ID', 'Section', 'Date', 'Time', 'Host',
-                     'Attendees', 'Status', 'Body', 'By', 'By ID', 'At',
-                     'History'];
-
-    function makeTab(headers) {
-      var all = [headers.slice()];
-      return {
-        getLastRow: function () { return all.length; },
-        getLastColumn: function () { return all[0].length; },
-        appendRow: function (row) { all.push(row.slice()); },
-        deleteRow: function (r) { all.splice(r - 1, 1); },
-        setColumnWidth: function () { return this; },
-        setFrozenRows: function () { return this; },
-        getRange: function (r, c, n, w) {
-          return {
-            getValue: function () { return (all[r - 1] || [])[c - 1]; },
-            setValue: function (v) {
-              if (!all[r - 1]) all[r - 1] = [];
-              all[r - 1][c - 1] = v;
-            },
-            getValues: function () {
-              var got = [];
-              for (var i = 0; i < (n === undefined ? 1 : n); i++) {
-                got.push((all[r - 1 + i] || []).slice(c - 1, c - 1 + (w || 1)));
-              }
-              return got;
-            },
-            setValues: function (vals) {
-              for (var i = 0; i < vals.length; i++) all[r - 1 + i] = vals[i].slice();
-              return { setFontWeight: function () {
-                return { setBackground: function () {
-                  return { setFontColor: function () {} }; } }; } };
-            }
-          };
-        }
-      };
-    }
-
-    var TAB = makeTab(MEET_HEAD);
-
-    /*
-      THE SIGNED-IN PERSON IS IN SUPPLY CHAIN, and that is the fixture's one
-      real decision. It means the page can be driven down both paths that
-      matter - a section you may write and a section you may only read -
-      without the suite having to sign in twice.
-    */
-    var ME = '20000000';
-    var AS_ADMIN = false;
-
-    function currentSession() {
-      return { u: ME, r: AS_ADMIN ? 'ADMIN' : 'USER' };
-    }
-    function rankOf(r) { return { USER: 1, ADMIN: 2, MASTER: 3 }[r] || 0; }
-    var ROLE_ADMIN = 'ADMIN';
-    function requireSignedIn() {}
-    function sheetWithHeaders() { return TAB; }
-
-    function readTeam() {
-      return {
-        lead: { id: '20000001', name: 'The Department Head', section: 'ALL',
-                leads: 'Supply Chain Applications', module: 'MM' },
-        sections: [
-          { name: 'Financial Applications',
-            head: { id: '20000011', name: 'The FI Head', leads: 'Yes' },
-            members: [{ id: '20000012', name: 'An FI Person', leads: '' }] },
-          { name: 'Sales Applications',
-            head: { id: '20000021', name: 'The SD Head', leads: 'Yes' },
-            members: [{ id: '20000022', name: 'An SD Person', leads: '' }] },
-          { name: 'Supply Chain Applications',
-            head: { id: '20000031', name: 'The SCA Head', leads: 'Yes' },
-            members: [{ id: ME, name: 'Signed In Person', leads: '' }] },
-          { name: 'Manufacturing Applications',
-            head: { id: '20000041', name: 'The PP Head', leads: 'Yes' },
-            members: [{ id: '20000042', name: 'A PP Person', leads: '' }] }
-        ]
-      };
-    }
-
-    var LockService = {
-      getScriptLock: function () {
-        return { waitLock: function () {}, releaseLock: function () {} };
-      }
-    };
-    var Session = { getScriptTimeZone: function () { return 'Asia/Dhaka'; } };
-    var Utilities = {
-      formatDate: function (d, tz, fmt) {
-        var two = function (n) { return (n < 10 ? '0' : '') + n; };
-        var date = d.getFullYear() + '-' + two(d.getMonth() + 1) + '-' +
-                   two(d.getDate());
-        return fmt === 'yyyy-MM-dd'
-          ? date
-          : date + ' ' + two(d.getHours()) + ':' + two(d.getMinutes());
-      }
-    };
-    var Logger = { log: function () {} };
-    var CONFIG = { SHEETS: { MIN_MEET: 'MIN_MEET' }, DEPARTMENT_SECTION: 'ALL' };
-
-${embed(read('Minutes.gs'))}
-
-    /*
-      TWO MEETINGS IN THE VIEWER'S OWN SECTION AND ONE IN ANOTHER, made by
-      calling the real newMinutes as an admin. Writing the rows by hand would
-      mean the fixture's idea of a stored meeting and the server's could
-      differ - which is the one disagreement this harness exists to catch.
-    */
-    AS_ADMIN = true;
-    newMinutes('t', 'SCA', '2026-10-27', '10:30 - 11:00 AM');
-    newMinutes('t', 'SCA', '2026-11-10', '10:30 - 11:00 AM');
-    newMinutes('t', 'FICO', '2026-11-03', '12 PM - 12:30 PM');
-    AS_ADMIN = false;
-
-    return {
-      getMinutes: getMinutes,
-      newMinutes: newMinutes,
-      saveMinutes: saveMinutes,
-      deleteMinutes: deleteMinutes,
-      /* for a suite that wants to look at what was actually stored */
-      read: readMinutes
-    };
-  })();
-
-  /*
-    THE STORE, where a suite can read it.
-
-    Checking a save by looking at the page afterwards proves nothing: the
-    page redraws from what the server sent back, and a fixture that was
-    handed the wrong value answers with the wrong value quite happily. The
-    only honest question is what ended up in the sheet.
-  */
-  window.__MINUTES__ = MINUTES;
-
   var HANDLERS = {
     getSession: function () {
       return { signedIn: HAS_SIGNED_IN, role: ROLE, username: '20000000',
                mode: 'EXEC' };
     },
 
-    // Minutes: the real Minutes.gs, above. Nothing is re-stated here.
-    getMinutes: function (token, section, id) {
-      return MINUTES.getMinutes(token, section, id);
-    },
-    newMinutes: function (token, section, date, time) {
-      return MINUTES.newMinutes(token, section, date, time);
-    },
-    saveMinutes: function (token, id, update) {
-      return MINUTES.saveMinutes(token, id, update);
-    },
-    deleteMinutes: function (token, id) {
-      return MINUTES.deleteMinutes(token, id);
-    },
     // IT HAS TO REFUSE AN EMPLOYEE ID NOBODY HAS USED, and say which of the
     // two things went wrong. Signing anybody in whatever they typed meant the
     // sign-in card's own error states could not be driven at all - including
@@ -2069,11 +1894,7 @@ ${embed(read('Minutes.gs'))}
     getTeam: 80,
     getUploads: 80,
     getLearning: 60,
-    getKnowledge: 50,
-    getMinutes: 70,
-    newMinutes: 90,
-    saveMinutes: 90,
-    deleteMinutes: 60
+    getKnowledge: 50
   };
 
   // google.script.run, as Apps Script presents it: chainable handlers, then a
