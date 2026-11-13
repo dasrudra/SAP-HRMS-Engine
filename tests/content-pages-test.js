@@ -64,11 +64,29 @@ const PARTNERS = CONFIG.PARTNERS;
 // before anybody has pointed the portal at a UserHub. An entry with no
 // address must be dropped rather than drawn, because a link-shaped thing
 // that goes nowhere is something people press once and then distrust.
+//
+// SOMEWHERE TO GO IS NOT ALWAYS A URL. One entry - By-Weekly Meetings -
+// opens a page inside the portal and carries `view` instead, because the
+// four addresses behind it are personal OneDrive links and live on a tab
+// rather than in a public file. The rule this assertion is really making
+// is unchanged: nothing link-shaped may lead nowhere.
 {
   const links = vm.runInContext('portalLinks()', box);
+  const lost = links.filter((l) => !l.name || !(l.url || l.view));
   check('every link in the list has somewhere to go',
-    links.length > 0 && links.every((l) => l.name && l.url),
-    links.length + ' links, all addressed');
+    links.length > 0 && lost.length === 0,
+    lost.length
+      ? lost.map((l) => l.name || '(unnamed)').join(', ') + ' lead nowhere'
+      : links.length + ' links, all addressed');
+
+  /*
+    AND NOT BOTH. An entry carrying a url and a view is two destinations
+    for one press, and which one wins is then a detail of how renderLinks
+    happens to be written rather than a decision anybody made.
+  */
+  const both = links.filter((l) => l.url && l.view);
+  check('and none of them names two destinations',
+    both.length === 0, both.map((l) => l.name).join(', '));
 
   const blanked = vm.runInContext(
     '(function () { var was = CONFIG.SAP_APP_URL; CONFIG.SAP_APP_URL = "";' +
@@ -77,6 +95,11 @@ const PARTNERS = CONFIG.PARTNERS;
     blanked.length === links.length - 1 &&
     !blanked.some((l) => l.name === 'SAP & HRMS UserHub'),
     blanked.length + ' links left when SAP_APP_URL is empty');
+
+  // The internal one is not collateral damage of that filter.
+  check('while the one that opens a page inside the portal stays',
+    blanked.some((l) => l.view === 'byweekly'),
+    blanked.map((l) => l.name).join(' | '));
 
   // Row 1 is the pair beside Open the KPI Engine. Exactly one, because the
   // markup has exactly one anchor there.
