@@ -1183,6 +1183,165 @@ function objUniqueRolesScore(tasks, log, period, now) {
 }
 
 
+/* ===========================================================================
+   PROGRESS: ADDING UP THE SQUARES THE PAGE ALREADY DRAWS
+   ===========================================================================
+
+   Both sheets are drawn as grids of little squares, and every square is in
+   one of four states. objTaskState paints them for the ninety and
+   objPlanMonthState paints them for the milestones, and between them they
+   are the whole of what this screen knows:
+
+     done      ticked while its own period was still open   -> ON TIME
+     late      ticked, but after that period had closed     -> DELAYED
+     missed    the period closed with nobody saying either  -> NOT DONE
+     part      a counted milestone that got some of its target, not all
+     pending   the period has not closed and nobody has ticked it yet
+
+   So progress is just those squares counted. A square that is still pending
+   is left out of the denominator entirely - it is not due, so it is neither
+   a success nor a failure, and counting it either way is how the earlier
+   version of this screen managed to report a figure that could only ever
+   fall. Everything else is in, and on time plus delayed over the whole is
+   the percentage.
+
+   THE POINT OF COUNTING IT THIS WAY is that anybody can check it by eye.
+   The pie is the squares under the milestones added up; the month's figure
+   is this month's column of them. There is no weighting, no average of
+   averages and no band: one square, one vote. A daily objective therefore
+   carries more squares than a monthly one, which is correct - it is more
+   work, and more chances to let it slip.
+
+   'part' counts as not done. It is a counted milestone that reached some of
+   its target, and the square is not green, so neither is the slice.
+   =========================================================================== */
+
+
+/** An empty tally, so every caller has the same shape to add into. */
+function objTally() {
+  return { onTime: 0, late: 0, notDone: 0 };
+}
+
+
+/** on time + delayed + not done, which is what the percentages divide by. */
+function objTallyTotal(t) {
+  return t.onTime + t.late + t.notDone;
+}
+
+
+/**
+ * A tally as whole percents that add to exactly 100.
+ *
+ * Rounding each share on its own gives 33/33/33 and a pie with a gap in it,
+ * so the two smaller slices are rounded and the largest takes whatever is
+ * left. With nothing counted at all every share is zero, and the page says
+ * so rather than drawing an empty circle.
+ */
+function objTallyShare(t) {
+  const total = objTallyTotal(t);
+  if (!total) return { onTime: 0, late: 0, notDone: 0, done: 0, total: 0 };
+
+  const late = Math.round((t.late / total) * 100);
+  const notDone = Math.round((t.notDone / total) * 100);
+  const onTime = Math.max(0, 100 - late - notDone);
+
+  return {
+    onTime: onTime, late: late, notDone: notDone,
+    // What the big number on the card is: clicked at all, on time or not.
+    done: Math.min(100, onTime + late),
+    total: total
+  };
+}
+
+
+/** Add one square's state into a tally. Anything else is not due yet. */
+function objCountState(tally, state) {
+  if (state === 'done') tally.onTime++;
+  else if (state === 'late') tally.late++;
+  else if (state === 'missed' || state === 'part') tally.notDone++;
+}
+
+
+/** Every square of the ninety - or of the eighty-six - in one month. */
+function objTaskSquares(tasks, log, period, now, tally) {
+  tasks.forEach(function (t) {
+    if (!objSlotCount(period, t.frequency)) return;   // nothing due this month
+    const entry = log.byKey[objLogKey(period, OBJ_KIND_TASK, t.id)];
+    const state = objTaskState(t, entry ? entry.marks : '', period, now,
+                               entry ? entry.markedAt : null);
+    state.cells.forEach(function (cell) {
+      objCountState(tally, cell.state);
+    });
+  });
+  return tally;
+}
+
+
+/** Every milestone's square for one month: one each, so 29 of them. */
+function objPlanSquares(plan, log, period, now, autoAll, tally) {
+  const auto = autoAll[period] || {};
+  plan.rows.forEach(function (row) {
+    row.milestones.forEach(function (m) {
+      const entry = log.byKey[objLogKey(period, OBJ_KIND_PLAN, m.id)];
+      const scored = m.auto
+        ? objMilestoneScore(m, log, period, { auto: auto })
+        : null;
+      const st = objPlanMonthState(m, entry, period, now,
+                                   Boolean(auto[m.auto]),
+                                   scored ? scored.fraction : 0);
+      objCountState(tally, st.state);
+    });
+  });
+  return tally;
+}
+
+
+/**
+ * The two figures both sheets now show: this month, and the whole period.
+ *
+ * `base` is what the card says it is counting - the twenty-nine milestones,
+ * and the eighty-six EAS objectives. THE FOUR KPIs ARE LEFT OUT of the
+ * ninety on purpose: nobody ticks them, the engine measures them from ITSM,
+ * and squares nobody can press do not belong in a figure about pressing
+ * squares. The chips on the page already split them the same way.
+ *
+ * `overall` stops at the month it actually is. Counting the months still
+ * ahead would put the whole period's worth of untouched squares into the
+ * "not done" slice in October and make the pie meaningless until March.
+ */
+function objProgressAll(plan, tasks, log, periods, want, now, autoAll) {
+  const eas = tasks.filter(function (t) { return !t.kpi; });
+  const current = objPeriodOf(objDate(now) || new Date());
+  const done = periods.filter(function (p) { return p <= current; });
+
+  const planMonth = objPlanSquares(plan, log, want, now, autoAll, objTally());
+  const taskMonth = objTaskSquares(eas, log, want, now, objTally());
+  const planAll = objTally();
+  const taskAll = objTally();
+
+  done.forEach(function (p) {
+    objPlanSquares(plan, log, p, now, autoAll, planAll);
+    objTaskSquares(eas, log, p, now, taskAll);
+  });
+
+  return {
+    months: done.length,
+    plan: {
+      base: plan.rows.reduce(function (n, r) {
+        return n + r.milestones.length;
+      }, 0),
+      month: objTallyShare(planMonth),
+      overall: objTallyShare(planAll)
+    },
+    tasks: {
+      base: eas.length,
+      month: objTallyShare(taskMonth),
+      overall: objTallyShare(taskAll)
+    }
+  };
+}
+
+
 /**
  * How far one milestone got in one month, as a fraction of its target.
  *
@@ -1685,6 +1844,10 @@ function getObjectives(token, period) {
              filled: tasks.filled },
     unique: auto.UNIQUE_ROLES || null,
     score: objScore(plan, log, want, { auto: auto }),
+    // The two cards at the top of either sheet. See objProgressAll - it is
+    // the squares already drawn on this page, counted.
+    progress: objProgressAll(plan, tasks.tasks, log, periods, want, now,
+                             autoAll),
     me: { id: me.id, name: me.name, admin: me.admin, planner: me.planner,
           groups: me.groups, all: me.all, reason: me.reason }
   };

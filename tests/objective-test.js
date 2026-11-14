@@ -2066,6 +2066,115 @@ function load(opts) {
 }
 
 // ===========================================================================
+// 12. progress: the squares, counted
+// ===========================================================================
+/*
+  The two cards at the top of either sheet are one idea - every square is
+  ticked on time, ticked late, or not ticked - so these check the counting
+  and the rounding rather than any wording.
+*/
+{
+  const ctx = load();
+
+  check('an empty tally has no total, so the card can say nothing is due',
+    ctx.objTallyShare(ctx.objTally()).total === 0 &&
+    ctx.objTallyShare(ctx.objTally()).done === 0);
+
+  /*
+    A RING WITH NO GAP IN IT. Rounding each share on its own turns thirds
+    into 33 + 33 + 33 and leaves a sliver of background showing between
+    the last slice and the first, which reads as a fourth category.
+  */
+  const thirds = ctx.objTallyShare({ onTime: 1, late: 1, notDone: 1 });
+  check('three equal slices still add to exactly a hundred',
+    thirds.onTime + thirds.late + thirds.notDone === 100,
+    JSON.stringify(thirds));
+  const odd = ctx.objTallyShare({ onTime: 5, late: 3, notDone: 1 });
+  check('and so do slices that do not divide evenly',
+    odd.onTime + odd.late + odd.notDone === 100, JSON.stringify(odd));
+  check('done is on time plus delayed, because both were ticked',
+    odd.done === odd.onTime + odd.late, JSON.stringify(odd));
+
+  // The five states the two grids paint, and where each one lands.
+  const t = ctx.objTally();
+  ['done', 'late', 'missed', 'part', 'pending'].forEach(function (st) {
+    ctx.objCountState(t, st);
+  });
+  check('on time, delayed, and not done take one state each',
+    t.onTime === 1 && t.late === 1 && t.notDone === 2,
+    JSON.stringify(t));
+  /*
+    PENDING IS NOT COUNTED EITHER WAY. A square whose period has not
+    closed is not a success and not a failure; putting it in the
+    denominator is what made the earlier version of this strip report a
+    figure that could only ever fall.
+  */
+  check('and a period that has not come round is in neither',
+    ctx.objTallyTotal(t) === 4, ctx.objTallyTotal(t));
+
+  const now = new Date(2026, 10, 12, 10, 0, 0);
+  const quiet = ctx.objTaskSquares(
+    [{ id: 'Q', frequency: 'Quarterly', kpi: false }],
+    { byKey: {} }, '2026-11', now, ctx.objTally());
+  check('an objective with no period this month contributes no squares',
+    ctx.objTallyTotal(quiet) === 0, JSON.stringify(quiet));
+
+  const daily = ctx.objTaskSquares(
+    [{ id: 'D', frequency: 'Daily', kpi: false }],
+    { byKey: {} }, '2026-11', now, ctx.objTally());
+  check('a daily objective nobody touched is all not-done, and only for ' +
+    'the days that have closed',
+    daily.onTime === 0 && daily.late === 0 &&
+    daily.notDone === ctx.objSlotsElapsed('2026-11', 'Daily', now),
+    JSON.stringify(daily));
+}
+
+{
+  /*
+    THE FOUR KPIs ARE NOT IN IT. Nobody may tick them - objMayTick
+    refuses them to everybody because the engine measures them from ITSM -
+    so squares nobody can press have no business in a figure about
+    pressing squares.
+  */
+  const ctx = load();
+  const plan = ctx.readObjPlan();
+  const tasks = ctx.readObjTask();
+  const now = new Date(2026, 10, 12, 10, 0, 0);
+  const periods = ctx.objPeriods();
+  const log = { byKey: {} };
+  const autoAll = ctx.objAutoAll(tasks.tasks, log, periods, now);
+  const got = ctx.objProgressAll(plan, tasks.tasks, log, periods, '2026-11',
+                                 now, autoAll);
+
+  const kpis = tasks.tasks.filter((t) => t.kpi).length;
+  check('the task side counts the EAS objectives, not the KPIs',
+    got.tasks.base === tasks.tasks.length - kpis && kpis > 0,
+    got.tasks.base + ' of ' + tasks.tasks.length + ', ' + kpis + ' KPIs');
+  check('the plan side counts every milestone',
+    got.plan.base === plan.rows.reduce((n, r) => n + r.milestones.length, 0),
+    String(got.plan.base));
+
+  /*
+    OVERALL STOPS AT THE MONTH IT ACTUALLY IS. Counting the months still
+    ahead would drop the whole period's untouched squares into "not done"
+    and make the ring meaningless until March.
+  */
+  const current = ctx.objPeriodOf(now);
+  check('the ring covers the months up to this one and no further',
+    got.months === periods.filter((p) => p <= current).length &&
+    got.months < periods.length,
+    got.months + ' of ' + periods.length);
+
+  check('with nothing recorded the whole ring is not-done',
+    got.tasks.overall.notDone === 100 && got.tasks.overall.done === 0,
+    JSON.stringify(got.tasks.overall));
+  check('and this month alone is counted apart from the whole period',
+    got.tasks.month.total < got.tasks.overall.total &&
+    got.tasks.month.total > 0,
+    got.tasks.month.total + ' of ' + got.tasks.overall.total);
+}
+
+// ===========================================================================
 console.log('');
 const bad = out.filter((x) => !x).length;
 // run.js scans for "N/N passed", so the tally has to be in that shape or

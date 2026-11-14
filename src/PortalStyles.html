@@ -3666,8 +3666,13 @@
     font-size: 12.8px; line-height: 1.5; font-weight: 530;
   }
 
+  /*
+    TWO CARDS, NOT FOUR. See renderObjStats - both sheets now say the same
+    two things, so the strip is a pair rather than a row, and each half has
+    room for a figure somebody can read across the table.
+  */
   .obj-stats {
-    display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px;
+    display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px;
     margin-bottom: 24px;
   }
   /*
@@ -3707,6 +3712,75 @@
   #objStats .tile-bar i.is-r { background: #f04438; }
   #objStats .tile-bar i.is-a { background: #f79009; }
   #objStats .tile-bar i.is-n { background: #98a2b3; }
+
+  /*
+    ---------------- the overall progress ring ----------------
+
+    THREE COLOURS AND ONLY THREE, the same three on the bar beside it and
+    in the key underneath: green was ticked on time, amber was ticked late,
+    grey was not ticked. Not done is grey rather than red on purpose - the
+    ring is read across a meeting table, and a third of it in alarm red
+    says "failing" where the honest word is "outstanding".
+  */
+  /*
+    THE TWO HALVES ARE THE SAME HEIGHT, so the line of small print sits on
+    the same baseline on both. The ring is the taller of the two by its
+    nature, and a left-hand card whose note floated halfway up a column of
+    empty space read as unfinished rather than as roomy.
+  */
+  #objStats .tile { display: flex; flex-direction: column; }
+  #objStats .tile-note { margin-top: auto; padding-top: 10px; }
+  #objStats .obj-ring { display: flex; flex-direction: column; }
+  #objStats .obj-pie {
+    display: flex; align-items: center; gap: 16px;
+    margin: 6px 0 2px; flex: 1 1 auto; min-width: 0;
+  }
+  #objStats .obj-donut { width: 92px; height: 92px; flex: none; }
+  #objStats .obj-arc {
+    fill: none; stroke-width: 15; transform: rotate(-90deg);
+    transform-origin: 50% 50%;
+  }
+  #objStats .obj-arc.is-track { stroke: #eaecf0; }
+  #objStats .obj-arc.is-ontime { stroke: #12b76a; }
+  #objStats .obj-arc.is-late { stroke: #f79009; }
+  #objStats .obj-arc.is-undone { stroke: #d0d5dd; }
+  /*
+    Longhand, not the `font:` shorthand - the shorthand needs a family and
+    `inherit` is not one, so the whole declaration would be dropped and the
+    figure in the middle of the ring would fall back to the browser's
+    default SVG text. wiring-test.js catches exactly this.
+  */
+  #objStats .obj-donut-n {
+    font-size: 21px; font-weight: 700; line-height: 1;
+    fill: var(--text, #101828);
+    text-anchor: middle; dominant-baseline: central;
+    letter-spacing: -.02em; transform: none;
+  }
+  #objStats .obj-key {
+    list-style: none; margin: 0; padding: 0; min-width: 0;
+    display: grid; gap: 6px; font-size: 12.6px;
+  }
+  #objStats .obj-key li {
+    display: flex; align-items: center; gap: 7px; min-width: 0;
+  }
+  #objStats .obj-key i {
+    width: 9px; height: 9px; border-radius: 3px; flex: none;
+  }
+  #objStats .obj-key i.is-ontime { background: #12b76a; }
+  #objStats .obj-key i.is-late { background: #f79009; }
+  #objStats .obj-key i.is-undone { background: #d0d5dd; }
+  #objStats .obj-key span {
+    color: var(--text-dim); overflow: hidden; text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  #objStats .obj-key b {
+    margin-left: auto; font-weight: 650; font-variant-numeric: tabular-nums;
+  }
+
+  @media (max-width: 560px) {
+    #objStats .obj-pie { gap: 12px; }
+    #objStats .obj-donut { width: 76px; height: 76px; }
+  }
 
   /* ---------------- the month picker ---------------- */
   .obj-listhead {
@@ -4334,7 +4408,8 @@
     than the same milestone with its bar underneath.
   */
   @media (max-width: 1049px) {
-    .obj-stats { grid-template-columns: repeat(2, 1fr); }
+    /* Two already; the ring and its key need the width more than the row
+       needs to stay level, so they stack rather than squeeze. */
     .obj-card { grid-template-columns: 1fr 160px; }
     .obj-card > .obj-acts { grid-column: 2; }
   }
@@ -4343,7 +4418,7 @@
     .obj-band-acts { margin-left: 0; width: 100%; }
     .obj-card { grid-template-columns: 1fr; gap: 14px; }
     .obj-up-body { grid-template-columns: 1fr; gap: 18px; }
-    .obj-stats { grid-template-columns: 1fr 1fr; gap: 10px; }
+    .obj-stats { grid-template-columns: 1fr; gap: 12px; }
     .obj-two { grid-template-columns: 1fr; }
     .obj-filters { margin-left: 0; width: 100%; }
   }

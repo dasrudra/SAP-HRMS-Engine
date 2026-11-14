@@ -317,43 +317,58 @@ function parseRgb(text) {
     (await onTab()) === 'task' && (await cards()) === 12,
     (await cards()) + ' cards');
 
-  // "On track" is the one label only the Unique Roles strip has; the
-  // SMART side counts milestones and has nothing to be on track with.
-  check('and the stats strip changes with it',
-    /On track/.test(await p.$eval('#objStats', (n) => n.textContent)));
+  // The ring is on both sheets now, so the thing that changes with the tab
+  // is the figure in it, not the words around it.
+  const ringCentre = () => p.$eval('#objStats .obj-donut-n',
+    (n) => n.textContent.trim());
+  const taskRing = await ringCentre();
 
   await p.click('#objTabPlan');
   await p.waitForTimeout(400);
   check('and back again',
     (await onTab()) === 'plan' && (await cards()) === planCards);
+  check('the stats strip is counting the sheet it is on',
+    (await ringCentre()) !== taskRing,
+    'plan ' + (await ringCentre()) + ' vs task ' + taskRing);
 
   /*
-    THE FOUR TILES, which were four of the same card.
+    TWO CARDS, AND THE SAME TWO ON BOTH SHEETS.
 
-    A label, a number and a grey bar, differing only in the words - so
-    nothing told you which one was the warning and which the
-    reassurance, and three of the four bars measured against a
-    denominator the card never named. Each one now carries a tone on its
-    rail and its icon, a meter that is segmented where it is comparing
-    two things, and a line saying what the number is out of.
+    There were eight - four here, four there - each counting something
+    slightly different: milestones met, objectives on schedule, periods
+    passed unmarked, how many of the ninety you may tick. All true, and
+    unreadable as a strip without somebody explaining it first.
+
+    Both sheets are grids of squares and a square is ticked on time,
+    ticked late, or not ticked. So: this month as one percentage, and the
+    whole six months as a ring. See objProgressAll.
   */
-  // The shared .tile out of Styles.html, the same one the KPI pages use.
   const tiles = () => p.$$eval('#objStats .tile', (ns) => ns.map((n) => ({
     tone: (/\bt-(g|r|a|blue|teal)\b/.exec(n.className) || [])[1] || '',
     label: n.querySelector('.tile-label').textContent.trim(),
-    value: (n.querySelector('.tile-value') || {}).textContent || '',
+    value: ((n.querySelector('.tile-value') || {}).textContent || '').trim(),
     icon: Boolean(n.querySelector('.tile-ico svg')),
     foot: (n.querySelector('.tile-note') || {}).textContent || '',
     bars: Array.prototype.slice.call(n.querySelectorAll('.tile-bar i'))
-      .map((i) => (/is-([gran])\b/.exec(i.className) || [])[1] || '?')
+      .map((i) => ((/is-([gran])\b/.exec(i.className) || [])[1] || '?') +
+                  '@' + i.style.width),
+    arcs: Array.prototype.slice.call(n.querySelectorAll('.obj-arc'))
+      .map((c) => (/is-([a-z]+)/.exec(c.getAttribute('class')) || [])[1]),
+    key: Array.prototype.slice.call(n.querySelectorAll('.obj-key li'))
+      .map((l) => l.textContent.replace(/\s+/g, ' ').trim())
   })));
 
   const planTiles = await tiles();
-  check('there are four tiles and each carries a tone of its own',
-    planTiles.length === 4 && planTiles.every((t) => t.tone),
+  check('there are two cards, not eight',
+    planTiles.length === 2,
+    planTiles.map((t) => t.label).join(', '));
+  check('and they are the two the other sheet has',
+    planTiles[0].label === 'Progress this month' &&
+    planTiles[1].label === 'Overall progress',
+    planTiles.map((t) => t.label).join(', '));
+  check('each carries a tone of its own and an icon',
+    planTiles.every((t) => t.tone && t.icon),
     planTiles.map((t) => t.label + '=' + t.tone).join(', '));
-  check('each has an icon rather than being four of the same card',
-    planTiles.every((t) => t.icon));
   /*
     AND IT IS THE TILE THE REST OF THE APP USES, washed in its tone,
     rather than a second component that looks like it. Two components
@@ -369,70 +384,95 @@ function parseRgb(text) {
     planTiles.every((t) => t.foot.trim().length > 8),
     JSON.stringify(planTiles.map((t) => t.foot.trim())));
 
+  /*
+    THE MONTH IS ONE PERCENTAGE, AND IT NAMES ITS BASE.
+
+    The figure on the spreadsheet this replaced was typed by a person and
+    averaged 98.8%, which no reader could check. This one is the squares
+    counted, so the card has to say which squares - the milestones here,
+    the EAS objectives there - or it is the same unfalsifiable number.
+  */
+  check('this month is a single percentage',
+    /^\d+\s*%$/.test(planTiles[0].value), planTiles[0].value);
+  check('and it names what it counted',
+    /milestones/.test(planTiles[0].foot), planTiles[0].foot);
+  // On time and delayed are both in the figure, and both said separately,
+  // because "done" and "done when it should have been" are not one claim.
+  check('and splits the figure into on time and delayed',
+    /on time/.test(planTiles[0].foot) && /delayed/.test(planTiles[0].foot),
+    planTiles[0].foot);
+  /*
+    AND THE METER IS THE SAME FIGURE, not a second one that looks like it.
+    A bar whose green is any old width beside a line of text saying 75% on
+    time is two claims where there should be one, so the widths are read
+    back off the element and checked against the words.
+  */
+  const said = (foot, word) =>
+    Number((new RegExp('(\\d+)% ' + word).exec(foot) || [])[1]);
+  const drawn = (bars, tone) =>
+    Number((bars.filter((b) => b.indexOf(tone + '@') === 0)[0] || '')
+      .replace(/^.@/, '').replace('%', '')) || 0;
+  check('the meter paints those same two, and lets the track show the rest',
+    planTiles[0].bars.every((b) => /^[ga]@/.test(b)) &&
+    drawn(planTiles[0].bars, 'g') === said(planTiles[0].foot, 'on time') &&
+    drawn(planTiles[0].bars, 'a') === said(planTiles[0].foot, 'delayed'),
+    planTiles[0].bars.join(',') + ' | ' + planTiles[0].foot);
+
+  /*
+    THE RING IS THE SIX MONTHS. Three slices and only three, the same
+    three the bar and the key use, so a reader can check the ring against
+    the squares under the milestones by eye.
+  */
+  check('the second card is a ring with a track under it',
+    planTiles[1].arcs[0] === 'track' && planTiles[1].arcs.length > 1,
+    planTiles[1].arcs.join(','));
+  check('and only the three slices that mean something',
+    planTiles[1].arcs.slice(1)
+      .every((a) => ['ontime', 'late', 'undone'].indexOf(a) !== -1),
+    planTiles[1].arcs.join(','));
+  check('the key names all three whether or not each has a slice',
+    planTiles[1].key.length === 3 &&
+    /On time/.test(planTiles[1].key[0]) &&
+    /Delayed/.test(planTiles[1].key[1]) &&
+    /Not done/.test(planTiles[1].key[2]),
+    planTiles[1].key.join(' | '));
+  check('and the key adds up to a hundred, so the ring has no gap in it',
+    planTiles[1].key
+      .map((k) => Number((/(\d+)%/.exec(k) || [])[1] || 0))
+      .reduce((a, b) => a + b, 0) === 100,
+    planTiles[1].key.join(' | '));
+  check('the ring says the period it covers, not just a figure',
+    /\d+ months? so far/.test(planTiles[1].foot), planTiles[1].foot);
+
   await p.click('#objTabTask');
   await p.waitForTimeout(400);
   const taskTiles = await tiles();
+  check('the Unique Roles sheet draws the same two cards',
+    taskTiles.length === 2 &&
+    taskTiles[0].label === 'Progress this month' &&
+    taskTiles[1].label === 'Overall progress',
+    taskTiles.map((t) => t.label).join(', '));
   /*
-    THE HEADLINE IS A PERCENTAGE, in the tracking sheet's own words.
+    AND IT COUNTS THE EIGHTY-SIX, NOT THE NINETY.
 
-    It used to be "On schedule so far - 0 of 55", with "355 periods
-    passed unmarked" beside it and "86 of 90 yours to tick" at the end.
-    All true, none of it readable without the mechanism explained first.
-    Progress / On track / Needs attention are the three things the
-    spreadsheet had, and management read that for a year.
+    Nobody ticks the four KPIs - objMayTick refuses them to everybody
+    because the engine measures them from ITSM - so squares nobody can
+    press have no business in a figure about pressing squares. The chips
+    on the page split them the same way.
   */
-  check('the Unique Roles tiles have their own tones too',
-    taskTiles.length === 4 &&
-    taskTiles[0].label === 'Progress' &&
-    taskTiles[2].tone === 'r',
-    taskTiles.map((t) => t.label + '=' + t.tone).join(', '));
-  /*
-    ONE TRACK, TWO SEGMENTS. "On track" is a comparison - the ones that
-    are against the ones that are not - and that comparison belongs in
-    one bar rather than in a green bar on one card and a red bar on
-    another that the eye has to put together.
-  */
-  check('the on-track meter draws both halves of its own comparison',
-    taskTiles[1].bars.join(',') === 'g,r', taskTiles[1].bars.join(','));
-  check('and a tile measuring one thing draws one bar',
-    taskTiles[3].bars.length === 1, taskTiles[3].bars.join(','));
-
-  /*
-    THE PERCENTAGE IS COUNTED, NOT TYPED, and says what out of.
-
-    On the spreadsheet somebody typed Progress (%) and it averaged 98.8%.
-    Here it is the periods that closed and were marked, over the periods
-    that closed - so it has to name that denominator, or it is the same
-    unfalsifiable number the sheet had.
-  */
-  check('the headline is a percentage measured against what has come round',
-    /^\d+%$/.test(taskTiles[0].value.replace(/\s+/g, '')) &&
-    /come round this month/.test(taskTiles[0].foot),
-    taskTiles[0].value + ' | ' + taskTiles[0].foot);
-  // The sheet's bands, so the words mean on this page what they meant there.
-  check('and the bands are the ones the tracking sheet used',
-    /90% or better/.test(taskTiles[1].foot) &&
-    /under 60%|60%/.test(taskTiles[2].foot),
-    taskTiles[1].foot + ' | ' + taskTiles[2].foot);
-  /*
-    AND IT DOES NOT CLAIM THE FOUR IT LEAVES OUT BELONG TO OTHER MODULES.
-
-    The old fourth tile said exactly that under "86 of 90". For an
-    administrator the four excluded are the four KPIs, which objMayTick
-    refuses to anybody because the engine measures them - so the line was
-    wrong for the one person most likely to read it.
-  */
-  check('nothing in the strip claims the rest belong to other modules',
-    !/other modules/i.test(await p.$eval('#objStats', (n) => n.textContent)),
-    (await p.$eval('#objStats', (n) => n.textContent)).replace(/\s+/g, ' '));
+  check('and counts the EAS objectives, leaving the four KPIs out',
+    /EAS objectives/.test(taskTiles[0].foot) &&
+    !/\b90\b/.test(taskTiles[0].foot),
+    taskTiles[0].foot);
 
   await p.click('#objTabPlan');
   await p.waitForTimeout(400);
-  // One word for one idea, on both sheets. It was "Needs an update" here
-  // and "Behind" there, for the same question: what has nobody touched.
-  check('both sheets call the same thing Needs attention',
-    (await tiles()).some((t) => t.label === 'Needs attention') &&
-    taskTiles.some((t) => t.label === 'Needs attention'),
+  // One strip for one idea. The two sheets count different squares and
+  // say so in the small print, but a reader moving between them is never
+  // asked to learn a second set of words.
+  check('and switching back leaves the same two cards',
+    (await tiles()).map((t) => t.label).join(', ') ===
+      taskTiles.map((t) => t.label).join(', '),
     (await tiles()).map((t) => t.label).join(', '));
 
   // =========================================================================

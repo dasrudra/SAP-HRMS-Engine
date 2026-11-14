@@ -319,6 +319,78 @@ const stub = `
     return { state: late ? 'late' : 'done', at: at };
   }
 
+  /*
+    THE TWO CARDS' FIGURES: the squares, counted. Mirrors objProgressAll
+    and the three helpers under it on the server, including leaving the
+    four KPIs out of the task side - nobody ticks those.
+  */
+  function objTally() { return { onTime: 0, late: 0, notDone: 0 }; }
+
+  function objCountState(tally, state) {
+    if (state === 'done') tally.onTime++;
+    else if (state === 'late') tally.late++;
+    else if (state === 'missed' || state === 'part') tally.notDone++;
+  }
+
+  function objTallyShare(t) {
+    var total = t.onTime + t.late + t.notDone;
+    if (!total) return { onTime: 0, late: 0, notDone: 0, done: 0, total: 0 };
+    var late = Math.round((t.late / total) * 100);
+    var undone = Math.round((t.notDone / total) * 100);
+    var on = Math.max(0, 100 - late - undone);
+    return { onTime: on, late: late, notDone: undone,
+             done: Math.min(100, on + late), total: total };
+  }
+
+  function objTaskSquares(period, tally) {
+    OBJ_TASK.forEach(function (t) {
+      if (t.kpi) return;
+      var slots = objSlots(period, t.frequency);
+      if (!slots) return;
+      var e = OBJ_LOG[period + '|TASK|' + t.id];
+      var marks = objMarks(e ? e.marks : '', slots);
+      var st = objCells(t, period, marks, objElapsed(period, t.frequency),
+                        e ? e.markedAt : null);
+      st.cells.forEach(function (c) { objCountState(tally, c.state); });
+    });
+    return tally;
+  }
+
+  function objPlanSquares(period, tally) {
+    OBJ_PLAN.forEach(function (row) {
+      row.milestones.forEach(function (m) {
+        var pe = OBJ_LOG[period + '|PLAN|' + m.id];
+        objCountState(tally,
+          objPlanMonth(m, pe, period, objFraction(m, period)).state);
+      });
+    });
+    return tally;
+  }
+
+  function objProgressAll(want) {
+    var upto = OBJ_PERIODS.filter(function (p) { return p <= OBJ_NOW; });
+    var planAll = objTally();
+    var taskAll = objTally();
+    upto.forEach(function (p) {
+      objPlanSquares(p, planAll);
+      objTaskSquares(p, taskAll);
+    });
+    return {
+      months: upto.length,
+      plan: {
+        base: OBJ_PLAN.reduce(function (n, r) {
+          return n + r.milestones.length; }, 0),
+        month: objTallyShare(objPlanSquares(want, objTally())),
+        overall: objTallyShare(planAll)
+      },
+      tasks: {
+        base: OBJ_TASK.filter(function (t) { return !t.kpi; }).length,
+        month: objTallyShare(objTaskSquares(want, objTally())),
+        overall: objTallyShare(taskAll)
+      }
+    };
+  }
+
   /* One character per slot, as the server sends them. See objStateChars. */
   var OBJ_STATE_CHAR = { done: 'y', late: 'l', missed: 'n', pending: '.' };
   function objStateChars(cells) {
@@ -1523,6 +1595,7 @@ const stub = `
         unique: unique,
         score: { period: want, score: Math.round(score * 10) / 10,
                  outOf: 100, rows: [] },
+        progress: objProgressAll(want),
         me: { id: '20000000', name: 'Utpal Biswas', admin: true,
               // ?planner=0 is somebody who may read the SMART objective
               // and not record against it - a team member rather than a
