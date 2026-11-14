@@ -402,21 +402,47 @@ function parseRgb(text) {
     /on time/.test(planTiles[0].foot) && /delayed/.test(planTiles[0].foot),
     planTiles[0].foot);
   /*
-    AND THE METER IS THE SAME FIGURE, not a second one that looks like it.
-    A bar whose green is any old width beside a line of text saying 75% on
-    time is two claims where there should be one, so the widths are read
-    back off the element and checked against the words.
+    THE PERCENTAGE IS THE FRACTION BESIDE IT, and the bar is both.
+
+    "60%" with nothing to divide is a figure a reader can only take on
+    trust, and the first person to count the green squares in the column
+    and get a different answer is right to stop trusting it. So the card
+    prints its own fraction - "3 of 29 milestones" - and these check that
+    the big number, the fraction and the widths of the meter are all the
+    same claim rather than three that merely sit together.
   */
-  const said = (foot, word) =>
-    Number((new RegExp('(\\d+)% ' + word).exec(foot) || [])[1]);
+  const fraction = (foot) => {
+    const m = /(\d+) of (\d+)/.exec(foot);
+    return m ? { got: Number(m[1]), of: Number(m[2]) } : null;
+  };
   const drawn = (bars, tone) =>
     Number((bars.filter((b) => b.indexOf(tone + '@') === 0)[0] || '')
       .replace(/^.@/, '').replace('%', '')) || 0;
+
+  const planSum = fraction(planTiles[0].foot);
+  check('the card prints the fraction its percentage came from',
+    planSum && planSum.of > 0, planTiles[0].foot);
+  /*
+    AND THE DENOMINATOR IS EVERY MILESTONE, not only the ones somebody
+    has already touched. Leaving the untouched ones out is what made this
+    card read 60% on a month with three milestones recorded out of
+    twenty-nine. See objProgressAll.
+  */
+  check('and that fraction is out of all of them, not out of the ones ' +
+    'already touched',
+    planSum.of === (await p.$eval('#objCountPlan',
+      (n) => Number(n.textContent))),
+    planSum.of + ' vs ' + (await p.$eval('#objCountPlan',
+      (n) => n.textContent)) + ' on the tab');
+  check('the percentage is that fraction and not a second opinion',
+    Math.round((planSum.got / planSum.of) * 100) ===
+      Number(planTiles[0].value.replace(/\D/g, '')),
+    planTiles[0].value + ' vs ' + planSum.got + '/' + planSum.of);
   check('the meter paints those same two, and lets the track show the rest',
     planTiles[0].bars.every((b) => /^[ga]@/.test(b)) &&
-    drawn(planTiles[0].bars, 'g') === said(planTiles[0].foot, 'on time') &&
-    drawn(planTiles[0].bars, 'a') === said(planTiles[0].foot, 'delayed'),
-    planTiles[0].bars.join(',') + ' | ' + planTiles[0].foot);
+    Math.abs(drawn(planTiles[0].bars, 'g') + drawn(planTiles[0].bars, 'a') -
+             Number(planTiles[0].value.replace(/\D/g, ''))) <= 1.5,
+    planTiles[0].bars.join(',') + ' | ' + planTiles[0].value);
 
   /*
     THE RING IS THE SIX MONTHS. Three slices and only three, the same
@@ -464,6 +490,56 @@ function parseRgb(text) {
     /EAS objectives/.test(taskTiles[0].foot) &&
     !/\b90\b/.test(taskTiles[0].foot),
     taskTiles[0].foot);
+
+  /*
+    THE DELAYED HALF, WHICH ONLY THIS SHEET CAN SHOW.
+
+    A milestone's square is the whole month and cannot close before the
+    month does, so nothing on the SMART sheet can be DELAYED in the month
+    being looked at - its late count is structurally zero, and a card
+    printing "on time" where it meant "ticked" would look right there
+    for ever. The ninety have a square per period, so a day marked after
+    its own day closed is yellow, and the two in the fixture are what
+    make the distinction visible. See the November OJT-009 entry.
+  */
+  const taskSum = fraction(taskTiles[0].foot);
+  const taskLate = Number((/(\d+) delayed/.exec(taskTiles[0].foot) || [])[1]);
+  const taskOn = Number((/(\d+) on time/.exec(taskTiles[0].foot) || [])[1]);
+  check('this sheet has ticks that were made late, so delayed is not zero',
+    taskLate > 0, taskTiles[0].foot);
+  check('and ticked is on time plus delayed, not just the on-time ones',
+    taskSum.got === taskOn + taskLate && taskSum.got > taskOn,
+    taskSum.got + ' = ' + taskOn + ' + ' + taskLate);
+  check('the percentage on this sheet is its fraction too',
+    Math.round((taskSum.got / taskSum.of) * 100) ===
+      Number(taskTiles[0].value.replace(/\D/g, '')),
+    taskTiles[0].value + ' vs ' + taskSum.got + '/' + taskSum.of);
+  /*
+    AND BOTH COLOURS ARE ON THE METER. One bar, two segments: the green
+    is what was kept up with and the amber is what was caught up on, and
+    together they are the figure above them.
+  */
+  check('the meter draws the delayed part in amber beside the green',
+    taskTiles[0].bars.filter((b) => b.indexOf('a@') === 0).length === 1 &&
+    taskTiles[0].bars.filter((b) => b.indexOf('g@') === 0).length === 1,
+    taskTiles[0].bars.join(','));
+  check('and the two of them come to the figure above',
+    Math.abs(drawn(taskTiles[0].bars, 'g') + drawn(taskTiles[0].bars, 'a') -
+             Number(taskTiles[0].value.replace(/\D/g, ''))) <= 1.5,
+    taskTiles[0].bars.join(',') + ' | ' + taskTiles[0].value);
+  /*
+    AND THE WORDS GO WITH THE COLOURS THEY NAME. Checking only that the
+    two segments add up leaves "14 on time, 2 delayed" free to sit under
+    a bar that is mostly amber, which is a sentence and a picture saying
+    opposite things to the same reader.
+  */
+  check('the green is the on-time count and the amber the delayed one',
+    Math.abs(drawn(taskTiles[0].bars, 'g') -
+             (taskOn / taskSum.of) * 100) <= 1.5 &&
+    Math.abs(drawn(taskTiles[0].bars, 'a') -
+             (taskLate / taskSum.of) * 100) <= 1.5,
+    taskTiles[0].bars.join(',') + ' | ' + taskOn + ' on time, ' +
+    taskLate + ' delayed, of ' + taskSum.of);
 
   await p.click('#objTabPlan');
   await p.waitForTimeout(400);

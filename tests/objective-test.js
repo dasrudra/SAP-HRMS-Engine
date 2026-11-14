@@ -2100,17 +2100,33 @@ function load(opts) {
   ['done', 'late', 'missed', 'part', 'pending'].forEach(function (st) {
     ctx.objCountState(t, st);
   });
-  check('on time, delayed, and not done take one state each',
-    t.onTime === 1 && t.late === 1 && t.notDone === 2,
+  check('a tick is on time or delayed, and everything else is not done',
+    t.onTime === 1 && t.late === 1 && t.notDone === 3,
     JSON.stringify(t));
+  check('and every square counted lands somewhere',
+    ctx.objTallyTotal(t) === 5, ctx.objTallyTotal(t));
+
   /*
-    PENDING IS NOT COUNTED EITHER WAY. A square whose period has not
-    closed is not a success and not a failure; putting it in the
-    denominator is what made the earlier version of this strip report a
-    figure that could only ever fall.
+    THE SIXTY PER CENT BUG, which is what these two are here for.
+
+    Pending squares used to be left out of the denominator. On the SMART
+    sheet a milestone has exactly ONE square a month and it stays pending
+    until the month ends, so the denominator collapsed to the milestones
+    somebody had already touched: three marked on time out of five
+    touched published 60% on a month where twenty-six of twenty-nine had
+    nothing against them at all.
   */
-  check('and a period that has not come round is in neither',
-    ctx.objTallyTotal(t) === 4, ctx.objTallyTotal(t));
+  const real = ctx.objTally();
+  for (let i = 0; i < 3; i++) ctx.objCountState(real, 'done');
+  for (let i = 0; i < 26; i++) ctx.objCountState(real, 'pending');
+  const got = ctx.objTallyShare(real);
+  check('three milestones recorded out of twenty-nine is ten per cent, ' +
+    'not sixty',
+    got.done === 10 && got.ticked === 3 && got.total === 29,
+    JSON.stringify(got));
+  check('and the card can print the fraction it came from',
+    got.ticked === 3 && got.onTimeN === 3 && got.lateN === 0,
+    JSON.stringify(got));
 
   const now = new Date(2026, 10, 12, 10, 0, 0);
   const quiet = ctx.objTaskSquares(
@@ -2119,14 +2135,22 @@ function load(opts) {
   check('an objective with no period this month contributes no squares',
     ctx.objTallyTotal(quiet) === 0, JSON.stringify(quiet));
 
+  /*
+    EVERY DAY THE MONTH HOLDS, not only the ones that have closed. This
+    is a progress bar: it starts the month at nothing and fills as the
+    squares are pressed, so the days still ahead are part of what there
+    is to do.
+  */
   const daily = ctx.objTaskSquares(
     [{ id: 'D', frequency: 'Daily', kpi: false }],
     { byKey: {} }, '2026-11', now, ctx.objTally());
-  check('a daily objective nobody touched is all not-done, and only for ' +
-    'the days that have closed',
+  check('a daily objective nobody touched is not-done for every working ' +
+    'day the month has, not only the days gone by',
     daily.onTime === 0 && daily.late === 0 &&
-    daily.notDone === ctx.objSlotsElapsed('2026-11', 'Daily', now),
-    JSON.stringify(daily));
+    daily.notDone === ctx.objSlotCount('2026-11', 'Daily') &&
+    daily.notDone > ctx.objSlotsElapsed('2026-11', 'Daily', now),
+    daily.notDone + ' slots, ' +
+    ctx.objSlotsElapsed('2026-11', 'Daily', now) + ' elapsed');
 }
 
 {
@@ -2168,6 +2192,13 @@ function load(opts) {
   check('with nothing recorded the whole ring is not-done',
     got.tasks.overall.notDone === 100 && got.tasks.overall.done === 0,
     JSON.stringify(got.tasks.overall));
+  /*
+    AND THE MILESTONES ARE ALL IN THE MONTH'S DENOMINATOR even though not
+    one of their squares has closed - see the sixty per cent bug above.
+  */
+  check('every milestone is in this month"s figure, recorded or not',
+    got.plan.month.total === got.plan.base,
+    got.plan.month.total + ' of ' + got.plan.base);
   check('and this month alone is counted apart from the whole period',
     got.tasks.month.total < got.tasks.overall.total &&
     got.tasks.month.total > 0,

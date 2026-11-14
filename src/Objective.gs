@@ -1198,19 +1198,28 @@ function objUniqueRolesScore(tasks, log, period, now) {
      part      a counted milestone that got some of its target, not all
      pending   the period has not closed and nobody has ticked it yet
 
-   So progress is just those squares counted. A square that is still pending
-   is left out of the denominator entirely - it is not due, so it is neither
-   a success nor a failure, and counting it either way is how the earlier
-   version of this screen managed to report a figure that could only ever
-   fall. Everything else is in, and on time plus delayed over the whole is
-   the percentage.
+   EVERY SQUARE THE MONTH HAS IS IN THE DENOMINATOR, pending ones included.
+   This is a progress bar: of all the work this month holds, how much has
+   been done so far. It starts the month at nothing and fills up.
 
-   THE POINT OF COUNTING IT THIS WAY is that anybody can check it by eye.
-   The pie is the squares under the milestones added up; the month's figure
-   is this month's column of them. There is no weighting, no average of
-   averages and no band: one square, one vote. A daily objective therefore
-   carries more squares than a monthly one, which is correct - it is more
-   work, and more chances to let it slip.
+   An earlier version left pending squares out, on the reasoning that a
+   period which has not closed is neither a success nor a failure. That is
+   true of one square and wrong for a total, and on the SMART sheet it was
+   badly wrong: a milestone has exactly ONE square for the whole month, and
+   it stays pending until the month ends. So the denominator collapsed to
+   the milestones somebody had already acted on, and three marked on time
+   out of five touched published "60%" on a month where twenty-nine
+   milestones sat and twenty-six of them had nothing against them at all.
+   The question it was really answering - of the ones you touched, how many
+   were on time - is one nobody asked and nobody can act on.
+
+   THE POINT OF COUNTING IT THIS WAY is that anybody can check it by eye,
+   so the card prints its own fraction next to the percentage. The ring is
+   the squares under the milestones added up; the month's figure is this
+   month's column of them. No weighting, no average of averages, no band:
+   one square, one vote. A daily objective therefore carries more squares
+   than a monthly one, which is correct - it is more work, and more chances
+   to let it slip.
 
    'part' counts as not done. It is a counted milestone that reached some of
    its target, and the square is not green, so neither is the slice.
@@ -1239,7 +1248,10 @@ function objTallyTotal(t) {
  */
 function objTallyShare(t) {
   const total = objTallyTotal(t);
-  if (!total) return { onTime: 0, late: 0, notDone: 0, done: 0, total: 0 };
+  if (!total) {
+    return { onTime: 0, late: 0, notDone: 0, done: 0,
+             ticked: 0, total: 0 };
+  }
 
   const late = Math.round((t.late / total) * 100);
   const notDone = Math.round((t.notDone / total) * 100);
@@ -1249,16 +1261,36 @@ function objTallyShare(t) {
     onTime: onTime, late: late, notDone: notDone,
     // What the big number on the card is: clicked at all, on time or not.
     done: Math.min(100, onTime + late),
-    total: total
+    /*
+      AND THE FRACTION IT CAME FROM, printed beside it.
+
+      "60%" with nothing to divide is a number a reader can only take on
+      trust, and the first person to count the green squares on the page
+      and get a different answer is right to stop trusting it. "3 of 29"
+      can be checked against the column in a second.
+    */
+    ticked: t.onTime + t.late,
+    total: total,
+    // The same split as the percentages above, as plain counts, because
+    // the footer says "3 on time, 0 delayed" and a reader checking it
+    // against the column is counting squares, not working out shares.
+    onTimeN: t.onTime,
+    lateN: t.late
   };
 }
 
 
-/** Add one square's state into a tally. Anything else is not due yet. */
+/**
+ * Add one square's state into a tally.
+ *
+ * Everything that is not a tick is not done: missed, part, and pending
+ * alike. A pending square is work this month holds that nobody has done
+ * YET, which is exactly what the empty part of a progress bar is.
+ */
 function objCountState(tally, state) {
   if (state === 'done') tally.onTime++;
   else if (state === 'late') tally.late++;
-  else if (state === 'missed' || state === 'part') tally.notDone++;
+  else tally.notDone++;
 }
 
 

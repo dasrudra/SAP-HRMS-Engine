@@ -9539,9 +9539,18 @@
     const side = OBJ.sheet === 'plan' ? all.plan : all.tasks;
     const month = side.month;
     const whole = side.overall;
+    /*
+      WHAT A SQUARE IS, in the words of the sheet you are on. A milestone
+      has one square a month, so on the SMART sheet the fraction is a
+      count of milestones; the ninety have one per period, so there it is
+      a count of ticks.
+    */
     const what = OBJ.sheet === 'plan'
       ? 'the ' + side.base + ' milestones'
       : 'the ' + side.base + ' EAS objectives';
+    const unit = OBJ.sheet === 'plan'
+      ? 'milestones'
+      : 'ticks on the ' + side.base + ' EAS objectives';
     const months = all.months + ' month' + (all.months === 1 ? '' : 's');
 
     box.innerHTML =
@@ -9557,10 +9566,16 @@
         */
         parts: [{ pct: month.onTime, tone: 'g' },
                 { pct: month.late, tone: 'a' }],
+        /*
+          THE FRACTION IT CAME FROM, so the figure can be checked against
+          the column of squares beside it rather than taken on trust.
+          Counts and not percentages in the split for the same reason:
+          somebody verifying this is counting green squares.
+        */
         foot: month.total
-          ? month.onTime + '% on time, ' + month.late + '% delayed, across ' +
-            what
-          : 'nothing due yet this month, across ' + what
+          ? month.ticked + ' of ' + month.total + ' ' + unit + ' &middot; ' +
+            month.onTimeN + ' on time, ' + month.lateN + ' delayed'
+          : 'nothing to record this month, across ' + what
       }) +
       '<div class="tile t-blue obj-ring">' +
         '<div class="tile-top">' +

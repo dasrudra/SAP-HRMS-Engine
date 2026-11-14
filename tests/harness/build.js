@@ -329,17 +329,22 @@ const stub = `
   function objCountState(tally, state) {
     if (state === 'done') tally.onTime++;
     else if (state === 'late') tally.late++;
-    else if (state === 'missed' || state === 'part') tally.notDone++;
+    else tally.notDone++;      // missed, part and pending: not done yet
   }
 
   function objTallyShare(t) {
     var total = t.onTime + t.late + t.notDone;
-    if (!total) return { onTime: 0, late: 0, notDone: 0, done: 0, total: 0 };
+    if (!total) {
+      return { onTime: 0, late: 0, notDone: 0, done: 0, ticked: 0,
+               total: 0, onTimeN: 0, lateN: 0 };
+    }
     var late = Math.round((t.late / total) * 100);
     var undone = Math.round((t.notDone / total) * 100);
     var on = Math.max(0, 100 - late - undone);
     return { onTime: on, late: late, notDone: undone,
-             done: Math.min(100, on + late), total: total };
+             done: Math.min(100, on + late),
+             ticked: t.onTime + t.late, total: total,
+             onTimeN: t.onTime, lateN: t.late };
   }
 
   function objTaskSquares(period, tally) {
@@ -597,7 +602,20 @@ const stub = `
                     by: 'Bilal Hossain', id: '20000012',
                     at: Date.now() - 86400000, made: Date.now() - 86400000,
                     n: 1 } } };
+  /*
+    TWO OF THESE WERE CAUGHT UP ON, not kept up with.
+
+    Slots 0 and 1 are the 1st and 2nd of November and both were marked on
+    the 10th, after their own days had closed - so they are the yellow
+    "done, recorded late" squares, and the only DELAYED ticks the current
+    month has. The SMART sheet cannot have one: a milestone's square is
+    the whole month and cannot close before the month does, so without
+    these the month's figures could never tell "ticked" from "ticked on
+    time" and a card printing one in place of the other would go unseen.
+  */
   OBJ_LOG['2026-11|TASK|OJT-009'] = { marks: 'YYYYYYYY..............',
+    markedAt: { '0': new Date(2026, 10, 10, 9, 30).getTime(),
+                '1': new Date(2026, 10, 10, 9, 31).getTime() },
     by: 'Bilal Hossain', at: Date.now() - 3600000, history: [] };
   OBJ_LOG['2026-11|TASK|OJT-006'] = { marks: 'YY...',
     by: 'Bilal Hossain', at: Date.now() - 7200000, history: [] };
