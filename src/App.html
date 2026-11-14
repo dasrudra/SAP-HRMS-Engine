@@ -9480,20 +9480,21 @@
 
       box.innerHTML =
         objTile({
-          label: 'Period achievement', icon: 'target',
+          label: 'Score this period', icon: 'target',
           tone: share >= 70 ? 'good' : share >= 40 ? 'waiting' : 'behind',
           value: score, unit: ' / ' + outOf,
           parts: [{ pct: share, tone: share >= 70 ? 'g' : share >= 40 ? 'a' : 'r' }],
-          foot: 'weighted across ' + rows.length + ' categories'
+          foot: 'across ' + rows.length + ' categories'
         }) +
         objTile({
-          label: 'Milestones on target', icon: 'check', tone: 'good',
+          label: 'Milestones done', icon: 'check', tone: 'good',
           value: met, unit: ' of ' + total,
-          parts: [{ pct: pc(met, total), tone: 'g' }],
-          foot: short ? short + ' still short of target' : 'all of them met'
+          parts: [{ pct: pc(met, total), tone: 'g' },
+                  { pct: pc(short, total), tone: 'r' }],
+          foot: short ? short + ' still to go' : 'all of them done'
         }) +
         objTile({
-          label: 'Needs an update', icon: 'pen',
+          label: 'Needs attention', icon: 'pen',
           tone: needs ? 'waiting' : 'good',
           value: needs, unit: '',
           parts: [{ pct: pc(needs, total), tone: 'a' }],
@@ -9505,60 +9506,102 @@
           label: 'Counted for you', icon: 'bolt', tone: 'quiet',
           value: auto, unit: ' of ' + total,
           parts: [{ pct: pc(auto, total), tone: 'n' }],
-          foot: 'from the ninety, Knowledge and Learnings'
+          foot: 'the system fills these in'
         });
       return;
     }
 
-    // ---- the Unique Roles side ----
-    // Out of what has actually come round, not out of all ninety - see
-    // objUniqueRolesScore. An objective whose slot has not arrived is not a
-    // success yet, and counting it as one made this strip read far better
-    // than the month deserved.
+    /*
+      ---- the Unique Roles side ----
+
+      FOUR NUMBERS, IN THE WORDS THE TRACKING SHEET ALREADY USED.
+
+      These tiles used to report the mechanism: "0 of 55 on schedule",
+      "355 periods passed unmarked", "86 of 90 yours to tick". Every one of
+      those is true and not one of them can be read without having the
+      mechanism explained first, which is the opposite of what a summary
+      strip is for. The last one was also wrong about itself - it said the
+      rest belonged to other modules when for an administrator the four it
+      excluded were the four KPIs, which nobody ticks by hand.
+
+      The spreadsheet this screen replaced had three things on it and
+      nothing else: a Progress (%) for each objective, a one-word Overall
+      Status, and a count. Management read it for a year without anybody
+      explaining it. So these say the same things, in the same bands:
+
+        90% and over   Excellent                     -> On track
+        60% to 89%     Very Good / Good / Average    -> the middle
+        under 60%      Needs Attention
+        no figure      Needs Attention
+
+      WHERE THE PERCENTAGE COMES FROM, and how it differs from the sheet's.
+      On the sheet a person typed it, and it averaged 98.8%. Here it is
+      counted, not typed: of this objective's periods that have closed, how
+      many were marked done. Marking late still counts - see objTaskState.
+
+      An objective whose first period has not closed yet has nothing to
+      measure, so it is left out of the average rather than counted as a
+      win. Counting it as one is what made this strip read far better than
+      the month deserved; `resting` says how many are sitting out, so the
+      denominator is never silently smaller than it looks.
+    */
     const list = data.tasks.list || [];
-    const live = list.filter(function (t) { return t.slots > 0; });
-    const arrived = live.filter(function (t) { return t.elapsed > 0; });
-    const on = arrived.filter(function (t) { return t.onSchedule; }).length;
-    const behind = arrived.length - on;
-    const waitingOnYou = live.filter(function (t) { return t.due && t.mine; }).length;
+
+    let judged = 0, sum = 0, onTrack = 0, middle = 0, attention = 0;
+    list.forEach(function (t) {
+      if (!(t.elapsed > 0)) return;
+      judged++;
+      const share = Math.max(0, Math.min(1, (t.done || 0) / t.elapsed));
+      sum += share;
+      if (share >= 0.9) onTrack++;
+      else if (share >= 0.6) middle++;
+      else attention++;
+    });
+
+    const progress = judged ? Math.round((sum / judged) * 100) : 0;
+    const resting = list.length - judged;
+    const waitingOnYou = list.filter(function (t) {
+      return t.due && t.mine;
+    }).length;
     const mine = list.filter(function (t) { return t.mine; }).length;
-    const late = list.reduce(function (n, t) { return n + (t.late || 0); }, 0);
-    const silent = list.reduce(function (n, t) { return n + (t.silent || 0); }, 0);
-    const waiting = live.length - arrived.length;
 
     box.innerHTML =
       objTile({
-        label: 'On schedule so far', icon: 'check',
-        tone: behind ? 'waiting' : 'good',
-        value: on, unit: ' of ' + arrived.length,
-        parts: [{ pct: pc(on, arrived.length), tone: 'g' },
-                { pct: pc(behind, arrived.length), tone: 'r' }],
-        foot: waiting ? waiting + ' not due yet this month'
-                      : 'every one of them has come round'
+        label: 'Progress', icon: 'target',
+        tone: progress >= 90 ? 'good' : progress >= 60 ? 'waiting' : 'behind',
+        value: progress, unit: '%',
+        parts: [{ pct: progress,
+                  tone: progress >= 90 ? 'g' : progress >= 60 ? 'a' : 'r' }],
+        foot: judged
+          ? 'across the ' + judged + ' that have come round this month'
+          : 'nothing has come round yet this month'
       }) +
       objTile({
-        label: 'Behind', icon: 'alert',
-        tone: behind ? 'behind' : 'good',
-        value: behind, unit: '',
-        parts: [{ pct: pc(behind, arrived.length), tone: 'r' }],
-        foot: silent ? silent + ' period' + (silent === 1 ? '' : 's') +
-                       ' passed unmarked'
-                     : 'nothing has been missed'
+        label: 'On track', icon: 'check',
+        tone: onTrack === judged ? 'good' : 'waiting',
+        value: onTrack, unit: ' of ' + judged,
+        parts: [{ pct: pc(onTrack, judged), tone: 'g' },
+                { pct: pc(judged - onTrack, judged), tone: 'r' }],
+        foot: middle ? 'at 90% or better; ' + middle + ' more above 60%'
+                     : 'at 90% or better'
+      }) +
+      objTile({
+        label: 'Needs attention', icon: 'alert',
+        tone: attention ? 'behind' : 'good',
+        value: attention, unit: '',
+        parts: [{ pct: pc(attention, judged), tone: 'r' }],
+        foot: attention ? 'under 60%, or nothing recorded at all'
+                        : 'none of them is under 60%'
       }) +
       objTile({
         label: 'Waiting for you', icon: 'clock',
         tone: waitingOnYou ? 'waiting' : 'good',
         value: waitingOnYou, unit: '',
-        parts: [{ pct: pc(waitingOnYou, mine || live.length), tone: 'a' }],
-        foot: waitingOnYou ? 'open one and press the square for today'
-                           : 'nothing of yours is waiting'
-      }) +
-      objTile({
-        label: 'Yours to tick', icon: 'user', tone: 'quiet',
-        value: mine, unit: ' of ' + list.length,
-        parts: [{ pct: pc(mine, list.length), tone: 'n' }],
-        foot: late ? late + ' marked late, and counted'
-                   : 'the rest belong to other modules'
+        parts: [{ pct: pc(waitingOnYou, mine || list.length), tone: 'a' }],
+        foot: waitingOnYou
+          ? 'of the ' + mine + ' that are yours, press today'
+          : (resting ? resting + ' are not due yet this month'
+                     : 'nothing of yours is waiting')
       });
   }
 

@@ -317,8 +317,10 @@ function parseRgb(text) {
     (await onTab()) === 'task' && (await cards()) === 12,
     (await cards()) + ' cards');
 
+  // "On track" is the one label only the Unique Roles strip has; the
+  // SMART side counts milestones and has nothing to be on track with.
   check('and the stats strip changes with it',
-    /On schedule/.test(await p.$eval('#objStats', (n) => n.textContent)));
+    /On track/.test(await p.$eval('#objStats', (n) => n.textContent)));
 
   await p.click('#objTabPlan');
   await p.waitForTimeout(400);
@@ -339,6 +341,7 @@ function parseRgb(text) {
   const tiles = () => p.$$eval('#objStats .tile', (ns) => ns.map((n) => ({
     tone: (/\bt-(g|r|a|blue|teal)\b/.exec(n.className) || [])[1] || '',
     label: n.querySelector('.tile-label').textContent.trim(),
+    value: (n.querySelector('.tile-value') || {}).textContent || '',
     icon: Boolean(n.querySelector('.tile-ico svg')),
     foot: (n.querySelector('.tile-note') || {}).textContent || '',
     bars: Array.prototype.slice.call(n.querySelectorAll('.tile-bar i'))
@@ -369,23 +372,68 @@ function parseRgb(text) {
   await p.click('#objTabTask');
   await p.waitForTimeout(400);
   const taskTiles = await tiles();
+  /*
+    THE HEADLINE IS A PERCENTAGE, in the tracking sheet's own words.
+
+    It used to be "On schedule so far - 0 of 55", with "355 periods
+    passed unmarked" beside it and "86 of 90 yours to tick" at the end.
+    All true, none of it readable without the mechanism explained first.
+    Progress / On track / Needs attention are the three things the
+    spreadsheet had, and management read that for a year.
+  */
   check('the Unique Roles tiles have their own tones too',
     taskTiles.length === 4 &&
-    taskTiles[0].label === 'On schedule so far' &&
-    taskTiles[1].tone === 'r',
+    taskTiles[0].label === 'Progress' &&
+    taskTiles[2].tone === 'r',
     taskTiles.map((t) => t.label + '=' + t.tone).join(', '));
   /*
-    ONE TRACK, TWO SEGMENTS. "On schedule" is a comparison - the ones
-    that are against the ones that are not - and that comparison belongs
-    in one bar rather than in a green bar on one card and a red bar on
+    ONE TRACK, TWO SEGMENTS. "On track" is a comparison - the ones that
+    are against the ones that are not - and that comparison belongs in
+    one bar rather than in a green bar on one card and a red bar on
     another that the eye has to put together.
   */
-  check('the on-schedule meter draws both halves of its own comparison',
-    taskTiles[0].bars.join(',') === 'g,r', taskTiles[0].bars.join(','));
+  check('the on-track meter draws both halves of its own comparison',
+    taskTiles[1].bars.join(',') === 'g,r', taskTiles[1].bars.join(','));
   check('and a tile measuring one thing draws one bar',
     taskTiles[3].bars.length === 1, taskTiles[3].bars.join(','));
+
+  /*
+    THE PERCENTAGE IS COUNTED, NOT TYPED, and says what out of.
+
+    On the spreadsheet somebody typed Progress (%) and it averaged 98.8%.
+    Here it is the periods that closed and were marked, over the periods
+    that closed - so it has to name that denominator, or it is the same
+    unfalsifiable number the sheet had.
+  */
+  check('the headline is a percentage measured against what has come round',
+    /^\d+%$/.test(taskTiles[0].value.replace(/\s+/g, '')) &&
+    /come round this month/.test(taskTiles[0].foot),
+    taskTiles[0].value + ' | ' + taskTiles[0].foot);
+  // The sheet's bands, so the words mean on this page what they meant there.
+  check('and the bands are the ones the tracking sheet used',
+    /90% or better/.test(taskTiles[1].foot) &&
+    /under 60%|60%/.test(taskTiles[2].foot),
+    taskTiles[1].foot + ' | ' + taskTiles[2].foot);
+  /*
+    AND IT DOES NOT CLAIM THE FOUR IT LEAVES OUT BELONG TO OTHER MODULES.
+
+    The old fourth tile said exactly that under "86 of 90". For an
+    administrator the four excluded are the four KPIs, which objMayTick
+    refuses to anybody because the engine measures them - so the line was
+    wrong for the one person most likely to read it.
+  */
+  check('nothing in the strip claims the rest belong to other modules',
+    !/other modules/i.test(await p.$eval('#objStats', (n) => n.textContent)),
+    (await p.$eval('#objStats', (n) => n.textContent)).replace(/\s+/g, ' '));
+
   await p.click('#objTabPlan');
   await p.waitForTimeout(400);
+  // One word for one idea, on both sheets. It was "Needs an update" here
+  // and "Behind" there, for the same question: what has nobody touched.
+  check('both sheets call the same thing Needs attention',
+    (await tiles()).some((t) => t.label === 'Needs attention') &&
+    taskTiles.some((t) => t.label === 'Needs attention'),
+    (await tiles()).map((t) => t.label).join(', '));
 
   // =========================================================================
   // 2b. the weight belongs in a filter, not on every card
