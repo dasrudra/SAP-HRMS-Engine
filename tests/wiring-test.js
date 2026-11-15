@@ -861,6 +861,46 @@ check('no font shorthand names `inherit` as the family, which kills the rule',
   fontShorthand.length ? fontShorthand.join(' | ')
                        : 'the longhands apply; the shorthand would not have');
 
+/*
+  NOBODY'S ONEDRIVE PATH IN A PUBLIC REPOSITORY.
+
+  A SharePoint address for a file in somebody's own drive spells their work
+  email out in the path - /personal/firstname_company_com_bd/ - and carries
+  the sharing token it was issued with. This repository is public, and git
+  keeps what you delete, so one of these committed once is committed for
+  good.
+
+  Links.gs and the BY_WEEKLY tab exist so that these live on a sheet
+  instead. This is the check that says somebody took the shortcut: it reads
+  every source file rather than any one list, because the shortcut is
+  tempting in whichever file is open at the time.
+*/
+const ALL_SRC = fs.readdirSync(SRC).filter((f) => /\.(gs|html)$/.test(f));
+const leakedPaths = [];
+ALL_SRC.forEach((f) => {
+  const text = fs.readFileSync(path.join(SRC, f), 'utf8');
+  const lines = text.split('\n');
+  lines.forEach((line, i) => {
+    /*
+      The two forms a personal address takes inside a URL, and only those.
+
+      A plain @tekvision.com.bd address is NOT checked, because several are
+      in here on purpose: eas@, sca.eas@ and the rest are role mailboxes
+      that the portal prints in its own header. They are published already.
+      A guard that failed on them would be turned off within a week, and
+      the thing it was guarding would go with it.
+    */
+    if (/sharepoint\.com\/[^\s'"]*\/personal\//i.test(line) ||
+        /[A-Za-z0-9.-]+_(tekvision|youngone)_com(_bd)?\b/i.test(line)) {
+      leakedPaths.push(f + ':' + (i + 1) + ' ' + line.trim().slice(0, 70));
+    }
+  });
+});
+check('no personal OneDrive path or work email is written into the source',
+  leakedPaths.length === 0,
+  leakedPaths.length ? leakedPaths.join(' | ')
+                     : ALL_SRC.length + ' files, none carrying one');
+
 const failed = out.filter((r) => !r).length;
 console.log('\n' + (out.length - failed) + '/' + out.length + ' passed');
 process.exit(failed ? 1 : 0);

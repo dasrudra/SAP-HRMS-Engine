@@ -10,10 +10,14 @@
  *
  * WHY THE ADDRESSES ARE NOT IN THIS FILE
  * They are personal OneDrive links. Every one of them carries the owner's
- * work email inside the path - aungshuman_das_tekvision_com_bd and so on -
- * and this repository is public. Written here they would be on the open
- * internet, and in the git history after any deletion, for four people who
- * were never asked.
+ * work email inside the path - firstname_lastname_company_com_bd - and this
+ * repository is public. Written here they would be on the open internet,
+ * and in the git history after any deletion, for four people who were
+ * never asked.
+ *
+ * The example above is deliberately nobody: wiring-test.js refuses that
+ * pattern anywhere in src/, and an illustration is not a reason to make an
+ * exception for it.
  *
  * They are on the BY_WEEKLY tab instead, which also means a link can be
  * replaced when somebody reissues a share without a deployment. SharePoint
