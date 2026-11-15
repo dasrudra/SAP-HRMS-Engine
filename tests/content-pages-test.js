@@ -71,26 +71,7 @@ const PARTNERS = CONFIG.PARTNERS;
 // rather than in a public file. The rule this assertion is really making
 // is unchanged: nothing link-shaped may lead nowhere.
 {
-  /*
-    FIRST, THAT IT RUNS AT ALL with nothing but Config.gs in the sandbox.
-
-    portalLinks() asks privateLink() for the addresses that live on the
-    LINKS tab, and privateLink() asks for linkStore(), which is in Links.gs.
-    A portal where Links.gs was never pasted - or where somebody pasted
-    Config.gs and stopped - must still draw its Links page one entry short
-    rather than failing to build the list at all. Without the guard this
-    throws a ReferenceError and takes the whole page with it, so it is
-    worth a named check rather than letting the suite die here.
-  */
-  let links = null;
-  let blew = null;
-  try { links = vm.runInContext('portalLinks()', box); }
-  catch (e) { blew = e; links = []; }
-  check('the links list is built even with Links.gs absent',
-    !blew,
-    blew ? String(blew.message)
-         : 'every address is either in the file or quietly unset');
-
+  const links = vm.runInContext('portalLinks()', box);
   const lost = links.filter((l) => !l.name || !(l.url || l.view));
   check('every link in the list has somewhere to go',
     links.length > 0 && lost.length === 0,
@@ -114,50 +95,6 @@ const PARTNERS = CONFIG.PARTNERS;
     blanked.length === links.length - 1 &&
     !blanked.some((l) => l.name === 'SAP & HRMS UserHub'),
     blanked.length + ' links left when SAP_APP_URL is empty');
-
-  /*
-    AND THE ONES WHOSE ADDRESS IS NOT IN THE FILE AT ALL.
-
-    A couple of entries take their address from the LINKS tab, because the
-    real ones point into somebody's personal OneDrive and spell out their
-    work email and sharing token in the path. This repository is public, so
-    they live on a sheet. See Links.gs and privateLink().
-
-    Nothing but Config.gs is loaded in this sandbox, which is the same
-    situation as a portal where Links.gs was never installed - so this is
-    also the check that such a portal still draws the rest of the page
-    rather than failing on a missing function.
-  */
-  const unset = links.filter((l) => l.name === 'TVL Daily Connect');
-  check('a private link with no address is dropped, not drawn empty',
-    unset.length === 0, JSON.stringify(unset));
-
-  const stored = vm.runInContext(
-    '(function () {' +
-    '  globalThis.linkStore = function () {' +
-    '    return { "TVL Daily Connect": "https://example.com/d.pptx" }; };' +
-    '  var got = portalLinks();' +
-    '  delete globalThis.linkStore;' +
-    '  return got; })()', box);
-  const set = stored.filter((l) => l.name === 'TVL Daily Connect')[0];
-  check('and carries the address from the tab once somebody pastes one',
-    Boolean(set) && set.url === 'https://example.com/d.pptx',
-    JSON.stringify(set || null));
-  /*
-    IN ITS PLACE, not on the end. The order written in portalLinks() is the
-    order on the page - nothing sorts it - so an entry that appears only
-    when its address is set must appear where it belongs, next to the
-    fortnightly decks, rather than wherever the filter leaves it.
-  */
-  const at = (list, name) => list.map((l) => l.name).indexOf(name);
-  check('beside the fortnightly meetings, where Config.gs puts it',
-    at(stored, 'TVL Daily Connect') === at(stored, 'By-Weekly Meetings') + 1 &&
-    at(stored, 'TVL Knowledge Base') === at(stored, 'TVL Daily Connect') + 1,
-    stored.map((l) => l.name).join(' | '));
-  // Nothing else moved when it appeared.
-  check('and nothing else shifts when it appears',
-    stored.length === links.length + 1,
-    links.length + ' without it, ' + stored.length + ' with it');
 
   // The internal one is not collateral damage of that filter.
   check('while the one that opens a page inside the portal stays',

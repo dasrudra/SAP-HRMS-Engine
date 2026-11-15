@@ -870,10 +870,11 @@ check('no font shorthand names `inherit` as the family, which kills the rule',
   keeps what you delete, so one of these committed once is committed for
   good.
 
-  Links.gs and the BY_WEEKLY tab exist so that these live on a sheet
-  instead. This is the check that says somebody took the shortcut: it reads
-  every source file rather than any one list, because the shortcut is
-  tempting in whichever file is open at the time.
+  The BY_WEEKLY tab exists so that four of these live on a sheet instead,
+  and anything else of the kind belongs there too. This is the check that
+  says somebody took the shortcut: it reads every source file rather than
+  any one list, because the shortcut is tempting in whichever file happens
+  to be open at the time.
 */
 const ALL_SRC = fs.readdirSync(SRC).filter((f) => /\.(gs|html)$/.test(f));
 const leakedPaths = [];

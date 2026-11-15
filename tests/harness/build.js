@@ -28,27 +28,6 @@ const cfgBox = {
 cfgBox.globalThis = cfgBox;
 vm.createContext(cfgBox);
 vm.runInContext(read('Config.gs'), cfgBox);
-
-/*
-  THE PRIVATE ADDRESSES, STUBBED - see Links.gs and privateLink().
-
-  A couple of entries in portalLinks() get their address from the LINKS tab
-  rather than from the file, because the real ones carry somebody's work
-  email and a sharing token and this repository is public. privateLink()
-  answers '' when Links.gs is not loaded, which it is not here, and the
-  filter at the end of portalLinks() then drops those entries.
-
-  Left alone, that would mean the harness never draws them and every
-  assertion about the Links page would pass by simply not looking at them.
-  So the sandbox gets a linkStore of its own, returning addresses that are
-  obviously fictional - the page has no idea which kind it is holding, and
-  that is the point: this way the whole path is drawn and checked.
-*/
-vm.runInContext(
-  'function linkStore() { return ' + JSON.stringify({
-    'TVL Daily Connect': 'https://example.com/tvl-daily-connect.pptx'
-  }) + '; }', cfgBox);
-
 const CONFIG = vm.runInContext('CONFIG', cfgBox);
 
 /*

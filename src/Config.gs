@@ -576,11 +576,7 @@ const CONFIG = {
       See the header of ByWeekly.gs for why the addresses are on a tab and
       not in this file.
     */
-    BY_WEEKLY: 'BY_WEEKLY',
-
-    // Addresses for the Links page that cannot be written into a public
-    // repository - see Links.gs. Not for secrets.
-    LINKS: 'LINKS'
+    BY_WEEKLY: 'BY_WEEKLY'
   },
 
   /**
@@ -1773,30 +1769,6 @@ function driveFolderId(link) {
 }
 
 
-/**
- * The address of a Links-page entry kept off this repository, or ''.
- *
- * GUARDED, FOR TWO DIFFERENT REASONS.
- *
- * Links.gs may not be loaded at all: the suite that checks this list runs
- * Config.gs on its own in a sandbox, and `typeof` on a name that was never
- * declared is the one way to ask without throwing.
- *
- * And the LINKS tab may not exist yet. A portal that had not been set up
- * would otherwise fail to draw the Links page at all rather than drawing it
- * one link short, which is a bad trade: the other nine are fine.
- *
- * Either way the answer is '', and the filter at the end of portalLinks()
- * drops the entry. See Links.gs.
- */
-function privateLink(name) {
-  try {
-    if (typeof linkStore === 'function') return linkStore()[name] || '';
-  } catch (e) { /* no tab, no cache, nothing set: the entry is dropped */ }
-  return '';
-}
-
-
 function portalLinks() {
   return [
     { name: 'SAP & HRMS UserHub',
@@ -1820,22 +1792,11 @@ function portalLinks() {
     */
     { name: 'By-Weekly Meetings', view: 'byweekly' },
 
-    /*
-      THE DAILY ONE, BESIDE THE FORTNIGHTLY ONE, because somebody looking
-      for a meeting deck is looking for a meeting deck.
-
-      Its address is not in this file either, and for the same reason: the
-      deck is in a personal OneDrive, so the URL spells out the owner's work
-      email and carries the sharing token it was issued with. It is on the
-      LINKS tab. Until somebody pastes it there this entry has no address
-      and the filter at the end drops it, which is the right way round - a
-      missing link is better than a dead one. See Links.gs and checkLinks().
-    */
-    { name: 'TVL Daily Connect', url: privateLink('TVL Daily Connect') },
-
-    // A site address with nobody's name in it, so it can simply be written
-    // down. Not every SharePoint link needs the treatment above; only the
-    // ones that point into somebody's own drive do.
+    // A SharePoint SITE address, which is why it can simply be written
+    // down here. A link to a file in somebody's own OneDrive could not:
+    // that form of URL spells the owner's work email out in the path, and
+    // this repository is public. See ByWeekly.gs, where four of those live
+    // on a tab for exactly that reason.
     { name: 'TVL Knowledge Base',
       url: 'https://youngone0.sharepoint.com/sites/KnowledgeBase' },
 
