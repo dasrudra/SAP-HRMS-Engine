@@ -763,6 +763,30 @@ const stub = `
   // not gather it into that person's card. Off by default, so every other
   // assertion in the suites keeps the four conversations it was written for.
   var IMPOSTOR = new URLSearchParams(location.search).get('impostor') === '1';
+  /*
+    ?presignin=1 - A SIGN-IN-PAGE QUERY FROM SOMEBODY WHO HAS SINCE ENROLLED.
+
+    The case the Attach button exists for, and the one the fixture had no
+    example of: every unverified thread here belonged to an ID with no
+    account, so every such card drew the red alarm and is-presignin -
+    the quiet card for a person the accounts list CAN now identify - was
+    reachable by nothing. 20990012 is in ACCOUNTS below, which is what
+    makes this one of those rather than another alarm.
+
+    Behind a flag because an extra card shifts the counts the rest of this
+    fixture's assertions are written against.
+  */
+  var PRESIGNIN = new URLSearchParams(location.search).get('presignin') === '1';
+  /*
+    ?twoqueries=1 - ONE PERSON WAITING ON TWO THINGS AT ONCE.
+
+    Without it the inbox has one unanswered query per person, so "threads
+    nobody has answered" and "people nobody has got back to" are the same
+    number and a badge counting the wrong one looks right. That is exactly
+    how three different definitions of waiting lived in this page at the
+    same time. This is the fixture that tells them apart.
+  */
+  var TWOQUERIES = new URLSearchParams(location.search).get('twoqueries') === '1';
   // ?signups=closed drives the sign-in page with the door shut.
   var SIGNUPS_OPEN =
     new URLSearchParams(location.search).get('signups') !== 'closed';
@@ -840,6 +864,50 @@ const stub = `
         lastBy: 'USER', status: 'OPEN', waiting: 1,
         messages: [ { id: 'M9', at: '2026-08-04T06:00:00.000Z', side: 'USER',
                       text: 'Hi, this is Rudra - please reset my password.' } ] });
+  }
+
+  /*
+    THE LOCKED-OUT COLLEAGUE WHO THEN GOT AN ACCOUNT.
+
+    Wrote from the sign-in page because they could not get in, which is
+    what that box is for, and enrolled under the same ID afterwards. The
+    team can identify them, so the card is the quiet one - and until
+    somebody attaches it, every reply typed into it reaches nobody.
+  */
+  if (PRESIGNIN) {
+    THREADS.push(
+      { id: 'T8', person: '20990012', name: 'Jowel', verified: false, topic: '',
+        startedAt: '2026-08-05T04:25:00.000Z', lastAt: '2026-08-05T04:29:00.000Z',
+        lastBy: 'TEAM', status: 'OPEN', waiting: 0, unread: 1,
+        messages: [
+          { id: 'M7', at: '2026-08-05T04:25:00.000Z', side: 'USER',
+            text: 'Forgot my password, please reset it.' },
+          { id: 'M8', at: '2026-08-05T04:29:00.000Z', side: 'TEAM',
+            by: 'Rudra Das (20990012)', text: 'Try with this one.' } ] });
+  }
+
+  /*
+    SHE ASKED TWO THINGS AND WE ANSWERED THE SECOND.
+
+    The exact shape the three counts disagree about. Her first query still
+    carries an unanswered line, so any rule reading the per-thread
+    counters says she is waiting - but the last word between us was ours,
+    so she is not, and the badge that said 1 for ever said it about this.
+
+    One card, two queries, nothing owed. Change the reply here and the
+    assertions that depend on it should move together.
+  */
+  if (TWOQUERIES) {
+    THREADS.push(
+      { id: 'T7', person: '20000042', name: 'Ayesha Rahman', verified: true,
+        topic: 'Export timing',
+        startedAt: '2026-08-02T11:00:00.000Z', lastAt: '2026-08-02T11:05:00.000Z',
+        lastBy: 'TEAM', status: 'OPEN', waiting: 0, unread: 1,
+        messages: [
+          { id: 'M10', at: '2026-08-02T11:00:00.000Z', side: 'USER',
+            text: 'And when does the export run?' },
+          { id: 'M11', at: '2026-08-02T11:05:00.000Z', side: 'TEAM',
+            by: 'Rudra Das (20990012)', text: 'Half past six, every night.' } ] });
   }
 
   // Every query of this person's, newest activity first. The panel lists these
@@ -1142,6 +1210,40 @@ const stub = `
         return String(b.lastAt).localeCompare(String(a.lastAt));
       });
     },
+    /*
+      ATTACHING A SIGN-IN-PAGE CONVERSATION TO ITS ACCOUNT.
+
+      The real one flips Verified on the row; here flipping the field is
+      the whole of it, and that is enough to be worth testing - because
+      myThreadList() filters on exactly that field, so the asker's own
+      panel picks the conversation up the moment it changes. The point
+      of the feature is that the reply stops reaching nobody, and that
+      is the path this lets a test walk.
+    */
+    attachSignInThread: function (token, id) {
+      if (ROLE === 'USER') throw new Error('That action needs the admin login.');
+
+      var enrolled = {};
+      ACCOUNTS.forEach(function (a) {
+        enrolled[String(a.username).toLowerCase()] = true;
+      });
+
+      var t = THREADS.filter(function (x) { return x.id === id; })[0];
+      if (!t) return { ok: false, message: 'That conversation is no longer there.' };
+      if (t.verified) {
+        return { ok: false, message: 'That one is already on their account.' };
+      }
+      if (!enrolled[String(t.person).toLowerCase()]) {
+        return { ok: false,
+                 message: 'Nobody has opened an account under ' + t.person +
+                          ' yet, so there is nothing to attach it to.' };
+      }
+      t.verified = true;
+      return { ok: true,
+               message: (t.name || t.person) +
+                        ' can see this conversation now, replies included.' };
+    },
+
     replyToThread: function (token, id, text) {
       if (ROLE === 'USER') throw new Error('That action needs the admin login.');
       var t = THREADS.filter(function (x) { return x.id === id; })[0];

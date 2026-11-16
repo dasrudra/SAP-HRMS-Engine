@@ -59,8 +59,13 @@ const FILE = 'file://' + PAGE;
   const b = await chromium.launch({ executablePath: BROWSER });
   const errors = [];
 
-  const open = async (query) => {
+  const open = async (query, withClock) => {
     const p = await b.newPage({ viewport: { width: 1400, height: 900 } });
+    // A controllable clock, for the few checks about something that happens
+    // on a timer. Installed before the page loads, or the timers it sets on
+    // the way up are the real ones. Off by default: everything else here
+    // wants real time, and a frozen clock changes what whenText() prints.
+    if (withClock) await p.clock.install();
     p.on('pageerror', (e) => errors.push(String(e)));
     p.on('console', (m) => {
       if (m.type() !== 'error') return;
@@ -686,6 +691,189 @@ const FILE = 'file://' + PAGE;
     !/reset my password/.test(
       (claimed.filter((c) => !c.unverified)[0] || { text: '' }).text),
     'a password request inside a signed-in history reads as that person\'s');
+
+  // -------------------------------------------------------------------------
+  // ATTACHING A SIGN-IN-PAGE QUERY TO THE ACCOUNT THAT OWNS THE ID
+  // -------------------------------------------------------------------------
+  // Somebody writes from the sign-in page BECAUSE they are locked out, gets
+  // helped, and enrols under the same ID. Every reply typed into that
+  // conversation then reached nobody - myThreads refuses unverified threads
+  // to everybody, for a reason that still stands - and the card said so and
+  // offered nothing to do about it. This is the way out: a person decides,
+  // one conversation at a time, having checked away from this screen.
+  await p.close();
+  p = await open('?view=help&presignin=1');
+
+  const preCard = () => p.$$eval('#inboxList .thread', (ns) => ns
+    .filter((n) => n.classList.contains('is-presignin'))
+    .map((n) => ({
+      who: (n.querySelector('.thread-who') || {}).textContent || '',
+      attach: Boolean(n.querySelector('[data-attach]')),
+      ids: n.querySelector('[data-attach]')
+        ? n.querySelector('[data-attach]').getAttribute('data-attach') : '',
+      text: n.textContent
+    })));
+
+  const pre = await preCard();
+  check('a sign-in-page query from somebody since enrolled gets the quiet card',
+    pre.length === 1 && !/NOT VERIFIED/.test(pre[0].text),
+    pre.length + ' pre-sign-in cards');
+  check('and it offers a way to attach it rather than only explaining itself',
+    pre[0].attach && pre[0].ids === 'T8', pre[0].ids);
+  /*
+    AND IT SAYS TO CHECK FIRST. The server cannot tell whether the person
+    who typed that ID owns it - only the admin can, and only away from
+    this screen. A button with no such sentence beside it is the feature
+    turning into the hole it was written to avoid.
+  */
+  check('and tells the admin to confirm who they are before pressing it',
+    /Check who they are first/.test(pre[0].text) && /ring them/i.test(pre[0].text),
+    'the check is a phone call, not a field');
+
+  // THE ALARM CARD HAS NO SUCH BUTTON. That ID has no account, so there is
+  // nothing to attach it to and nothing but a claim behind it.
+  const alarm = await p.$$eval('#inboxList .thread.is-unverified',
+    (ns) => ns.map((n) => Boolean(n.querySelector('[data-attach]'))));
+  check('an ID nobody has enrolled is not offered it at all',
+    alarm.length > 0 && alarm.every((has) => !has),
+    alarm.length + ' alarm cards, ' + alarm.filter(Boolean).length + ' with a button');
+
+  /*
+    WHETHER THE ASKER CAN SEE IT AFTERWARDS is the point of the feature,
+    and not a question this suite can ask: the signed-in person here does
+    not own that conversation, so their own panel would never list it
+    either way. That contract is checked against the real Messenger.gs -
+    see the attach block at the end of messenger-test.js, which walks
+    myThreads before and after.
+
+    What this suite owns is the screen: the button on the right card and
+    only there, the question before it acts, and the card afterwards.
+  */
+  await p.click('#inboxList .thread.is-presignin .thread-row');
+  await p.waitForTimeout(250);
+  await p.click('#inboxList .thread.is-presignin [data-attach]');
+  await p.waitForTimeout(250);
+  check('pressing it asks first, and names who it is about',
+    await p.$eval('#modalBackdrop', (n) => !n.hidden) &&
+    /Jowel/.test(await p.$eval('#modal', (n) => n.textContent)),
+    await p.$eval('#modalTitle', (n) => n.textContent));
+
+  await p.click('#modalConfirm');
+  await p.waitForTimeout(600);
+  check('and the card stops saying the reply goes nowhere',
+    (await preCard()).length === 0,
+    'it is an ordinary conversation now');
+
+  // -------------------------------------------------------------------------
+  // ONE DEFINITION OF WAITING, COUNTED ONCE
+  // -------------------------------------------------------------------------
+  /*
+    There were three. The badge counted THREADS with an unanswered line;
+    the line under the heading counted people by that same per-thread
+    sum; the ninety-second poll asked the server, which counts PEOPLE by
+    who spoke last. Which number you saw depended on whether you had just
+    replied, just opened the screen, or just waited a minute - and on a
+    screen whose whole job is "who is owed a word", three answers is
+    worse than none.
+
+    This fixture is the one where they differ, and it is the shape the
+    old badge got wrong: Ayesha asked two things and we answered the
+    second. Her first query still holds an unanswered line, so anything
+    reading the per-thread counters calls her waiting - but the last word
+    between us was ours. She is not owed anything, and the badge that
+    said 1 for ever said it about exactly this.
+  */
+  await p.close();
+  p = await open('?view=help&twoqueries=1');
+
+  const badgeNow = () => p.$eval('#helpBadge', (n) =>
+    n.hidden ? 0 : Number(n.textContent.trim()) || 0);
+  const heading = () => p.$eval('#inboxCount', (n) => n.textContent);
+  const waitingCards = () => p.$$eval('#inboxList .thread .pill-wait',
+    (ns) => ns.length);
+
+  check('two unanswered queries from one person are one card, not two',
+    (await p.$$eval('#inboxList .thread', (ns) => ns.length)) === 3,
+    await heading());
+  check('the heading counts the people, and the queries behind them',
+    /3 people/.test(await heading()) && /5 queries/.test(await heading()) &&
+    /2 waiting/.test(await heading()),
+    await heading());
+  // Not her: we answered her last. A per-thread count says 3 here.
+  check('and somebody whose second question was answered is not waiting',
+    !/3 waiting/.test(await heading()), await heading());
+  // The badge is the number shown while somebody is on another screen, so
+  // it is the most likely to be believed and the least likely to be checked.
+  check('and the badge says the same number as the heading',
+    (await badgeNow()) === 2, (await badgeNow()) + ' on the badge');
+  check('and so do the pills on the cards',
+    (await waitingCards()) === 2, (await waitingCards()) + ' pills');
+
+  // -------------------------------------------------------------------------
+  // THE INBOX LOOKS AGAIN BY ITSELF
+  // -------------------------------------------------------------------------
+  // It never did. It loaded when the screen opened, when you replied, and
+  // when you sent a message of your own - so a query from anybody ELSE sat
+  // there unseen until somebody reloaded the page. The badge polled and the
+  // list did not, which is the worst pairing of the two: a number saying
+  // there is something to read, over a list that has not got it.
+  await p.close();
+  p = await open('?view=help', true);
+
+  const calls = () => p.evaluate(() =>
+    (window.__CALLS__ && window.__CALLS__.listThreads) || 0);
+
+  const atStart = await calls();
+  check('the inbox is fetched once when the screen opens', atStart >= 1, atStart);
+
+  await p.clock.runFor(61000);
+  await p.waitForTimeout(300);
+  const afterTick = await calls();
+  check('and again a minute later, without anybody reloading',
+    afterTick > atStart, atStart + ' then ' + afterTick);
+
+  /*
+    AND IT DOES NOT EAT A REPLY SOMEBODY IS HALFWAY THROUGH.
+
+    renderInbox replaces every card, so a redraw while a reply is part
+    typed takes the sentence with it - and the one certain way to make an
+    auto-refresh hated is to have it do that. The tick is skipped
+    instead, and the next one picks it up once the box is empty.
+  */
+  await p.click('#inboxList .thread .thread-row');
+  await p.waitForTimeout(250);
+  const draft = '#inboxList .thread.is-open [data-reply]';
+  await p.fill(draft, 'Half a sentence, still being');
+  const beforeHold = await calls();
+  await p.clock.runFor(61000);
+  await p.waitForTimeout(300);
+  check('a tick while a reply is half typed is skipped, not forced through',
+    (await calls()) === beforeHold,
+    beforeHold + ' then ' + (await calls()));
+  check('and what was typed is still there',
+    (await p.inputValue(draft)) === 'Half a sentence, still being',
+    JSON.stringify(await p.inputValue(draft)));
+
+  await p.fill(draft, '');
+  await p.clock.runFor(61000);
+  await p.waitForTimeout(300);
+  check('and it resumes once the box is empty again',
+    (await calls()) > beforeHold,
+    beforeHold + ' then ' + (await calls()));
+
+  /*
+    AND IT STOPS WHEN THE SCREEN DOES. A poll left running behind another
+    view is a round trip a minute, for ever, for a list nobody is looking
+    at - on a platform where every one of them costs a second or two.
+  */
+  await p.click('.nav-item[data-view="kpi1"]');
+  await p.waitForTimeout(400);
+  const leaving = await calls();
+  await p.clock.runFor(61000 * 3);
+  await p.waitForTimeout(300);
+  check('and stops once somebody leaves the screen',
+    (await calls()) === leaving,
+    leaving + ' then ' + (await calls()));
 
   // -------------------------------------------------------------------------
   // a viewer

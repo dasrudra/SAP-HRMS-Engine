@@ -12645,7 +12645,62 @@
 
   function loadHelp() {
     callServer('faqEntries').then(renderFaq).catch(onError);
-    if (canAdmin()) loadInbox();
+    if (canAdmin()) { loadInbox(); watchInbox(); }
+  }
+
+
+  /*
+    HOW OFTEN THE INBOX LOOKS FOR ITSELF AGAIN.
+
+    It never did. It loaded when the screen opened, when you replied and
+    when you wrote a message yourself - so a query that arrived from
+    anybody else sat there unseen until somebody reloaded the page. The
+    badge polled and the list did not, which is the worst pairing of the
+    two: a number telling you there is something to read, above a list
+    that does not have it.
+
+    Sixty seconds, between the panel's forty-five and the badge's ninety.
+    Every tick is a round trip of a second or two, so it earns that by
+    only ever running while somebody is looking at this screen - and it
+    stops itself when they leave rather than needing a teardown hook
+    somewhere else that a later router change could forget to call.
+  */
+  const INBOX_POLL_MS = 60000;
+  let inboxTimer = null;
+
+
+  /**
+   * Whether redrawing now would take something away from somebody.
+   *
+   * renderInbox replaces every card, so a reply half typed into one is
+   * gone - and the one certain way to make an auto-refresh hated is to
+   * have it eat a sentence somebody was in the middle of. A staged
+   * screenshot counts for the same reason: it is attached to a card that
+   * is about to be replaced.
+   */
+  function inboxBusy() {
+    const box = document.querySelector('#inboxList .thread.is-open [data-reply]');
+    if (box && String(box.value || '').trim()) return true;
+    if (Object.keys(SHOTS).length) return true;
+    // A dialog open over the list is a decision in progress; the list
+    // underneath it changing shape is not help.
+    const modal = document.getElementById('modalBackdrop');
+    return Boolean(modal && !modal.hidden);
+  }
+
+
+  function watchInbox() {
+    if (inboxTimer) { clearInterval(inboxTimer); inboxTimer = null; }
+    if (!canAdmin()) return;
+
+    inboxTimer = setInterval(function () {
+      // Gone from the screen, so stop. See the note above.
+      if (state.view !== 'help') { clearInterval(inboxTimer); inboxTimer = null; return; }
+      // A background tab costs the same round trip and nobody is reading it.
+      if (document.hidden) return;
+      if (inboxBusy()) return;
+      loadInbox();
+    }, INBOX_POLL_MS);
   }
 
 
@@ -12680,12 +12735,30 @@
   }
 
 
+  /*
+    ONE DEFINITION OF "WAITING", COUNTED ONCE.
+
+    There were three. The badge counted THREADS whose waitingForTeam was
+    above zero; the line under the heading counted PEOPLE by the same
+    per-thread sum; the ninety-second poll asked the server, which counts
+    people by who spoke last - see peopleWaiting. Three answers to one
+    question, and which one you were looking at depended on whether you
+    had just replied, just opened the screen, or just waited a minute.
+
+    `owed` is the server's answer and the only one now. It is on every
+    row, it is what the pill on the card uses, and it is what the
+    ordering uses - so the badge, the heading and the cards cannot
+    disagree about who the team has not got back to.
+  */
+  function peopleOwed(rows) {
+    return inboxPeople(rows || []).filter(function (g) { return g.owed; }).length;
+  }
+
+
   function loadInbox() {
     callServer('listThreads').then(function (rows) {
       renderInbox(rows || []);
-      showHelpBadge((rows || []).filter(function (t) {
-        return (t.waiting || 0) > 0;
-      }).length);
+      showHelpBadge(peopleOwed(rows));
     }).catch(onError);
   }
 
@@ -12801,7 +12874,10 @@
     // Waiting first, then by the last thing said. The same ordering the
     // server uses on the threads themselves, applied to the people.
     return order.sort(function (a, b) {
-      if ((a.waiting > 0) !== (b.waiting > 0)) return a.waiting > 0 ? -1 : 1;
+      // On `owed` too, so the card at the top is the one the badge is
+      // counting. Sorting on the per-thread sum put a person the team had
+      // already answered above one nobody had got back to.
+      if (a.owed !== b.owed) return a.owed ? -1 : 1;
       return String(b.lastAt).localeCompare(String(a.lastAt));
     });
   }
@@ -12812,7 +12888,8 @@
     if (!list) return;
 
     const people = inboxPeople(rows);
-    const waiting = people.filter(function (g) { return g.waiting > 0; }).length;
+    // The same `owed` the badge and the pills use. See peopleOwed.
+    const waiting = people.filter(function (g) { return g.owed; }).length;
     // PEOPLE, since that is what the cards are now - and the number of
     // queries behind them as well when the two differ, because "4 people"
     // over a screen holding seven questions is a count that looks wrong.
@@ -12903,12 +12980,16 @@
           // thing long after it stopped being true.
           (!g.signIn ? '' : (g.enrolled
             ? '<p class="thread-note is-soft">Some of this arrived from the ' +
-              'sign-in page, before this person had an account. They have one ' +
-              'now under this employee ID, so who they are is no longer in ' +
-              'doubt - but a reply typed here still reaches nobody, because ' +
-              'sign-in-page messages are not shown to the account that was ' +
-              'opened afterwards. Answer them in one of their own queries ' +
-              'above, or by email.</p>'
+              'sign-in page, before this person had an account. They have ' +
+              'one now under this employee ID, so nothing here reaches them ' +
+              'until somebody says it is really them. ' +
+              '<strong>Check who they are first</strong> - ring them, or ask ' +
+              'in SAP - then attach it, and they will see the whole ' +
+              'conversation and every reply.' +
+              '<button class="thread-attach" data-attach="' +
+                escapeHtml(g.threads.filter(function (t) { return !t.verified; })
+                  .map(function (t) { return t.id; }).join(',')) +
+              '">Attach to their account</button></p>'
             : '<p class="thread-note">This came from the sign-in page, where nobody ' +
               'is signed in. That employee ID is only what the sender typed, and ' +
               'no account has been opened under it. Do not reset a password or ' +
@@ -13272,6 +13353,58 @@
    * there is nothing to undo it with.
    */
   function wireDeleteButtons() {
+    /*
+      ATTACH A SIGN-IN-PAGE CONVERSATION TO THE ACCOUNT THAT OWNS THE ID.
+
+      It asks first, and the dialog is where the real check lives: the
+      server will not attach to an ID with no account, but it cannot tell
+      whether the person who typed that ID is the person who owns it. Only
+      the admin can, and only away from this screen.
+    */
+    document.querySelectorAll('[data-attach]').forEach(function (button) {
+      button.addEventListener('click', function () {
+        const ids = (button.getAttribute('data-attach') || '')
+          .split(',').filter(function (s) { return s; });
+        if (!ids.length) return;
+
+        const card = button.closest('.thread');
+        const whoWith = card
+          ? (card.querySelector('.thread-who') || {}).textContent || '' : '';
+
+        confirmDialog({
+          title: 'Attach this to their account?',
+          subtitle: whoWith,
+          target:
+            '<span class="modal-target"><b>' + escapeHtml(whoWith) + '</b>' +
+            '<span>' + ids.length +
+            (ids.length === 1 ? ' query' : ' queries') +
+            ' from the sign-in page</span></span>',
+          body:
+            '<p>They will see this conversation in their own message panel ' +
+            'from now on, <strong>including every reply already in it</strong>.</p>' +
+            '<p>Anybody can type an employee ID into the sign-in page. Only ' +
+            'do this if you have checked, away from this screen, that it ' +
+            'really was them - a phone call or SAP, not a reply here.</p>',
+          confirmLabel: 'Attach it'
+        }).then(function (yes) {
+          if (!yes) return;
+          button.disabled = true;
+          // One at a time: each writes to the same tab and the server takes
+          // a lock per call. Same reasoning as the delete above.
+          ids.reduce(function (chain, id) {
+            return chain.then(function () {
+              return callServer('attachSignInThread', id);
+            });
+          }, Promise.resolve())
+            .then(function (result) {
+              loadInbox();
+              toast((result && result.message) || 'Attached.');
+            })
+            .catch(function (err) { loadInbox(); onError(err); });
+        });
+      });
+    });
+
     document.querySelectorAll('[data-del]').forEach(function (button) {
       button.addEventListener('click', function () {
         const key = button.getAttribute('data-del');

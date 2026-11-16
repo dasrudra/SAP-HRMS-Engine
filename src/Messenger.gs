@@ -788,6 +788,71 @@ function replyToThread(token, threadId, text, images) {
 
 
 /**
+ * Puts a sign-in-page conversation onto the account that owns that ID.
+ *
+ * WHY THIS IS A BUTTON AND NOT A RULE.
+ *
+ * myThreads() refuses unverified threads to everybody, and the reasoning
+ * above it still stands: the sign-in page is public, so anybody who can
+ * load it can type ANY employee ID and write under it. Attaching those
+ * messages to the account automatically, because the ID now has one, would
+ * let a stranger put words into a colleague's own message panel with the
+ * team's reply underneath.
+ *
+ * The missing piece was never the check. It was that the team had no way
+ * to say "I have confirmed this is them" - so a reply to somebody who
+ * wrote in locked out, got helped, and then enrolled reached nobody at
+ * all, which is the whole case that box exists for.
+ *
+ * So: a person decides, one conversation at a time, and the decision is
+ * the evidence. Nothing is linked by matching an ID. The admin pressing
+ * this has read the thread and knows who they rang.
+ *
+ * THE ID MUST BE ENROLLED. Not as a proof of anything - it is not one -
+ * but because attaching a thread to an account that does not exist leaves
+ * a verified conversation that no one can ever open, and whoever enrols
+ * under that ID later would inherit a stranger's messages.
+ *
+ * Admin, like replying. Deleting is master-only because it destroys
+ * somebody's record; this only makes a conversation visible to the person
+ * it already names, which is a smaller thing than the reply itself.
+ */
+function attachSignInThread(token, threadId) {
+  const session = requireAdminSession(token);
+
+  const thread = threadById(String(threadId || '').trim());
+  if (!thread) {
+    return { ok: false, message: 'That conversation is no longer there.' };
+  }
+  if (thread.verified === VERIFIED_YES) {
+    return { ok: false, message: 'That one is already on their account.' };
+  }
+  if (!hasAccount(thread.person)) {
+    return { ok: false,
+             message: 'Nobody has opened an account under ' + thread.person +
+                      ' yet, so there is nothing to attach it to.' };
+  }
+
+  setThreadField(thread.row, 'Verified', VERIFIED_YES);
+
+  /*
+    AND CARRY THE NAME ACROSS. nameEverywhere() is keyed by person AND
+    level, so a name given on the sign-in page sits on the unverified
+    rows and does not follow the thread over on its own - the person's
+    own panel would show a conversation headed by a bare employee ID.
+  */
+  if (thread.name) nameEverywhere(thread.person, VERIFIED_YES, thread.name);
+
+  Logger.log('Thread %s with %s attached to their account by %s.',
+             thread.id, thread.person, String(session.u || ''));
+
+  return { ok: true,
+           message: who(thread.person, thread.name) +
+                    ' can see this conversation now, replies included.' };
+}
+
+
+/**
  * How many conversations are waiting on us, for a signed-in admin.
  *
  * The badge was set once at sign-in and then only refreshed by opening the

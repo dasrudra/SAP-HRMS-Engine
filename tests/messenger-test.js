@@ -1432,6 +1432,82 @@ check('running the migration twice adds nothing the second time',
     /could not be attached/.test(String(noFolder.message)), noFolder.message);
 }
 
+// ---------------------------------------------------------------------------
+// attaching a sign-in-page conversation to the account that owns the ID
+// ---------------------------------------------------------------------------
+/*
+  THE WAY OUT OF THE DEAD END, and the reason it is a button.
+
+  myThreads refuses unverified threads to everybody, and the reasoning
+  above it stands: the sign-in page is public, so anybody can type any
+  employee ID and write under it. Attaching automatically because the ID
+  now has an account would let a stranger put words into a colleague's
+  own panel with the team's reply underneath.
+
+  What was missing was a way for the team to say "I have checked, this is
+  them" - so somebody who wrote in locked out, got helped and then
+  enrolled had every reply reach nobody at all, which is the whole case
+  that box exists for. These are last in the file because they change a
+  thread's verification, and everything above reads it.
+*/
+/*
+  WHO HAS AN ACCOUNT, said plainly.
+
+  This sandbox has no ACCOUNTS tab, so Auth.gs's hasAccount() answers
+  false for everybody - which is right for every test above, where
+  enrolment never comes up, and useless here, where it is the whole
+  question. Replaced the same way currentSession and liveRoleOf already
+  are: the point of these checks is what attachSignInThread does with
+  the answer, not how Auth.gs arrives at it.
+*/
+vm.runInContext(
+  'var ENROLLED = {};\n' +
+  'function hasAccount(id) {\n' +
+  '  return Boolean(ENROLLED[String(id || "").trim().toLowerCase()]);\n' +
+  '}', sb);
+vm.runInContext('ENROLLED["20990012"] = true;', sb);
+
+const attach = vm.runInContext('attachSignInThread', sb);
+const stray = findThreadId('20990012', 'NO');
+
+check('to begin with, the asker cannot see their own sign-in-page query',
+  Boolean(stray) && !mine(USER).threads.some((t) => t.id === stray),
+  'that is what the protection does, and it is still doing it');
+
+let refused = false;
+try { attach(USER, stray); } catch (e) { refused = true; }
+check('and they cannot attach it to themselves',
+  refused && !mine(USER).threads.some((t) => t.id === stray),
+  'it would be a claim attaching itself to the account it claims');
+
+// AN ID WITH NO ACCOUNT HAS NOTHING TO ATTACH TO. Not as proof of
+// anything - it is not - but a verified thread on an account that does
+// not exist is one whoever enrols under that ID later would inherit.
+sendAnon('20999777', 'Let me in please.');
+const orphan = findThreadId('20999777', 'NO');
+const noAccount = attach(ADMIN, orphan);
+check('an admin cannot attach one to an ID nobody has enrolled',
+  noAccount.ok === false && /account/i.test(noAccount.message),
+  noAccount.message);
+
+const done = attach(ADMIN, stray);
+check('but can attach one whose ID has an account since',
+  done.ok === true, done.message);
+check('and from then on it IS theirs, so the reply reaches somebody',
+  mine(USER).threads.some((t) => t.id === stray),
+  mine(USER).threads.map((t) => t.id).join(','));
+/*
+  AND THE WHOLE CONVERSATION GOES WITH IT, not only what is said next.
+  The point is the answer already typed into it - that is the message
+  the team wrote believing it would arrive.
+*/
+const attached = mine(USER).threads.filter((t) => t.id === stray)[0];
+check('including every line already in it',
+  attached.messages.length > 0,
+  attached.messages.length + ' message(s) carried across');
+check('attaching it again says so rather than doing it twice',
+  attach(ADMIN, stray).ok === false, attach(ADMIN, stray).message);
+
 const failed = out.filter((r) => !r).length;
 console.log('\n' + (out.length - failed) + '/' + out.length + ' passed');
 process.exit(failed ? 1 : 0);
