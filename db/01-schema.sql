@@ -1,26 +1,38 @@
 -- ===========================================================================
--- 01-schema.sql - the real TVL-EAS schema. Core three tables.
+-- 01-schema.sql - creates the TVL-EAS tables and puts fake people in them.
 -- ===========================================================================
 --
--- Run against a database called tvl_eas. Re-runnable: it drops first.
+-- HOW TO RUN THIS FILE: all of it, in one go. Press F5.
+-- It contains no errors. When it finishes you will have three tables.
 --
--- You know SQL already, so the comments here are about DESIGN, not syntax -
--- why the tables are split this way, and which rules the database enforces
--- that the Google Sheet never could.
+-- Safe to run as many times as you like - it drops the tables first, so
+-- running it again gives you a clean start.
 --
--- NO REAL PEOPLE. Every employee ID is inside the reserved test blocks
--- (200000xx, 2090xxxx, 2099xxxx). This repository is public.
+-- NO REAL PEOPLE ARE IN THIS FILE. Every employee ID is inside the reserved
+-- test blocks (200000xx, 2090xxxx, 2099xxxx) and every name, phone number
+-- and address is invented. This repository is public, so that rule holds for
+-- every file in it.
 -- ===========================================================================
+
+
+-- ---------------------------------------------------------------------------
+-- Clearing out, so this file can be run twice.
+-- ---------------------------------------------------------------------------
+-- The order matters. account and presence both point AT team, so they have
+-- to go first - PostgreSQL will not let you drop a table that another table
+-- still refers to.
 
 DROP TABLE IF EXISTS presence;
 DROP TABLE IF EXISTS account;
 DROP TABLE IF EXISTS team;
--- Dropped children first. Once foreign keys exist, the order matters.
 
 
 -- ---------------------------------------------------------------------------
--- team - the directory. One row per person.
+-- TABLE 1 of 3: team - the directory. One row per person.
 -- ---------------------------------------------------------------------------
+-- These are the columns of your TEAM tab in the Google Sheet, with better
+-- names and real types.
+
 CREATE TABLE team (
   employee_id     text PRIMARY KEY,
   full_name       text NOT NULL,
@@ -41,23 +53,34 @@ CREATE TABLE team (
   updated_at      timestamptz NOT NULL DEFAULT now()
 );
 
--- WHY employee_id IS text AND NOT integer, since your employees table used
--- integer: an employee ID is a label, not a quantity. You will never add two
--- together or average them. As integer, a leading zero is silently lost, and
--- the day HR issues "20990021-A" the column has to be rebuilt and every
--- foreign key with it. text costs nothing and never has that problem.
+-- THREE DESIGN DECISIONS, AND WHY:
 --
--- WHY timestamptz AND NOT timestamp: timestamptz stores the moment in UTC and
--- renders it in whatever timezone you ask for. Plain timestamp stores a
--- wall-clock reading with no record of which clock - fine until the first
--- person reads it from outside Dhaka.
+-- 1. employee_id is text, not integer.
+--    An employee ID is a label, not a quantity. You will never add two of
+--    them together or take an average. Stored as a number, a leading zero
+--    is silently lost, and the day HR issues "20990021-A" the column has to
+--    be rebuilt along with every table that points at it. text never has
+--    that problem and costs nothing here.
 --
--- The sheet's "SL#" column is deliberately absent. Row order is an artefact
--- of how rows were pasted, not information. Use ORDER BY.
+-- 2. is_head is boolean, not the word "Yes".
+--    The sheet stores "Yes", and every piece of code that reads it has to
+--    know that "Yes", "yes" and "YES" all mean the same thing and anything
+--    else means no. boolean is true or false. There is no third answer to
+--    handle and no spelling to get wrong.
+--
+-- 3. created_at is timestamptz, not timestamp.
+--    timestamptz records the actual moment, stored in UTC, and shows it back
+--    in whatever timezone you ask for. Plain timestamp records a clock
+--    reading with no record of WHICH clock - which is fine until the first
+--    person reads it from outside Dhaka.
+--
+-- AND ONE THING DELIBERATELY MISSING: the sheet's "SL#" column.
+-- Row order is an artefact of how the rows were pasted, not information.
+-- Ask for any order you like with ORDER BY. Never store the order.
 
 
 -- ---------------------------------------------------------------------------
--- account - who can sign in. Separate from team ON PURPOSE.
+-- TABLE 2 of 3: account - who is allowed to sign in.
 -- ---------------------------------------------------------------------------
 CREATE TABLE account (
   employee_id     text PRIMARY KEY
@@ -70,32 +93,41 @@ CREATE TABLE account (
   created_at      timestamptz NOT NULL DEFAULT now()
 );
 
--- WHY NOT just add password_hash as a column on team:
+-- WHY THIS IS A SEPARATE TABLE instead of two more columns on team:
 --
---   1. Not everyone in the directory has a login. A column would force a
---      NULL password on most rows, and "NULL means no account" is a rule
---      living in your head instead of in the database.
---   2. A password hash needs different handling from a phone number. One
---      day you will want the API to read the directory without the
---      credentials coming anywhere near it. Separate tables make that a
---      permission; one table makes it a promise.
---   3. You can empty and rebuild every account without touching the
---      directory.
+--   a) Not everyone in the directory has a login. As columns on team, most
+--      rows would carry an empty password, and "empty means no account"
+--      would be a rule living in your head instead of in the database.
 --
--- REFERENCES team(employee_id) is the line that matters. The database will
--- now REFUSE an account for somebody who is not in the directory. Apps
--- Script cannot do this at any price - it checks in code, in one place,
--- and only while somebody remembers to call the checker.
+--   b) A password hash needs different handling from a phone number. One
+--      day you will want the part of the code that draws the directory to
+--      have no way of reading credentials at all. Two tables make that a
+--      permission you can grant. One table makes it a promise you have to
+--      keep.
 --
--- ON DELETE CASCADE: remove a person and their account goes with them. No
--- orphan logins left behind for somebody who left the company.
+--   c) You can empty and rebuild every account in the system without
+--      touching the directory.
 --
--- CHECK (role IN ...) stops 'Admn', 'admin', 'Administrator' and every other
--- near-miss a human can type.
+-- THE LINE THAT MATTERS IS THIS ONE:
+--
+--      REFERENCES team(employee_id)
+--
+-- It is called a FOREIGN KEY. From now on PostgreSQL will REFUSE to create
+-- an account for an employee ID that is not in the team table. Not warn -
+-- refuse. Apps Script cannot do this at any price: it can only check in
+-- code, in one place, and only for as long as somebody remembers to call
+-- the checker.
+--
+-- ON DELETE CASCADE means: if a person is removed from team, their account
+-- is removed with them. No forgotten login left behind for somebody who has
+-- left the company.
+--
+-- CHECK (role IN ('USER','ADMIN')) stops 'Admn', 'admin', 'Administrator'
+-- and every other near miss a tired human can type at 11pm.
 
 
 -- ---------------------------------------------------------------------------
--- presence - who is at their desk.
+-- TABLE 3 of 3: presence - who is at their desk right now.
 -- ---------------------------------------------------------------------------
 CREATE TABLE presence (
   employee_id     text PRIMARY KEY
@@ -104,22 +136,28 @@ CREATE TABLE presence (
   seen_at         timestamptz NOT NULL DEFAULT now()
 );
 
--- NOTE THERE IS NO 'OFFLINE' STATE, and this is the good part.
+-- NOTICE THERE IS NO 'OFFLINE' STATE. This is the good part.
 --
--- Offline is not something a browser can report - a laptop that is shut does
--- not send anything. So offline is not stored; it is DERIVED: a row whose
--- seen_at has gone stale. Your current code already thinks this way (it has
--- a freshness window), but on Apps Script it is spread across the client,
--- the cache and the server. Here it is one CASE expression, below.
+-- Offline is not something a browser can report. A laptop that has been shut
+-- does not send a message saying "I have been shut" - it just stops sending
+-- anything. So offline is never stored. It is WORKED OUT: a row whose
+-- seen_at has gone stale means that person is offline.
 --
--- An index on seen_at is NOT added yet. With 36 people the planner will scan
--- the table and be right to. Add indexes when a real query is measurably
--- slow, not in advance - an unused index is write cost for nothing.
+-- Your current portal already thinks this way, but on Apps Script the logic
+-- is spread across the browser, the cache and the server - which is exactly
+-- where your grey-dot bug came from. Here it is one line, in one place.
+-- You will see it in 02-queries.sql.
+--
+-- NO INDEX ON seen_at YET, on purpose. With 36 people PostgreSQL will read
+-- the whole table and be right to. Add an index when a real query is
+-- measurably slow, never in advance: an unused index costs you on every
+-- write and buys nothing.
 
 
 -- ===========================================================================
--- Fake data
+-- Fake people, so there is something to query.
 -- ===========================================================================
+
 INSERT INTO team
   (employee_id, full_name, designation, module, department, sub_department,
    blood_group, office, extension, mobile, email, is_head)
@@ -131,14 +169,23 @@ VALUES
   ('20990005', 'Test Lead Five',    'Manager',        'ABAP',  'EAS', 'Development',               'A-',  'TVL HQ', '9005', '01700000005', 'five@example.test',  true),
   ('20900011', 'Test Person Six',   'Junior Officer', 'BASIS', 'EAS', 'Infrastructure',            'O-',  'YCL',    '9006', '01700000006', 'six@example.test',   false);
 
--- Only three of the six have logins. That is the normal case, and it is why
--- the next query needs a LEFT JOIN rather than a plain one.
-INSERT INTO account (employee_id, password_hash, role, must_change) VALUES
-  ('20990001', 'argon2id$placeholder$not-a-real-hash', 'ADMIN', false),
-  ('20990002', 'argon2id$placeholder$not-a-real-hash', 'USER',  false),
-  ('20990004', 'argon2id$placeholder$not-a-real-hash', 'USER',  true);
 
--- Two people beat recently, one beat an hour ago.
+-- Only THREE of the six people have a login. That is the normal case in real
+-- life, and it is the reason the next file needs a LEFT JOIN rather than an
+-- ordinary JOIN. Remember this when you get there.
+--
+-- The password_hash values below are not real hashes and not real passwords.
+-- They are placeholder text. Real ones get created by the Node code later.
+
+INSERT INTO account (employee_id, password_hash, role, must_change) VALUES
+  ('20990001', 'placeholder-not-a-real-hash', 'ADMIN', false),
+  ('20990002', 'placeholder-not-a-real-hash', 'USER',  false),
+  ('20990004', 'placeholder-not-a-real-hash', 'USER',  true);
+
+
+-- Three people have sent a heartbeat. Two of them recently; one an hour ago,
+-- which is long enough that they should come out as OFFLINE.
+
 INSERT INTO presence (employee_id, state, seen_at) VALUES
   ('20990001', 'ACTIVE', now()),
   ('20990002', 'AWAY',   now() - interval '2 minutes'),
@@ -146,84 +193,9 @@ INSERT INTO presence (employee_id, state, seen_at) VALUES
 
 
 -- ===========================================================================
--- THE QUERY. This is the one to study.
--- ===========================================================================
--- Your EAS Team page today does roughly this:
+-- DONE. You should see, in the Messages tab:
 --
---   1. ask Apps Script for the directory      (reads the whole TEAM tab)
---   2. ask Apps Script for presence           (second round trip)
---   3. join the two in JavaScript in the browser
---   4. work out who is stale, in JavaScript
+--     Query returned successfully in xxx msec.
 --
--- Four steps, two network round trips, and the join logic duplicated between
--- the server and the browser - which is precisely where the bug came from
--- where you showed ACTIVE on the server and grey on your own screen.
---
--- Here it is as one statement. The database does the join, and staleness is
--- decided in exactly one place:
-
-SELECT t.employee_id,
-       t.full_name,
-       t.sub_department,
-       t.extension,
-       t.is_head,
-       COALESCE(a.role, '-')              AS role,
-       CASE
-         WHEN p.seen_at IS NULL                          THEN 'OFFLINE'
-         WHEN p.seen_at > now() - interval '8 minutes'   THEN p.state
-         ELSE                                                 'OFFLINE'
-       END                                AS presence
-FROM       team     t
-LEFT JOIN  account  a ON a.employee_id = t.employee_id
-LEFT JOIN  presence p ON p.employee_id = t.employee_id
-ORDER BY   t.sub_department, t.full_name;
-
--- WHY LEFT JOIN AND NOT JOIN: a plain JOIN returns only rows that match on
--- BOTH sides, so the three people with no account would vanish from your
--- directory. LEFT JOIN keeps every row of team and fills NULL where there is
--- no match. Getting this wrong is the single most common SQL bug there is,
--- and it is silent - the page just quietly shows fewer people.
---
--- COALESCE(a.role, '-') turns that NULL into something printable.
---
--- Expected: six rows. Lead One ACTIVE, Person Two AWAY, Person Four OFFLINE
--- (beat an hour ago, outside the window), the other three OFFLINE.
-
-
--- ---------------------------------------------------------------------------
--- Counting, which your portal does in JavaScript today
--- ---------------------------------------------------------------------------
-SELECT t.sub_department,
-       COUNT(*)                                        AS people,
-       COUNT(a.employee_id)                            AS with_login,
-       COUNT(*) FILTER (WHERE t.is_head)               AS heads
-FROM       team    t
-LEFT JOIN  account a ON a.employee_id = t.employee_id
-GROUP BY   t.sub_department
-ORDER BY   people DESC;
-
--- COUNT(*) counts rows. COUNT(a.employee_id) counts rows where that column
--- is NOT NULL. That difference is how you count matches inside a LEFT JOIN,
--- and it is worth remembering.
-
-
--- ===========================================================================
--- The two rules the database enforces. Both of these FAIL on purpose.
--- ===========================================================================
-
--- 1. An account for somebody who is not in the directory.
---    ERROR: insert or update on table "account" violates foreign key
---           constraint "account_employee_id_fkey"
-INSERT INTO account (employee_id, password_hash)
-VALUES ('20991234', 'argon2id$placeholder$not-a-real-hash');
-
--- 2. A role somebody typed by hand.
---    ERROR: new row for relation "account" violates check constraint
---           "account_role_check"
-INSERT INTO account (employee_id, password_hash, role)
-VALUES ('20990003', 'argon2id$placeholder$not-a-real-hash', 'Admn');
-
--- Neither of these is a warning. Neither depends on anybody remembering to
--- call a validator. That is the whole argument for this move, in two
--- statements.
+-- Next: open 02-queries.sql.
 -- ===========================================================================
