@@ -925,6 +925,43 @@ check('every source file uses LF line endings, as .gitattributes says',
     ? crlf.join(', ') + ' - run: git add --renormalize . && git checkout -- .'
     : 'no carriage returns in src/');
 
+/*
+  THE MANIFEST, WHICH clasp push UPLOADS ALONG WITH THE CODE.
+
+  appsscript.json is not documentation. It is the deployment, and pushing a
+  stale one changes the live app's settings without anybody choosing to.
+
+  The repository carried "access": "MYSELF" and no Drive service while the
+  live project had ANYONE_ANONYMOUS and Drive v3 - so the first clasp push
+  from a developer machine would have set the web app to "only myself",
+  locking out every person on the team, and switched off the service the
+  Learnings and Knowledge attachments are read through. Two settings, one
+  command, no warning.
+
+  ANYONE_ANONYMOUS is not a lapse. The sign-in page has to be reachable by
+  somebody who is locked out and has no Google account on the domain - that
+  is the whole point of the message box on it, and every endpoint protects
+  itself with a token rather than relying on who can load the page. See the
+  header of Messenger.gs.
+*/
+const manifest = JSON.parse(fs.readFileSync(path.join(SRC, 'appsscript.json'), 'utf8'));
+check('the web app is published so that somebody locked out can reach it',
+  manifest.webapp && manifest.webapp.access === 'ANYONE_ANONYMOUS',
+  'access is ' + ((manifest.webapp || {}).access || 'not set') +
+  ' - MYSELF would lock out everybody but the owner');
+check('and runs as the person who deployed it, so one account owns the data',
+  manifest.webapp && manifest.webapp.executeAs === 'USER_DEPLOYING',
+  'executeAs is ' + ((manifest.webapp || {}).executeAs || 'not set'));
+// Drive v3 is what the attachment folders are read and written through.
+// Pushing a manifest without it does not fail - the calls just start
+// throwing, on the screens nobody tests by opening.
+check('the Drive service the attachments need is enabled in the manifest',
+  ((manifest.dependencies || {}).enabledAdvancedServices || [])
+    .some((s) => s.serviceId === 'drive'),
+  JSON.stringify(manifest.dependencies || {}));
+check('and it is V8, not the old Rhino runtime',
+  manifest.runtimeVersion === 'V8', String(manifest.runtimeVersion));
+
 const failed = out.filter((r) => !r).length;
 console.log('\n' + (out.length - failed) + '/' + out.length + ' passed');
 process.exit(failed ? 1 : 0);

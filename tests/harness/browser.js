@@ -95,7 +95,29 @@ function skipReason() {
 function launch(options) {
   const opts = Object.assign({}, options || {});
   if (BROWSER) opts.executablePath = BROWSER;
-  return chromium.launch(opts);
+
+  /*
+    THE FILE BEING THERE IS NOT THE SAME QUESTION AS THE BROWSER WORKING.
+
+    A download that stopped halfway leaves chrome.exe on disk with some of
+    the DLLs beside it missing. existsSync says yes, the launch says "The
+    specified module could not be found", and Playwright prints the whole
+    command line and every browser log line it has - several hundred lines,
+    once per suite, ten times over. Somewhere in there is one fact worth
+    having and one command that fixes it.
+  */
+  return chromium.launch(opts).catch(function (err) {
+    const why = String((err && err.message) || err);
+    if (/module could not be found|0x7E|chrome\.dll|ERR_MODULE/i.test(why)) {
+      throw new Error(
+        'Chromium is installed but will not start - the download looks ' +
+        'incomplete.\n' +
+        '      Fix it with:  npx playwright install --force chromium\n' +
+        '      Browser: ' + (BROWSER || 'playwright default') + '\n' +
+        '      ' + why.split('\n')[0]);
+    }
+    throw err;
+  });
 }
 
 
