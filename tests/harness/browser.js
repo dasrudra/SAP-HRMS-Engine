@@ -28,8 +28,64 @@
  */
 
 const fs = require('fs');
+const path = require('path');
 
 const CONTAINER_CHROMIUM = '/opt/pw-browsers/chromium';
+
+
+/**
+ * Whether that executable can actually start, as far as can be told cheaply.
+ *
+ * THE FILE BEING THERE IS NOT THE QUESTION, and on a corporate Windows
+ * machine it is not even a good guess. Playwright downloads Chromium as a
+ * 207MB zip, extracts about sixty files, and endpoint security then deletes
+ * the big unsigned ones - chrome.dll and chrome_elf.dll among them - leaving
+ * chrome.exe sitting there looking installed. existsSync says yes, the
+ * launch says "The specified module could not be found", and every browser
+ * suite dies the same way.
+ *
+ * chrome.dll next to chrome.exe is the cheapest way to tell the difference,
+ * and it is the file that goes missing, so checking it costs one stat and
+ * turns a wall of launch failures into a clean fall through to the next
+ * candidate.
+ */
+function startable(exe) {
+  if (!exe || !fs.existsSync(exe)) return false;
+  if (process.platform !== 'win32') return true;
+  if (!/chrome\.exe$/i.test(exe)) return true;      // msedge.exe and friends
+  return fs.existsSync(path.join(path.dirname(exe), 'chrome.dll'));
+}
+
+
+/**
+ * Chromium-based browsers already installed on this machine.
+ *
+ * The way out when the downloaded one has been quarantined. Edge is on every
+ * Windows machine, is Chromium underneath, and - being signed by Microsoft
+ * and installed by IT - is the one copy corporate security will not touch.
+ * Playwright drives it through the same API.
+ *
+ * Only consulted after Playwright's own, because a pinned browser is worth
+ * having when there is one: a suite that passes here and fails on somebody
+ * else's Edge is a suite nobody can trust.
+ */
+function installedBrowsers() {
+  if (process.platform !== 'win32') return [];
+  const roots = [process.env['ProgramFiles'],
+                 process.env['ProgramFiles(x86)'],
+                 process.env.LOCALAPPDATA].filter(Boolean);
+  const under = [
+    ['Microsoft', 'Edge', 'Application', 'msedge.exe'],
+    ['Google', 'Chrome', 'Application', 'chrome.exe']
+  ];
+  const out = [];
+  roots.forEach(function (root) {
+    under.forEach(function (bits) {
+      out.push(path.join.apply(path, [root].concat(bits)));
+    });
+  });
+  return out;
+}
 
 let chromium = null;
 try {
@@ -55,12 +111,16 @@ function findBrowser() {
 
   if (fs.existsSync(CONTAINER_CHROMIUM)) return CONTAINER_CHROMIUM;
 
-  // Playwright's own, if the full package downloaded one. executablePath()
-  // answers even when nothing was downloaded, so the file is checked.
+  // Playwright's own, if the full package downloaded one AND it survived
+  // whatever this machine does to downloaded executables.
   try {
     const own = chromium.executablePath && chromium.executablePath();
-    if (own && fs.existsSync(own)) return own;
+    if (startable(own)) return own;
   } catch (e) { /* core with no browser: nothing to find */ }
+
+  // Then whatever Chromium this machine already trusts.
+  const installed = installedBrowsers().filter(startable);
+  if (installed.length) return installed[0];
 
   return '';
 }
@@ -80,7 +140,25 @@ function skipReason() {
     return 'playwright is not installed - run: npm install -D playwright';
   }
   const said = String(process.env.CHROMIUM_PATH || '').trim();
-  if (said) return 'CHROMIUM_PATH is set to ' + said + ', and there is no file there';
+  if (said) return 'CHROMIUM_PATH is set to ' + said + ', and there is no usable browser there';
+
+  /*
+    AND IF A DOWNLOADED ONE IS THERE BUT GUTTED, say so, because the fix is
+    not another download. Security software on a managed machine deletes
+    chrome.dll after the install finishes, and "run playwright install" -
+    which is what this used to say - sends somebody round that loop for an
+    afternoon.
+  */
+  try {
+    const own = chromium.executablePath && chromium.executablePath();
+    if (own && fs.existsSync(own) && !startable(own)) {
+      return 'Chromium is installed at ' + own + ' but chrome.dll is missing ' +
+             'beside it - something removed it after the download, usually ' +
+             'antivirus. Ask IT to exclude the ms-playwright folder, or ' +
+             'install Microsoft Edge, which these tests will use instead.';
+    }
+  } catch (e) { /* nothing downloaded at all */ }
+
   return 'no Chromium to drive - run: npx playwright install chromium';
 }
 
