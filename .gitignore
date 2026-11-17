@@ -29,6 +29,14 @@ credentials.json
 node_modules/
 package-lock.json
 
+# clasp writes server files as .js unless .clasp.json says fileExtension: gs.
+# This repository names them .gs, so a .js in here is a SECOND copy of a file
+# that is already tracked - and the next `clasp push` would upload both and
+# give the Apps Script project two of every function. Ignored so one cannot be
+# committed by accident; .clasp.json.example says why it should not exist at
+# all.
+src/*.js
+
 # The harness page is assembled from src/ by tests/harness/build.js. It is a
 # build artifact - half a megabyte that changes on every edit to any source
 # file - so it is rebuilt rather than committed.
