@@ -1,0 +1,37 @@
+# LINE ENDINGS ARE LF, ON EVERY MACHINE.
+#
+# Git on Windows converts LF to CRLF on checkout by default (core.autocrlf),
+# which is a sensible default for a repository of Windows text files and the
+# wrong one here. This project reads its own source as TEXT: the test harness
+# lifts functions out of .gs files with regular expressions, and the suites
+# assert on exact strings in them. A regex looking for "\n}" does not match
+# "\r\n}", so a checkout on Windows failed knowledge-test with "could not lift
+# learnKind" - a message that says nothing at all about line endings, on a
+# machine where nothing was wrong except how git wrote the file out.
+#
+# `text=auto eol=lf` means: decide for yourself what is text, and whatever you
+# decide, write it out with LF. The working copy then matches what is stored,
+# on Windows, macOS and Linux alike, and Apps Script does not care either way.
+#
+# If a checkout already has CRLF in it, this file alone does not fix it -
+# git has to be told to write the files again:
+#
+#   git add --renormalize .
+#   git checkout -- .
+#
+# wiring-test refuses a carriage return anywhere in src/, so a file that slips
+# through fails the suite rather than one regex somewhere.
+
+* text=auto eol=lf
+
+# Not text, and must never be rewritten.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.pdf binary
+*.xlsx binary
+*.pptx binary
+*.docx binary
+*.zip binary
+*.mp4 binary

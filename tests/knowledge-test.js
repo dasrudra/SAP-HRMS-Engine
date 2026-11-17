@@ -209,7 +209,13 @@ function load(opts) {
   const learn = fs.readFileSync(path.join(SRC, 'Learn.gs'), 'utf8');
   ['learnKind', 'learnSize'].forEach(function (name) {
     const src = learn;
-    const hit = new RegExp('function ' + name + '\\([\\s\\S]*?\\n}\\n').exec(src);
+    // \r?\n, NOT \n. A checkout on Windows has CRLF in it unless
+    // .gitattributes stops git rewriting the file, and this regex quietly
+    // found nothing - reported as "could not lift learnKind", which names
+    // neither the cause nor the machine. Belt and braces: the repository
+    // says LF and this no longer depends on it.
+    const hit = new RegExp('function ' + name +
+                           '\\([\\s\\S]*?\\r?\\n}\\r?\\n').exec(src);
     if (!hit) throw new Error('could not lift ' + name);
     vm.runInContext(hit[0], ctx);
   });

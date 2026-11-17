@@ -902,6 +902,29 @@ check('no personal OneDrive path or work email is written into the source',
   leakedPaths.length ? leakedPaths.join(' | ')
                      : ALL_SRC.length + ' files, none carrying one');
 
+/*
+  NO CARRIAGE RETURNS IN THE SOURCE.
+
+  This project reads its own source as text: the harness lifts functions out
+  of .gs files with regular expressions, and suites assert on exact strings
+  in them. Git on Windows rewrites LF to CRLF on checkout by default, and a
+  pattern looking for "\n}" stops matching "\r\n}" - which showed up as
+  "could not lift learnKind" on a fresh Windows clone, a message that names
+  neither line endings nor the machine.
+
+  .gitattributes pins the whole repository to LF. This is the check that it
+  is working: a file that arrives with CRLF fails one suite loudly instead
+  of one regex quietly, and the fix is in the message.
+*/
+const crlf = fs.readdirSync(SRC)
+  .filter((f) => /\.(gs|html|json)$/.test(f))
+  .filter((f) => fs.readFileSync(path.join(SRC, f), 'utf8').indexOf('\r') !== -1);
+check('every source file uses LF line endings, as .gitattributes says',
+  crlf.length === 0,
+  crlf.length
+    ? crlf.join(', ') + ' - run: git add --renormalize . && git checkout -- .'
+    : 'no carriage returns in src/');
+
 const failed = out.filter((r) => !r).length;
 console.log('\n' + (out.length - failed) + '/' + out.length + ' passed');
 process.exit(failed ? 1 : 0);

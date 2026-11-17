@@ -19,7 +19,10 @@ const path = require('path'), fs = require('fs'), vm = require('vm');
 
 const PAGE = process.env.EAS_PAGE ||
              path.join(__dirname, 'harness', 'page.html');
-const BROWSER = process.env.CHROMIUM_PATH || '/opt/pw-browsers/chromium';
+// Where Chromium is, and whether there is one. See harness/browser.js -
+// the answer differs between the container and a laptop, and ten copies
+// of one Linux path is how a clean checkout came to skip ten suites.
+const BROWSERS = require('./harness/browser.js');
 
 // The real Config.gs, read the same way the harness reads it into the page.
 // The policy assertions near the end compare against CONFIG.POLICY rather
@@ -35,13 +38,10 @@ vm.createContext(cfgBox);
 vm.runInContext(fs.readFileSync(path.join(SRC, 'Config.gs'), 'utf8'), cfgBox);
 const CONFIG = vm.runInContext('CONFIG', cfgBox);
 
-let chromium = null;
-try { chromium = require('playwright-core').chromium; } catch (e) { /* below */ }
+const chromium = BROWSERS.chromium;
 
-if (!chromium || !fs.existsSync(BROWSER)) {
-  console.log('SKIP  browser tests - ' +
-    (chromium ? 'no Chromium at ' + BROWSER : 'playwright-core is not installed'));
-  console.log('      npm install playwright-core, and set CHROMIUM_PATH if needed.');
+if (!BROWSERS.ready) {
+  console.log('SKIP  browser tests - ' + BROWSERS.skipReason());
   console.log('\n0/0 passed');
   process.exit(0);
 }
@@ -60,7 +60,7 @@ const check = (n, ok, d) => {
 const FILE = 'file://' + PAGE;
 
 (async () => {
-  const b = await chromium.launch({ executablePath: BROWSER });
+  const b = await BROWSERS.launch();
   const errors = [];
 
   const open = async (query, viewport) => {

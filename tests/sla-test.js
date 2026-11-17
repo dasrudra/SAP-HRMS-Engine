@@ -28,7 +28,10 @@ const path = require('path'), fs = require('fs'), vm = require('vm');
 
 const PAGE = process.env.EAS_PAGE || path.join(__dirname, 'harness', 'page.html');
 const SRC = process.env.EAS_SRC || path.join(__dirname, '..', 'src');
-const BROWSER = process.env.CHROMIUM_PATH || '/opt/pw-browsers/chromium';
+// Where Chromium is, and whether there is one. See harness/browser.js -
+// the answer differs between the container and a laptop, and ten copies
+// of one Linux path is how a clean checkout came to skip ten suites.
+const BROWSERS = require('./harness/browser.js');
 
 const out = [];
 const check = (n, ok, d) => {
@@ -80,12 +83,11 @@ check('and a closing script tag cannot survive it',
   hostile.indexOf('</script') === -1 && hostile.indexOf('\\u003c') !== -1,
   hostile);
 
-let chromium = null;
-try { chromium = require('playwright-core').chromium; } catch (e) { /* below */ }
+const chromium = BROWSERS.chromium;
 
-if (!chromium || !fs.existsSync(BROWSER) || !fs.existsSync(PAGE)) {
+if (!BROWSERS.ready || !fs.existsSync(PAGE)) {
   console.log('SKIP  browser half - ' +
-    (!fs.existsSync(PAGE) ? 'no built page' : 'no Chromium at ' + BROWSER));
+    (!fs.existsSync(PAGE) ? 'no built page' : BROWSERS.skipReason()));
   const failedEarly = out.filter((r) => !r).length;
   console.log('\n' + (out.length - failedEarly) + '/' + out.length + ' passed');
   process.exit(failedEarly ? 1 : 0);
@@ -94,7 +96,7 @@ if (!chromium || !fs.existsSync(BROWSER) || !fs.existsSync(PAGE)) {
 const FILE = 'file://' + PAGE;
 
 (async () => {
-  const b = await chromium.launch({ executablePath: BROWSER });
+  const b = await BROWSERS.launch();
   const errors = [];
 
   const open = async (query) => {
