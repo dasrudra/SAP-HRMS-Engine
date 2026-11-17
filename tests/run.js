@@ -22,14 +22,31 @@ const suites = fs.readdirSync(__dirname)
 let failed = 0;
 suites.forEach(function (file) {
   let output = '';
+  let crash = '';
   let ok = true;
   try {
+    /*
+      STDERR IS CAPTURED, NOT INHERITED.
+
+      Left to itself, execFileSync pipes stdout and lets stderr through to
+      the terminal untouched. A suite that dies on an unhandled rejection
+      writes its whole stack there - and for a Playwright launch failure
+      that is the entire Chromium command line and every browser log line,
+      three hundred of them, once per suite. Ten suites failing the same
+      way buried the summary under several thousand lines of the same
+      thing, and the one sentence that mattered was in none of them twice.
+
+      Captured, it goes through the same filter as everything else: the
+      FAIL lines, and then the first few lines of whatever killed it.
+    */
     output = execFileSync(process.execPath, [path.join(__dirname, file)],
-                          { encoding: 'utf8' });
+                          { encoding: 'utf8',
+                            stdio: ['ignore', 'pipe', 'pipe'] });
   } catch (e) {
     ok = false;
     failed++;
-    output = String(e.stdout || '') + String(e.stderr || '');
+    output = String(e.stdout || '');
+    crash = String(e.stderr || '').trim();
   }
   const tally = (output.match(/\d+\/\d+ passed/g) || []).pop() || '(no result)';
 
@@ -42,8 +59,27 @@ suites.forEach(function (file) {
     ? (output.match(/^SKIP\s+(.*)$/m) || [])[1] || 'skipped'
     : tally;
   console.log(label + file.padEnd(28) + note);
-  if (!ok) console.log(output.split('\n').filter((l) => /^FAIL/.test(l))
-                             .map((l) => '        ' + l).join('\n'));
+  if (!ok) {
+    const said = output.split('\n').filter((l) => /^FAIL/.test(l));
+    if (said.length) console.log(said.map((l) => '        ' + l).join('\n'));
+
+    /*
+      AND THE FIRST FEW LINES OF A CRASH, where there was one. A suite that
+      died before it could report anything prints "(no result)" above, which
+      says that something went wrong and nothing about what.
+    */
+    if (crash) {
+      const head = crash.split('\n')
+        .filter((l) => l.trim() && !/^\s*at /.test(l))
+        .slice(0, 4);
+      console.log(head.map((l) => '        | ' + l.trim()).join('\n'));
+      const more = crash.split('\n').length - head.length;
+      if (more > 0) {
+        console.log('        | ... ' + more + ' more lines - run this suite ' +
+                    'on its own to see them: node tests/' + file);
+      }
+    }
+  }
 });
 
 console.log('\n' + suites.length + ' suite(s), ' +
