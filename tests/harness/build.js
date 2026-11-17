@@ -955,6 +955,22 @@ const stub = `
     join between the two halves of this feature and the thing most likely to
     be wrong.
   */
+  /*
+    ?beatlate=1 - THE SERVER HAS NOT HEARD FROM ME YET.
+
+    Opening the team page fires the beat that writes my state and the read
+    that fetches everybody's, at the same time, and on Apps Script each is a
+    second or two. When the read is answered first it answers from BEFORE
+    the write, so the server has no entry for me and says OFFLINE - while I
+    am sitting there looking at my own grey dot.
+
+    That is a race, and a race is not a thing to write a test against. This
+    is its outcome, made permanent: the map simply never mentions me. My own
+    card must still read ACTIVE, because the page knows my state without
+    asking - see presenceStateOf.
+  */
+  var BEAT_LATE = new URLSearchParams(location.search).get('beatlate') === '1';
+
   var PRESENCE = {
     '20000000': 'ACTIVE',   // me - the department head
     '20000001': 'ACTIVE',   // Ayesha, head of Sales
@@ -964,6 +980,7 @@ const stub = `
     // for somebody with no cache entry. A page that only ever saw the string
     // 'OFFLINE' would pass while being unable to cope with a missing key.
   };
+
 
   var HANDLERS = {
     getSession: function () {
@@ -2069,6 +2086,13 @@ const stub = `
       // server returns a fresh object every time.
       var copy = {};
       Object.keys(PRESENCE).forEach(function (key) { copy[key] = PRESENCE[key]; });
+      /*
+        THE READ IS ANSWERED FROM BEFORE THE WRITE - see BEAT_LATE. Deleting
+        the seed instead was not enough: the beat the page sends on load
+        writes me straight back in, which is faithful and defeats the point.
+        Omitted HERE, so no number of beats makes the map mention me.
+      */
+      if (BEAT_LATE) delete copy['20000000'];
       return copy;
     },
 

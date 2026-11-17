@@ -270,19 +270,110 @@ const FILE = 'file://' + PAGE;
   // ---------------------------------------------------------------------------
   // The one dot the person is certain to be watching is their own, so it may
   // not wait for the next poll.
+  const myCard = (page) => page.evaluate(() => {
+    const n = document.querySelector('#teamBody [data-pres="20000000"]');
+    return n && n.getAttribute('data-state');
+  });
+
+  /*
+    AT ONCE MEANS WITHOUT A ROUND TRIP, and the only way to tell the
+    difference is to make the round trip slow. This used to call
+    refreshTeamPresence() - the whole directory, fetched again, racing the
+    beat that had just been sent - so the one dot the person is certain to
+    be watching turned over a second later, or not until the next minute if
+    the read was answered from before the write.
+
+    A second and a half of hold, and a tenth of a second to look.
+  */
+  await p.evaluate(() => { window.__slowNext = 1500; });
   await p.click('#portalAway');
-  await p.waitForTimeout(700);
+  await p.waitForTimeout(120);
 
   check('pressing Away updates my own card in the directory at once',
-    (await p.evaluate(() => {
+    (await myCard(p)) === 'AWAY',
+    'with the server held for 1.5s, so this cannot have been fetched');
+  check('and the words on it are the second-person ones',
+    /press Back/.test(await p.evaluate(() => {
       const n = document.querySelector('#teamBody [data-pres="20000000"]');
-      return n && n.getAttribute('data-state');
-    })) === 'AWAY',
-    'not left green until the next sixty-second poll');
+      return (n && n.getAttribute('title')) || '';
+    })),
+    'it is my own card, so it says what pressing does, not what they are doing');
+
+  // And pressing it back is just as immediate.
+  await p.waitForTimeout(1600);
+  await p.evaluate(() => { window.__slowNext = 1500; });
+  await p.click('#portalAway');
+  await p.waitForTimeout(120);
+  check('and so does pressing Back',
+    (await myCard(p)) === 'ACTIVE', await myCard(p));
+  await p.waitForTimeout(1600);
 
   await p.click('#portalAway');
   await p.waitForTimeout(400);
   await p.close();
+
+  // ---------------------------------------------------------------------------
+  // my own dot, when the server has not heard from me yet
+  // ---------------------------------------------------------------------------
+  /*
+    THE BUG RUDRA REPORTED: sitting at his desk, on the team page, his own
+    card grey. checkPresence run from the editor a minute later said ACTIVE,
+    which made it look like the join between the login and the TEAM row had
+    broken. It had not.
+
+    Opening the page fires two calls at once - the beat that writes my state
+    and the read that fetches everybody's - and on Apps Script each is a
+    second or two. Answer the read first and it answers from before the
+    write: no entry for me, so OFFLINE, and nothing repaints for a minute.
+
+    ?beatlate=1 makes that permanent rather than a race: the map never
+    mentions me at all. My own dot must still be right, because the page
+    does not need the server to tell it what it just said.
+  */
+  {
+    const late = await open('?view=team&beatlate=1');
+    await late.waitForTimeout(900);
+
+    // Read off the map the page actually holds. Without this the check
+    // below passes whether the fixture omits me or not.
+    const reported = (page) => page.evaluate(() => {
+      const m = window.__easPresenceMap ? window.__easPresenceMap() : null;
+      return m ? Object.prototype.hasOwnProperty.call(m, '20000000') : null;
+    });
+    check('the server really is not reporting me in this fixture',
+      (await reported(late)) === false,
+      'map says ' + JSON.stringify(await reported(late)));
+
+    check('my own card reads ACTIVE even so',
+      (await myCard(late)) === 'ACTIVE',
+      'the page knows my state without asking for it');
+
+    // Everybody ELSE still comes from the server, which is the half that
+    // must not be broken by fixing the other half.
+    check('and a colleague the server does report is painted from the server',
+      (await late.evaluate(() => {
+        const n = document.querySelector('#teamBody [data-pres="20000002"]');
+        return n && n.getAttribute('data-state');
+      })) === 'AWAY',
+      'Carim is away in the fixture and must still read that way');
+    check('and one the server does not report at all is offline, not active',
+      (await late.evaluate(() => {
+        const n = document.querySelector('#teamBody [data-pres="20000004"]');
+        return n && n.getAttribute('data-state');
+      })) === 'OFFLINE',
+      'a missing key is somebody signed out, not somebody like me');
+
+    await late.close();
+
+    // And the check above is not one that passes whatever happens: without
+    // the flag, the server DOES report me.
+    const normal = await open('?view=team');
+    await normal.waitForTimeout(900);
+    check('while in the ordinary fixture the server does report me',
+      (await reported(normal)) === true,
+      'map says ' + JSON.stringify(await reported(normal)));
+    await normal.close();
+  }
 
   // ---------------------------------------------------------------------------
   // the beat runs for people who are not admins

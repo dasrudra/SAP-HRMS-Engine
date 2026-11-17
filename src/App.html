@@ -6034,7 +6034,9 @@
   function presenceBeat() {
     const mine = ++presenceSeq;
 
-    callServer('presenceTick', presenceAway)
+    // Returned, so that a caller who needs the server to have HEARD this
+    // before it asks a follow-up question can wait for it. See toggleAway.
+    return callServer('presenceTick', presenceAway)
       .then(function (res) {
         if (mine !== presenceSeq) return;    // overtaken; this answer is old
         // Otherwise the server's answer wins over the local flag, so the
@@ -6059,12 +6061,32 @@
   function toggleAway() {
     presenceAway = !presenceAway;
     paintPresenceSelf();
-    presenceBeat();
 
-    // My own card on the directory, if that is the page I am on. Without
-    // this, pressing Away while looking at the team page leaves my own card
-    // green for up to a minute - the one dot I am certain to be watching.
-    if (state.view === 'team') refreshTeamPresence();
+    /*
+      AND MY OWN CARD, NOW, WITHOUT ASKING ANYBODY.
+
+      This used to call refreshTeamPresence() here - a round trip for the
+      whole directory, racing the beat sent on the line below, and answering
+      from before it often enough to be noticed. The one dot the person is
+      certain to be watching was the one that took a second to turn, or did
+      not turn at all until the next minute.
+
+      paintTeamPresence reads my state from presenceAway, which the line
+      above has already set, so this is instant and cannot be wrong.
+    */
+    paintTeamPresence();
+
+    /*
+      The others only AFTER the server has taken the beat. Everyone else's
+      state may genuinely have changed while this page sat open, and asking
+      is the only way to find out - but asking before the write lands is
+      what made this unreliable in the first place.
+    */
+    const beat = presenceBeat();
+    if (beat && beat.then && state.view === 'team') {
+      beat.then(function () { refreshTeamPresence(); })
+          .catch(function () { /* the dots keep their last colours */ });
+    }
   }
 
 
@@ -6128,9 +6150,9 @@
     const dots = document.querySelectorAll('#teamBody [data-pres]');
     for (let i = 0; i < dots.length; i++) {
       const who = dots[i].getAttribute('data-pres');
-      const now = presenceMap[who] || 'OFFLINE';
+      const now = presenceStateOf(who);
       dots[i].setAttribute('data-state', now);
-      dots[i].setAttribute('title', PRESENCE_WORDS[now]);
+      dots[i].setAttribute('title', presenceTitleOf(who, now));
     }
   }
 
@@ -6146,20 +6168,69 @@
     a repaint, and the property being tested is worth having: a dot refresh
     must not close whichever section somebody was reading.
   */
+  // The last map the server sent. A test asserting "my dot is right even
+  // though the server did not mention me" has to be able to show that the
+  // server really did not mention me, or it passes whatever happens.
+  window.__easPresenceMap = function () { return presenceMap; };
   window.__easRefreshPresence = refreshTeamPresence;
   window.__easPresencePolling = function () { return Boolean(presencePaintTimer); };
   window.__easPresenceBeating = function () { return Boolean(presenceTimer); };
   window.__easBeatNow = presenceBeat;
 
 
+  /*
+    MY OWN DOT IS NOT READ BACK FROM THE SERVER.
+
+    Everybody else's state arrives in presenceMap, which is right: the only
+    way to know whether a colleague is at their desk is to ask. My own is
+    different, and the comment on presenceAway above already says why - this
+    is the one state in the system the client is the authority on.
+
+    Reading it back cost two visible bugs.
+
+    SHOWING AS NOT ACTIVE WHILE SITTING THERE. Opening the team page fires
+    two calls at once: the beat that writes my state, and getPresence that
+    reads everybody's. On Apps Script each is a second or two, and when the
+    read is answered first it answers from before the write - so my own card
+    came back OFFLINE and stayed that way until the sixty-second repaint.
+    checkPresence run from the editor a minute later says ACTIVE, which is
+    how this looked like a join problem and was not one.
+
+    AND THE AWAY BUTTON LOOKING DEAD. Pressing it painted the dot in the top
+    bar at once and then asked the server for the whole map to paint the
+    card - a round trip, racing the beat that had just been sent, and
+    answering from before it as often as not.
+
+    So: my dot comes from presenceAway, which is already correct the instant
+    the button is pressed, and the words are the second-person ones the top
+    bar uses. One decision, made here, used by the first render and by every
+    repaint after it.
+  */
+  function presenceMine(who) {
+    const me = String(state.username || '').trim();
+    return Boolean(me && who && String(who).trim() === me);
+  }
+
+
+  function presenceStateOf(who) {
+    if (presenceMine(who)) return presenceAway ? 'AWAY' : 'ACTIVE';
+    return presenceMap[who] || 'OFFLINE';
+  }
+
+
+  function presenceTitleOf(who, now) {
+    return presenceMine(who) ? PRESENCE_WORDS_SELF[now] : PRESENCE_WORDS[now];
+  }
+
+
   /** The span itself. One shape, drawn in three places. */
   function presenceDot(person) {
     const who = (person && (person.id || person.name)) || '';
     if (!who) return '';
-    const now = presenceMap[who] || 'OFFLINE';
+    const now = presenceStateOf(who);
     return '<span class="pres-dot" data-pres="' + escapeHtml(who) + '" ' +
                  'data-state="' + now + '" ' +
-                 'title="' + escapeHtml(PRESENCE_WORDS[now]) + '"></span>';
+                 'title="' + escapeHtml(presenceTitleOf(who, now)) + '"></span>';
   }
 
 
