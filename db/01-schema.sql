@@ -124,8 +124,14 @@ CREATE TABLE account (
   employee_id     text PRIMARY KEY
                     REFERENCES team(employee_id) ON DELETE CASCADE,
   password_hash   text NOT NULL,
+  -- THREE ROLES, NOT TWO. The Apps Script system has USER < ADMIN <
+  -- MASTER (Auth.gs: ROLE_RANK = { USER: 1, ADMIN: 2, MASTER: 3 }), and
+  -- MASTER is not decoration - requireMaster() guards account creation,
+  -- password resets, role changes, the audit log and sign-up opening.
+  -- An earlier draft of this file listed only USER and ADMIN, which would
+  -- have quietly deleted a whole tier of the permission model on import.
   role            text NOT NULL DEFAULT 'USER'
-                    CHECK (role IN ('USER', 'ADMIN')),
+                    CHECK (role IN ('USER', 'ADMIN', 'MASTER')),
   must_change     boolean NOT NULL DEFAULT true,
   last_login_at   timestamptz,
   created_at      timestamptz NOT NULL DEFAULT now()

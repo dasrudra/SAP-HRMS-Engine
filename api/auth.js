@@ -134,12 +134,32 @@ function requireAuth(req, res, next) {
  * said at sign-in time. Anything the caller sends is just something the
  * caller typed.
  */
+const ROLE_RANK = { USER: 1, ADMIN: 2, MASTER: 3 };
+
+/** The number behind a role name, or 0 for anything unrecognised. */
+function rankOf(role) {
+  return ROLE_RANK[String(role || '').toUpperCase()] || 0;
+}
+
 function requireAdmin(req, res, next) {
-  if (!req.user || req.user.role !== 'ADMIN') {
+  // RANK, NOT EQUALITY. The first version read role !== 'ADMIN', which
+  // locks MASTER - the HIGHEST role - out of every admin screen. Copied
+  // straight from Auth.gs, where ROLE_RANK is { USER: 1, ADMIN: 2,
+  // MASTER: 3 } and every check asks whether a rank is high ENOUGH.
+  if (!req.user || rankOf(req.user.role) < ROLE_RANK.ADMIN) {
     return res.status(403).json({ ok: false, error: 'admins only' });
   }
   next();
 }
 
+/** Master only: accounts, roles, password resets, the audit log. */
+function requireMaster(req, res, next) {
+  if (!req.user || rankOf(req.user.role) < ROLE_RANK.MASTER) {
+    return res.status(403).json({ ok: false, error: 'masters only' });
+  }
+  next();
+}
 
-module.exports = { signToken, readToken, requireAuth, requireAdmin };
+
+module.exports = { signToken, readToken, requireAuth, requireAdmin,
+                   requireMaster, rankOf, ROLE_RANK };

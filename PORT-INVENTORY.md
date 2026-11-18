@@ -1,0 +1,229 @@
+# Port inventory - what the Apps Script system does, and what has moved
+
+Nothing is retired until its row here says DONE and Rudra has used the
+replacement. This file is the contract: if a feature is not in it, it has
+not been counted, and the port is not finished.
+
+Counted on 2026-11-18 from the repository, not from memory:
+
+| | |
+|---|---|
+| Server code | 17,064 lines across 16 `.gs` files |
+| Page code | `src/App.html` plus 6 more HTML files |
+| Server endpoints the page calls | **50** |
+| Screens | **20** |
+| Spreadsheet tabs | **17** |
+| Roles | **3** - USER < ADMIN < MASTER |
+
+Status values: `DONE` - ported and tested. `PART` - partly ported.
+`TODO` - not started. `KEEP` - deliberately staying on Apps Script for now.
+
+---
+
+## Roles
+
+`Auth.gs` line 86: `const ROLE_RANK = { USER: 1, ADMIN: 2, MASTER: 3 };`
+
+Every permission check asks whether a rank is high ENOUGH, never whether it
+equals one value. MASTER is not decoration - `requireMaster()` guards
+account creation, password resets, role changes, the audit log, sign-up
+opening, and one Messenger action.
+
+| Role | Rank | Can |
+|---|---|---|
+| USER | 1 | read own data, send messages, tick own objectives |
+| ADMIN | 2 | the team inbox, uploads, everything a USER can |
+| MASTER | 3 | accounts, roles, password resets, audit log, sign-ups |
+
+**Status: DONE.** `account.role` accepts all three; `requireAdmin` compares
+rank so MASTER passes an ADMIN gate; `requireMaster` added.
+
+> Caught during this inventory: the first schema listed only USER and ADMIN,
+> and `requireAdmin` used `role !== 'ADMIN'` - which would have deleted the
+> MASTER tier AND locked the highest role out of every admin screen.
+
+---
+
+## Screens
+
+| Screen | What it is | Status |
+|---|---|---|
+| `home` | landing page, cards into everything else | TODO |
+| `kpi1` | KPI 1 - ITSM ticket dashboard | TODO |
+| `kpi2` | KPI 2 - Training dashboard | TODO |
+| `compare` | comparison between periods | TODO |
+| `objective` | SMART objectives and Unique Roles | TODO |
+| `team` | EAS Team directory with presence | **PART** |
+| `knowledge` | Knowledge Share posts | TODO |
+| `learnings` | LEARN entries | TODO |
+| `byweekly` | By-Weekly meeting links | TODO |
+| `links` | portal links, incl. TVL Knowledge Base | TODO |
+| `uploads` | CSV upload and history | TODO |
+| `master` | Accounts (MASTER only) | TODO |
+| `help` | Help / FAQ - the team inbox (ADMIN+) | TODO |
+| `settings` | shown as "Summary" | TODO |
+| `about` | about page | TODO |
+| `contact` | contact page | TODO |
+| `partners` | partners page | TODO |
+| `projects` | projects page | TODO |
+| `mark` | internal | TODO |
+| `wait` | loading/waiting state | TODO |
+
+`team` is PART: the directory and presence display are ported; photos,
+section grouping and the away toggle are not.
+
+**The internal name `settings` must not be renamed.** It is shown as
+"Summary" but every saved bookmark uses `?view=settings`.
+
+---
+
+## The 50 endpoints
+
+### Auth and accounts
+| Endpoint | Status | Notes |
+|---|---|---|
+| `login` | DONE | `POST /api/login` |
+| `getSession` / `renewToken` / `logout` | PART | `/api/me` covers the first |
+| `changeMyPassword` | TODO | |
+| `masterListAccounts` | PART | `/api/accounts`, admin+ |
+| `masterSetDetails` | TODO | MASTER |
+| `masterResetPassword` | TODO | MASTER |
+| `masterGrantToEmployeeId` | TODO | MASTER |
+| `masterSetSignups` / `signupsAreOpen` | TODO | MASTER |
+| `masterAuditLog` | TODO | MASTER, AUTH_LOG tab |
+
+Not yet ported and important: **sign-in lockout already exists in Auth.gs**
+(`attemptKey`, `recordFailure`, `clearFailures`, `lockoutRemaining`). The new
+API has its own in-memory version. Behaviour must be compared before the old
+one is switched off.
+
+### Bootstrap and shell
+| Endpoint | Status |
+|---|---|
+| `getBootstrap` | TODO |
+| `getByWeeklyLinks` | TODO |
+
+### Team and presence
+| Endpoint | Status | Notes |
+|---|---|---|
+| `getTeam` | DONE | `GET /api/team` |
+| `getPresence` | TODO | next |
+| `presenceTick` | TODO | next |
+| `presenceClear` | TODO | next |
+| `getPeopleByAffiliate` / `listAffiliates` | TODO | |
+
+### KPI
+| Endpoint | Status |
+|---|---|
+| `getKpi1`, `getKpi2` | TODO |
+| `recomputeAfterUpload` | TODO |
+
+### Objectives
+| Endpoint | Status |
+|---|---|
+| `getObjectives` | TODO |
+| `createObjMilestone`, `recordObjMilestone` | TODO |
+| `tickObjMilestone`, `tickObjTask` | TODO |
+| `saveObjSlotNote` | TODO |
+
+The two summary cards - **Progress this month** and **Overall progress** -
+and the arithmetic behind them (`objCountState`, `objTallyShare`,
+`objProgressAll`) must port exactly. The rule that a pending square still
+counts in the denominator was a bug fix Rudra found; a regression test
+exists for it (3 of 29 reads 10, not 60).
+
+### Messenger
+| Endpoint | Status |
+|---|---|
+| `messengerBoot`, `listThreads`, `myMessages` | TODO |
+| `sendMessage`, `sendUnverifiedMessage`, `replyToThread` | TODO |
+| `markMyMessagesRead`, `messagesWaiting` | TODO |
+| `attachSignInThread` | TODO |
+| `deleteThread` | TODO |
+| `getChatImage` | TODO |
+
+Three fixed bugs must not come back: a reply must reach the sender's own
+inbox; the unread badge must clear; operations must refresh without a manual
+reload.
+
+### Knowledge and learning
+| Endpoint | Status |
+|---|---|
+| `getKnowledge`, `createKnowledge`, `addKnowledgeChunk`, `deleteKnowledge` | TODO |
+| `getLearning` | TODO |
+| `faqEntries` | TODO |
+
+### Uploads
+| Endpoint | Status |
+|---|---|
+| `beginUpload`, `getUploadCsvChunk`, `finishUpload`, `deleteUpload` | TODO |
+| `appendTicketBatch`, `appendFeedbackBatch` | TODO |
+| `finishFeedbackUpload`, `purgeOrphanedFeedback` | TODO |
+| `getUploadHistory` | TODO |
+
+---
+
+## Spreadsheet tabs
+
+| Tab | Holds | New table | Status |
+|---|---|---|---|
+| `TEAM` | the directory | `team` | DONE |
+| ACCOUNTS | logins | `account` | PART |
+| AUTH_LOG | sign-in audit trail | - | TODO |
+| `TICKETS` | ITSM tickets | - | TODO |
+| `KPI_MONTHLY` | monthly KPI figures | - | TODO |
+| `TRAINING` | training records | - | TODO |
+| `KPI_CONFIG` | KPI settings | - | TODO |
+| `OPERATORS` | operator list | - | TODO |
+| `UPLOAD_LOG` | upload history | - | TODO |
+| `QUESTIONS` | questions | - | TODO |
+| `FAQ` | FAQ entries | - | TODO |
+| `THREADS` | messenger threads | - | TODO |
+| `MESSAGES` | messenger messages | - | TODO |
+| `LEARN` | learning entries | - | TODO |
+| `KNOWLEDGE` | knowledge posts | - | TODO |
+| `BY_WEEKLY` | meeting links | - | TODO |
+| `OBJ_PLAN` / `OBJ_TASK` / `OBJ_LOG` | objectives | - | TODO |
+| MIN_MEET | orphaned - to be deleted | - | n/a |
+
+Presence has no tab: it lives in CacheService, which is why it is lost on
+every cache eviction. The new `presence` table fixes that for free.
+
+---
+
+## Behaviour that is easy to lose
+
+Written down because none of it is obvious from the code, and all of it was
+decided for a reason.
+
+1. **Offline is derived, never stored.** A shut laptop sends nothing. Staleness
+   decides. Window is 8 minutes.
+2. **A person with no employee ID is keyed by name** for presence, and filling
+   the ID in must move their dot immediately. There is a test for this.
+3. **`settings` is the internal name, "Summary" is the label.** Bookmarks.
+4. **Help is ADMIN+ only**, and a USER who lands there is sent home rather
+   than shown an empty screen.
+5. **The back trail holds 24 entries** and a restore is not a navigation.
+6. **Pure ASCII everywhere**, enforced by guards in `tests/wiring-test.js`.
+7. **No personal data in the repository.** Test IDs live in the reserved
+   blocks `200000xx`, `2090xxxx`, `2099xxxx`.
+8. **The deployment is published to "Anyone"**, so every endpoint is a URL a
+   stranger can call. Nothing may trust its input.
+
+---
+
+## Order of work
+
+1. ~~Database~~ DONE
+2. ~~API skeleton, directory~~ DONE
+3. ~~Sign-in~~ DONE
+4. **Presence** - next
+5. Objectives
+6. Messenger
+7. Knowledge, Learn, FAQ, Links, By-Weekly
+8. KPI 1, KPI 2, Compare, Uploads
+9. Accounts and audit log
+10. The shell: home, nav, the remaining static screens
+
+Apps Script keeps running untouched throughout. Nothing is switched off
+until its row says DONE.
