@@ -23,6 +23,13 @@ uploads/
 *.env
 credentials.json
 
+# api/.env holds the PostgreSQL password. *.env above does match a bare
+# .env - git's glob allows the * to match nothing - but this is a database
+# password in a public repository, so it is spelled out rather than left to
+# a reader working out glob semantics. api/.env.example is the safe copy.
+.env
+api/.env
+
 # ---------------------------------------------------------------------------
 # Tooling
 # ---------------------------------------------------------------------------

@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TVL-EAS API test page</title>
+<!--
+  A THROWAWAY TEST PAGE. Not the real portal, not a design.
+
+  It exists so the speed is something you can see rather than a number in a
+  log, and so there is one worked example of a page calling the API. The
+  real front end comes in Stage 3.
+-->
+<style>
+  :root {
+    --bg:#f6f7f9; --card:#fff; --ink:#1a1d21; --muted:#6b7280;
+    --line:#e5e7eb; --green:#16a34a; --amber:#d97706; --grey:#9ca3af;
+    --accent:#1d4ed8;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg:#0f1115; --card:#171a20; --ink:#e8eaed; --muted:#9aa1ab;
+      --line:#262b33; --accent:#60a5fa;
+    }
+  }
+  * { box-sizing:border-box; }
+  body {
+    margin:0; padding:24px 16px; background:var(--bg); color:var(--ink);
+    font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+  }
+  .wrap { max-width:900px; margin:0 auto; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  .sub { color:var(--muted); font-size:13px; margin:0 0 20px; }
+  .timing {
+    background:var(--card); border:1px solid var(--line); border-radius:10px;
+    padding:14px 16px; margin-bottom:18px; display:flex; gap:28px;
+    flex-wrap:wrap; align-items:baseline;
+  }
+  .timing b { font-size:26px; color:var(--accent); font-variant-numeric:tabular-nums; }
+  .timing span { color:var(--muted); font-size:12px; display:block; }
+  table { width:100%; border-collapse:collapse; background:var(--card);
+          border:1px solid var(--line); border-radius:10px; overflow:hidden; }
+  th,td { padding:9px 12px; text-align:left; border-bottom:1px solid var(--line);
+          font-size:14px; }
+  th { background:rgba(127,127,127,.06); font-weight:600; font-size:12px;
+       text-transform:uppercase; letter-spacing:.03em; color:var(--muted); }
+  tr:last-child td { border-bottom:none; }
+  .dot { display:inline-block; width:9px; height:9px; border-radius:50%;
+         margin-right:7px; vertical-align:middle; }
+  .ACTIVE  { background:var(--green); }
+  .AWAY    { background:var(--amber); }
+  .OFFLINE { background:var(--grey); }
+  .head { font-size:11px; color:var(--accent); font-weight:600; }
+  button { background:var(--accent); color:#fff; border:0; border-radius:7px;
+           padding:8px 16px; font-size:14px; cursor:pointer; }
+  .err { background:#fef2f2; border:1px solid #fecaca; color:#991b1b;
+         padding:12px 14px; border-radius:8px; font-size:14px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>TVL-EAS directory</h1>
+  <p class="sub">Served by Express from PostgreSQL. Test data only.</p>
+
+  <div class="timing">
+    <div><b id="ms">--</b> <span>milliseconds, end to end</span></div>
+    <div><b id="n">--</b> <span>people</span></div>
+    <div style="margin-left:auto"><button id="again">Load again</button></div>
+  </div>
+
+  <div id="out"></div>
+</div>
+
+<script>
+// Same origin as this page, so no address to hard-code and no CORS to think
+// about. When this page moves to Blogger it becomes the full API address and
+// ALLOWED_ORIGINS in .env starts mattering.
+var API = '/api/team';
+
+function esc(s) {
+  return String(s === null || s === undefined ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function load() {
+  var out = document.getElementById('out');
+  out.innerHTML = '<p class="sub">Loading...</p>';
+
+  // performance.now() is the honest measurement: it covers the request, the
+  // database, the JSON and the parse - everything except drawing.
+  var t0 = performance.now();
+
+  fetch(API)
+    .then(function (r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    })
+    .then(function (data) {
+      var ms = performance.now() - t0;
+      document.getElementById('ms').textContent = ms.toFixed(1);
+      document.getElementById('n').textContent = data.count;
+
+      var rows = data.team.map(function (p) {
+        return '<tr>' +
+          '<td>' + esc(p.full_name) +
+            (p.is_head ? ' <span class="head">HEAD</span>' : '') + '</td>' +
+          '<td>' + esc(p.designation) + '</td>' +
+          '<td>' + esc(p.sub_department) + '</td>' +
+          '<td>' + esc(p.extension) + '</td>' +
+          '<td><span class="dot ' + esc(p.presence) + '"></span>' +
+              esc(p.presence) + '</td>' +
+        '</tr>';
+      }).join('');
+
+      out.innerHTML =
+        '<table><thead><tr><th>Name</th><th>Designation</th>' +
+        '<th>Section</th><th>Ext</th><th>Presence</th></tr></thead>' +
+        '<tbody>' + rows + '</tbody></table>';
+    })
+    .catch(function (err) {
+      out.innerHTML = '<div class="err"><b>Could not reach the API.</b><br>' +
+        esc(err.message) + '<br><br>Is the server running? Check the ' +
+        'terminal where you typed npm start.</div>';
+    });
+}
+
+document.getElementById('again').addEventListener('click', load);
+load();
+</script>
+</body>
+</html>
