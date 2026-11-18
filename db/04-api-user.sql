@@ -8,7 +8,9 @@
 --   3. CHANGE THE PASSWORD ON LINE 'CREATE USER' BELOW to one you choose.
 --   4. Run the whole file. Press F5.
 --
--- Safe to run twice - it removes the old user first.
+-- Safe to run any number of times, INCLUDING THE FIRST, when the role does
+-- not exist yet. An earlier version of this file was not - see the note on
+-- the DO block below.
 --
 --
 -- WHY THIS EXISTS, AND IT IS NOT ONLY ABOUT THE FORGOTTEN PASSWORD
@@ -38,9 +40,33 @@
 -- ---------------------------------------------------------------------------
 -- DROP OWNED BY removes the GRANTS held by the role. PostgreSQL refuses to
 -- drop a role that still holds privileges anywhere, and the error it gives
--- does not say which object is the problem - so this line saves a confusing
--- afternoon the second time you run this.
-DROP OWNED BY tvl_api;
+-- does not say which object is the problem - so this saves a confusing
+-- afternoon the second time you run this file.
+--
+-- WHY THE DO BLOCK, AND NOT JUST "DROP OWNED BY tvl_api;"
+--
+-- Almost every DROP in SQL accepts IF EXISTS. DROP OWNED BY does not - there
+-- is no such form. So on the FIRST run, when the role has never existed, a
+-- bare DROP OWNED BY fails with
+--
+--     ERROR:  role "tvl_api" does not exist   (SQL state 42704)
+--
+-- and because pgAdmin sends the file as one transaction, that single error
+-- throws away everything after it. CREATE USER never runs, and the later
+-- GRANTs then fail for the same reason. One missing guard, whole file dead.
+--
+-- A DO block is an anonymous function: a piece of procedural code that can
+-- use IF. Here it asks whether the role exists and only then drops what it
+-- owns. EXECUTE is needed because DROP OWNED BY will not accept a variable,
+-- so the statement is built as text and run.
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'tvl_api') THEN
+    EXECUTE 'DROP OWNED BY tvl_api';
+  END IF;
+END
+$$;
+
 DROP USER IF EXISTS tvl_api;
 
 
