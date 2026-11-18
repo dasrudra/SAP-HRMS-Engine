@@ -88,12 +88,31 @@ async function query(text, params) {
 }
 
 
-/** True if the database answers at all. Used by /api/health. */
+/**
+ * True if the database answers at all. Used by /api/health.
+ *
+ * IT LOGS WHY IT FAILED, and the first version of this function did not -
+ * it caught the error and returned false. /api/health then said
+ * "unreachable" and the terminal said nothing at all, so the one person who
+ * could fix it had the one fact withheld from them. A health check that
+ * reports a failure without its cause is barely better than no health
+ * check.
+ *
+ * The reason goes to the console, never to the caller: see fail() in
+ * server.js for why a stranger does not get told which user failed to
+ * authenticate.
+ */
 async function ping() {
   try {
     await pool.query('SELECT 1');
     return true;
   } catch (e) {
+    console.error('[db] health check failed: ' + e.message);
+    console.error('[db] tried ' + (process.env.PGUSER || 'postgres') + '@' +
+                  (process.env.PGHOST || '127.0.0.1') + ':' +
+                  (process.env.PGPORT || 5432) + '/' +
+                  (process.env.PGDATABASE || 'tvl_eas') +
+                  '  - check these against api/.env');
     return false;
   }
 }
