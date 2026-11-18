@@ -7,20 +7,21 @@
 <!--
   A THROWAWAY TEST PAGE. Not the real portal, not a design.
 
-  It exists so the speed is something you can see rather than a number in a
-  log, and so there is one worked example of a page calling the API. The
-  real front end comes in Stage 3.
+  It exists so the speed is visible rather than a number in a log, and so
+  there is one worked example of a page signing in and calling the API.
+  The real front end comes later.
 -->
 <style>
   :root {
     --bg:#f6f7f9; --card:#fff; --ink:#1a1d21; --muted:#6b7280;
     --line:#e5e7eb; --green:#16a34a; --amber:#d97706; --grey:#9ca3af;
-    --accent:#1d4ed8;
+    --accent:#1d4ed8; --danger:#b91c1c; --dangerbg:#fef2f2; --dangerln:#fecaca;
   }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
       --bg:#0f1115; --card:#171a20; --ink:#e8eaed; --muted:#9aa1ab;
       --line:#262b33; --accent:#60a5fa;
+      --danger:#fca5a5; --dangerbg:#2a1416; --dangerln:#5b2126;
     }
   }
   * { box-sizing:border-box; }
@@ -28,14 +29,28 @@
     margin:0; padding:24px 16px; background:var(--bg); color:var(--ink);
     font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
   }
-  .wrap { max-width:900px; margin:0 auto; }
+  .wrap { max-width:940px; margin:0 auto; }
   h1 { font-size:20px; margin:0 0 4px; }
   .sub { color:var(--muted); font-size:13px; margin:0 0 20px; }
-  .timing {
+  .card {
     background:var(--card); border:1px solid var(--line); border-radius:10px;
-    padding:14px 16px; margin-bottom:18px; display:flex; gap:28px;
-    flex-wrap:wrap; align-items:baseline;
+    padding:18px; margin-bottom:18px;
   }
+  .signin { max-width:380px; }
+  label { display:block; font-size:12px; color:var(--muted); margin:12px 0 4px;
+          text-transform:uppercase; letter-spacing:.03em; }
+  input {
+    width:100%; padding:9px 11px; font-size:15px; border-radius:7px;
+    border:1px solid var(--line); background:var(--bg); color:var(--ink);
+  }
+  button {
+    background:var(--accent); color:#fff; border:0; border-radius:7px;
+    padding:9px 18px; font-size:14px; cursor:pointer; margin-top:16px;
+  }
+  button.ghost { background:transparent; color:var(--muted);
+                 border:1px solid var(--line); margin-left:8px; }
+  button:disabled { opacity:.55; cursor:default; }
+  .timing { display:flex; gap:28px; flex-wrap:wrap; align-items:baseline; }
   .timing b { font-size:26px; color:var(--accent); font-variant-numeric:tabular-nums; }
   .timing span { color:var(--muted); font-size:12px; display:block; }
   table { width:100%; border-collapse:collapse; background:var(--card);
@@ -47,85 +62,178 @@
   tr:last-child td { border-bottom:none; }
   .dot { display:inline-block; width:9px; height:9px; border-radius:50%;
          margin-right:7px; vertical-align:middle; }
-  .ACTIVE  { background:var(--green); }
-  .AWAY    { background:var(--amber); }
+  .ACTIVE { background:var(--green); } .AWAY { background:var(--amber); }
   .OFFLINE { background:var(--grey); }
   .head { font-size:11px; color:var(--accent); font-weight:600; }
-  button { background:var(--accent); color:#fff; border:0; border-radius:7px;
-           padding:8px 16px; font-size:14px; cursor:pointer; }
-  .err { background:#fef2f2; border:1px solid #fecaca; color:#991b1b;
-         padding:12px 14px; border-radius:8px; font-size:14px; }
+  .err { background:var(--dangerbg); border:1px solid var(--dangerln);
+         color:var(--danger); padding:11px 13px; border-radius:8px;
+         font-size:14px; margin-top:14px; }
+  .who { font-size:13px; color:var(--muted); }
+  .hide { display:none; }
 </style>
 </head>
 <body>
 <div class="wrap">
   <h1>TVL-EAS directory</h1>
-  <p class="sub">Served by Express from PostgreSQL. Test data only.</p>
+  <p class="sub">Served by Express from PostgreSQL.</p>
 
-  <div class="timing">
-    <div><b id="ms">--</b> <span>milliseconds, end to end</span></div>
-    <div><b id="n">--</b> <span>people</span></div>
-    <div style="margin-left:auto"><button id="again">Load again</button></div>
+  <!-- SIGN IN -->
+  <div class="card signin" id="signinCard">
+    <strong>Sign in</strong>
+    <label for="eid">Employee ID</label>
+    <input id="eid" autocomplete="username" inputmode="numeric">
+    <label for="pw">Password</label>
+    <input id="pw" type="password" autocomplete="current-password">
+    <button id="go">Sign in</button>
+    <div id="signinErr" class="err hide"></div>
   </div>
 
-  <div id="out"></div>
+  <!-- SIGNED IN -->
+  <div id="app" class="hide">
+    <div class="card">
+      <div class="timing">
+        <div><b id="ms">--</b> <span>milliseconds, end to end</span></div>
+        <div><b id="n">--</b> <span>people</span></div>
+        <div style="margin-left:auto; text-align:right">
+          <div class="who" id="who"></div>
+          <button id="again">Load again</button>
+          <button id="out" class="ghost">Sign out</button>
+        </div>
+      </div>
+    </div>
+    <div id="out_table"></div>
+  </div>
 </div>
 
 <script>
-// Same origin as this page, so no address to hard-code and no CORS to think
-// about. When this page moves to Blogger it becomes the full API address and
-// ALLOWED_ORIGINS in .env starts mattering.
-var API = '/api/team';
+// Same origin as this page, so there is no address to hard-code and no CORS
+// to think about yet. When this moves to Blogger it becomes the full API
+// address, and ALLOWED_ORIGINS in .env starts mattering.
+var API = '';
+
+// WHY sessionStorage AND NOT localStorage: sessionStorage is emptied when
+// the tab closes. On a shared or office machine that is the difference
+// between a session ending when somebody walks away and a token sitting on
+// disk until it expires.
+var KEY = 'tvl.token';
+
+function token(v) {
+  try {
+    if (v === null) { sessionStorage.removeItem(KEY); return null; }
+    if (v !== undefined) { sessionStorage.setItem(KEY, v); return v; }
+    return sessionStorage.getItem(KEY);
+  } catch (e) { return null; }   // private mode, blocked storage
+}
 
 function esc(s) {
   return String(s === null || s === undefined ? '' : s)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
+function show(el, on) { document.getElementById(el).classList.toggle('hide', !on); }
 
-function load() {
-  var out = document.getElementById('out');
-  out.innerHTML = '<p class="sub">Loading...</p>';
-
-  // performance.now() is the honest measurement: it covers the request, the
-  // database, the JSON and the parse - everything except drawing.
-  var t0 = performance.now();
-
-  fetch(API)
-    .then(function (r) {
-      if (!r.ok) throw new Error('HTTP ' + r.status);
-      return r.json();
-    })
-    .then(function (data) {
-      var ms = performance.now() - t0;
-      document.getElementById('ms').textContent = ms.toFixed(1);
-      document.getElementById('n').textContent = data.count;
-
-      var rows = data.team.map(function (p) {
-        return '<tr>' +
-          '<td>' + esc(p.full_name) +
-            (p.is_head ? ' <span class="head">HEAD</span>' : '') + '</td>' +
-          '<td>' + esc(p.designation) + '</td>' +
-          '<td>' + esc(p.sub_department) + '</td>' +
-          '<td>' + esc(p.extension) + '</td>' +
-          '<td><span class="dot ' + esc(p.presence) + '"></span>' +
-              esc(p.presence) + '</td>' +
-        '</tr>';
-      }).join('');
-
-      out.innerHTML =
-        '<table><thead><tr><th>Name</th><th>Designation</th>' +
-        '<th>Section</th><th>Ext</th><th>Presence</th></tr></thead>' +
-        '<tbody>' + rows + '</tbody></table>';
-    })
-    .catch(function (err) {
-      out.innerHTML = '<div class="err"><b>Could not reach the API.</b><br>' +
-        esc(err.message) + '<br><br>Is the server running? Check the ' +
-        'terminal where you typed npm start.</div>';
+/* Every call carries the token. A 401 means it has expired or been
+   revoked, and the only sane response is to show the sign-in form again -
+   handled in one place so no caller has to remember. */
+function api(path, options) {
+  var opts = options || {};
+  opts.headers = opts.headers || {};
+  var t = token();
+  if (t) opts.headers['Authorization'] = 'Bearer ' + t;
+  return fetch(API + path, opts).then(function (r) {
+    if (r.status === 401) { token(null); signedOut(); throw new Error('signed out'); }
+    return r.json().then(function (body) {
+      if (!r.ok) throw new Error(body.error || ('HTTP ' + r.status));
+      return body;
     });
+  });
 }
 
+function signedOut() {
+  show('app', false); show('signinCard', true);
+  document.getElementById('pw').value = '';
+}
+
+function signIn() {
+  var btn = document.getElementById('go');
+  var err = document.getElementById('signinErr');
+  err.classList.add('hide');
+  btn.disabled = true; btn.textContent = 'Signing in...';
+
+  fetch(API + '/api/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      employee_id: document.getElementById('eid').value.trim(),
+      password:    document.getElementById('pw').value
+    })
+  })
+  .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, b: b }; }); })
+  .then(function (res) {
+    if (!res.ok) throw new Error(res.b.error || 'could not sign in');
+    token(res.b.token);
+    document.getElementById('who').textContent =
+      res.b.user.full_name + '  (' + res.b.user.role + ')';
+    document.getElementById('pw').value = '';
+    show('signinCard', false); show('app', true);
+    load();
+  })
+  .catch(function (e) { err.textContent = e.message; err.classList.remove('hide'); })
+  .then(function () { btn.disabled = false; btn.textContent = 'Sign in'; });
+}
+
+function load() {
+  var out = document.getElementById('out_table');
+  out.innerHTML = '<p class="sub">Loading...</p>';
+
+  // performance.now() covers the request, the database, the JSON and the
+  // parse - everything except drawing.
+  var t0 = performance.now();
+
+  api('/api/team').then(function (data) {
+    document.getElementById('ms').textContent = (performance.now() - t0).toFixed(1);
+    document.getElementById('n').textContent = data.count;
+
+    var rows = data.team.map(function (p) {
+      return '<tr>' +
+        '<td>' + esc(p.full_name) +
+          (p.is_head ? ' <span class="head">HEAD</span>' : '') + '</td>' +
+        '<td>' + esc(p.designation) + '</td>' +
+        '<td>' + esc(p.sub_department) + '</td>' +
+        '<td>' + esc(p.extension) + '</td>' +
+        '<td><span class="dot ' + esc(p.presence) + '"></span>' + esc(p.presence) + '</td>' +
+      '</tr>';
+    }).join('');
+
+    out.innerHTML = '<table><thead><tr><th>Name</th><th>Designation</th>' +
+      '<th>Section</th><th>Ext</th><th>Presence</th></tr></thead><tbody>' +
+      rows + '</tbody></table>';
+  })
+  .catch(function (e) {
+    if (e.message === 'signed out') return;
+    out.innerHTML = '<div class="err"><b>Could not load the directory.</b><br>' +
+      esc(e.message) + '</div>';
+  });
+}
+
+document.getElementById('go').addEventListener('click', signIn);
+document.getElementById('pw').addEventListener('keydown', function (e) {
+  if (e.key === 'Enter') signIn();
+});
 document.getElementById('again').addEventListener('click', load);
-load();
+document.getElementById('out').addEventListener('click', function () {
+  token(null); signedOut();
+});
+
+// A token from earlier in this tab may still be good. Ask, rather than
+// making somebody sign in again for nothing.
+if (token()) {
+  api('/api/me').then(function (r) {
+    document.getElementById('who').textContent =
+      r.user.full_name + '  (' + r.user.role + ')';
+    show('signinCard', false); show('app', true);
+    load();
+  }).catch(function () { /* api() already showed the form on a 401 */ });
+}
 </script>
 </body>
 </html>
