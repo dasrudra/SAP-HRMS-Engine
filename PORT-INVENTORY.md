@@ -126,11 +126,21 @@ one is switched off.
 | `tickObjMilestone`, `tickObjTask` | TODO |
 | `saveObjSlotNote` | TODO |
 
-The two summary cards - **Progress this month** and **Overall progress** -
-and the arithmetic behind them (`objCountState`, `objTallyShare`,
-`objProgressAll`) must port exactly. The rule that a pending square still
-counts in the denominator was a bug fix Rudra found; a regression test
-exists for it (3 of 29 reads 10, not 60).
+The arithmetic (`objCountState`, `objTallyTotal`, `objTallyShare`,
+`objSlotCount`, `objWorkingDays`, `objDaysInMonth`, `objIsQuarterEnd`) is
+ported in `api/objectives.js` and **proved identical to Objective.gs over
+3,248 comparisons** by `api/equivalence-test.js`, which lifts the real
+functions out of the .gs file rather than describing what they should do.
+Run both with `npm test` in `api`.
+
+That test earned its place on its first run: the port had hard-coded a
+five-day Sun-Thu week, while Config.gs says WORK_DAYS: [0,1,2,3,4,6] - six
+days, Saturday included, only Friday off. Every DAILY objective would have
+been 4 to 5 squares short in its denominator, every month.
+
+Still TODO: `objProgressAll`, `objTaskState`, `objTaskSquares`, the slot
+and marks handling, and the endpoints. The two summary cards - **Progress
+this month** and **Overall progress** - depend on those.
 
 ### Messenger
 | Endpoint | Status |
@@ -183,7 +193,7 @@ reload.
 | `LEARN` | learning entries | - | TODO |
 | `KNOWLEDGE` | knowledge posts | - | TODO |
 | `BY_WEEKLY` | meeting links | - | TODO |
-| `OBJ_PLAN` / `OBJ_TASK` / `OBJ_LOG` | objectives | - | TODO |
+| `OBJ_PLAN` / `OBJ_TASK` / `OBJ_LOG` | objectives | `obj_plan` / `obj_task` / `obj_log` | PART |
 | MIN_MEET | orphaned - to be deleted | - | n/a |
 
 Presence has no tab: it lives in CacheService, which is why it is lost on
@@ -229,7 +239,7 @@ decided for a reason.
 2. ~~API skeleton, directory~~ DONE
 3. ~~Sign-in~~ DONE
 4. ~~Presence~~ DONE
-5. **Objectives** - next
+5. **Objectives** - schema and arithmetic DONE, endpoints next
 6. Messenger
 7. Knowledge, Learn, FAQ, Links, By-Weekly
 8. KPI 1, KPI 2, Compare, Uploads
