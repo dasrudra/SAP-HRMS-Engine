@@ -102,6 +102,15 @@
         </div>
       </div>
     </div>
+    <!-- The two summary cards, from /api/objectives. The real page draws
+         these as a progress bar and a ring; this is the same numbers in
+         the plainest possible form, to check them. -->
+    <div class="card" id="objCard">
+      <strong>Objectives</strong>
+      <span class="who" id="objPeriod"></span>
+      <div id="objOut" class="sub">Loading...</div>
+    </div>
+
     <div id="out_table"></div>
   </div>
 </div>
@@ -186,7 +195,47 @@ function signIn() {
   .then(function () { btn.disabled = false; btn.textContent = 'Sign in'; });
 }
 
+function loadObjectives() {
+  var out = document.getElementById('objOut');
+  api('/api/objectives').then(function (d) {
+    document.getElementById('objPeriod').textContent =
+      'period ' + d.period + '  -  ' + d.counts.milestones + ' milestones, ' +
+      d.counts.eas + ' EAS objectives (' + d.counts.kpis + ' KPIs excluded)';
+
+    var card = function (title, c, unit) {
+      var m = c.month, o = c.overall;
+      return '<table style="margin-top:10px"><thead><tr>' +
+        '<th>' + esc(title) + '</th><th>This month</th><th>Overall</th>' +
+        '</tr></thead><tbody>' +
+        '<tr><td>Progress</td><td><b>' + m.done + '%</b></td><td><b>' +
+          o.done + '%</b></td></tr>' +
+        '<tr><td>Counted</td><td>' + m.ticked + ' of ' + m.total + ' ' + unit +
+          '</td><td>' + o.ticked + ' of ' + o.total + '</td></tr>' +
+        '<tr><td>On time / delayed</td><td>' + (m.onTimeN || 0) + ' / ' +
+          (m.lateN || 0) + '</td><td>' + (o.onTimeN || 0) + ' / ' +
+          (o.lateN || 0) + '</td></tr>' +
+        '<tr><td>Slices (must total 100)</td><td>' + m.onTime + ' / ' + m.late +
+          ' / ' + m.notDone + '</td><td>' + o.onTime + ' / ' + o.late + ' / ' +
+          o.notDone + '</td></tr>' +
+        '</tbody></table>';
+    };
+
+    var u = d.unique;
+    out.innerHTML =
+      card('SMART milestones', d.progress.plan, 'squares') +
+      card('Unique Roles (EAS)', d.progress.tasks, 'squares') +
+      (u ? '<p class="sub" style="margin-top:10px">Unique Roles this month: ' +
+           u.on + ' of ' + u.due + ' due are on schedule, ' + u.waiting +
+           ' not due yet, ' + u.total + ' in the month.</p>' : '');
+  })
+  .catch(function (e) {
+    if (e.message === 'signed out') return;
+    out.innerHTML = '<span style="color:var(--danger)">' + esc(e.message) + '</span>';
+  });
+}
+
 function load() {
+  loadObjectives();
   var out = document.getElementById('out_table');
   out.innerHTML = '<p class="sub">Loading...</p>';
 

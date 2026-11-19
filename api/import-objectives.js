@@ -41,6 +41,7 @@ const db = require('./db');
 const DATA = path.join(__dirname, '..', 'data');
 const PLAN_CSV = path.join(DATA, 'OBJ_PLAN.csv');
 const TASK_CSV = path.join(DATA, 'OBJ_TASK.csv');
+const LOG_CSV  = path.join(DATA, 'OBJ_LOG.csv');   // optional - the ticks
 
 
 /**
@@ -127,6 +128,46 @@ const num = function (v) {
   if (!/^-?[0-9]+(\.[0-9]+)?$/.test(s)) return null;
   return Number(s);
 };
+
+
+/**
+ * A JSON cell, or the empty shape. Bad JSON reads as nothing recorded.
+ *                               [Objective.gs parseObjHistory / Notes / Marked]
+ *
+ * These three columns hold JSON the sheet never shows anybody. A cell
+ * somebody has broken by hand must not stop the import - Objective.gs
+ * returns [] or {} and carries on, so this does too.
+ */
+function json(v, empty) {
+  const text = trim(v);
+  if (!text) return empty;
+  try {
+    const got = JSON.parse(text);
+    if (!got || typeof got !== 'object') return empty;
+    return got;
+  } catch (e) {
+    return empty;
+  }
+}
+
+
+/**
+ * The Marked column: slot index -> when it was marked, in milliseconds.
+ *
+ * Objective.gs keeps only entries whose value is a POSITIVE number, and
+ * re-keys them through Number() so '00' and '0' cannot both exist. Copied,
+ * because objTaskState compares these against objSlotEnd to decide whether
+ * a tick was late, and a zero there would read as "never marked".
+ */
+function markedAt(v) {
+  const got = json(v, {});
+  const out = {};
+  Object.keys(got).forEach(function (k) {
+    const n = Number(got[k]);
+    if (n > 0) out[String(Number(k))] = n;
+  });
+  return out;
+}
 
 
 async function main() {
@@ -224,6 +265,40 @@ async function main() {
   console.log('    will be imported ..................... ' + taskGood.length);
   console.log('');
 
+  // ---- OBJ_LOG is optional ----------------------------------------------
+  let logRows = null;
+  if (fs.existsSync(LOG_CSV)) {
+    const log = readCsv(LOG_CSV);
+    const LOG_HEAD = ['Period', 'Kind', 'Ref ID', 'Marks', 'Value', 'Status',
+      'Note', 'By', 'By ID', 'At', 'History', 'Marked', 'Notes'];
+    checkHeader('OBJ_LOG', log.header, LOG_HEAD);
+
+    const seen = {};
+    logRows = [];
+    let dup = 0, noKey = 0;
+    log.rows.forEach(function (r) {
+      const key = trim(r[0]) + '|' + trim(r[1]).toUpperCase() + '|' + trim(r[2]);
+      if (!trim(r[0]) || !trim(r[1]) || !trim(r[2])) { noKey++; return; }
+      // One row per objective per month - the table's primary key. A
+      // second row for the same key would be refused, so it is dropped
+      // here with a count rather than failing the whole import.
+      if (seen[key]) { dup++; return; }
+      seen[key] = true;
+      logRows.push(r);
+    });
+
+    console.log('  OBJ_LOG.csv    ' + log.rows.length + ' rows');
+    console.log('    incomplete key, skipped .............. ' + noKey);
+    console.log('    duplicate period+kind+ref, first kept  ' + dup);
+    console.log('    will be imported ..................... ' + logRows.length);
+    console.log('');
+  } else {
+    console.log('  OBJ_LOG.csv    not found - the ticks are not being imported.');
+    console.log('                 Export the OBJ_LOG tab the same way if you');
+    console.log('                 want the cards to show real history.');
+    console.log('');
+  }
+
   // ---- write it ---------------------------------------------------------
   /*
     ONE TRANSACTION. If the second table fails halfway, the first is rolled
@@ -264,6 +339,32 @@ async function main() {
          orNull(r[10]), orNull(r[11])]);
     }
 
+    // ---- OBJ_LOG, if it was exported ---------------------------------
+    /*
+      OPTIONAL, because the ticks can be moved separately from the
+      definitions - and because on the day this was written OBJ_LOG held
+      the live marks, which nobody wants to copy twice. Without the file
+      the two tables above still import and the cards read 0%, which is
+      honest: nothing has been ticked in the new system.
+    */
+    if (logRows) {
+      await client.query('DELETE FROM obj_log');
+      for (const r of logRows) {
+        await client.query(
+          `INSERT INTO obj_log (period, kind, ref_id, marks, value, status,
+             note, by_name, by_id, at, history, marked_at, notes)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+          [trim(r[0]), trim(r[1]).toUpperCase(), trim(r[2]), trim(r[3]),
+           num(r[4]), trim(r[5]).toUpperCase(), trim(r[6]),
+           trim(r[7]), orNull(r[8]),
+           // An empty At is NULL, not the epoch. Date.parse of '' is NaN.
+           (function () { const d = Date.parse(trim(r[9])); return d ? new Date(d) : null; })(),
+           JSON.stringify(json(r[10], [])),
+           JSON.stringify(markedAt(r[11])),
+           JSON.stringify(json(r[12], {}))]);
+      }
+    }
+
     await client.query('COMMIT');
   } catch (err) {
     await client.query('ROLLBACK');
@@ -299,6 +400,11 @@ async function main() {
   console.log('');
   console.log('    rows: ' + rows.map(function (r) { return r.row_id + '=' + r.n; }).join('  '));
   console.log('    freq: ' + freq.map(function (f) { return f.frequency + '=' + f.n; }).join('  '));
+
+  const marks = (await db.pool.query(
+    "SELECT count(*)::int AS n FROM obj_log")).rows[0].n;
+  console.log('    log rows .......... ' + marks +
+              (marks ? '' : '   (no ticks yet - the cards will read 0%)'));
   console.log('');
 
   if (c.eas !== 86) {

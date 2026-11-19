@@ -44,6 +44,21 @@ rank so MASTER passes an ADMIN gate; `requireMaster` added.
 
 ---
 
+## api/public/demo.html is NOT the new interface
+
+It is a test harness: about 290 lines against `src/App.html`'s 28,403. It
+exists to prove the API returns correct data and to show the response time,
+and it is thrown away when the real front end arrives.
+
+**Nothing in `src/App.html` has been changed, and nothing in it will be
+dropped.** The interface is ported as its own stage, after the endpoints,
+and it reproduces the existing design exactly - the same discipline applied
+to the arithmetic, where an equivalence test proves the port answers what
+the original answered. Where a screen's behaviour is not obvious from the
+code it is written down under "Behaviour that is easy to lose" below.
+
+Judge the demo page on whether the data is right. Judge nothing else by it.
+
 ## Screens
 
 | Screen | What it is | Status |
