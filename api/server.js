@@ -28,6 +28,8 @@ const cors = require('cors');
 const db = require('./db');
 const { hashPassword, verifyPassword, needsRehash } = require('./password');
 const { signToken, requireAuth, requireAdmin } = require('./auth');
+const obj = require('./objectives');
+const objRead = require('./objectives-read');
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
@@ -519,6 +521,76 @@ app.get('/api/presence', requireAuth, async function (req, res) {
     res.json({ ok: true, window_minutes: PRESENCE_WINDOW_MIN, presence: map });
   } catch (err) {
     fail(res, err, 'could not read presence');
+  }
+});
+
+
+// ===========================================================================
+// GET /api/objectives - the objectives page.
+// ===========================================================================
+/*
+  Serves what Objective.gs getObjectives() serves, computed by the ported
+  arithmetic in objectives.js - the same functions, proved identical to the
+  originals over 23,000 comparisons.
+
+  ?period=2026-11  which month the "this month" card is about.
+                   Defaults to the current month, clamped into the
+                   objective period, because asking for a month outside
+                   October-to-March is a question with no answer rather
+                   than an error worth a 400.
+*/
+app.get('/api/objectives', requireAuth, async function (req, res) {
+  try {
+    const periods = obj.objPeriods();
+    const now = new Date();
+
+    let want = String(req.query.period || '').trim();
+    if (periods.indexOf(want) === -1) {
+      const current = obj.objPeriodOf(now);
+      want = periods.indexOf(current) !== -1
+        ? current
+        : periods[periods.length - 1];   // past the end: show the last month
+    }
+
+    const [plan, tasks, log] = await Promise.all([
+      objRead.readObjPlan(), objRead.readObjTasks(), objRead.readObjLog()
+    ]);
+
+    const autoAll = obj.objAutoAll(tasks.tasks, log, periods, now);
+
+    const progress = obj.objProgressAll(plan, tasks.tasks, log, periods,
+                                        want, now, autoAll);
+
+    res.json({
+      ok: true,
+      period: want,
+      periods: periods,
+      /*
+        THE TWO SUMMARY CARDS.
+
+        plan  = the 29 SMART milestones
+        tasks = the 86 EAS objectives, KPIs excluded
+
+        Each carries `month` and `overall`, and each of those is an
+        objTallyShare: onTime / late / notDone as whole percents adding to
+        exactly 100, `done` as the headline figure, and ticked/total as the
+        fraction printed beside it so a reader can check the number against
+        the squares rather than take it on trust.
+      */
+      progress: progress,
+      // What the ninety are doing this month, which is also what the
+      // UNIQUE_ROLES milestone is scored from.
+      unique: (autoAll[want] || {}).UNIQUE_ROLES || null,
+      counts: {
+        milestones: progress.plan.base,
+        objectives: tasks.count,
+        eas: progress.tasks.base,
+        kpis: tasks.count - progress.tasks.base,
+        logRows: log.count
+      }
+    });
+  } catch (err) {
+    fail(res, err, 'could not read the objectives');
   }
 });
 

@@ -48,7 +48,8 @@ const LIFT = ['objDaysInMonth', 'objWorkingDays', 'objIsQuarterEnd',
               'objSlotsElapsed', 'objSlotsOpen', 'objTaskState',
               'objTally', 'objPeriodCell', 'objPeriods', 'objPeriodIndex',
               'objLogKey', 'objMilestoneScore', 'objPlanMonthState',
-              'objTaskSquares', 'objPlanSquares', 'objProgressAll'];
+              'objTaskSquares', 'objPlanSquares', 'objProgressAll',
+              'objUniqueRolesScore'];
 
 /*
   Pulls each function out of the .gs text and runs it in a sandbox with the
@@ -492,6 +493,13 @@ const ALLPERIODS = OLD.objPeriods();
                   [PLAN, log, want, now, autoAll,
                    { onTime: 0, late: 0, notDone: 0 }]);
     });
+
+    [new Date(2026, 10, 18, 12, 0, 0), new Date(2027, 2, 31, 23, 59, 59)]
+      .forEach(function (now) {
+        compareCall('objUniqueRolesScore ' + want + ' seed' + seed + ' ' +
+                    now.toISOString().slice(0, 10),
+                    'objUniqueRolesScore', [TASKS, log, want, now]);
+      });
 
     // milestone scoring, every type and both per-settings
     PLAN.rows.forEach(function (row) {

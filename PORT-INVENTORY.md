@@ -119,9 +119,9 @@ one is switched off.
 | `recomputeAfterUpload` | TODO |
 
 ### Objectives
-| Endpoint | Status |
-|---|---|
-| `getObjectives` | TODO |
+| Endpoint | Status | Notes |
+|---|---|---|
+| `getObjectives` | DONE | `GET /api/objectives` |
 | `createObjMilestone`, `recordObjMilestone` | TODO |
 | `tickObjMilestone`, `tickObjTask` | TODO |
 | `saveObjSlotNote` | TODO |
@@ -269,7 +269,8 @@ decided for a reason.
 2. ~~API skeleton, directory~~ DONE
 3. ~~Sign-in~~ DONE
 4. ~~Presence~~ DONE
-5. **Objectives** - schema and arithmetic DONE, endpoints next
+5. **Objectives** - schema, data, arithmetic and `getObjectives` DONE;
+   the four tick/record endpoints next
 6. Messenger
 7. Knowledge, Learn, FAQ, Links, By-Weekly
 8. KPI 1, KPI 2, Compare, Uploads

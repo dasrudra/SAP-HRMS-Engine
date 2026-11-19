@@ -696,6 +696,85 @@ function objProgressAll(plan, tasks, log, periods, want, now, autoAll) {
 }
 
 
+/**
+ * How the ninety are doing in one month.   [Objective.gs:1130]
+ *
+ * ONLY WHAT HAS ACTUALLY COME ROUND COUNTS. The first version scored every
+ * objective whose slot had not arrived yet as "on schedule" - true, in the
+ * sense that nothing not yet due can be late, and badly misleading as a
+ * number. Thirty of the ninety are monthly, and a monthly slot is not
+ * elapsed until the month ends, so on the 10th of November the page
+ * reported "30 of 85 on schedule" on a month where nobody had recorded
+ * anything. A figure that starts at 35% and can only go down measures
+ * nothing.
+ *
+ * So the denominator is what is DUE, and the ones not yet due are reported
+ * separately rather than counted as wins.
+ */
+function objUniqueRolesScore(tasks, log, period, now) {
+  let on = 0, due = 0, waiting = 0, total = 0, kpiOn = 0, kpiDue = 0;
+
+  tasks.forEach(function (t) {
+    const slots = objSlotCount(period, t.frequency);
+    if (!slots) return;                 // a quarterly item in a quiet month
+    total++;
+
+    const entry = log.byKey[objLogKey(period, OBJ_KIND_TASK, t.id)];
+    const state = objTaskState(t, entry ? entry.marks : '', period, now,
+                               entry ? entry.markedAt : null);
+
+    if (!state.elapsed) { waiting++; return; }
+
+    due++;
+    if (t.kpi) kpiDue++;
+    if (state.onSchedule) {
+      on++;
+      if (t.kpi) kpiOn++;
+    }
+  });
+
+  return {
+    // Nothing due yet is not a failure, and not a success either. It scores
+    // as met so that the first of the month does not open at zero.
+    fraction: due ? on / due : 1,
+    on: on, due: due, waiting: waiting, total: total,
+    kpiOn: kpiOn, kpiDue: kpiDue,
+    processOn: on - kpiOn, processDue: due - kpiDue
+  };
+}
+
+
+/**
+ * The counted sources, per month.   [Objective.gs:1517]
+ *
+ * ONLY UNIQUE_ROLES IS COMPUTED HERE SO FAR, and that is a gap, not a
+ * design. Objective.gs also counts KNOWLEDGE and LEARN, from two tabs that
+ * have not been ported yet.
+ *
+ * What happens to those milestones meanwhile is already decided by
+ * objPlanMonthState: a milestone whose source cannot be read shows
+ * 'pending', not 'missed'. That is the existing behaviour for an
+ * unreadable source, deliberately - a real milestone is not scored zero
+ * because another tab is mid-edit. Three of the twenty-nine are affected
+ * (the UNIQUE_ROLES one is fine; KNOWLEDGE and LEARN are not).
+ *
+ * The try/catch is kept: if the ninety are unreadable, the milestone can
+ * still be typed.
+ */
+function objAutoAll(tasks, log, periods, now) {
+  const byPeriod = {};
+  periods.forEach(function (p) { byPeriod[p] = {}; });
+
+  periods.forEach(function (p) {
+    try {
+      byPeriod[p].UNIQUE_ROLES = objUniqueRolesScore(tasks, log, p, now);
+    } catch (e) { /* the ninety are unreadable; the milestone can be typed */ }
+  });
+
+  return byPeriod;
+}
+
+
 module.exports = {
   objCountState, objTallyTotal, objTallyShare, objNewTally,
   objSlotCount, objDaysInMonth, objWorkingDays, objIsQuarterEnd,
@@ -706,5 +785,5 @@ module.exports = {
   OBJ_KIND_PLAN, OBJ_KIND_TASK, PERIOD_START, PERIOD_END,
   objTally, objPeriodCell, objPeriods, objPeriodIndex, objLogKey,
   objMilestoneScore, objPlanMonthState, objTaskSquares, objPlanSquares,
-  objProgressAll
+  objProgressAll, objUniqueRolesScore, objAutoAll
 };
