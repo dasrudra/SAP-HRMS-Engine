@@ -45,7 +45,10 @@ const LIFT = ['objDaysInMonth', 'objWorkingDays', 'objIsQuarterEnd',
               'objSlotCount', 'objCountState', 'objTallyTotal', 'objTallyShare',
               'objDate', 'objPeriodOf', 'objMarksRead', 'objMarksSet',
               'objMarksBlank', 'objMarksCount', 'objSlotEnd',
-              'objSlotsElapsed', 'objSlotsOpen', 'objTaskState'];
+              'objSlotsElapsed', 'objSlotsOpen', 'objTaskState',
+              'objTally', 'objPeriodCell', 'objPeriods', 'objPeriodIndex',
+              'objLogKey', 'objMilestoneScore', 'objPlanMonthState',
+              'objTaskSquares', 'objPlanSquares', 'objProgressAll'];
 
 /*
   Pulls each function out of the .gs text and runs it in a sandbox with the
@@ -58,9 +61,11 @@ const LIFT = ['objDaysInMonth', 'objWorkingDays', 'objIsQuarterEnd',
 */
 function loadOriginal() {
   let code =
-    'const CONFIG = { OBJECTIVE: { WORK_DAYS: [0, 1, 2, 3, 4, 6] } };\n' +
+    'const CONFIG = { OBJECTIVE: { WORK_DAYS: [0, 1, 2, 3, 4, 6],' +
+    "   PERIOD_START: '2026-10', PERIOD_END: '2027-03' } };\n" +
     'const OBJ_WORK_DAYS = {};\nconst OBJ_SLOTS = {};\n' +
-    "const OBJ_PENDING = '.';\nconst OBJ_DONE = 'Y';\nconst OBJ_MISSED = 'N';\n";
+    "const OBJ_PENDING = '.';\nconst OBJ_DONE = 'Y';\nconst OBJ_MISSED = 'N';\n" +
+    "const OBJ_KIND_PLAN = 'PLAN';\nconst OBJ_KIND_TASK = 'TASK';\n";
 
   LIFT.forEach(function (name) {
     const re = new RegExp('\\nfunction ' + name + '\\s*\\([^)]*\\)\\s*\\{[\\s\\S]*?\\n\\}', 'm');
@@ -305,6 +310,203 @@ PERIODS6.forEach(function (p) {
   // difference if one of them stops throwing.
   compareCall('objDate(#' + i + ')',     'objDate',     [v]);
   compareCall('objPeriodOf(#' + i + ')', 'objPeriodOf', [v]);
+});
+
+
+// --- the period helpers ----------------------------------------------------
+compare('objPeriods()', OLD.objPeriods(), NEW.objPeriods());
+['2026-10','2026-11','2027-03','2027-04','','x', null].forEach(function (p) {
+  compare('objPeriodIndex(' + p + ')', OLD.objPeriodIndex(p), NEW.objPeriodIndex(p));
+});
+[new Date(2026, 10, 18), '2026-11', '  2026-11  ', '', null, undefined, 0]
+  .forEach(function (v, i) {
+    compareCall('objPeriodCell(#' + i + ')', 'objPeriodCell', [v]);
+  });
+[['2026-11','TASK','EAS-001'], ['2026-11','task','EAS-001'],
+ ['2026-11',' Task ',' EAS-001 '], [null, null, null],
+ [new Date(2026,10,1),'PLAN','M1'], ['2026-11','',''],
+ ['2026-11','PLAN', 123]].forEach(function (a, i) {
+  compareCall('objLogKey(#' + i + ')', 'objLogKey', a);
+});
+
+
+// ===========================================================================
+// objProgressAll - the two summary cards
+// ===========================================================================
+/*
+  Fixtures shaped like the real sheets, with no real content in them.
+
+  29 milestones across 8 rows, matching the SMART sheet's shape, and 90
+  Unique Roles objectives of which 4 are KPIs - so 86 count, exactly as on
+  the page. Marks are spread so that every branch is hit: on time, late,
+  missed, pending, auto-counted, PERCENT, DONE, NUMBER and PERIOD.
+*/
+function buildPlan() {
+  const rows = [];
+  const shape = [4, 4, 4, 4, 4, 4, 4, 1];     // 29 milestones in 8 rows
+  let n = 0;
+  shape.forEach(function (count, r) {
+    const milestones = [];
+    for (let i = 0; i < count; i++) {
+      n++;
+      const types = ['NUMBER', 'PERCENT', 'DONE', 'NUMBER'];
+      milestones.push({
+        id: 'M' + n,
+        target: [1, 6, 100, 85][n % 4],
+        countType: types[n % 4],
+        per: (n % 5 === 0) ? 'PERIOD' : 'MONTH',
+        auto: (n % 7 === 0) ? 'UNIQUE_ROLES' : (n % 11 === 0 ? 'ITSM' : '')
+      });
+    }
+    rows.push({ id: 'R' + r, milestones: milestones });
+  });
+
+  /*
+    A BIG-TARGET PERIOD MILESTONE, ADDED BECAUSE A MUTANT SURVIVED WITHOUT IT.
+
+    "Complete at least 6 development initiatives during the period" is
+    cumulative: the score in any month is everything recorded up to and
+    including it, over the target. Deleting that logic made no difference
+    to this suite at first, because every PERIOD milestone had a target
+    small enough that Math.min(1, value/target) clamped the single month
+    AND the running total to 1. Both answers were "done", so the two
+    implementations agreed while meaning different things.
+
+    Target 500 against monthly values under 110 means one month can never
+    reach it and six months can, so the cumulative sum is the only thing
+    that moves the number.
+  */
+  rows.push({ id: 'R-period', milestones: [
+    { id: 'M-PERIOD-BIG', target: 500, countType: 'NUMBER', per: 'PERIOD', auto: '' },
+    { id: 'M-MONTH-BIG',  target: 500, countType: 'NUMBER', per: 'MONTH',  auto: '' }
+  ]});
+
+  return { rows: rows };
+}
+
+function buildTasks() {
+  const freqs = ['Monthly', 'Daily', 'Weekly', 'Quarterly'];
+  const out = [];
+  for (let i = 1; i <= 90; i++) {
+    out.push({
+      id: 'EAS-' + String(i).padStart(3, '0'),
+      frequency: freqs[i % 4],
+      kpi: i > 86                       // the last four are the KPIs
+    });
+  }
+  return out;
+}
+
+function buildLog(plan, tasks, periods, seed) {
+  const byKey = {};
+  /*
+    THE LOW BITS OF AN LCG ARE NEARLY CONSTANT, and using them made this
+    whole fixture almost empty.
+
+    The first version returned k itself and callers took `next() % 4`,
+    which reads the lowest two bits. Those cycle with a period of 4 in a
+    linear congruential generator, so after the first call the answer was
+    0 almost every time and nearly every log row was skipped:
+
+        2026-10  M-PERIOD-BIG  value=2
+        2026-11  SKIPPED   2026-12  SKIPPED   2027-01  SKIPPED  ...
+
+    One entry in one month, out of six months and ninety-two objectives.
+    Every objProgressAll comparison was being run against an empty log, and
+    a mutant that deleted the cumulative PERIOD logic survived because
+    there was never more than one month's figure to accumulate.
+
+    Shifting right by 16 takes the high bits, which are well distributed.
+  */
+  let k = seed;
+  const next = function () {
+    k = (k * 1103515245 + 12345) & 0x7fffffff;
+    return k >>> 16;
+  };
+
+  periods.forEach(function (p) {
+    tasks.forEach(function (t) {
+      if (next() % 3 === 0) return;                  // some months untouched
+      const slots = OLD.objSlotCount(p, t.frequency);
+      let marks = '';
+      const markedAt = {};
+      for (let i = 0; i < slots; i++) {
+        const r = next() % 10;
+        marks += r < 5 ? 'Y' : (r < 7 ? 'N' : '.');
+        if (marks.charAt(i) === 'Y') {
+          const end = OLD.objSlotEnd(p, t.frequency, i);
+          // a third of the ticks are recorded AFTER the slot closed: late
+          markedAt[String(i)] = (next() % 3 === 0) ? end + 86400000 : end - 3600000;
+        }
+      }
+      byKey[OLD.objLogKey(p, 'TASK', t.id)] =
+        { marks: marks, markedAt: markedAt, value: next() % 120, notes: {} };
+    });
+
+    plan.rows.forEach(function (row) {
+      row.milestones.forEach(function (m) {
+        if (next() % 4 === 0) return;
+        const end = OLD.objSlotEnd(p, 'Monthly', 0);
+        const tick = next() % 2 === 0;
+        byKey[OLD.objLogKey(p, 'PLAN', m.id)] = {
+          marks: tick ? 'Y' : '.',
+          markedAt: tick ? { '0': (next() % 3 === 0) ? end + 1000 : end - 1000 } : {},
+          value: next() % 110,
+          notes: {}
+        };
+      });
+    });
+  });
+  return { byKey: byKey };
+}
+
+const PLAN = buildPlan();
+const TASKS = buildTasks();
+const ALLPERIODS = OLD.objPeriods();
+
+[1, 7, 99, 12345].forEach(function (seed) {
+  const log = buildLog(PLAN, TASKS, ALLPERIODS, seed);
+
+  // autoAll: the counted sources, present for some months and not others.
+  const autoAll = {};
+  ALLPERIODS.forEach(function (p, i) {
+    if (i % 3 === 0) return;                         // some months uncounted
+    autoAll[p] = {
+      UNIQUE_ROLES: { fraction: (i % 5) / 4, value: i * 10 },
+      ITSM: { value: i * 7, fraction: 0.5 }
+    };
+  });
+
+  ALLPERIODS.forEach(function (want) {
+    [new Date(2026, 10, 18, 12, 0, 0),
+     new Date(2027, 2, 31, 23, 59, 59),
+     new Date(2026, 9, 1, 0, 0, 0)].forEach(function (now) {
+      const label = 'seed' + seed + ' want=' + want +
+                    ' now=' + now.toISOString().slice(0, 10);
+      compareCall('objProgressAll ' + label, 'objProgressAll',
+                  [PLAN, TASKS, log, ALLPERIODS, want, now, autoAll]);
+      compareCall('objTaskSquares ' + label, 'objTaskSquares',
+                  [TASKS.filter(function (t) { return !t.kpi; }),
+                   log, want, now, { onTime: 0, late: 0, notDone: 0 }]);
+      compareCall('objPlanSquares ' + label, 'objPlanSquares',
+                  [PLAN, log, want, now, autoAll,
+                   { onTime: 0, late: 0, notDone: 0 }]);
+    });
+
+    // milestone scoring, every type and both per-settings
+    PLAN.rows.forEach(function (row) {
+      row.milestones.forEach(function (m) {
+        compareCall('objMilestoneScore ' + m.id + ' ' + want + ' seed' + seed,
+                    'objMilestoneScore',
+                    [m, log, want, { auto: autoAll[want] || {} }]);
+        compareCall('objPlanMonthState ' + m.id + ' ' + want + ' seed' + seed,
+                    'objPlanMonthState',
+                    [m, log.byKey[OLD.objLogKey(want, 'PLAN', m.id)] || null,
+                     want, new Date(2026, 10, 18, 12, 0, 0),
+                     Boolean((autoAll[want] || {})[m.auto]), 0.5]);
+      });
+    });
+  });
 });
 
 

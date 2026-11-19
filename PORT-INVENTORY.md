@@ -150,7 +150,25 @@ character into the marks string (18), and treating today as elapsed (136 -
 and this one SURVIVED until the boundary times were added, because every
 test `now` was midday and slot ends are at 23:59:59.999).
 
-Still TODO: `objProgressAll`, `objTaskSquares`, The two summary cards - **Progress
+`objProgressAll` is ported too, with everything under it: `objTaskSquares`,
+`objPlanSquares`, `objPlanMonthState`, `objMilestoneScore`, `objLogKey`,
+`objPeriods`, `objPeriodIndex`, `objPeriodCell`, `objTally`. This is what
+feeds the two summary cards. **23,415 comparisons, all identical.**
+
+Eight deliberate mutants, all caught: late marks counting as on-time (454
+differences), today counting as elapsed (136), the marks string accepting
+any character (18), the four KPIs no longer excluded (72), `overall`
+counting future months (48), an uncounted auto month going green (96),
+PERIOD targets ceasing to be cumulative (59), and each percentage share
+rounded separately instead of by subtraction (357).
+
+Two of those only became catchable after the test itself was fixed - see
+the commit log. The fixture generator was taking `next() % 4` from the low
+bits of a linear congruential generator, which cycle almost immediately,
+so nearly every log row was skipped and the whole objProgressAll suite was
+running against an almost-empty log.
+
+Still TODO: The two summary cards - **Progress
 this month** and **Overall progress** - depend on those.
 
 ### Messenger

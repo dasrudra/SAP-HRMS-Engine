@@ -428,11 +428,283 @@ function objTaskState(task, marks, period, now, markedAt) {
 }
 
 
+// ===========================================================================
+// THE PERIOD, THE LOG KEY, AND THE SCORE
+// ===========================================================================
+
+const OBJ_KIND_PLAN = 'PLAN';   // [Objective.gs:139]
+const OBJ_KIND_TASK = 'TASK';   // [Objective.gs:140]
+
+/*
+  The objective period, from Config.gs OBJECTIVE.PERIOD_START / PERIOD_END.
+  Overridable by environment variable for the same reason WORK_DAYS is: the
+  period moves every half year and must move in one place.
+*/
+const PERIOD_START = String(process.env.OBJ_PERIOD_START || '2026-10');
+const PERIOD_END   = String(process.env.OBJ_PERIOD_END   || '2027-03');
+
+
+/** A fresh tally.   [Objective.gs:1230] */
+function objTally() {
+  return { onTime: 0, late: 0, notDone: 0 };
+}
+
+
+/** A period out of a cell, which may already be a Date.
+ *                                                   [Objective.gs:281] */
+function objPeriodCell(value) {
+  const d = objDate(value);
+  if (d) return objPeriodOf(d);
+  return String(value === null || value === undefined ? '' : value).trim();
+}
+
+
+/**
+ * Every month of the objective period, in order.   [Objective.gs:294]
+ *
+ * BOUNDED AT 120 RATHER THAN while(true): a mistyped end date earlier than
+ * the start would otherwise spin until the script times out, and a page
+ * that hangs is harder to diagnose than one that comes back short.
+ */
+function objPeriods() {
+  const out = [];
+  let y = Number(PERIOD_START.slice(0, 4));
+  let m = Number(PERIOD_START.slice(5, 7));
+  const ey = Number(PERIOD_END.slice(0, 4));
+  const em = Number(PERIOD_END.slice(5, 7));
+  if (!y || !m || !ey || !em) return out;
+
+  for (let guard = 0; guard < 120; guard++) {
+    out.push(y + '-' + (m < 10 ? '0' + m : String(m)));
+    if (y === ey && m === em) break;
+    m++;
+    if (m > 12) { m = 1; y++; }
+  }
+  return out;
+}
+
+
+/** Where a month sits in the period, or -1.   [Objective.gs:319] */
+function objPeriodIndex(period) {
+  return objPeriods().indexOf(String(period || ''));
+}
+
+
+/** One log row's key.   [Objective.gs:866] */
+function objLogKey(period, kind, ref) {
+  return objPeriodCell(period) + '|' +
+         String(kind === null || kind === undefined ? '' : kind)
+           .trim().toUpperCase() + '|' +
+         String(ref === null || ref === undefined ? '' : ref).trim();
+}
+
+
+/**
+ * How far one milestone got in one month, as a fraction of its target.
+ *                                                   [Objective.gs:1466]
+ *
+ * A MONTH WITH NOTHING RECORDED SCORES ZERO. That is the honest reading
+ * and it is worth saying out loud, because the comfortable alternative -
+ * leaving it out of the average - makes a department that recorded nothing
+ * at all score 100, which is exactly backwards.
+ *
+ * PERIOD targets are cumulative. "Complete at least 6 development
+ * initiatives during the period" is not six a month; it is six by March,
+ * so its score in any month is everything recorded up to and including
+ * that month, over six.
+ */
+function objMilestoneScore(milestone, log, period, context) {
+  const auto = milestone.auto;
+  const key = objLogKey(period, OBJ_KIND_PLAN, milestone.id);
+  const entry = log.byKey[key] || null;
+
+  // ---- the ones that are counted, not typed ----
+  if (auto) {
+    const counted = context && context.auto && context.auto[auto];
+    if (counted) {
+      const target = Number(milestone.target) || 1;
+      const value = (auto === 'UNIQUE_ROLES')
+        ? counted.fraction * target          // already a fraction of its own
+        : counted.value;
+      return {
+        fraction: Math.max(0, Math.min(1, value / target)),
+        value: value, target: target, auto: auto, entry: entry
+      };
+    }
+    /*
+      The source could not be read. Fall through and use whatever was
+      typed rather than scoring a real milestone zero because another tab
+      is mid-edit.
+    */
+  }
+
+  const target = Number(milestone.target);
+  const type = milestone.countType;
+
+  if (type === 'PERCENT') {
+    const v = entry && entry.value !== null ? entry.value : 0;
+    return { fraction: Math.max(0, Math.min(1, v / (target || 100))),
+             value: v, target: target || 100, auto: '', entry: entry };
+  }
+
+  if (type === 'DONE') {
+    /*
+      THE SQUARE IS THE ANSWER for a yes-or-no milestone. It used to be a
+      status picked from three buttons beside a row of month squares that
+      meant the same thing and disagreed with it freely.
+    */
+    const done = Boolean(entry) &&
+                 objMarksRead(entry.marks, 1).charAt(0) === OBJ_DONE;
+    return { fraction: done ? 1 : 0, value: done ? 1 : 0, target: 1,
+             auto: '', entry: entry };
+  }
+
+  // NUMBER
+  let value = entry && entry.value !== null ? entry.value : 0;
+  if (milestone.per === 'PERIOD') {
+    value = 0;
+    const periods = objPeriods();
+    const upto = objPeriodIndex(period);
+    for (let i = 0; i <= upto && i < periods.length; i++) {
+      const e = log.byKey[objLogKey(periods[i], OBJ_KIND_PLAN, milestone.id)];
+      if (e && e.value !== null) value += e.value;
+    }
+  }
+  const t = target || 1;
+  return { fraction: Math.max(0, Math.min(1, value / t)),
+           value: value, target: t, auto: '', entry: entry };
+}
+
+
+/**
+ * What colour one milestone's month square is.   [Objective.gs:1062]
+ *
+ * A COUNTED MONTH IS COLOURED BY WHAT WAS COUNTED. It used to go green for
+ * any month the portal could count at all - which is every month that has
+ * begun - so a milestone reading "0 of 85 due so far" drew a green October
+ * underneath it. That is the page saying the month was fine on a month
+ * where nothing was recorded, and it is worse than no colour.
+ *
+ * For the rest, THE MARK IS THE WHOLE ANSWER and nothing else is
+ * consulted. An earlier version also read a month as recorded when the row
+ * carried a figure; un-ticking a month you had ticked left the figure
+ * behind, so the square refused to go out.
+ */
+function objPlanMonthState(milestone, entry, period, now, counted, fraction) {
+  if (milestone.auto) {
+    const current = objPeriodOf(objDate(now) || new Date());
+    if (period > current) return { state: 'pending', at: 0, auto: true };
+    if (!counted) return { state: 'pending', at: 0, auto: true };
+    const got = Number(fraction) || 0;
+    return {
+      state: got >= 1 ? 'done' : (got > 0 ? 'part' : 'missed'),
+      at: 0, auto: true
+    };
+  }
+
+  const state = objTaskState({ frequency: 'Monthly' },
+                             entry ? entry.marks : '', period, now,
+                             entry ? entry.markedAt : null);
+  const cell = state.cells[0] || { state: 'pending', at: 0 };
+  return { state: cell.state, at: cell.at, auto: false };
+}
+
+
+/** Every square of the ninety - or the eighty-six - in one month.
+ *                                                  [Objective.gs:1298] */
+function objTaskSquares(tasks, log, period, now, tally) {
+  tasks.forEach(function (t) {
+    if (!objSlotCount(period, t.frequency)) return;   // nothing due this month
+    const entry = log.byKey[objLogKey(period, OBJ_KIND_TASK, t.id)];
+    const state = objTaskState(t, entry ? entry.marks : '', period, now,
+                               entry ? entry.markedAt : null);
+    state.cells.forEach(function (cell) {
+      objCountState(tally, cell.state);
+    });
+  });
+  return tally;
+}
+
+
+/** Every milestone's square for one month: one each, so 29 of them.
+ *                                                  [Objective.gs:1313] */
+function objPlanSquares(plan, log, period, now, autoAll, tally) {
+  const auto = autoAll[period] || {};
+  plan.rows.forEach(function (row) {
+    row.milestones.forEach(function (m) {
+      const entry = log.byKey[objLogKey(period, OBJ_KIND_PLAN, m.id)];
+      const scored = m.auto
+        ? objMilestoneScore(m, log, period, { auto: auto })
+        : null;
+      const st = objPlanMonthState(m, entry, period, now,
+                                   Boolean(auto[m.auto]),
+                                   scored ? scored.fraction : 0);
+      objCountState(tally, st.state);
+    });
+  });
+  return tally;
+}
+
+
+/**
+ * The two figures both sheets show: this month, and the whole period.
+ *                                                  [Objective.gs:1344]
+ *
+ * This is what feeds the two summary cards - "Progress this month" and
+ * "Overall progress".
+ *
+ * `base` is what the card says it is counting: the twenty-nine milestones,
+ * and the eighty-six EAS objectives. THE FOUR KPIs ARE LEFT OUT of the
+ * ninety on purpose - nobody ticks them, the engine measures them from
+ * ITSM, and squares nobody can press do not belong in a figure about
+ * pressing squares.
+ *
+ * `overall` STOPS AT THE MONTH IT ACTUALLY IS. Counting the months still
+ * ahead would put the whole period's worth of untouched squares into the
+ * "not done" slice in October and make the pie meaningless until March.
+ */
+function objProgressAll(plan, tasks, log, periods, want, now, autoAll) {
+  const eas = tasks.filter(function (t) { return !t.kpi; });
+  const current = objPeriodOf(objDate(now) || new Date());
+  const done = periods.filter(function (p) { return p <= current; });
+
+  const planMonth = objPlanSquares(plan, log, want, now, autoAll, objTally());
+  const taskMonth = objTaskSquares(eas, log, want, now, objTally());
+  const planAll = objTally();
+  const taskAll = objTally();
+
+  done.forEach(function (p) {
+    objPlanSquares(plan, log, p, now, autoAll, planAll);
+    objTaskSquares(eas, log, p, now, taskAll);
+  });
+
+  return {
+    months: done.length,
+    plan: {
+      base: plan.rows.reduce(function (n, r) {
+        return n + r.milestones.length;
+      }, 0),
+      month: objTallyShare(planMonth),
+      overall: objTallyShare(planAll)
+    },
+    tasks: {
+      base: eas.length,
+      month: objTallyShare(taskMonth),
+      overall: objTallyShare(taskAll)
+    }
+  };
+}
+
+
 module.exports = {
   objCountState, objTallyTotal, objTallyShare, objNewTally,
   objSlotCount, objDaysInMonth, objWorkingDays, objIsQuarterEnd,
   WORK_DAYS,
   OBJ_PENDING, OBJ_DONE, OBJ_MISSED,
   objDate, objPeriodOf, objMarksRead, objMarksSet, objMarksBlank,
-  objMarksCount, objSlotEnd, objSlotsElapsed, objSlotsOpen, objTaskState
+  objMarksCount, objSlotEnd, objSlotsElapsed, objSlotsOpen, objTaskState,
+  OBJ_KIND_PLAN, OBJ_KIND_TASK, PERIOD_START, PERIOD_END,
+  objTally, objPeriodCell, objPeriods, objPeriodIndex, objLogKey,
+  objMilestoneScore, objPlanMonthState, objTaskSquares, objPlanSquares,
+  objProgressAll
 };
