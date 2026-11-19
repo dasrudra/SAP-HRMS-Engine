@@ -368,6 +368,161 @@ app.get('/api/sections', requireAuth, async function (req, res) {
 });
 
 
+// ===========================================================================
+// PRESENCE - who is at their desk right now.
+// ===========================================================================
+/*
+  A FAITHFUL PORT OF src/Presence.gs. The three decisions below were made on
+  purpose over there and are repeated here deliberately, because each one is
+  easy to lose by accident when the storage changes.
+
+  1. THREE STATES, TWO OF THEM STORED.
+       ACTIVE   signed in, page open, has not said otherwise
+       AWAY     signed in, but said "not at my desk"
+       OFFLINE  never written down - it is what a stale row looks like
+
+     A shut laptop sends nothing. There is no event for it. The only honest
+     way to show somebody as gone is for the thing that said they were here
+     to stop being true on its own.
+
+  2. EIGHT MINUTES, BECAUSE THE PAGE BEATS EVERY THREE.
+     Two missed beats of slack: bad wifi does not blink somebody off the
+     page, but a closed laptop is gone inside ten minutes.
+
+  3. NO HISTORY. THIS ONE MATTERS MOST.
+     Presence.gs chose CacheService partly so that nothing accumulates:
+
+       "A spreadsheet tab would quietly become a record of when each of
+        thirty-seven people was at their desk, day after day, and that is a
+        different product from the one that was asked for - one nobody
+        consented to and somebody would eventually read."
+
+     A database table does NOT forget by itself, so the forgetting has to be
+     written in. presenceSweep() below deletes anything past the old
+     CacheService TTL, which is what keeps this a live view and not an
+     attendance log. Do not remove it, and do not add an INSERT-per-beat
+     "history" table - that would be the product nobody agreed to.
+*/
+const PRESENCE_WINDOW_MIN = Number(process.env.PRESENCE_WINDOW_MINUTES) || 8;
+
+// Presence.gs: PRESENCE_ENTRY_TTL = 1800. The row outlives the freshness
+// window on purpose - the window decides what a row MEANS, the TTL decides
+// how long it exists at all. Keeping both means a slow poll degrades into
+// "stale, so offline" rather than into a row that vanished mid-read.
+const PRESENCE_ROW_TTL_MIN = 30;
+
+/*
+  Deletes rows nothing can read any more. Called on each beat, which is a
+  write already, so it costs one extra statement every three minutes per
+  person rather than one per page poll.
+*/
+async function presenceSweep() {
+  try {
+    await db.query(
+      "DELETE FROM presence WHERE seen_at < now() - ($1 || ' minutes')::interval",
+      [String(PRESENCE_ROW_TTL_MIN)]);
+  } catch (e) {
+    console.error('[api] presence sweep failed: ' + e.message);
+  }
+}
+
+
+// ---------------------------------------------------------------------------
+// POST /api/presence/tick - the heartbeat.
+// ---------------------------------------------------------------------------
+/*
+  WHOSE STATE THIS SETS IS NOT A PARAMETER, and that is the whole security
+  of it. It comes from the token and nowhere else. Presence.gs says it
+  plainly: an endpoint that took an employee ID would be a button for
+  marking a colleague away from the other side of the building.
+
+  The only thing the caller may say about themselves is the away flag.
+
+  It returns the caller's own state and NOTHING ELSE. Painting the other
+  thirty-five dots is a separate call, made only by the page that draws
+  them - most of the time this beats from a screen with no dots on it.
+*/
+app.post('/api/presence/tick', requireAuth, async function (req, res) {
+  try {
+    const away = Boolean(req.body && req.body.away);
+    const state = away ? 'AWAY' : 'ACTIVE';
+
+    await db.query(
+      `INSERT INTO presence (employee_id, state, seen_at)
+       VALUES ($1, $2, now())
+       ON CONFLICT (employee_id) DO UPDATE
+         SET state = EXCLUDED.state, seen_at = EXCLUDED.seen_at`,
+      [req.user.employeeId, state]);
+
+    await presenceSweep();
+
+    res.json({ ok: true, me: state });
+  } catch (err) {
+    fail(res, err, 'could not record your presence');
+  }
+});
+
+
+// ---------------------------------------------------------------------------
+// POST /api/presence/clear - signing out takes the dot off now.
+// ---------------------------------------------------------------------------
+/*
+  Without this, the one person who tidies up after themselves looks exactly
+  like the one who walked away mid-session - which is the distinction the
+  whole feature exists to draw.
+*/
+app.post('/api/presence/clear', requireAuth, async function (req, res) {
+  try {
+    await db.query('DELETE FROM presence WHERE employee_id = $1',
+                   [req.user.employeeId]);
+    res.json({ ok: true, me: 'OFFLINE' });
+  } catch (err) {
+    fail(res, err, 'could not clear your presence');
+  }
+});
+
+
+// ---------------------------------------------------------------------------
+// GET /api/presence - everybody's state, keyed the way the cards ask.
+// ---------------------------------------------------------------------------
+/*
+  Returns { "20536723": "ACTIVE", "Someone With No ID": "OFFLINE", ... }
+
+  THE KEY IS THE EMPLOYEE ID, OR THE NAME WHEN THERE IS NO ID. That is
+  presenceIdOf() in Presence.gs, and both sides take it from the same query
+  so there is nothing to normalise - the string the server emits is
+  character-for-character the string the card looks up.
+
+  Everybody in the directory appears, including the offline ones. A card
+  with no entry would have to guess, and guessing is how a dot ends up grey
+  beside somebody sitting at their desk.
+
+  Guarded, though it discloses little next to the directory itself: nothing
+  about the team is public, and "mild" is not a category this project has.
+*/
+app.get('/api/presence', requireAuth, async function (req, res) {
+  try {
+    const rows = await db.query(`
+      SELECT COALESCE(t.employee_id, t.full_name) AS id,
+             CASE
+               WHEN p.seen_at IS NULL                                THEN 'OFFLINE'
+               WHEN p.seen_at > now() - ($1 || ' minutes')::interval THEN p.state
+               ELSE                                                       'OFFLINE'
+             END AS state
+        FROM      team     t
+        LEFT JOIN presence p ON p.employee_id = t.employee_id
+    `, [String(PRESENCE_WINDOW_MIN)]);
+
+    const map = {};
+    rows.forEach(function (r) { if (r.id) map[r.id] = r.state; });
+
+    res.json({ ok: true, window_minutes: PRESENCE_WINDOW_MIN, presence: map });
+  } catch (err) {
+    fail(res, err, 'could not read presence');
+  }
+});
+
+
 // ---------------------------------------------------------------------------
 // GET /api/accounts - who has a login. ADMINS ONLY.
 // ---------------------------------------------------------------------------

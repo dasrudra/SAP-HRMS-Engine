@@ -96,6 +96,7 @@
         <div><b id="n">--</b> <span>people</span></div>
         <div style="margin-left:auto; text-align:right">
           <div class="who" id="who"></div>
+          <button id="away" class="ghost">I am away</button>
           <button id="again">Load again</button>
           <button id="out" class="ghost">Sign out</button>
         </div>
@@ -171,8 +172,12 @@ function signIn() {
   .then(function (res) {
     if (!res.ok) throw new Error(res.b.error || 'could not sign in');
     token(res.b.token);
+    meId = res.b.user.employee_id;
+    meAway = false;
+    paintAwayButton();
     document.getElementById('who').textContent =
       res.b.user.full_name + '  (' + res.b.user.role + ')';
+    startBeating();
     document.getElementById('pw').value = '';
     show('signinCard', false); show('app', true);
     load();
@@ -200,7 +205,8 @@ function load() {
         '<td>' + esc(p.designation) + '</td>' +
         '<td>' + esc(p.sub_department) + '</td>' +
         '<td>' + esc(p.extension) + '</td>' +
-        '<td><span class="dot ' + esc(p.presence) + '"></span>' + esc(p.presence) + '</td>' +
+        '<td><span class="dot ' + esc(presenceOf(p.employee_id, p.presence)) +
+            '"></span>' + esc(presenceOf(p.employee_id, p.presence)) + '</td>' +
       '</tr>';
     }).join('');
 
@@ -215,22 +221,98 @@ function load() {
   });
 }
 
+/* ---------------------------------------------------------------------
+   PRESENCE - the heartbeat, and the away toggle.
+   Ported from App.html, including the bug fix described below.
+   --------------------------------------------------------------------- */
+
+// Presence.gs: the page beats every three minutes and the server counts a
+// beat fresh for eight. Two missed beats of slack - bad wifi does not blink
+// somebody off the page, a closed laptop is gone inside ten minutes.
+var BEAT_MS = 3 * 60 * 1000;
+
+var meAway = false;      // what I have said about myself
+var meId   = null;       // my own employee id, for painting my own dot
+var beatTimer = null;
+
+/*
+  MY OWN DOT IS NOT READ BACK FROM THE SERVER.
+
+  This was a real bug in the Apps Script version: clicking "away" sent the
+  beat, then re-fetched everybody's state, and until that round trip
+  finished the page still showed the old colour. On a slow link it looked
+  like the button had not worked, so people clicked it again.
+
+  The fix: I already know what I just said about myself, so my own dot is
+  painted from meAway immediately and the refresh only confirms it.
+*/
+function presenceOf(id, serverSays) {
+  if (meId && String(id) === String(meId)) return meAway ? 'AWAY' : 'ACTIVE';
+  return serverSays || 'OFFLINE';
+}
+
+function beat() {
+  return fetch(API + '/api/presence/tick', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json',
+               'Authorization': 'Bearer ' + token() },
+    body: JSON.stringify({ away: meAway })
+  }).catch(function () { /* a dropped beat costs one dot for a few minutes */ });
+}
+
+function startBeating() {
+  beat();
+  if (beatTimer) clearInterval(beatTimer);
+  beatTimer = setInterval(beat, BEAT_MS);
+}
+
+function stopBeating() {
+  if (beatTimer) { clearInterval(beatTimer); beatTimer = null; }
+}
+
+function paintAwayButton() {
+  document.getElementById('away').textContent =
+    meAway ? 'I am back' : 'I am away';
+}
+
+document.getElementById('away').addEventListener('click', function () {
+  meAway = !meAway;
+  paintAwayButton();
+  load();                        // my own dot changes at once, no round trip
+  beat().then(function () { load(); });   // then confirm from the server
+});
+
 document.getElementById('go').addEventListener('click', signIn);
 document.getElementById('pw').addEventListener('keydown', function (e) {
   if (e.key === 'Enter') signIn();
 });
 document.getElementById('again').addEventListener('click', load);
 document.getElementById('out').addEventListener('click', function () {
-  token(null); signedOut();
+  stopBeating();
+  /*
+    Tell the server to drop the dot before throwing the token away.
+    Presence.gs: without this, the one person who tidies up after
+    themselves looks exactly like the one who walked away mid-session -
+    which is the distinction the whole feature exists to draw.
+  */
+  fetch(API + '/api/presence/clear', {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer ' + token() }
+  }).catch(function () { /* it goes stale on its own soon enough */ })
+    .then(function () { meId = null; meAway = false; token(null); signedOut(); });
 });
 
 // A token from earlier in this tab may still be good. Ask, rather than
 // making somebody sign in again for nothing.
 if (token()) {
   api('/api/me').then(function (r) {
+    meId = r.user.employee_id;
+    meAway = false;
+    paintAwayButton();
     document.getElementById('who').textContent =
       r.user.full_name + '  (' + r.user.role + ')';
     show('signinCard', false); show('app', true);
+    startBeating();
     load();
   }).catch(function () { /* api() already showed the form on a 401 */ });
 }

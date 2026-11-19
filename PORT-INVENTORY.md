@@ -107,9 +107,9 @@ one is switched off.
 | Endpoint | Status | Notes |
 |---|---|---|
 | `getTeam` | DONE | `GET /api/team` |
-| `getPresence` | TODO | next |
-| `presenceTick` | TODO | next |
-| `presenceClear` | TODO | next |
+| `getPresence` | DONE | `GET /api/presence` |
+| `presenceTick` | DONE | `POST /api/presence/tick` |
+| `presenceClear` | DONE | `POST /api/presence/clear` |
 | `getPeopleByAffiliate` / `listAffiliates` | TODO | |
 
 ### KPI
@@ -189,6 +189,17 @@ reload.
 Presence has no tab: it lives in CacheService, which is why it is lost on
 every cache eviction. The new `presence` table fixes that for free.
 
+ONE DELIBERATE SIMPLIFICATION, recorded so it is a decision and not a
+silent loss. Presence.gs writes each beat under TWO keys
+(`presenceWriteKeys`) because an Apps Script login is free-form text that
+might be an employee ID or a name, so it cannot know which. In the new
+system a login IS the employee ID - `account.employee_id` is a foreign key
+to `team.employee_id` - so the join is exact and the second key has nothing
+left to solve. The consequence: somebody with no employee ID can no longer
+have a login at all. All 36 people have one, so there is no live effect,
+and the alternative is guessing at identity, which is what the dual key
+was working around.
+
 ---
 
 ## Behaviour that is easy to lose
@@ -217,8 +228,8 @@ decided for a reason.
 1. ~~Database~~ DONE
 2. ~~API skeleton, directory~~ DONE
 3. ~~Sign-in~~ DONE
-4. **Presence** - next
-5. Objectives
+4. ~~Presence~~ DONE
+5. **Objectives** - next
 6. Messenger
 7. Knowledge, Learn, FAQ, Links, By-Weekly
 8. KPI 1, KPI 2, Compare, Uploads

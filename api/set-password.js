@@ -34,6 +34,29 @@ const { hashPassword } = require('./password');
 const MIN_LENGTH = 10;
 
 
+/*
+  Reads piped stdin ONCE and hands the lines out one at a time.
+
+  Shared between every askHidden() call in the run, which is the point:
+  stdin can only be drained once, so draining it twice gets nothing the
+  second time.
+*/
+let pipedPromise = null;
+function pipedLines() {
+  if (pipedPromise) return pipedPromise;
+  pipedPromise = new Promise(function (resolve) {
+    let buf = '';
+    process.stdin.setEncoding('utf8');
+    process.stdin.on('data', function (d) { buf += d; });
+    process.stdin.on('end', function () {
+      resolve(buf.split(/\r?\n/));
+    });
+    process.stdin.resume();
+  });
+  return pipedPromise;
+}
+
+
 /**
  * Asks a question with the typing hidden, showing one * per character.
  *
@@ -56,12 +79,20 @@ function askHidden(question) {
     const stdin = process.stdin;
 
     // No terminal - input is piped or redirected. There is no screen to
-    // hide the password from, and raw mode is not available, so read a
-    // plain line. This is what makes the script usable from automation.
+    // hide the password from, and raw mode is not available, so read plain
+    // lines. This is what makes the script usable from automation.
+    //
+    // ONE READER FOR THE WHOLE RUN, and that is the bug this replaced.
+    // The first version made a fresh readline interface per question and
+    // closed it after answering. Closing it ends the shared stdin, so the
+    // SECOND question got a reader attached to a stream that was already
+    // finished and simply waited for ever - the script hung at "Type it
+    // again:" and wrote nothing, silently. It looked like it had worked.
     if (!stdin.isTTY) {
-      const rl = readline.createInterface({ input: stdin, output: process.stdout });
       process.stdout.write(question);
-      rl.question('', function (answer) { rl.close(); resolve(answer); });
+      pipedLines().then(function (lines) {
+        resolve(lines.length ? lines.shift() : '');
+      });
       return;
     }
 
