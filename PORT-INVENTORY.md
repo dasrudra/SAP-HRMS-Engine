@@ -138,8 +138,19 @@ five-day Sun-Thu week, while Config.gs says WORK_DAYS: [0,1,2,3,4,6] - six
 days, Saturday included, only Friday off. Every DAILY objective would have
 been 4 to 5 squares short in its denominator, every month.
 
-Still TODO: `objProgressAll`, `objTaskState`, `objTaskSquares`, the slot
-and marks handling, and the endpoints. The two summary cards - **Progress
+The slot state machine is ported too - `objTaskState`, `objSlotsElapsed`,
+`objSlotsOpen`, `objSlotEnd`, the marks string (`objMarksRead`,
+`objMarksSet`, `objMarksBlank`, `objMarksCount`) and `objPeriodOf`. The
+equivalence test now runs **21,689 comparisons**, including every slot
+boundary at 23:59:59.999 and one millisecond either side.
+
+Three deliberate mutants were used to check the test is not vacuous:
+making a late mark count as on-time (312 differences), accepting any
+character into the marks string (18), and treating today as elapsed (136 -
+and this one SURVIVED until the boundary times were added, because every
+test `now` was midday and slot ends are at 23:59:59.999).
+
+Still TODO: `objProgressAll`, `objTaskSquares`, The two summary cards - **Progress
 this month** and **Overall progress** - depend on those.
 
 ### Messenger
