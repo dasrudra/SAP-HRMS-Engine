@@ -138,7 +138,8 @@ one is switched off.
 |---|---|---|
 | `getObjectives` | DONE | `GET /api/objectives` |
 | `createObjMilestone`, `recordObjMilestone` | TODO |
-| `tickObjMilestone`, `tickObjTask` | TODO |
+| `tickObjTask` | DONE | `POST /api/objectives/tick-task` |
+| `tickObjMilestone` | TODO | |
 | `saveObjSlotNote` | TODO |
 
 The arithmetic (`objCountState`, `objTallyTotal`, `objTallyShare`,

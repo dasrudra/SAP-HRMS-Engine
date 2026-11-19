@@ -30,6 +30,7 @@ const { hashPassword, verifyPassword, needsRehash } = require('./password');
 const { signToken, requireAuth, requireAdmin } = require('./auth');
 const obj = require('./objectives');
 const objRead = require('./objectives-read');
+const objWrite = require('./objectives-write');
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
@@ -591,6 +592,135 @@ app.get('/api/objectives', requireAuth, async function (req, res) {
     });
   } catch (err) {
     fail(res, err, 'could not read the objectives');
+  }
+});
+
+
+// ---------------------------------------------------------------------------
+// POST /api/objectives/tick-task - tick or clear one square of one objective.
+// ---------------------------------------------------------------------------
+/*
+  Ported from tickObjTask [Objective.gs:2083]. Body:
+
+      { task_id: 'OJT-007', period: '2026-11', slot: 0, mark: 'Y' }
+
+  mark is 'Y' done, 'N' missed, anything else clears it to pending -
+  objMarksSet decides that, not this endpoint.
+
+  FOUR REFUSALS, IN THE ORIGINAL'S ORDER, because each produces a different
+  sentence and the page shows it:
+
+    1. a month outside the objective period
+    2. no objective with that id
+    3. it is a KPI - nobody ticks those, an admin included
+    4. it is not your module
+
+  The reply carries everything needed to redraw THAT ONE ROW and nothing
+  else. Objective.gs explains why: a tick used to be followed by a full
+  getObjectives - six tab reads and the whole ninety scored again - to show
+  one square change colour, which is why pressing two buttons in a row
+  looked like the second did nothing.
+*/
+app.post('/api/objectives/tick-task', requireAuth, async function (req, res) {
+  try {
+    const body = req.body || {};
+    const taskId = String(body.task_id || '').trim();
+    const period = String(body.period || '').trim();
+    const slot = Number(body.slot);
+    const mark = String(body.mark === undefined ? '' : body.mark);
+
+    const periods = obj.objPeriods();
+    if (periods.indexOf(period) === -1) {
+      return res.status(400).json({ ok: false,
+        error: 'That month is outside the objective period (' +
+               periods[0] + ' to ' + periods[periods.length - 1] + ').' });
+    }
+
+    const all = await objRead.readObjTasks();
+    let task = null;
+    all.tasks.forEach(function (t) { if (t.id === taskId) task = t; });
+    if (!task) {
+      return res.status(404).json({ ok: false,
+        error: 'There is no objective with that id.' });
+    }
+
+    if (task.kpi) {
+      return res.status(403).json({ ok: false,
+        error: 'That one is a KPI. Its figure comes from the KPI engine ' +
+               'and is not ticked by hand.' });
+    }
+
+    const me = await objWrite.objWhoAmI(req.user.employeeId, req.user.role);
+    if (!objWrite.objMayTick(me, task)) {
+      return res.status(403).json({ ok: false,
+        error: me.reason ||
+          ('That objective belongs to the ' + task.group + ' module. You ' +
+           'can tick the ones for your own module.') });
+    }
+
+    const slots = obj.objSlotCount(period, task.frequency);
+    if (!(slot >= 0) || slot >= slots) {
+      return res.status(400).json({ ok: false,
+        error: 'There is no slot ' + body.slot + ' in ' + period + ' for a ' +
+               String(task.frequency).toLowerCase() + ' objective.' });
+    }
+
+    /*
+      THE READ AND THE ARITHMETIC BOTH HAPPEN INSIDE THE LOCK.
+
+      This function is handed to writeObjLog and called there, on the row
+      as it stands under pg_advisory_xact_lock. Reading the log out here
+      and passing the finished marks string would put the read outside the
+      lock, and five slots ticked at once would each start from the same
+      stale copy - tested, and three of five ticks were lost.
+    */
+    let marks = '';
+    let markedAt = {};
+
+    await objWrite.writeObjLog(period, obj.OBJ_KIND_TASK, task.id,
+      function (had) {
+        marks = obj.objMarksSet(
+          obj.objMarksRead(had ? had.marks : '', slots), slot, mark);
+
+        /*
+          WHEN, AS WELL AS WHETHER.
+
+          The time is what tells a square marked on its own day from one
+          caught up on afterwards - green from yellow - so it is recorded
+          at the moment the mark is made and cleared when the mark is
+          cleared. Unmarking and marking again resets the clock, which is
+          correct: it is a fresh claim about when the work was recorded.
+        */
+        markedAt = {};
+        const hadTimes = (had && had.marked_at) || {};
+        Object.keys(hadTimes).forEach(function (k) {
+          const n = Number(hadTimes[k]);
+          if (n > 0) markedAt[String(Number(k))] = n;
+        });
+        if (marks.charAt(slot) === obj.OBJ_DONE) {
+          markedAt[String(slot)] = Date.now();
+        } else {
+          delete markedAt[String(slot)];
+        }
+
+        return { marks: marks, markedAt: markedAt };
+      },
+      { name: me.name, id: me.id });
+
+    const state = obj.objTaskState(task, marks, period, new Date(), markedAt);
+    res.json({
+      ok: true,
+      id: task.id,
+      marks: state.marks, slots: state.slots, elapsed: state.elapsed,
+      done: state.done, missed: state.missed, silent: state.silent,
+      marked: state.marked, late: state.late,
+      states: state.cells.map(function (c) { return c.state; }),
+      open: state.open, onSchedule: state.onSchedule, due: state.due,
+      by: me.name, at: Date.now()
+    });
+
+  } catch (err) {
+    fail(res, err, 'could not record that tick');
   }
 });
 
