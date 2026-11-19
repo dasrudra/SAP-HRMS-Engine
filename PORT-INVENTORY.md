@@ -222,7 +222,7 @@ reload.
 | `LEARN` | learning entries | - | TODO |
 | `KNOWLEDGE` | knowledge posts | - | TODO |
 | `BY_WEEKLY` | meeting links | - | TODO |
-| `OBJ_PLAN` / `OBJ_TASK` | objectives | `obj_plan` / `obj_task` | DONE |
+| `OBJ_PLAN` / `OBJ_TASK` | objectives | `obj_plan` / `obj_task` | DONE - `node api/import-objectives.js` |
 | `OBJ_LOG` | objective marks | `obj_log` | PART |
 | MIN_MEET | orphaned - to be deleted | - | n/a |
 
