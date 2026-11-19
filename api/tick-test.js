@@ -34,6 +34,7 @@
 
 const http = require('http');
 const { Client } = require('pg');
+const obj = require('./objectives');
 require('dotenv').config();
 
 const PORT = Number(process.env.PORT || 3000);
@@ -81,14 +82,25 @@ async function main() {
   });
   await db.connect();
 
-  // Any non-KPI objective will do; the test writes only to this one.
-  const pick = await db.query(
-    "SELECT objective_id, grp, frequency FROM obj_task WHERE NOT kpi ORDER BY objective_id LIMIT 1");
-  if (!pick.rows.length) {
+  /*
+    THE OBJECTIVE IS CHOSEN FOR ITS SLOT COUNT, not taken as the first row.
+
+    The first version took whichever came first and then ticked slots 0 to
+    4 regardless. On Rudra's real data that was OJT-005, which is MONTHLY -
+    one slot in a month. Slots 1 to 4 do not exist, the endpoint correctly
+    refused them with 400, and the test reported "TICKS LOST" five times
+    over. The code was right and the test was wrong, which is the worse way
+    round: it accuses working code.
+
+    A race needs more than one slot to race over, so a daily or weekly
+    objective is picked - whichever has the most squares this month.
+  */
+  const all = await db.query(
+    'SELECT objective_id, grp, frequency FROM obj_task WHERE NOT kpi ORDER BY objective_id');
+  if (!all.rows.length) {
     console.log('\n  No objectives in the database - run import-objectives.js first.\n');
     process.exit(1);
   }
-  const task = pick.rows[0];
 
   // Somebody who may tick it: an ADMIN may tick any module.
   const admin = await db.query(
@@ -99,10 +111,7 @@ async function main() {
   }
 
   console.log('');
-  console.log('  Objective under test: ' + task.objective_id +
-              '  (' + task.grp + ', ' + task.frequency + ')');
   console.log('  Signing in as ' + admin.rows[0].employee_id);
-  console.log('');
 
   const pw = process.env.TICK_TEST_PASSWORD;
   if (!pw) {
@@ -122,6 +131,20 @@ async function main() {
   const token = login.body.token;
 
   const period = (await call('GET', '/api/objectives', token)).body.period;
+
+  // Now the period is known, the slot count is too.
+  let task = all.rows[0];
+  let slots = obj.objSlotCount(period, task.frequency);
+  all.rows.forEach(function (r) {
+    const n = obj.objSlotCount(period, r.frequency);
+    if (n > slots) { slots = n; task = r; }
+  });
+
+  console.log('  Objective under test: ' + task.objective_id +
+              '  (' + task.grp + ', ' + task.frequency + ')  - ' +
+              slots + ' slot(s) in ' + period);
+  console.log('');
+
   const clean = function () {
     return db.query('DELETE FROM obj_log WHERE ref_id = $1', [task.objective_id]);
   };
@@ -213,34 +236,45 @@ async function main() {
 
   // ---- the race ---------------------------------------------------------
   console.log('');
-  console.log('FIVE SLOTS TICKED AT ONCE - THE RACE THAT LOSES MARKS');
+  console.log('EVERY SLOT TICKED AT ONCE - THE RACE THAT LOSES MARKS');
   console.log('-----------------------------------------------------------');
 
-  const slots = Math.min(5, (await call('GET', '/api/objectives', token))
-    .body ? 5 : 5);
+  // However many squares the month really holds, up to eight - enough to
+  // race, few enough to stay readable.
+  const racers = Math.min(slots, 8);
+  const want = 'Y'.repeat(racers);
 
-  let allRuns = true;
-  for (let run = 1; run <= 5; run++) {
-    await clean();
-    // Nothing awaited between them: this is the page sending five presses
-    // without waiting, which is what Objective.gs's lock exists for.
-    await Promise.all([0, 1, 2, 3, 4].slice(0, slots).map(function (s) {
-      return call('POST', '/api/objectives/tick-task', token,
-        { task_id: task.objective_id, period: period, slot: s, mark: 'Y' });
-    }));
+  if (racers < 2) {
+    console.log('    every objective is monthly this period - one slot each,');
+    console.log('    so there is nothing to race. Skipped.');
+    check('a race needs more than one slot', true);
+  } else {
+    let allRuns = true;
+    for (let run = 1; run <= 5; run++) {
+      await clean();
+      // Nothing awaited between them: this is the page sending presses
+      // without waiting, which is what Objective.gs's lock exists for.
+      const fire = [];
+      for (let s = 0; s < racers; s++) fire.push(s);
+      await Promise.all(fire.map(function (s) {
+        return call('POST', '/api/objectives/tick-task', token,
+          { task_id: task.objective_id, period: period, slot: s, mark: 'Y' });
+      }));
 
-    const got = (await db.query(
-      'SELECT marks, marked_at FROM obj_log WHERE ref_id = $1',
-      [task.objective_id])).rows;
+      const got = (await db.query(
+        'SELECT marks, marked_at FROM obj_log WHERE ref_id = $1',
+        [task.objective_id])).rows;
 
-    const marks = got.length ? got[0].marks.slice(0, slots) : '(no row)';
-    const stamps = got.length ? Object.keys(got[0].marked_at).length : 0;
-    const ok = got.length === 1 && marks === 'Y'.repeat(slots) && stamps === slots;
-    if (!ok) allRuns = false;
-    console.log('    run ' + run + ': marks=' + marks + '  timestamps=' + stamps +
-                '  rows=' + got.length + (ok ? '' : '   <- TICKS LOST'));
+      const marks = got.length ? got[0].marks.slice(0, racers) : '(no row)';
+      const stamps = got.length ? Object.keys(got[0].marked_at).length : 0;
+      const ok = got.length === 1 && marks === want && stamps === racers;
+      if (!ok) allRuns = false;
+      console.log('    run ' + run + ': marks=' + marks + '  timestamps=' +
+                  stamps + '/' + racers + '  rows=' + got.length +
+                  (ok ? '' : '   <- TICKS LOST'));
+    }
+    check('five runs of ' + racers + ' concurrent ticks, none lost', allRuns);
   }
-  check('five runs of five concurrent ticks, none lost', allRuns);
 
   await clean();
   await db.end();
