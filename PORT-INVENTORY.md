@@ -222,7 +222,8 @@ reload.
 | `LEARN` | learning entries | - | TODO |
 | `KNOWLEDGE` | knowledge posts | - | TODO |
 | `BY_WEEKLY` | meeting links | - | TODO |
-| `OBJ_PLAN` / `OBJ_TASK` / `OBJ_LOG` | objectives | `obj_plan` / `obj_task` / `obj_log` | PART |
+| `OBJ_PLAN` / `OBJ_TASK` | objectives | `obj_plan` / `obj_task` | DONE |
+| `OBJ_LOG` | objective marks | `obj_log` | PART |
 | MIN_MEET | orphaned - to be deleted | - | n/a |
 
 Presence has no tab: it lives in CacheService, which is why it is lost on

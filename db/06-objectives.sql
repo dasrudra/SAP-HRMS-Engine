@@ -48,7 +48,7 @@ CREATE TABLE obj_task (
   objective_name   text,                   -- 'Objective name'
   grp              text,                   -- 'Group'  (GROUP is a reserved word)
   area             text,                   -- 'Area'
-  kpi              text,                   -- 'KPI'
+  kpi              boolean NOT NULL DEFAULT false,     -- 'KPI'  Yes/No
   description      text,                   -- 'Objective / Description'
   target           text,                   -- 'Target'
   method           text,                   -- 'Measurement Method'
@@ -63,6 +63,23 @@ CREATE TABLE obj_task (
 -- first unquoted one is a syntax error pointing at the wrong line. The
 -- sheet header stays 'Group'; only the column name differs, and the mapping
 -- is written above so nobody has to guess.
+--
+-- WHY kpi IS boolean AND NOT text, WHICH IS WHAT THE SHEET HOLDS:
+--
+-- Objective.gs reads that column as
+--
+--     kpi: /^y/i.test(String(r[5] || '').trim())
+--
+-- a BOOLEAN, true when the cell starts with "y". objProgressAll then
+-- filters with `!t.kpi` to get the 86 EAS objectives out of the 90.
+--
+-- Store the raw text and that filter breaks silently and completely: the
+-- string "No" is truthy in JavaScript, so `!t.kpi` is false for every row,
+-- all ninety are excluded, and both summary cards read zero. The page
+-- would look like nobody had done anything all period.
+--
+-- So the Yes/No test happens once, on import, and the column is the answer
+-- rather than the words. 07-import-objectives.sql applies the same ^y rule.
 --
 -- WHY frequency HAS A DEFAULT: objSlotCount() treats anything it does not
 -- recognise as Monthly, and Objective.gs reads the cell as
