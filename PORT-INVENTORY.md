@@ -195,15 +195,44 @@ this month** and **Overall progress** - depend on those.
 | `markMyMessagesRead` | `POST /api/messages/read` | DONE |
 | `listThreads` | `GET /api/messages/threads` | DONE |
 | `messagesWaiting` | `GET /api/messages/waiting` | DONE |
-| `messengerBoot` | - | TODO |
-| `sendMessage`, `sendUnverifiedMessage`, `replyToThread` | - | TODO |
-| `attachSignInThread` | - | TODO |
-| `deleteThread` | - | TODO |
-| `getChatImage` | - | TODO |
+| `messengerBoot` | `GET /api/messages/boot` | PART - `faq` is empty until the FAQ tab is ported |
+| `sendMessage` | `POST /api/messages/send` | DONE |
+| `sendUnverifiedMessage` | `POST /api/messages/signin` | DONE |
+| `replyToThread` | `POST /api/messages/reply` | DONE |
+| `attachSignInThread` | `POST /api/messages/attach` | DONE |
+| `deleteThread` | `POST /api/messages/delete` | DONE |
+| `getChatImage`, `saveChatImages` | - | TODO - needs a file store |
 
-Read side: `api/messenger-read.js`, tables in `db/08-messenger.sql`, tested
-by `api/messenger-test.js` - 52 checks, and 13 deliberate breaks were made
-to prove each one catches something.
+Read side: `api/messenger-read.js`, write side `api/messenger-write.js`,
+tables in `db/08-messenger.sql` plus `db/09-account-name.sql`. Tested by
+`api/messenger-test.js` (52 checks, 13 deliberate breaks, none survived)
+and `api/messenger-write-test.js` (96 checks, 21 deliberate breaks, none
+survived).
+
+**Attachments are dropped and the sender is told, which is what the live
+system does today.** `saveChatImages` returns `[]` and writes nothing when
+no folder is configured, and `CHAT_FOLDER` has never been set on the live
+script - so the port matches it exactly, down to the wording "N images
+could not be attached". When a file store is chosen, `saveChatImages` in
+`messenger-write.js` is the only function that changes. The limits are
+already recorded there: three images a line, three megabytes each, images
+only, checked server-side.
+
+**No email is sent yet.** `alertTeamOfMessage` needs SMTP, which this port
+has not set up. The decision it drives is ported and tested - the team is
+only nudged when it is not already sitting on something unanswered in that
+same query, because "four lines in a row while somebody thinks out loud is
+one interruption, not four" - and the endpoints return `wouldEmail` saying
+what would have gone. Wiring the mail in should not need that logic
+rewritten.
+
+**A role change waits for the token to expire.** `messengerBoot` in the
+original reads `liveRoleOf(session.u)` from the sheet on every call, so
+demoting an admin takes effect at once. Here the role is a claim inside the
+JWT, so it takes effect when that token runs out. Same for every other
+`requireAdmin` route. Worth fixing when the Accounts screen is ported -
+either by checking the role against the database per request, or by keeping
+a list of tokens issued before a role change.
 
 Three fixed bugs must not come back: a reply must reach the sender's own
 inbox; the unread badge must clear; operations must refresh without a manual
@@ -257,7 +286,7 @@ read it off one answer so they cannot disagree.
 | Tab | Holds | New table | Status |
 |---|---|---|---|
 | `TEAM` | the directory | `team` | DONE |
-| ACCOUNTS | logins | `account` | PART |
+| ACCOUNTS | logins | `account` | PART - 7 of 12 columns; see below |
 | AUTH_LOG | sign-in audit trail | - | TODO |
 | `TICKETS` | ITSM tickets | - | TODO |
 | `KPI_MONTHLY` | monthly KPI figures | - | TODO |
@@ -275,6 +304,26 @@ read it off one answer so they cannot disagree.
 | `OBJ_PLAN` / `OBJ_TASK` | objectives | `obj_plan` / `obj_task` | DONE - `node api/import-objectives.js` |
 | `OBJ_LOG` | objective marks | `obj_log` | PART |
 | MIN_MEET | orphaned - to be deleted | - | n/a |
+
+### What the `account` table is still missing
+
+The ACCOUNTS tab has twelve columns. `account` carries seven of them:
+Employee ID, Role, Hash, Must Change, Last Sign In, Created, and Name.
+
+| Tab column | In `account`? | |
+|---|---|---|
+| Salt | no, and not coming | the scrypt hash carries its own salt and parameters inside the string, so there is nothing to keep in a column of its own |
+| Password Set | not yet | Accounts screen |
+| Sign Ins | not yet | Accounts screen |
+| Note | not yet | Accounts screen |
+| Email | not yet | Accounts screen, and where alerts go |
+
+`Name` was the one the messenger could not do without - without it
+`accountNameOf` can only answer `''`, so the panel would ask every person
+for their name on every page load and store a fresh copy each time. Added
+by `db/09-account-name.sql`, which only ever adds a column and never
+touches a row. The other four are added when the Accounts screen is
+ported, because a column nothing reads is a column nobody maintains.
 
 Presence has no tab: it lives in CacheService, which is why it is lost on
 every cache eviction. The new `presence` table fixes that for free.
@@ -321,9 +370,10 @@ decided for a reason.
 4. ~~Presence~~ DONE
 5. ~~Objectives~~ DONE except `createObjMilestone` (adding a milestone,
    admin only) - read, tick, record and note all ported and tested
-6. **Messenger** - reading DONE (inbox, own panel, badge, mark-read).
-   Writing next: `sendMessage`, `sendUnverifiedMessage`, `replyToThread`,
-   `attachSignInThread`, `deleteThread`, `getChatImage`, `messengerBoot`
+6. ~~Messenger~~ DONE except `getChatImage` / `saveChatImages`, which need
+   a file store, and the `faq` key in `messengerBoot`, which needs the FAQ
+   tab. Reading, sending, replying, attaching and deleting are all ported
+   and tested.
 7. Knowledge, Learn, FAQ, Links, By-Weekly
 8. KPI 1, KPI 2, Compare, Uploads
 9. Accounts and audit log

@@ -27,11 +27,13 @@ const express = require('express');
 const cors = require('cors');
 const db = require('./db');
 const { hashPassword, verifyPassword, needsRehash } = require('./password');
-const { signToken, requireAuth, requireAdmin } = require('./auth');
+const { signToken, requireAuth, requireAdmin, requireMaster,
+        rankOf, ROLE_RANK } = require('./auth');
 const obj = require('./objectives');
 const objRead = require('./objectives-read');
 const objWrite = require('./objectives-write');
 const msgRead = require('./messenger-read');
+const msgWrite = require('./messenger-write');
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
@@ -1129,6 +1131,168 @@ app.get('/api/messages/waiting', requireAuth, requireAdmin,
       res.json({ ok: false, waiting: 0 });
     }
   });
+
+
+// ===========================================================================
+// MESSENGER - writing
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// POST /api/messages/send - a signed-in person writes.
+// ---------------------------------------------------------------------------
+/*
+  Ported from sendMessage [Messenger.gs:166].
+
+  thread_id is '' to start a new query, or one of THEIRS to add a line to
+  it. Checked in the port, not here: a signed-in person who could pass any
+  thread id would be writing into somebody else's conversation, signed with
+  that person's name.
+*/
+app.post('/api/messages/send', requireAuth, async function (req, res) {
+  try {
+    const b = req.body || {};
+    const out = await msgWrite.sendMessage(
+      req.user.employeeId, b.thread_id, b.topic, b.text, b.name, b.images);
+    res.status(out.ok ? 200 : 400).json(out);
+  } catch (err) {
+    fail(res, err, 'could not send that');
+  }
+});
+
+
+// ---------------------------------------------------------------------------
+// POST /api/messages/signin - the message box on the PUBLIC sign-in page.
+// ---------------------------------------------------------------------------
+/*
+  Ported from sendUnverifiedMessage [Messenger.gs:310].
+
+  NO requireAuth, AND THAT IS THE POINT. The person most likely to need the
+  message box is the one who cannot get in. Everything that protects it is
+  inside the port: an hourly cap for the whole door, a per-ID cap, a length
+  limit, a shape check on the employee ID, and a thread marked unverified
+  that the claimed owner of that ID will never see.
+
+  IT ANSWERS IDENTICALLY WHETHER OR NOT THE EMPLOYEE ID EXISTS. Checking,
+  and saying so, would turn this endpoint into a list of everybody who
+  works here for anyone willing to try numbers at it. That includes the
+  status code and the timing of the reply, not just the words.
+*/
+app.post('/api/messages/signin', async function (req, res) {
+  try {
+    const b = req.body || {};
+    const out = await msgWrite.sendUnverifiedMessage(b.employee_id, b.text, b.name);
+    res.status(out.ok ? 200 : 400).json(out);
+  } catch (err) {
+    fail(res, err, 'could not send that');
+  }
+});
+
+
+// ---------------------------------------------------------------------------
+// POST /api/messages/reply - the team answers. ADMINS ONLY.
+// ---------------------------------------------------------------------------
+app.post('/api/messages/reply', requireAuth, requireAdmin,
+  async function (req, res) {
+    try {
+      const b = req.body || {};
+      const out = await msgWrite.replyToThread(
+        req.user.employeeId, b.thread_id, b.text, b.images);
+      res.status(out.ok ? 200 : 400).json(out);
+    } catch (err) {
+      fail(res, err, 'could not send that reply');
+    }
+  });
+
+
+// ---------------------------------------------------------------------------
+// POST /api/messages/attach - put a sign-in thread on its account. ADMINS.
+// ---------------------------------------------------------------------------
+/*
+  Ported from attachSignInThread [Messenger.gs:820]. This is the answer to
+  "I replied and his chatbox was empty" - a person deciding, one
+  conversation at a time, after confirming out of band who they rang.
+
+  AN UNVERIFIED MESSAGE IS NOT EVIDENCE OF ANYTHING. It says somebody typed
+  an employee ID into a box on a public web page. The admin pressing this
+  has read the thread and knows who they spoke to; nothing is linked by
+  matching an ID.
+*/
+app.post('/api/messages/attach', requireAuth, requireAdmin,
+  async function (req, res) {
+    try {
+      const out = await msgWrite.attachSignInThread(
+        req.user.employeeId, (req.body || {}).thread_id);
+      res.status(out.ok ? 200 : 400).json(out);
+    } catch (err) {
+      fail(res, err, 'could not attach that conversation');
+    }
+  });
+
+
+// ---------------------------------------------------------------------------
+// POST /api/messages/delete - destroy a conversation. MASTER ONLY.
+// ---------------------------------------------------------------------------
+/*
+  requireMaster, not requireAdmin, and the original says why: this destroys
+  the conversation for the person who wrote it as well as for the team -
+  their copy disappears from their own panel with everything they were told
+  in it. That is not a thing every admin should be able to do to somebody
+  else's record on a mis-click.
+
+  POST rather than DELETE purely for consistency with every other write
+  here; the blogspot page posts JSON to all of them.
+*/
+app.post('/api/messages/delete', requireAuth, requireMaster,
+  async function (req, res) {
+    try {
+      const out = await msgWrite.deleteThread(
+        req.user.employeeId, (req.body || {}).thread_id);
+      res.status(out.ok ? 200 : 400).json(out);
+    } catch (err) {
+      fail(res, err, 'could not delete that conversation');
+    }
+  });
+
+
+// ---------------------------------------------------------------------------
+// GET /api/messages/boot - everything the panel needs to draw itself.
+// ---------------------------------------------------------------------------
+/*
+  Ported from messengerBoot [Messenger.gs:66]. One round trip rather than
+  three, because this runs on every page load for every person.
+
+  faq IS EMPTY UNTIL THE FAQ TAB IS PORTED. It is listed as outstanding in
+  PORT-INVENTORY.md rather than quietly dropped - the panel reads this key
+  and will fill up on its own the day faqEntries exists.
+*/
+app.get('/api/messages/boot', requireAuth, async function (req, res) {
+  try {
+    const me = req.user.employeeId;
+    const threads = await msgRead.myThreads(me);
+    const rank = rankOf(req.user.role);
+
+    res.json({
+      ok: true,
+      signedIn: true,
+      faq: [],
+      threads: threads,
+      unread: threads.reduce(function (n, t) { return n + t.unread; }, 0),
+      name: await msgWrite.nameOf(me),
+      // Whether that name is on their ACCOUNT, as opposed to one they typed
+      // into this panel once. The panel asks for a name only while this is
+      // false - a box that keeps asking for something already answered is
+      // how the same person ends up stored three different ways.
+      nameOnAccount: Boolean(await msgWrite.accountNameOf(me)),
+      canAnswer: rank >= ROLE_RANK.ADMIN,
+      // Deleting a conversation destroys it for the person who wrote it
+      // too, so it belongs to whoever owns the dashboard rather than to
+      // every admin.
+      canDelete: rank >= ROLE_RANK.MASTER
+    });
+  } catch (err) {
+    fail(res, err, 'could not open the message panel');
+  }
+});
 
 
 // ---------------------------------------------------------------------------

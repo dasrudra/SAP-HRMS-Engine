@@ -134,6 +134,15 @@ CREATE TABLE account (
                     CHECK (role IN ('USER', 'ADMIN', 'MASTER')),
   must_change     boolean NOT NULL DEFAULT true,
   last_login_at   timestamptz,
+
+  -- ACCOUNTS column 11, 'Name'. What this person asked to be called in the
+  -- message panel - NOT team.full_name, which is the HR directory entry.
+  -- nameOf() reads the account first and never reads TEAM, so that a person
+  -- renaming themselves in a chat box cannot rewrite the staff directory,
+  -- and a directory correction cannot rename them mid-conversation.
+  -- Blank means never asked, which the panel treats as "ask once".
+  full_name       text,
+
   created_at      timestamptz NOT NULL DEFAULT now()
 );
 
