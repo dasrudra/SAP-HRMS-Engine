@@ -189,18 +189,51 @@ Still TODO: The two summary cards - **Progress
 this month** and **Overall progress** - depend on those.
 
 ### Messenger
-| Endpoint | Status |
-|---|---|
-| `messengerBoot`, `listThreads`, `myMessages` | TODO |
-| `sendMessage`, `sendUnverifiedMessage`, `replyToThread` | TODO |
-| `markMyMessagesRead`, `messagesWaiting` | TODO |
-| `attachSignInThread` | TODO |
-| `deleteThread` | TODO |
-| `getChatImage` | TODO |
+| Endpoint | New route | Status |
+|---|---|---|
+| `myMessages` | `GET /api/messages/mine` | DONE |
+| `markMyMessagesRead` | `POST /api/messages/read` | DONE |
+| `listThreads` | `GET /api/messages/threads` | DONE |
+| `messagesWaiting` | `GET /api/messages/waiting` | DONE |
+| `messengerBoot` | - | TODO |
+| `sendMessage`, `sendUnverifiedMessage`, `replyToThread` | - | TODO |
+| `attachSignInThread` | - | TODO |
+| `deleteThread` | - | TODO |
+| `getChatImage` | - | TODO |
+
+Read side: `api/messenger-read.js`, tables in `db/08-messenger.sql`, tested
+by `api/messenger-test.js` - 52 checks, and 13 deliberate breaks were made
+to prove each one catches something.
 
 Three fixed bugs must not come back: a reply must reach the sender's own
 inbox; the unread badge must clear; operations must refresh without a manual
 reload.
+
+**The one rule that looks like a bug and is not.** An unverified thread -
+one typed into the public sign-in page - never appears in the panel of the
+employee whose ID was typed, *even after that ID is enrolled*. So a reply
+written into a sign-in-page thread reaches nobody, which is exactly the
+reported symptom "I reset his password and sent a reply, and his chatbox is
+empty". The exception was written and taken out again: the sign-in page is
+public, so anybody can type ANY employee ID into it, and showing those
+messages to the owner of the ID lets a stranger put words into a
+colleague's own panel with the team's answer underneath. The cost is the
+team's to carry, not the reader's; the fix is `attachSignInThread`, an
+admin confirming out of band and attaching it. `messenger-test.js` fails
+loudly if anyone loosens this.
+
+**No foreign key from `msg_thread.person` to `team`**, deliberately.
+`sendUnverifiedMessage` must answer identically whether or not an employee
+ID exists - a foreign key would refuse the insert for an ID that does not,
+turning the sign-in page into a list of everybody who works here for
+anyone willing to try numbers at it.
+
+**The badge counts cards, not rows and not persons.** One person who asked
+twice and got one answer is not waiting; one ID with a verified thread and
+an unverified one (which happens when an account is deleted after a
+signed-in conversation) is two cards, because with no account there is
+nothing to prove they are the same human. The inbox and the badge both
+read it off one answer so they cannot disagree.
 
 ### Knowledge and learning
 | Endpoint | Status |
@@ -234,8 +267,8 @@ reload.
 | `UPLOAD_LOG` | upload history | - | TODO |
 | `QUESTIONS` | questions | - | TODO |
 | `FAQ` | FAQ entries | - | TODO |
-| `THREADS` | messenger threads | - | TODO |
-| `MESSAGES` | messenger messages | - | TODO |
+| `THREADS` | messenger threads | `msg_thread` | PART - table done, data not imported |
+| `MESSAGES` | messenger messages | `msg_line` | PART - table done, data not imported |
 | `LEARN` | learning entries | - | TODO |
 | `KNOWLEDGE` | knowledge posts | - | TODO |
 | `BY_WEEKLY` | meeting links | - | TODO |
@@ -288,7 +321,9 @@ decided for a reason.
 4. ~~Presence~~ DONE
 5. ~~Objectives~~ DONE except `createObjMilestone` (adding a milestone,
    admin only) - read, tick, record and note all ported and tested
-6. **Messenger** - next
+6. **Messenger** - reading DONE (inbox, own panel, badge, mark-read).
+   Writing next: `sendMessage`, `sendUnverifiedMessage`, `replyToThread`,
+   `attachSignInThread`, `deleteThread`, `getChatImage`, `messengerBoot`
 7. Knowledge, Learn, FAQ, Links, By-Weekly
 8. KPI 1, KPI 2, Compare, Uploads
 9. Accounts and audit log

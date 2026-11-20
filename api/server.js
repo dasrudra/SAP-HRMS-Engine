@@ -31,6 +31,7 @@ const { signToken, requireAuth, requireAdmin } = require('./auth');
 const obj = require('./objectives');
 const objRead = require('./objectives-read');
 const objWrite = require('./objectives-write');
+const msgRead = require('./messenger-read');
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
@@ -1006,6 +1007,128 @@ async function findMilestone(id) {
   });
   return found;
 }
+
+
+// ===========================================================================
+// MESSENGER - reading
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// GET /api/messages/mine - this person's own conversations.
+// ---------------------------------------------------------------------------
+/*
+  Ported from myMessages [Messenger.gs:351].
+
+  ONLY VERIFIED THREADS. See the long note in messenger-read.js: a thread
+  started from the public sign-in page records what somebody TYPED, not who
+  they are, and showing it to the owner of that employee ID would let a
+  stranger put words into a colleague's panel.
+
+  That is why a reply to a sign-in-page thread reaches nobody - the exact
+  symptom of "I reset his password and sent a reply, and his chatbox is
+  empty". The fix is attachSignInThread, not loosening this.
+*/
+app.get('/api/messages/mine', requireAuth, async function (req, res) {
+  try {
+    const threads = await msgRead.myThreads(req.user.employeeId);
+    res.json({
+      ok: true,
+      threads: threads,
+      unread: threads.reduce(function (n, t) { return n + t.unread; }, 0)
+    });
+  } catch (err) {
+    fail(res, err, 'could not read your messages');
+  }
+});
+
+
+// ---------------------------------------------------------------------------
+// POST /api/messages/read - mark the team's replies in ONE query as seen.
+// ---------------------------------------------------------------------------
+/*
+  Ported from markMyMessagesRead [Messenger.gs:367].
+
+  PER QUERY, NOT ALL AT ONCE: opening one conversation is not reading the
+  others, and clearing their dots would hide a reply the person has not
+  looked at yet.
+
+  Three conditions, all required: the thread exists, it is THEIRS, and it
+  is verified. Anything else answers ok:false rather than explaining which
+  one failed - the caller has no business knowing whether a thread id they
+  do not own exists.
+*/
+app.post('/api/messages/read', requireAuth, async function (req, res) {
+  try {
+    const threadId = String((req.body && req.body.thread_id) || '').trim();
+
+    const done = await db.query(
+      `UPDATE msg_thread SET unread_by_person = 0
+        WHERE thread_id = $1 AND person = $2 AND verified = true
+        RETURNING thread_id`,
+      [threadId, req.user.employeeId]);
+
+    res.json({ ok: done.length > 0 });
+  } catch (err) {
+    fail(res, err, 'could not mark those as read');
+  }
+});
+
+
+// ---------------------------------------------------------------------------
+// GET /api/messages/threads - the team's inbox. ADMINS ONLY.
+// ---------------------------------------------------------------------------
+app.get('/api/messages/threads', requireAuth, requireAdmin,
+  async function (req, res) {
+    try {
+      const threads = await msgRead.listThreads();
+      res.json({
+        ok: true,
+        count: threads.length,
+        owed: threads.filter(function (t) { return t.owed; }).length,
+        threads: threads
+      });
+    } catch (err) {
+      fail(res, err, 'could not read the inbox');
+    }
+  });
+
+
+// ---------------------------------------------------------------------------
+// GET /api/messages/waiting - the badge. ADMINS ONLY.
+// ---------------------------------------------------------------------------
+/*
+  How many PEOPLE are owed a word, which is what the sidebar badge shows.
+
+  Messenger.gs:873 - "People, not conversations, and that is the whole of
+  this change ... Somebody asks two things and the team answers in one of
+  them; the conversation has been had, both of them know it, and the badge
+  went on saying 1 for ever."
+
+  COUNTED BY t.key, NOT BY t.person. The key is the card the inbox groups
+  by; counting persons instead would merge two cards into one number and
+  the badge would contradict the pills it is meant to summarise. See the
+  note on it in messenger-read.js.
+
+  Counted from the same listThreads the inbox draws, deliberately: the
+  number at the top of the screen and the pills down it come from one
+  answer and so cannot differ.
+
+  ANSWERS 0 RATHER THAN FAILING, like the original: "a missing tab is not a
+  reason to fail the whole page load." ok:false says so without making the
+  sidebar break, and the reason is logged where an admin will see it.
+*/
+app.get('/api/messages/waiting', requireAuth, requireAdmin,
+  async function (req, res) {
+    try {
+      const threads = await msgRead.listThreads();
+      const cards = {};
+      threads.forEach(function (t) { if (t.owed) cards[t.key] = true; });
+      res.json({ ok: true, waiting: Object.keys(cards).length });
+    } catch (err) {
+      console.error('  messages/waiting: ' + err.message);
+      res.json({ ok: false, waiting: 0 });
+    }
+  });
 
 
 // ---------------------------------------------------------------------------
