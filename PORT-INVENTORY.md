@@ -137,10 +137,11 @@ one is switched off.
 | Endpoint | Status | Notes |
 |---|---|---|
 | `getObjectives` | DONE | `GET /api/objectives` |
-| `createObjMilestone`, `recordObjMilestone` | TODO |
+| `recordObjMilestone` | DONE | `POST /api/objectives/record-milestone` |
+| `createObjMilestone` | TODO | |
 | `tickObjTask` | DONE | `POST /api/objectives/tick-task` |
-| `tickObjMilestone` | TODO | |
-| `saveObjSlotNote` | TODO |
+| `tickObjMilestone` | DONE | `POST /api/objectives/tick-milestone` |
+| `saveObjSlotNote` | DONE | `POST /api/objectives/note` |
 
 The arithmetic (`objCountState`, `objTallyTotal`, `objTallyShare`,
 `objSlotCount`, `objWorkingDays`, `objDaysInMonth`, `objIsQuarterEnd`) is
@@ -285,9 +286,9 @@ decided for a reason.
 2. ~~API skeleton, directory~~ DONE
 3. ~~Sign-in~~ DONE
 4. ~~Presence~~ DONE
-5. **Objectives** - schema, data, arithmetic and `getObjectives` DONE;
-   the four tick/record endpoints next
-6. Messenger
+5. ~~Objectives~~ DONE except `createObjMilestone` (adding a milestone,
+   admin only) - read, tick, record and note all ported and tested
+6. **Messenger** - next
 7. Knowledge, Learn, FAQ, Links, By-Weekly
 8. KPI 1, KPI 2, Compare, Uploads
 9. Accounts and audit log

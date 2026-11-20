@@ -726,6 +726,289 @@ app.post('/api/objectives/tick-task', requireAuth, async function (req, res) {
 
 
 // ---------------------------------------------------------------------------
+// POST /api/objectives/tick-milestone - mark one month of one SMART milestone.
+// ---------------------------------------------------------------------------
+/*
+  Ported from tickObjMilestone [Objective.gs:2193].
+  Body: { milestone_id: 'OBJ-007', period: '2026-11', mark: 'Y' }
+
+  SECTION HEADS AND THE DEPARTMENT HEAD, plus admins. Not everybody: these
+  twenty-nine are what the department is scored on. `planner` is true when
+  the person's TEAM row has Head set, or they are admin and above.
+
+  A milestone has ONE square for the whole month, so there is no slot - the
+  mark is 'Y' or it is cleared, and nothing else.
+*/
+app.post('/api/objectives/tick-milestone', requireAuth, async function (req, res) {
+  try {
+    const body = req.body || {};
+    const milestoneId = String(body.milestone_id || '').trim();
+    const period = String(body.period || '').trim();
+    const mark = String(body.mark === undefined ? '' : body.mark);
+
+    const me = await objWrite.objWhoAmI(req.user.employeeId, req.user.role);
+    if (!me.planner) {
+      return res.status(403).json({ ok: false,
+        error: 'Marking the SMART objective is for section heads and the ' +
+               'department head. You can tick the unique-role objectives ' +
+               'for your own module.' });
+    }
+
+    const periods = obj.objPeriods();
+    if (periods.indexOf(period) === -1) {
+      return res.status(400).json({ ok: false,
+        error: 'That month is outside the objective period (' + periods[0] +
+               ' to ' + periods[periods.length - 1] + ').' });
+    }
+
+    const milestone = await findMilestone(milestoneId);
+    if (!milestone) {
+      return res.status(404).json({ ok: false,
+        error: 'There is no milestone with that id.' });
+    }
+
+    if (milestone.auto) {
+      return res.status(400).json({ ok: false,
+        error: 'That milestone is counted by the portal itself, so there is ' +
+               'nothing to tick. It moves when the thing it counts moves.' });
+    }
+
+    const marks = (mark === obj.OBJ_DONE) ? obj.OBJ_DONE : obj.OBJ_PENDING;
+    // When, as well as whether - it is what tells green from yellow.
+    // Clearing the mark clears the time with it, so marking again is a
+    // fresh claim.
+    const markedAt = {};
+    if (marks === obj.OBJ_DONE) markedAt['0'] = Date.now();
+
+    await objWrite.writeObjLog(period, obj.OBJ_KIND_PLAN, milestone.id,
+      function () { return { marks: marks, markedAt: markedAt }; },
+      { name: me.name, id: me.id });
+
+    const state = obj.objPlanMonthState(milestone,
+      { marks: marks, markedAt: markedAt }, period, new Date(), false);
+
+    res.json({ ok: true, id: milestone.id, period: period, marks: marks,
+               state: state.state, at: state.at, by: me.name });
+
+  } catch (err) {
+    fail(res, err, 'could not mark that milestone');
+  }
+});
+
+
+// ---------------------------------------------------------------------------
+// POST /api/objectives/record-milestone - the FIGURE for one month.
+// ---------------------------------------------------------------------------
+/*
+  Ported from recordObjMilestone [Objective.gs:2013].
+  Body: { milestone_id: 'OBJ-007', period: '2026-11', value: 2 }
+
+  THE FIGURE ONLY. THE MARK IS THE SQUARE.
+
+  This used to set the mark as well, on the grounds that typing a figure is
+  reviewing the month. It made the square impossible to take back: press it
+  to clear November, save the figure for any reason, and November was
+  marked again - which is exactly what "I unclick it and it does not save"
+  looks like from the outside.
+
+  They are two claims and they are allowed to disagree. "We completed two
+  RCAs" is what was achieved; "somebody reviewed this in November" is the
+  monitoring, and only the square says that.
+
+  Note the refusal is narrower than tick-milestone's: only UNIQUE_ROLES is
+  rejected, because the other counted sources still allow a typed figure to
+  stand in when the source cannot be read.
+*/
+app.post('/api/objectives/record-milestone', requireAuth, async function (req, res) {
+  try {
+    const body = req.body || {};
+    const milestoneId = String(body.milestone_id || '').trim();
+    const period = String(body.period || '').trim();
+
+    const me = await objWrite.objWhoAmI(req.user.employeeId, req.user.role);
+    if (!me.planner) {
+      return res.status(403).json({ ok: false,
+        error: 'Recording against the SMART objective is for section heads ' +
+               'and the department head. You can still tick the unique-role ' +
+               'objectives for your own module.' });
+    }
+
+    const periods = obj.objPeriods();
+    if (periods.indexOf(period) === -1) {
+      return res.status(400).json({ ok: false,
+        error: 'That month is outside the objective period (' + periods[0] +
+               ' to ' + periods[periods.length - 1] + ').' });
+    }
+
+    const milestone = await findMilestone(milestoneId);
+    if (!milestone) {
+      return res.status(404).json({ ok: false,
+        error: 'There is no milestone with that id.' });
+    }
+
+    if (milestone.auto === 'UNIQUE_ROLES') {
+      return res.status(400).json({ ok: false,
+        error: 'That milestone is counted from the ninety unique-role ' +
+               'objectives and is not recorded by hand. Tick those and this ' +
+               'moves with them.' });
+    }
+
+    const fields = {};
+    if (body.value !== undefined && body.value !== null && body.value !== '') {
+      const v = Number(body.value);
+      if (!(v >= 0)) {
+        return res.status(400).json({ ok: false,
+          error: 'That is not a number this can record.' });
+      }
+      if (milestone.countType === 'PERCENT' && v > 100) {
+        return res.status(400).json({ ok: false,
+          error: 'A percentage cannot be more than 100.' });
+      }
+      fields.value = v;
+    }
+
+    const written = await objWrite.writeObjLog(period, obj.OBJ_KIND_PLAN,
+      milestone.id, function () { return fields; },
+      { name: me.name, id: me.id });
+
+    res.json({ ok: true, at: written.at, by: written.by });
+
+  } catch (err) {
+    fail(res, err, 'could not record that milestone');
+  }
+});
+
+
+// ---------------------------------------------------------------------------
+// POST /api/objectives/note - one note against one period.
+// ---------------------------------------------------------------------------
+/*
+  Ported from saveObjSlotNote [Objective.gs:2270].
+  Body: { kind: 'TASK', ref_id: 'OJT-014', period: '2026-11',
+          slot: 7, note: 'text' }
+
+  An empty note deletes it. The permission depends on the kind: a milestone
+  note needs planner, an objective note needs the same module rule as
+  ticking it.
+*/
+const NOTE_MAX = 1000;             // Config.gs OBJECTIVE.NOTE_MAX
+
+app.post('/api/objectives/note', requireAuth, async function (req, res) {
+  try {
+    const body = req.body || {};
+    const kind = String(body.kind || '').trim().toUpperCase();
+    const ref = String(body.ref_id || '').trim();
+    const period = String(body.period || '').trim();
+    const slot = Number(body.slot);
+
+    const periods = obj.objPeriods();
+    if (periods.indexOf(period) === -1) {
+      return res.status(400).json({ ok: false,
+        error: 'That month is outside the objective period (' + periods[0] +
+               ' to ' + periods[periods.length - 1] + ').' });
+    }
+
+    const me = await objWrite.objWhoAmI(req.user.employeeId, req.user.role);
+    let slots;
+
+    if (kind === obj.OBJ_KIND_PLAN) {
+      if (!me.planner) {
+        return res.status(403).json({ ok: false,
+          error: 'Notes on the SMART objective are for section heads and the ' +
+                 'department head. You can write them on the unique-role ' +
+                 'objectives for your own module.' });
+      }
+      const milestone = await findMilestone(ref);
+      if (!milestone) {
+        return res.status(404).json({ ok: false,
+          error: 'There is no milestone with that id.' });
+      }
+      // A milestone is recorded once a month, so its month is its one slot.
+      slots = 1;
+
+    } else if (kind === obj.OBJ_KIND_TASK) {
+      const all = await objRead.readObjTasks();
+      let task = null;
+      all.tasks.forEach(function (t) { if (t.id === ref) task = t; });
+      if (!task) {
+        return res.status(404).json({ ok: false,
+          error: 'There is no objective with that id.' });
+      }
+      if (!objWrite.objMayTick(me, task)) {
+        return res.status(403).json({ ok: false,
+          error: me.reason ||
+            ('That objective belongs to the ' + task.group + ' module. You ' +
+             'can write notes on the ones for your own module.') });
+      }
+      slots = obj.objSlotCount(period, task.frequency);
+
+    } else {
+      return res.status(400).json({ ok: false,
+        error: 'That is not something notes are kept against.' });
+    }
+
+    if (!(slot >= 0) || slot >= slots) {
+      return res.status(400).json({ ok: false,
+        error: 'There is no such period in ' + period + ' to write against.' });
+    }
+
+    const text = String(body.note === null || body.note === undefined
+                        ? '' : body.note).trim();
+    if (text.length > NOTE_MAX) {
+      return res.status(400).json({ ok: false,
+        error: 'That note is too long - ' + NOTE_MAX + ' characters at most, ' +
+               'and this one is ' + text.length + '.' });
+    }
+
+    let saved = null;
+    await objWrite.writeObjLog(period, kind, ref, function (had) {
+      const notes = {};
+      const hadNotes = (had && had.notes) || {};
+      Object.keys(hadNotes).forEach(function (k) { notes[k] = hadNotes[k]; });
+
+      const key = String(slot);
+      const before = notes[key];
+      const at = Date.now();
+
+      if (!text) {
+        delete notes[key];
+      } else {
+        notes[key] = {
+          t: text, by: me.name, id: me.id, at: at,
+          /*
+            WHEN IT WAS FIRST WRITTEN SURVIVES AN EDIT. "Saved on the 3rd,
+            edited on the 9th" is a different account of a month from
+            "saved on the 9th", and only the first one is true.
+          */
+          made: (before && before.made) || at,
+          n: ((before && before.n) || 0) + 1
+        };
+      }
+      saved = notes[key] || null;
+      return { notes: notes, noteSlot: slot };
+    }, { name: me.name, id: me.id });
+
+    res.json({ ok: true, kind: kind, id: ref, period: period, slot: slot,
+               note: saved });
+
+  } catch (err) {
+    fail(res, err, 'could not save that note');
+  }
+});
+
+
+/** One milestone out of the plan, by id. Used by the three above. */
+async function findMilestone(id) {
+  const plan = await objRead.readObjPlan();
+  let found = null;
+  plan.rows.forEach(function (row) {
+    row.milestones.forEach(function (m) { if (m.id === id) found = m; });
+  });
+  return found;
+}
+
+
+// ---------------------------------------------------------------------------
 // GET /api/accounts - who has a login. ADMINS ONLY.
 // ---------------------------------------------------------------------------
 /*

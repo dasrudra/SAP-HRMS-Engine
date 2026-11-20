@@ -276,6 +276,128 @@ async function main() {
     check('five runs of ' + racers + ' concurrent ticks, none lost', allRuns);
   }
 
+  // ---- the three milestone / note endpoints -----------------------------
+  console.log('');
+  console.log('MILESTONES AND NOTES');
+  console.log('-----------------------------------------------------------');
+
+  const auto = (await db.query(
+    'SELECT milestone_id FROM obj_plan WHERE auto_source IS NOT NULL LIMIT 1')).rows[0];
+  const man = (await db.query(
+    "SELECT milestone_id, count_type FROM obj_plan WHERE auto_source IS NULL ORDER BY milestone_id LIMIT 1")).rows[0];
+
+  if (!man) {
+    console.log('    no hand-recorded milestone to test with. Skipped.');
+  } else {
+    const mid = man.milestone_id;
+    const wipe = function () {
+      return db.query('DELETE FROM obj_log WHERE ref_id = $1', [mid]);
+    };
+    await wipe();
+
+    if (auto) {
+      r = await call('POST', '/api/objectives/tick-milestone', token,
+        { milestone_id: auto.milestone_id, period: period, mark: 'Y' });
+      check('a counted milestone cannot be ticked', r.code === 400,
+            'got ' + r.code);
+    }
+
+    /*
+      RECORDING REFUSES ONLY UNIQUE_ROLES, which is narrower than ticking's
+      rule - the other counted sources still let a typed figure stand in
+      when the source cannot be read. So this looks for that one
+      specifically rather than any auto milestone.
+
+      The first version asked for `r.code === 400 || r.code === 200`,
+      which passes whether the endpoint refuses or accepts. An assertion
+      that accepts both answers is not asking a question.
+    */
+    const uniq = (await db.query(
+      "SELECT milestone_id FROM obj_plan WHERE auto_source = 'UNIQUE_ROLES' LIMIT 1")).rows[0];
+    if (uniq) {
+      r = await call('POST', '/api/objectives/record-milestone', token,
+        { milestone_id: uniq.milestone_id, period: period, value: 5 });
+      check('UNIQUE_ROLES cannot be recorded by hand', r.code === 400,
+            'got ' + r.code);
+    } else {
+      console.log('    no UNIQUE_ROLES milestone in this plan - that check skipped.');
+    }
+
+    r = await call('POST', '/api/objectives/tick-milestone', token,
+      { milestone_id: mid, period: period, mark: 'Y' });
+    check('a planner may mark a milestone', r.code === 200 && r.body.marks === 'Y',
+          'got ' + r.code + ' marks=' + r.body.marks);
+
+    r = await call('POST', '/api/objectives/record-milestone', token,
+      { milestone_id: mid, period: period, value: -1 });
+    check('a negative figure is refused', r.code === 400, 'got ' + r.code);
+
+    if (man.count_type === 'PERCENT') {
+      r = await call('POST', '/api/objectives/record-milestone', token,
+        { milestone_id: mid, period: period, value: 101 });
+      check('over 100 on a PERCENT is refused', r.code === 400, 'got ' + r.code);
+    }
+
+    /*
+      THE BUG THAT MADE A SQUARE IMPOSSIBLE TO TAKE BACK.
+
+      Recording a figure used to set the mark as well. Press the square to
+      clear November, save the figure for any reason, and November was
+      marked again - which is what "I unclick it and it does not save"
+      looks like from the outside. The figure and the mark are two claims
+      and they are allowed to disagree.
+    */
+    await call('POST', '/api/objectives/tick-milestone', token,
+      { milestone_id: mid, period: period, mark: '.' });
+    await call('POST', '/api/objectives/record-milestone', token,
+      { milestone_id: mid, period: period, value: 7 });
+    const after = (await db.query(
+      'SELECT marks, value FROM obj_log WHERE ref_id = $1', [mid])).rows[0];
+    check('saving a figure does NOT re-mark a cleared square',
+          after && after.marks !== 'Y', 'marks=' + (after && after.marks));
+    check('and the figure was saved', after && Number(after.value) === 7,
+          'value=' + (after && after.value));
+
+    // ---- notes ----
+    await wipe();
+    r = await call('POST', '/api/objectives/note', token,
+      { kind: 'PLAN', ref_id: mid, period: period, slot: 0, note: 'version one' });
+    check('a note saves', r.code === 200 && r.body.note &&
+          r.body.note.t === 'version one', 'got ' + r.code);
+
+    const firstMade = r.body.note.made;
+    r = await call('POST', '/api/objectives/note', token,
+      { kind: 'PLAN', ref_id: mid, period: period, slot: 0, note: 'version two' });
+    check('editing keeps when it was FIRST written',
+          r.body.note && r.body.note.made === firstMade,
+          'made=' + (r.body.note && r.body.note.made) + ' was ' + firstMade);
+    check('and counts the versions', r.body.note && r.body.note.n === 2,
+          'n=' + (r.body.note && r.body.note.n));
+
+    const h = (await db.query(
+      'SELECT history FROM obj_log WHERE ref_id = $1', [mid])).rows[0];
+    check('the timeline keeps what the note said before',
+          h && h.history[0] && h.history[0].noteWas === 'version one',
+          'noteWas=' + (h && h.history[0] && h.history[0].noteWas));
+
+    r = await call('POST', '/api/objectives/note', token,
+      { kind: 'PLAN', ref_id: mid, period: period, slot: 0, note: '   ' });
+    check('an empty note deletes it', r.body.note === null,
+          JSON.stringify(r.body.note));
+
+    r = await call('POST', '/api/objectives/note', token,
+      { kind: 'PLAN', ref_id: mid, period: period, slot: 0,
+        note: 'x'.repeat(1001) });
+    check('a note over 1000 characters is refused', r.code === 400,
+          'got ' + r.code);
+
+    r = await call('POST', '/api/objectives/note', token,
+      { kind: 'BANANA', ref_id: mid, period: period, slot: 0, note: 'x' });
+    check('an unknown kind is refused', r.code === 400, 'got ' + r.code);
+
+    await wipe();
+  }
+
   await clean();
   await db.end();
 
