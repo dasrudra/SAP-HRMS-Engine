@@ -321,6 +321,41 @@ async function main() {
   check('and the row still loads, with those cells empty',
         Boolean(t3) && t3.request_date === null && t3.delay_days === null);
 
+  /*
+    A NUL BYTE IN A FREE-TEXT CELL. Real ITSM exports contain these - the
+    first import of the live file stopped on
+
+        invalid byte sequence for encoding "UTF8": 0x00
+
+    after 25,808 rows. U+0000 is valid UTF-8 and valid in a JavaScript
+    string, so it travels the whole way from the export into a parameter
+    before PostgreSQL refuses it: a text value cannot hold one, at all.
+    A spreadsheet never complains, which is why they went unnoticed.
+  */
+  out = runImport([
+    { 'Ticket ID': 'TEST-IMP-4',
+      'Title': 'Printer\u0000 jammed', 'Remarks': 'two\u0000 of them\u0000',
+      'Request Date': '2026-08-20 09:00', 'Last Updated': '2026-09-04 10:00' }
+  ]);
+  const t4 = await one('TEST-IMP-4');
+  check('A NUL BYTE DOES NOT STOP THE IMPORT',
+        Boolean(t4), 'PostgreSQL cannot store one, so it has to go');
+  check('and the rest of the text survives it',
+        t4 && t4.title === 'Printer jammed' && t4.remarks === 'two of them',
+        JSON.stringify(t4 && { t: t4.title, r: t4.remarks }));
+  check('and the removal is reported, not silent',
+        /2 cell\(s\) contained a NUL byte/.test(out),
+        out.split('\n').filter(function (l) {
+          return /NUL/.test(l); }).join(' | '));
+
+  // A NUL in the id itself still has to leave a usable key.
+  runImport([
+    { 'Ticket ID': 'TEST-IMP-\u00005', 'Request Date': '2026-08-21 09:00',
+      'Last Updated': '2026-09-04 10:00' }
+  ]);
+  check('a NUL in the Ticket ID is stripped too',
+        Boolean(await one('TEST-IMP-5')));
+
   // A missing column is fatal, because loading by name cannot guess.
   fs.writeFileSync(csvPath, 'Ticket ID,Affiliate\nTEST-IMP-9,KSL\n');
   let died = '';

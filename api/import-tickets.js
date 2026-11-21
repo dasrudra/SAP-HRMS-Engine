@@ -174,6 +174,37 @@ function truthy(value) {
   return value === true || String(value).toLowerCase() === 'true';
 }
 
+/*
+  NUL BYTES, WHICH REAL EXPORTS CONTAIN AND PostgreSQL CANNOT STORE.
+
+  The first real import stopped on
+
+      invalid byte sequence for encoding "UTF8": 0x00
+
+  after reading 25,808 rows. U+0000 is perfectly valid UTF-8 and perfectly
+  valid in a JavaScript string, so it travels all the way from the ITSM
+  export through the CSV and into a parameter before the database refuses
+  it. A PostgreSQL text value cannot contain one, at all, by design - the
+  type is a C string underneath.
+
+  A spreadsheet never complained, which is why these have been sitting in
+  the data unnoticed: Sheets stores the cell and simply does not draw the
+  character.
+
+  SO IT IS STRIPPED, AND ONLY IT. Every other control character is storable
+  and is left exactly as it came - stripping those as well would be
+  cleaning up data nobody asked me to change, on the strength of a problem
+  they did not cause. The count is reported, because "we quietly removed
+  characters from your tickets" is not something to do silently.
+*/
+let nulCells = 0;
+
+function stripNul(text) {
+  if (text.indexOf('\u0000') === -1) return text;
+  nulCells++;
+  return text.replace(/\u0000/g, '');
+}
+
 /**
  * A date cell as a timestamp, or null.
  *
@@ -188,7 +219,7 @@ function truthy(value) {
  */
 function readDate(value, problems, where) {
   if (isBlank(value)) return null;
-  const text = String(value).trim();
+  const text = stripNul(String(value).trim());
   const when = new Date(text);
   if (isNaN(when.getTime())) {
     problems.push(where + ': cannot read the date ' + JSON.stringify(text));
@@ -200,7 +231,7 @@ function readDate(value, problems, where) {
 /** A number cell, or null. Blank is null, not zero. */
 function readNumber(value, problems, where) {
   if (isBlank(value)) return null;
-  const n = parseFloat(String(value).trim());
+  const n = parseFloat(stripNul(String(value).trim()));
   if (isNaN(n)) {
     problems.push(where + ': cannot read the number ' + JSON.stringify(String(value)));
     return null;
@@ -361,7 +392,8 @@ async function main() {
 
   for (let r = 1; r < rows.length; r++) {
     const row = rows[r];
-    const id = String(row[at.ticket_id] === undefined ? '' : row[at.ticket_id]).trim();
+    const id = stripNul(
+      String(row[at.ticket_id] === undefined ? '' : row[at.ticket_id]).trim());
     if (!id) { skipped++; continue; }
 
     const where = 'row ' + (r + 1) + ' (' + id + ')';
@@ -372,7 +404,7 @@ async function main() {
         case 'ts':   return readDate(raw, problems, where + ' ' + c[0]);
         case 'num':  return readNumber(raw, problems, where + ' ' + c[0]);
         case 'bool': return truthy(raw);
-        default:     return isBlank(raw) ? '' : String(raw).trim();
+        default:     return isBlank(raw) ? '' : stripNul(String(raw).trim());
       }
     });
 
@@ -392,6 +424,10 @@ async function main() {
   if (skipped) {
     console.log('                ' + skipped + ' with no Ticket ID, not loaded');
   }
+  if (nulCells) {
+    console.log('                ' + nulCells + ' cell(s) contained a NUL ' +
+                'byte, which PostgreSQL cannot store - removed');
+  }
   if (problems.length) {
     console.log('');
     console.log('  ' + problems.length + ' cell(s) could not be read and were ' +
@@ -406,17 +442,43 @@ async function main() {
   const client = await db.pool.connect();
   let inserted = 0, updated = 0;
 
+  /*
+    ONE TRANSACTION FOR THE WHOLE FILE, so a failure half way leaves the
+    table exactly as it was rather than half updated. That is why the
+    message below can say "nothing was imported" and mean it.
+
+    It also means 25,000 rows is 25,000 statements before anything is
+    visible, which looks like a hang. The progress line is there so it
+    does not - and so that a run which does stop tells you how far it got.
+  */
+  const EVERY = 2000;
+  let done = 0;
+
   try {
     await client.query('BEGIN');
     for (const one of values) {
-      const got = await client.query(sql, one);
-      if (got.rows[0] && got.rows[0].inserted) inserted++; else updated++;
+      try {
+        const got = await client.query(sql, one);
+        if (got.rows[0] && got.rows[0].inserted) inserted++; else updated++;
+      } catch (err) {
+        // Name the ticket. Without this a single bad cell in 25,000 rows
+        // is an error message with no row number in it, and the only way
+        // to find it is to bisect the file by hand.
+        err.message = 'ticket ' + one[0] + ': ' + err.message;
+        throw err;
+      }
+      done++;
+      if (done % EVERY === 0) {
+        process.stdout.write('  ' + done + ' of ' + values.length + '...\r');
+      }
     }
     await client.query('COMMIT');
+    if (values.length >= EVERY) process.stdout.write('                              \r');
   } catch (err) {
     await client.query('ROLLBACK');
     console.error('');
-    console.error('  Nothing was imported: ' + err.message);
+    console.error('  Nothing was imported (stopped after ' + done + ' row(s)):');
+    console.error('  ' + err.message);
     console.error('');
     process.exit(1);
   } finally {
