@@ -38,8 +38,44 @@ const KPI_RESOLUTION = {
   target: 90.00,        // green at or above this
   yellowFloor: 85.00,   // below this is red
   unit: '%',
-  period: 'monthly'
+  period: 'monthly',
+  standard: 'COMPANY',
+  standardLabel: 'Company KPI',
+  standardNote: 'TVL-KPI-001 v1.0, section 5.3. The figure reported to ' +
+                'TVL headquarters and the directors.'
 };
+
+/*
+  Config.gs:1628. THE SAME TICKETS AND THE SAME TWO FORMULAS, SCORED AGAINST
+  A DIFFERENT TARGET - the standard the EAS team holds itself to internally,
+  which is stricter than the one that goes to headquarters.
+
+  Built from the other one rather than written out twice, for the reason
+  Config.gs gives: "two hand-maintained copies drift: a correction to the
+  formula string, the SLA layer or the measure name would land on one and
+  not the other, and the two screens would quietly start describing
+  themselves differently."
+
+  NOTHING IS STORED PER STANDARD. The counts are facts about the month; the
+  rate, achievement, band and headroom are judgements against a target and
+  are worked out every time a screen is drawn. That is what lets one set of
+  tickets be read as either standard with no second table and no re-import.
+*/
+const KPI_RESOLUTION_EAS = Object.assign({}, KPI_RESOLUTION, {
+  standard: 'EAS',
+  standardLabel: 'EAS KPI',
+  standardNote: 'Layer 3 TVL-EAS KPI, Error/Issue Resolution Time. The ' +
+                'standard the EAS team holds itself to internally.',
+  target: 99.50,
+  yellowFloor: 89.55
+});
+
+/** Config.gs:1666. Anything that is not 'EAS' is the company standard. */
+function resolutionStandard(code) {
+  return String(code || '').trim().toUpperCase() === 'EAS'
+    ? KPI_RESOLUTION_EAS
+    : KPI_RESOLUTION;
+}
 
 // Config.gs QUARTERS. Both KPIs use the calendar year today; the indirection
 // stays because a company year starting in April is a one-line change there
@@ -332,8 +368,36 @@ function monthsInScope(scope, scheme) {
 }
 
 
+/** Recomputes the derived figures from summed counts.   [Kpi.gs:790] */
+function finaliseEntry(b, kpi) {
+  const rate = b.completed ? (b.successful / b.completed) * 100 : 0;
+
+  return {
+    name:        b.name,
+    received:    b.received,
+    completed:   b.completed,
+    // Clamped only because these are summed rather than counted off one set
+    // of rows, so a half-written total must not print a negative.
+    open:        Math.max(0, b.received - b.completed),
+    delayed:     b.delayed,
+    successful:  b.successful,
+    rate:        round2(rate),
+    achievement: round2(b.completed ? achievementFor(rate, kpi) : 0),
+    band:        b.completed ? bandFor(rate, kpi) : 'NO DATA',
+    headroom:    headroomFor(b.completed, b.successful, kpi)
+  };
+}
+
+/** Busiest first.   [Kpi.gs:811] */
+function byReceived(a, b) {
+  return b.received - a.received;
+}
+
+
 module.exports = {
-  KPI_RESOLUTION, QUARTERS, ALL_MONTHS,
+  KPI_RESOLUTION, KPI_RESOLUTION_EAS, resolutionStandard,
+  finaliseEntry, byReceived,
+  QUARTERS, ALL_MONTHS,
   isCompleted, toNumber, round2,
   bandFor, achievementFor, headroomFor,
   scoreTickets, scoreRows,

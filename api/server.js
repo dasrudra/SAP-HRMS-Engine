@@ -35,6 +35,7 @@ const objWrite = require('./objectives-write');
 const msgRead = require('./messenger-read');
 const msgWrite = require('./messenger-write');
 const content = require('./content');
+const kpiRead = require('./kpi-read');
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
@@ -1456,6 +1457,46 @@ app.get('/api/learn', requireAuth, async function (req, res) {
     res.json(library);
   } catch (err) {
     fail(res, err, 'could not read the library');
+  }
+});
+
+
+// ===========================================================================
+// KPI 1 - Error/Issue Resolution Time
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// GET /api/kpi1 - the figures for a month, a quarter, a list, or all of it.
+// ---------------------------------------------------------------------------
+/*
+  Ported from getKpi1 [Kpi.gs:599].
+
+      ?month=2026-10            one month
+      ?month=2026-Q3            a company quarter
+      ?month=2026-01,2026-08    two months, without the six between them
+      ?month=ALL                every month there is
+
+  ?standard=EAS scores the same tickets against the internal target of
+  99.50 instead of the policy's 90.00. NOTHING IS STORED PER STANDARD - the
+  counts are facts about the month and the bands are judgements against a
+  target, worked out when the screen is drawn. That is what lets one set of
+  tickets be read either way with no second table and no re-import.
+
+  SCORED FROM THE TICKETS, NOT FROM A CACHE. See the note at the top of
+  kpi-read.js for why the KPI_MONTHLY cache is not ported and why dropping
+  it preserves, rather than threatens, the rule that an all-months figure
+  is not an average of monthly ones.
+*/
+app.get('/api/kpi1', requireAuth, async function (req, res) {
+  try {
+    // Defaults to every month, which is what the screen opens on.
+    const month = String(req.query.month || 'ALL').trim() || 'ALL';
+    const out = await kpiRead.readKpi1(month, req.query.standard);
+    out.ok = true;
+    out.months = await kpiRead.monthsAvailable();
+    res.json(out);
+  } catch (err) {
+    fail(res, err, 'could not read the KPI figures');
   }
 });
 

@@ -132,10 +132,11 @@ one is switched off.
 |---|---|
 | the KPI 1 arithmetic - `scoreRows`, `isCompleted`, `toNumber`, `bandFor`, `achievementFor`, `headroomFor`, `groupBy`, `groupByKey`, `round2`, `monthsInScope`, `quarterOf`, `monthsOfQuarter`, `quarterLabel`, `quarterScheme` | DONE - `api/kpi.js` |
 | `sectionFor`, `matchPerson`, `rosterIndex`, `rosterOrderFor` | DONE - `api/roster.js`, table `roster`, filled by `node api/import-roster.js` |
-| `getKpi1`, `readKpi1` | TODO - endpoint |
+| `getKpi1`, `readKpi1` | DONE - `GET /api/kpi1`, `api/kpi-read.js` |
+| `moduleForTicket`, `moduleFromPart`, `moduleForPerson` | TODO - the module breakdown; its own subsystem, like the roster |
 | `getKpiComparison` | TODO |
 | `getPeopleByAffiliate`, `listAffiliates` | TODO |
-| `recomputeKpiCache`, `recomputeAfterUpload` | TODO - and probably not needed; see below |
+| `recomputeKpiCache`, `recomputeAfterUpload` | NOT PORTED, deliberately - see below |
 | the ticket merge (`mergeRows`, `stampOf`, `isBlank`, `truthy`) | DONE - `api/import-tickets.js` |
 | `getKpi2` and everything feedback | TODO |
 
@@ -523,8 +524,16 @@ one delay scores 75%; August with 2,640 and 11 scores 99.58%; their mean is
 exactly what a SQL aggregate does by construction, so dropping the cache
 preserves this rather than threatening it.
 
-Decision deferred until the endpoint is written, and recorded here so it is
-a decision rather than an omission.
+**Decided: not ported.** `GET /api/kpi1` scores the tickets directly every
+time. Measured on 25,808 tickets across 11 months: **200 ms** for the whole
+period, every breakdown, from scratch. That is not what the cache was
+protecting against, and dropping it means nothing can go stale and
+`recomputeAfterUpload` has nothing to do.
+
+The rule it had to preserve is preserved *by construction*: there is no
+intermediate percentage left anywhere to be tempted into averaging. Proved
+on deliberately lopsided months - 4 completed against 400 - where summing
+and averaging differ by ten points rather than hundredths.
 
 ## Attribution: which section handled a ticket
 
