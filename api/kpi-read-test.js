@@ -15,6 +15,30 @@
  *
  * EVERY TICKET IT WRITES STARTS 'TEST-K-', and every person it invents is
  * in the reserved 2099xxxx block. It sweeps at both ends.
+ *
+ * AND IT WRITES THEM INTO MONTHS NOTHING REAL CAN REACH, which is the part
+ * I got wrong first time.
+ *
+ * The test deleted its own tickets and then asked the endpoint for
+ * 2026-09 - a month with 2,329 of Rudra's real tickets in it. Every figure
+ * it checked was the real month plus its eleven fixtures, so on an empty
+ * database all 42 checks passed and on the real one 28 failed. The failure
+ * was in the test; the numbers it printed were correct.
+ *
+ * Deleting its rows is not enough, because the endpoint scores a MONTH and
+ * cannot be asked for "only these tickets" - nor should it be able to be.
+ * So the fixtures live in months no export will ever contain:
+ *
+ *     PRE  = 2019   before SECTION_ERA_START, so the pre-split sections
+ *     POST = 2099   after it, and beyond any ticket anyone will file
+ *
+ * The era rule is a string comparison against '2026-08', so 2019 and 2099
+ * exercise both sides of the August 2026 split exactly as 2026-07 and
+ * 2026-09 did - without standing on a month that holds real work.
+ *
+ * The same idea as the reserved 2099xxxx employee IDs, applied to the
+ * calendar: a test that shares a namespace with live data is a test whose
+ * result depends on what somebody uploaded this morning.
  */
 
 require('dotenv').config();
@@ -26,6 +50,10 @@ const kpi = require('./kpi');
 
 const PORT = Number(process.env.PORT || 3000);
 const RUN = String(Math.floor(Math.random() * 90) + 10);
+
+// Years no ITSM export will ever carry. See the note at the top.
+const PRE = '2019';    // before SECTION_ERA_START '2026-08'
+const POST = '2099';   // after it
 
 let pass = 0, fail = 0;
 function check(name, ok, detail) {
@@ -113,11 +141,11 @@ async function main() {
   console.log('  Scoring one month');
   // =======================================================================
   // 10 completed, 2 of them late, 1 still open.
-  for (let i = 0; i < 8; i++) await ticket('2026-09', P1);
-  for (let i = 0; i < 2; i++) await ticket('2026-09', P1, { delay: 3 });
-  await ticket('2026-09', P1, { open: true });
+  for (let i = 0; i < 8; i++) await ticket(POST + '-09', P1);
+  for (let i = 0; i < 2; i++) await ticket(POST + '-09', P1, { delay: 3 });
+  await ticket(POST + '-09', P1, { open: true });
 
-  let r = await call('/api/kpi1?month=2026-09', token);
+  let r = await call('/api/kpi1?month=' + POST + '-09', token);
   let t = r.body.total;
   check('the endpoint answers', r.code === 200 && r.body.ok === true);
   check('received counts everything', t.received === 11, String(t.received));
@@ -146,7 +174,7 @@ async function main() {
   console.log('');
   console.log('  The same tickets, the other standard');
   // =======================================================================
-  r = await call('/api/kpi1?month=2026-09&standard=EAS', token);
+  r = await call('/api/kpi1?month=' + POST + '-09&standard=EAS', token);
   check('the rate is unchanged - it is a fact, not a judgement',
         r.body.total.rate === 80, String(r.body.total.rate));
   check('but the target is the internal one',
@@ -156,7 +184,7 @@ async function main() {
         r.body.total.achievement === kpi.round2((80 / 99.5) * 100),
         String(r.body.total.achievement));
   check('an unknown standard falls back to the company one',
-        (await call('/api/kpi1?month=2026-09&standard=BANANA', token))
+        (await call('/api/kpi1?month=' + POST + '-09&standard=BANANA', token))
           .body.target === 90);
 
   // =======================================================================
@@ -174,14 +202,14 @@ async function main() {
     and only one of the two answers is defensible.
   */
   await db.query("DELETE FROM ticket WHERE ticket_id LIKE 'TEST-K-%'");
-  for (let i = 0; i < 3; i++) await ticket('2026-01', P1);
-  await ticket('2026-01', P1, { delay: 2 });              // 4 done, 1 late
-  for (let i = 0; i < 396; i++) await ticket('2026-02', P1);
-  for (let i = 0; i < 4; i++) await ticket('2026-02', P1, { delay: 1 });
+  for (let i = 0; i < 3; i++) await ticket(POST + '-01', P1);
+  await ticket(POST + '-01', P1, { delay: 2 });              // 4 done, 1 late
+  for (let i = 0; i < 396; i++) await ticket(POST + '-02', P1);
+  for (let i = 0; i < 4; i++) await ticket(POST + '-02', P1, { delay: 1 });
 
-  const jan = (await call('/api/kpi1?month=2026-01', token)).body.total;
-  const feb = (await call('/api/kpi1?month=2026-02', token)).body.total;
-  const all = (await call('/api/kpi1?month=2026-01,2026-02', token)).body.total;
+  const jan = (await call('/api/kpi1?month=' + POST + '-01', token)).body.total;
+  const feb = (await call('/api/kpi1?month=' + POST + '-02', token)).body.total;
+  const all = (await call('/api/kpi1?month=' + POST + '-01,' + POST + '-02', token)).body.total;
 
   check('the small month scores 75%', jan.rate === 75, String(jan.rate));
   check('the large month scores 99%', feb.rate === 99, String(feb.rate));
@@ -202,16 +230,16 @@ async function main() {
   console.log('');
   console.log('  Which months a scope covers');
   // =======================================================================
-  check('one month covers one', (await call('/api/kpi1?month=2026-01', token))
+  check('one month covers one', (await call('/api/kpi1?month=' + POST + '-01', token))
           .body.monthsCovered === 1);
-  check('a list covers both', (await call('/api/kpi1?month=2026-01,2026-02', token))
+  check('a list covers both', (await call('/api/kpi1?month=' + POST + '-01,' + POST + '-02', token))
           .body.monthsCovered === 2);
   check('a quarter covers the months in it that have tickets',
-        (await call('/api/kpi1?month=2026-Q1', token)).body.monthsCovered === 2);
+        (await call('/api/kpi1?month=' + POST + '-Q1', token)).body.monthsCovered === 2);
   check('ALL covers everything there is',
         (await call('/api/kpi1?month=ALL', token)).body.monthsCovered >= 2);
   check('a month with no tickets has no data, and does not throw',
-        (await call('/api/kpi1?month=2019-05', token)).body.hasData === false);
+        (await call('/api/kpi1?month=2098-05', token)).body.hasData === false);
 
   // =======================================================================
   console.log('');
@@ -224,12 +252,12 @@ async function main() {
     department with work it did not do."
   */
   await db.query("DELETE FROM ticket WHERE ticket_id LIKE 'TEST-K-%'");
-  for (let i = 0; i < 5; i++) await ticket('2026-05', P1, { inDept: true });
+  for (let i = 0; i < 5; i++) await ticket(POST + '-05', P1, { inDept: true });
   for (let i = 0; i < 3; i++) {
-    await ticket('2026-05', P2, { inDept: false, inOverall: true });
+    await ticket(POST + '-05', P2, { inDept: false, inOverall: true });
   }
 
-  r = await call('/api/kpi1?month=2026-05', token);
+  r = await call('/api/kpi1?month=' + POST + '-05', token);
   check('with department files present, only those are scored',
         r.body.total.received === 5, String(r.body.total.received));
   check('and the basis says so, with both counts',
@@ -238,9 +266,9 @@ async function main() {
 
   await db.query("DELETE FROM ticket WHERE ticket_id LIKE 'TEST-K-%'");
   for (let i = 0; i < 4; i++) {
-    await ticket('2026-06', P1, { inDept: false, inOverall: true });
+    await ticket(POST + '-06', P1, { inDept: false, inOverall: true });
   }
-  r = await call('/api/kpi1?month=2026-06', token);
+  r = await call('/api/kpi1?month=' + POST + '-06', token);
   check('with no department file, the whole set is scored instead',
         r.body.total.received === 4 && r.body.basis.source === 'OVERALL',
         JSON.stringify(r.body.basis));
@@ -252,8 +280,8 @@ async function main() {
     A MIXED RANGE IS REPORTED AS OVERALL. "That direction is the safe one:
     it warns that some month in the range counted people outside EAS."
   */
-  for (let i = 0; i < 4; i++) await ticket('2026-07', P1, { inDept: true });
-  r = await call('/api/kpi1?month=2026-06,2026-07', token);
+  for (let i = 0; i < 4; i++) await ticket(PRE + '-07', P1, { inDept: true });
+  r = await call('/api/kpi1?month=' + POST + '-06,' + PRE + '-07', token);
   check('a mixed range is reported as OVERALL, the safe direction',
         r.body.basis.source === 'OVERALL', r.body.basis.source);
 
@@ -262,10 +290,10 @@ async function main() {
   console.log('  Attribution');
   // =======================================================================
   await db.query("DELETE FROM ticket WHERE ticket_id LIKE 'TEST-K-%'");
-  await ticket('2026-09', P1, { department: 'A Claimed Department' });
-  await ticket('2026-09', P2, { department: 'Another Claim' });
+  await ticket(POST + '-09', P1, { department: 'A Claimed Department' });
+  await ticket(POST + '-09', P2, { department: 'Another Claim' });
 
-  r = await call('/api/kpi1?month=2026-09', token);
+  r = await call('/api/kpi1?month=' + POST + '-09', token);
   const names = r.body.departments.map(function (d) { return d.name; }).sort();
   check('THE ROSTER DECIDES THE SECTION, NOT THE DEPARTMENT COLUMN',
         names.join(',') === 'Manufacturing Applications,Sales Applications',
@@ -275,15 +303,15 @@ async function main() {
     SECTIONS CHANGED SHAPE IN AUGUST 2026. Before that there were two, so
     the same two people are reported under the names in force then.
   */
-  await ticket('2026-07', P1);
-  await ticket('2026-07', P2);
-  r = await call('/api/kpi1?month=2026-07', token);
+  await ticket(PRE + '-07', P1);
+  await ticket(PRE + '-07', P2);
+  r = await call('/api/kpi1?month=' + PRE + '-07', token);
   check('a month before the split uses the sections of the time',
         r.body.departments.length === 1 &&
         r.body.departments[0].name === 'Functional Applications',
         JSON.stringify(r.body.departments.map(function (d) { return d.name; })));
 
-  r = await call('/api/kpi1?month=2026-07,2026-09', token);
+  r = await call('/api/kpi1?month=' + PRE + '-07,' + POST + '-09', token);
   check('a range spanning the split shows both eras, not a merge',
         r.body.departments.length === 3,
         JSON.stringify(r.body.departments.map(function (d) { return d.name; })));
@@ -311,11 +339,11 @@ async function main() {
   console.log('  Service / Part, and the source counts');
   // =======================================================================
   await db.query("DELETE FROM ticket WHERE ticket_id LIKE 'TEST-K-%'");
-  await ticket('2026-10', P1, { service: 'SAP', part: 'MM' });
-  await ticket('2026-10', P1, { service: 'SAP', part: 'MM' });
-  await ticket('2026-10', P1, { service: 'e-Accounting', part: 'MM' });
+  await ticket(POST + '-10', P1, { service: 'SAP', part: 'MM' });
+  await ticket(POST + '-10', P1, { service: 'SAP', part: 'MM' });
+  await ticket(POST + '-10', P1, { service: 'e-Accounting', part: 'MM' });
 
-  r = await call('/api/kpi1?month=2026-10', token);
+  r = await call('/api/kpi1?month=' + POST + '-10', token);
   check('PART IS SCOPED TO SERVICE, so one Part name under two services ' +
         'is two rows',
         r.body.parts.length === 2,
@@ -338,11 +366,11 @@ async function main() {
     asks.
   */
   await db.query("DELETE FROM ticket WHERE ticket_id LIKE 'TEST-K-%'");
-  for (let i = 0; i < 5; i++) await ticket('2026-10', P1, { part: 'AAA' });
-  for (let i = 0; i < 3; i++) await ticket('2026-10', P2, { part: 'BBB' });
-  for (let i = 0; i < 10; i++) await ticket('2026-11', P2, { part: 'BBB' });
+  for (let i = 0; i < 5; i++) await ticket(POST + '-10', P1, { part: 'AAA' });
+  for (let i = 0; i < 3; i++) await ticket(POST + '-10', P2, { part: 'BBB' });
+  for (let i = 0; i < 10; i++) await ticket(POST + '-11', P2, { part: 'BBB' });
 
-  r = await call('/api/kpi1?month=2026-10,2026-11', token);
+  r = await call('/api/kpi1?month=' + POST + '-10,' + POST + '-11', token);
   check('ACROSS MONTHS, the busiest Part overall comes first',
         r.body.parts[0].name === 'SAP / BBB' && r.body.parts[0].received === 13,
         JSON.stringify(r.body.parts.map(function (p) {
@@ -358,12 +386,12 @@ async function main() {
           return d.name + '=' + d.received; })));
 
   await db.query("DELETE FROM ticket WHERE ticket_id LIKE 'TEST-K-%'");
-  await ticket('2026-10', P1, { service: 'SAP', part: 'MM' });
-  await ticket('2026-10', P1, { service: 'SAP', part: 'MM' });
-  await ticket('2026-10', P1, { service: 'e-Accounting', part: 'MM' });
-  await ticket('2026-10', P1, { inDept: true,  inOverall: false });
-  await ticket('2026-10', P1, { inDept: false, inOverall: true });
-  r = await call('/api/kpi1?month=2026-10', token);
+  await ticket(POST + '-10', P1, { service: 'SAP', part: 'MM' });
+  await ticket(POST + '-10', P1, { service: 'SAP', part: 'MM' });
+  await ticket(POST + '-10', P1, { service: 'e-Accounting', part: 'MM' });
+  await ticket(POST + '-10', P1, { inDept: true,  inOverall: false });
+  await ticket(POST + '-10', P1, { inDept: false, inOverall: true });
+  r = await call('/api/kpi1?month=' + POST + '-10', token);
   const src = {};
   r.body.sources.forEach(function (s) { src[s.name] = s.count; });
   check('the source counts say which reports each ticket came from',
