@@ -131,6 +131,7 @@ one is switched off.
 | Piece | Status |
 |---|---|
 | the KPI 1 arithmetic - `scoreRows`, `isCompleted`, `toNumber`, `bandFor`, `achievementFor`, `headroomFor`, `groupBy`, `groupByKey`, `round2`, `monthsInScope`, `quarterOf`, `monthsOfQuarter`, `quarterLabel`, `quarterScheme` | DONE - `api/kpi.js` |
+| `sectionFor`, `matchPerson`, `rosterIndex`, `rosterOrderFor` | DONE - `api/roster.js`, table `roster`, filled by `node api/import-roster.js` |
 | `getKpi1`, `readKpi1` | TODO - endpoint |
 | `getKpiComparison` | TODO |
 | `getPeopleByAffiliate`, `listAffiliates` | TODO |
@@ -524,3 +525,57 @@ preserves this rather than threatening it.
 
 Decision deferred until the endpoint is written, and recorded here so it is
 a decision rather than an omission.
+
+## Attribution: which section handled a ticket
+
+`api/roster.js`, table `roster` (`db/12-roster.sql`), filled by
+`node api/import-roster.js`. Proved identical to `src/Config.gs` by
+`api/roster-equivalence-test.js` - **5,681 comparisons**, in `npm test`,
+needing nothing switched on. 18 deliberate breaks, 16 caught; the two that
+cannot be caught are explained below.
+
+**A ticket carries a name, not an employee ID.** `Current Activity In
+Charge` is text the ITSM wrote, and it writes one person several ways. All
+of them must resolve to one person or their tickets split across two rows
+of the table, one labelled `(unassigned)`.
+
+**The section is not the module**, and **sections changed shape in August
+2026** - before that there were two, not four, so an older month is
+reported under the names in force then.
+
+**The roster is not `team.sub_department`.** Two reasons, both silent if
+ignored: the two lists spell sections differently on purpose, and **people
+who have left are not in `team`** - `CONFIG.FORMER` exists so their months
+keep totalling the same number. Build the index from the directory and
+every leaver's tickets fall into `(unassigned)` the day their row goes.
+
+**`import-roster.js` reads `src/Config.gs` directly** rather than a CSV.
+That is where the org chart already is; retyping 37 names would be a
+second copy to keep in step, and the first time they disagreed a month's
+figures would move with nothing to say why.
+
+### Two things found while doing this
+
+**`CONFIG.ROSTER`'s clash map is dead code.** A bare form is only recorded
+when it differs from the key - when the key starts `md` - and it is that
+key with those two characters removed. Two distinct keys sharing a bare
+form would mean `k1.slice(2) === k2.slice(2)` with both starting `md`,
+which means `k1 === k2`: one person. Brute-forced over the honorific
+spellings and the awkward names; nothing collides. It is kept in the port
+because this is a port, but nothing should rely on it to catch a duplicate
+name - two people with the same name are one entry in `full` and the
+second silently replaces the first, which `import-roster.js` **does**
+report.
+
+**Colleagues' names are in `src/Config.gs`, which is in a public
+repository.** That predates this port - `src/` is the live Apps Script
+pulled by clasp - and it is not something the port introduced or can fix
+on its own. It is flagged because the standing rule for this work is that
+personal data does not get committed, and a reader of this file should
+know the rule has an exception they did not choose.
+
+Writing these files, quoting those comments put ten copies of real names
+into four new files without a moment's thought. `roster-equivalence-test.js`
+now fails if any name from the chart appears in a file the port added -
+checked against the roster lifted at run time, so the guard carries no
+list of its own.
