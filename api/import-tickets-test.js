@@ -70,29 +70,28 @@ function makeCsv(records) {
 
 async function main() {
   /*
-    import-tickets.js reads ..\data\TICKETS.csv relative to ITSELF, so the
-    test cannot just point it somewhere. It is copied into a temporary tree
-    that has its own data folder beside it, and run from there - which also
-    means the real data\TICKETS.csv is never read, never written and never
-    at risk from a test run.
+    THE REAL import-tickets.js, RUN IN PLACE, pointed at a CSV in a
+    temporary folder. So the real data\TICKETS.csv is never read, never
+    written and never at risk from a test run - and what is tested is the
+    file that ships rather than a copy that can drift from it.
+
+    The first version copied the script into a temporary tree and
+    symlinked node_modules beside it so the requires would resolve. That
+    fails on Windows with
+
+        EPERM: operation not permitted, symlink ...
+
+    because creating a symlink there needs administrator rights or
+    Developer Mode. Giving the importer an optional path argument removed
+    the need for any of it.
   */
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'tvl-import-'));
-  const apiDir = path.join(tmp, 'api');
-  const dataDir = path.join(tmp, 'data');
-  fs.mkdirSync(apiDir);
-  fs.mkdirSync(dataDir);
-
-  ['import-tickets.js', 'db.js', '.env'].forEach(function (f) {
-    fs.copyFileSync(path.join(__dirname, f), path.join(apiDir, f));
-  });
-  fs.symlinkSync(path.join(__dirname, 'node_modules'),
-                 path.join(apiDir, 'node_modules'), 'dir');
-
-  const csvPath = path.join(dataDir, 'TICKETS.csv');
+  const csvPath = path.join(tmp, 'TICKETS.csv');
+  const script = path.join(__dirname, 'import-tickets.js');
 
   function runImport(records) {
     fs.writeFileSync(csvPath, makeCsv(records));
-    return execFileSync(process.execPath, [path.join(apiDir, 'import-tickets.js')],
+    return execFileSync(process.execPath, [script, csvPath],
                         { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
   }
 
@@ -326,7 +325,7 @@ async function main() {
   fs.writeFileSync(csvPath, 'Ticket ID,Affiliate\nTEST-IMP-9,KSL\n');
   let died = '';
   try {
-    execFileSync(process.execPath, [path.join(apiDir, 'import-tickets.js')],
+    execFileSync(process.execPath, [script, csvPath],
                  { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
   } catch (e) { died = String(e.stderr || ''); }
   check('a CSV missing columns is refused, and says which',

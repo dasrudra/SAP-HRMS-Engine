@@ -41,7 +41,27 @@ const path = require('path');
 const db = require('./db');
 
 const DATA = path.join(__dirname, '..', 'data');
-const TICKETS_CSV = path.join(DATA, 'TICKETS.csv');
+
+/*
+  Normally data\TICKETS.csv, which is the whole procedure. A path may be
+  given instead:
+
+      node import-tickets.js C:\somewhere\else.csv
+
+  That exists so import-tickets-test.js can point THIS file at a CSV it
+  wrote in a temporary folder, rather than copying the script somewhere
+  and running the copy. The first version of the test did copy it, and
+  symlinked node_modules next to the copy so the requires would resolve -
+  which fails on Windows with EPERM unless you are an administrator or
+  have Developer Mode on. A test that needs administrator rights is a test
+  that does not get run.
+
+  Running the real file in place is also the better test: a copy can drift
+  from the thing it is standing in for.
+*/
+const TICKETS_CSV = process.argv[2]
+  ? path.resolve(process.argv[2])
+  : path.join(DATA, 'TICKETS.csv');
 
 
 /*
@@ -295,6 +315,8 @@ async function main() {
     console.error('  Export the TICKETS tab from the spreadsheet:');
     console.error('    File -> Download -> Comma Separated Values (.csv)');
     console.error('  and save it as data\\TICKETS.csv next to the api folder.');
+    console.error('');
+    console.error('  Or give this a path:  node import-tickets.js <file.csv>');
     console.error('');
     process.exit(1);
   }
