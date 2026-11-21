@@ -7,7 +7,7 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "test": "node objectives-test.js && node equivalence-test.js"
+    "test": "node objectives-test.js && node equivalence-test.js && node kpi-equivalence-test.js"
   },
   "dependencies": {
     "cors": "2.8.5",

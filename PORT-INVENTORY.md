@@ -128,10 +128,41 @@ one is switched off.
 | `getPeopleByAffiliate` / `listAffiliates` | TODO | |
 
 ### KPI
-| Endpoint | Status |
+| Piece | Status |
 |---|---|
-| `getKpi1`, `getKpi2` | TODO |
-| `recomputeAfterUpload` | TODO |
+| the KPI 1 arithmetic - `scoreRows`, `isCompleted`, `toNumber`, `bandFor`, `achievementFor`, `headroomFor`, `groupBy`, `groupByKey`, `round2`, `monthsInScope`, `quarterOf`, `monthsOfQuarter`, `quarterLabel`, `quarterScheme` | DONE - `api/kpi.js` |
+| `getKpi1`, `readKpi1` | TODO - endpoint |
+| `getKpiComparison` | TODO |
+| `getPeopleByAffiliate`, `listAffiliates` | TODO |
+| `recomputeKpiCache`, `recomputeAfterUpload` | TODO |
+| `getKpi2` and everything feedback | TODO |
+
+`api/kpi.js` is pure arithmetic and is proved identical to `src/Kpi.gs` and
+`src/Config.gs` by `api/kpi-equivalence-test.js` - **16,239 comparisons**,
+in `npm test`, needing nothing switched on. 21 deliberate breaks were made
+and all 21 were caught.
+
+**The target moved on 1 October 2026 and history is NOT frozen.**
+`Config.gs` records that KPI 1 was 99.50 / 89.55 and that TVL-KPI-001 v1.0
+sets it to 90.00 / 85.00: "the bands are worked out from these numbers
+every time a screen is drawn - so every month shown, past and present, is
+scored against the policy in force today." Months the old figure called
+YELLOW or RED are GREEN now, deliberately. Nothing in the port caches a
+band, so there is nothing that could freeze an old one into place. The
+equivalence test scores against the old thresholds as well as the current
+ones, so putting them back would still agree with `Kpi.gs`.
+
+**Headroom is the number the dashboard should lead with.** In August 2026
+the EAS figure was 1 - the department passed by a single ticket. A band
+alone does not tell you that.
+
+**Three branches needed contrived inputs to test at all**, and they are
+noted in the test rather than left to rot: the `instanceof Date` guard
+(indistinguishable from the line under it for any value a spreadsheet
+produces), the `completed ? ... : 0` guards (invisible at target 90,
+because 0/90 is 0 either way - they only show at target 0), and the
+cross-calendar-year quarter arithmetic (unreachable while both schemes
+start in January).
 
 ### Objectives
 | Endpoint | Status | Notes |
@@ -336,7 +367,7 @@ a library over 100KB is silently refused by the cache anyway.
 | `TEAM` | the directory | `team` | DONE |
 | ACCOUNTS | logins | `account` | PART - 7 of 12 columns; see below |
 | AUTH_LOG | sign-in audit trail | - | TODO |
-| `TICKETS` | ITSM tickets | - | TODO |
+| `TICKETS` | ITSM tickets | `ticket` | PART - table done, import and endpoints not |
 | `KPI_MONTHLY` | monthly KPI figures | - | TODO |
 | `TRAINING` | training records | - | TODO |
 | `KPI_CONFIG` | KPI settings | - | TODO |
@@ -425,7 +456,10 @@ decided for a reason.
 7. ~~Knowledge, Learn, FAQ, By-Weekly~~ DONE except the two that need a
    file store: Knowledge attachments and the Learnings folder scan.
    ("Links" was `getByWeeklyLinks`, so it is four screens, not five.)
-8. KPI 1, KPI 2, Compare, Uploads
+8. **KPI 1, KPI 2, Compare, Uploads** - in progress. The KPI 1
+   arithmetic is ported and proved identical (16,239 comparisons); the
+   `ticket` table exists. Next: the ticket import, then `getKpi1`,
+   then Compare, then KPI 2.
 9. Accounts and audit log
 10. The shell: home, nav, the remaining static screens
 
