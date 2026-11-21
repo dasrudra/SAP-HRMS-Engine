@@ -134,7 +134,8 @@ one is switched off.
 | `getKpi1`, `readKpi1` | TODO - endpoint |
 | `getKpiComparison` | TODO |
 | `getPeopleByAffiliate`, `listAffiliates` | TODO |
-| `recomputeKpiCache`, `recomputeAfterUpload` | TODO |
+| `recomputeKpiCache`, `recomputeAfterUpload` | TODO - and probably not needed; see below |
+| the ticket merge (`mergeRows`, `stampOf`, `isBlank`, `truthy`) | DONE - `api/import-tickets.js` |
 | `getKpi2` and everything feedback | TODO |
 
 `api/kpi.js` is pure arithmetic and is proved identical to `src/Kpi.gs` and
@@ -367,7 +368,7 @@ a library over 100KB is silently refused by the cache anyway.
 | `TEAM` | the directory | `team` | DONE |
 | ACCOUNTS | logins | `account` | PART - 7 of 12 columns; see below |
 | AUTH_LOG | sign-in audit trail | - | TODO |
-| `TICKETS` | ITSM tickets | `ticket` | PART - table done, import and endpoints not |
+| `TICKETS` | ITSM tickets | `ticket` | PART - table and import done (`node api/import-tickets.js`), endpoints not |
 | `KPI_MONTHLY` | monthly KPI figures | - | TODO |
 | `TRAINING` | training records | - | TODO |
 | `KPI_CONFIG` | KPI settings | - | TODO |
@@ -465,3 +466,61 @@ decided for a reason.
 
 Apps Script keeps running untouched throughout. Nothing is switched off
 until its row says DONE.
+
+---
+
+## The ticket import
+
+`node api/import-tickets.js` reads `data/TICKETS.csv` - the TICKETS tab
+exported as CSV - and merges it into the `ticket` table. Tested by
+`api/import-tickets-test.js`: 28 checks, 11 deliberate breaks, none
+survived.
+
+**It does NOT clear the table first**, unlike `import-objectives.js` which
+does. The objectives are a fixed list re-exported whole; tickets arrive in
+overlapping exports that each carry part of the picture, and the merge is
+how two partial views become one row. Clearing would throw away whichever
+half was not in today's file.
+
+`Ingest.gs mergeRows` is one `INSERT ... ON CONFLICT DO UPDATE` here rather
+than read-merge-write, so two imports running together cannot each start
+from the same copy. Three rules, and they are not the same rule:
+
+| | |
+|---|---|
+| most columns | take the incoming value if the existing one is blank **or** the incoming row is newer. A blank incoming value never erases a real one. |
+| `In Overall Report`, `In Dept Report` | always OR'd. Which reports a ticket appeared in is what decides whether EAS is scored on it. |
+| `Source Files` | accumulates, unique, in the order first seen, so the audit trail shows every file that contributed. |
+
+A row with no `Last Updated` counts as **oldest**, so it cannot overwrite
+anything on a recency claim it has not made.
+
+**Why the TICKETS tab and not the ITSM .xlsx files.** The Apps Script
+system has the *browser* parse the five exports, decide which report each
+is, normalise and merge them - because "parsing a 20,000-row spreadsheet on
+the server would run straight into the 6-minute execution ceiling". That
+work is done by the time rows reach the tab. Replacing it is the Uploads
+screen, which is still outstanding; until then Apps Script keeps merging
+and this carries the result across.
+
+## The KPI_MONTHLY cache, and why the port may not want one
+
+`readKpi1` reads a cache tab rather than the tickets, and `recomputeKpiCache`
+rebuilds it after every upload. The cache exists because reading 20,000
+spreadsheet rows on every page load is slow - the same reason the By-Weekly
+and Learnings caches existed, but with far more rows behind it.
+
+A `GROUP BY` over an indexed table is not that. The cache also has a cost
+the original carries: it has to be recomputed, and a month whose recompute
+was missed shows stale figures.
+
+The one subtlety to preserve is in `readKpi1`'s own note: **an all-months
+figure is not an average of monthly figures.** January with 4 completed and
+one delay scores 75%; August with 2,640 and 11 scores 99.58%; their mean is
+87.29%, "which describes nothing that happened". The true rate is
+`sum(successful) / sum(completed)`. Summing raw counts and recomputing is
+exactly what a SQL aggregate does by construction, so dropping the cache
+preserves this rather than threatening it.
+
+Decision deferred until the endpoint is written, and recorded here so it is
+a decision rather than an omission.
