@@ -148,8 +148,16 @@ async function main() {
   }
   await wipe();
 
+  /*
+    ORDER BY, because LIMIT 1 without one picks whichever row the planner
+    reaches first and that is not promised to be the same row twice. With
+    more than one admin account in the database this test asked for a
+    different person's password between runs and reported "wrong employee
+    ID or password" at somebody who had typed the right one.
+  */
   const admin = await db.query(
-    "SELECT employee_id FROM account WHERE role IN ('ADMIN','MASTER') LIMIT 1");
+    `SELECT employee_id FROM account WHERE role IN ('ADMIN','MASTER')
+      ORDER BY employee_id LIMIT 1`);
   if (!admin.rows.length) {
     console.log('\n  No admin account - run set-password.js <id> --admin first.\n');
     process.exit(1);

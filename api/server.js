@@ -34,6 +34,7 @@ const objRead = require('./objectives-read');
 const objWrite = require('./objectives-write');
 const msgRead = require('./messenger-read');
 const msgWrite = require('./messenger-write');
+const content = require('./content');
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
@@ -1260,10 +1261,6 @@ app.post('/api/messages/delete', requireAuth, requireMaster,
 /*
   Ported from messengerBoot [Messenger.gs:66]. One round trip rather than
   three, because this runs on every page load for every person.
-
-  faq IS EMPTY UNTIL THE FAQ TAB IS PORTED. It is listed as outstanding in
-  PORT-INVENTORY.md rather than quietly dropped - the panel reads this key
-  and will fill up on its own the day faqEntries exists.
 */
 app.get('/api/messages/boot', requireAuth, async function (req, res) {
   try {
@@ -1274,7 +1271,7 @@ app.get('/api/messages/boot', requireAuth, async function (req, res) {
     res.json({
       ok: true,
       signedIn: true,
-      faq: [],
+      faq: await content.faqEntries(),
       threads: threads,
       unread: threads.reduce(function (n, t) { return n + t.unread; }, 0),
       name: await msgWrite.nameOf(me),
@@ -1291,6 +1288,174 @@ app.get('/api/messages/boot', requireAuth, async function (req, res) {
     });
   } catch (err) {
     fail(res, err, 'could not open the message panel');
+  }
+});
+
+
+// ===========================================================================
+// CONTENT - the FAQ, the meeting links, Knowledge Share, Learnings
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// GET /api/faq - the published questions. NO SIGN-IN.
+// ---------------------------------------------------------------------------
+/*
+  Ported from faqEntries [Questions.gs:53], which takes no token either:
+  "The FAQ is on the sign-in page, where nobody has one, and there is
+  nothing in it that is not already meant for everybody."
+
+  The one endpoint in this API that is both public and read-only. It cannot
+  be made to say anything about who works here, which is the property that
+  makes leaving it open safe - unlike /api/messages/signin, which is public
+  because it has to be and is defended from the inside.
+*/
+app.get('/api/faq', async function (req, res) {
+  try {
+    const faq = await content.faqEntries();
+    res.json({ ok: true, count: faq.length, faq: faq });
+  } catch (err) {
+    fail(res, err, 'could not read the FAQ');
+  }
+});
+
+
+// ---------------------------------------------------------------------------
+// GET /api/links - the portal's own links.
+// ---------------------------------------------------------------------------
+/*
+  Ported from portalLinks [Config.gs:1772]. Every address in it is public -
+  a SharePoint site, a blogspot page, Microsoft's own sign-in - which is
+  why they can be written down in a file at all. The one entry that is not
+  a site carries `view: 'byweekly'` and opens the page of four section
+  buttons instead, because the four addresses behind THAT are personal
+  OneDrive links and live in a table.
+
+  Signed in, like every other screen. The addresses are not secret, but
+  which systems a company uses is not something to hand out to anybody who
+  finds the API.
+*/
+app.get('/api/links', requireAuth, function (req, res) {
+  try {
+    const links = content.portalLinks();
+    res.json({ ok: true, count: links.length, links: links });
+  } catch (err) {
+    fail(res, err, 'could not read the links');
+  }
+});
+
+
+// ---------------------------------------------------------------------------
+// GET /api/byweekly - where each section keeps its meeting deck.
+// ---------------------------------------------------------------------------
+app.get('/api/byweekly', requireAuth, async function (req, res) {
+  try {
+    res.json(await content.byWeeklyLinks());
+  } catch (err) {
+    fail(res, err, 'could not read the meeting links');
+  }
+});
+
+
+// ---------------------------------------------------------------------------
+// POST /api/byweekly - set one section's address. MASTER ONLY.
+// ---------------------------------------------------------------------------
+/*
+  NOT IN THE ORIGINAL, where the four addresses are typed straight into the
+  BY_WEEKLY tab and refreshByWeeklyLinks() is run from the script editor.
+  There is no tab to type into any more, so without this the addresses
+  could only be changed with SQL - which is a worse answer than a guarded
+  endpoint for something four people need to update when SharePoint
+  reissues a share link.
+
+  MASTER, because these addresses are the one piece of this screen that is
+  not already public: they are personal OneDrive links carrying their
+  owner's work email in the path. Changing one points every colleague at a
+  different document.
+*/
+app.post('/api/byweekly', requireAuth, requireMaster,
+  async function (req, res) {
+    try {
+      const b = req.body || {};
+      const out = await content.setByWeeklyLink(b.section, b.url);
+      res.status(out.ok ? 200 : 400).json(out);
+    } catch (err) {
+      fail(res, err, 'could not save that address');
+    }
+  });
+
+
+// ---------------------------------------------------------------------------
+// GET /api/knowledge - everything the Knowledge Share page needs.
+// ---------------------------------------------------------------------------
+app.get('/api/knowledge', requireAuth, async function (req, res) {
+  try {
+    const data = await content.getKnowledge(req.user.employeeId);
+    data.ok = true;
+    res.json(data);
+  } catch (err) {
+    fail(res, err, 'could not read the shares');
+  }
+});
+
+
+// ---------------------------------------------------------------------------
+// POST /api/knowledge - post a share. ANYBODY SIGNED IN.
+// ---------------------------------------------------------------------------
+/*
+  No admin check, and that is the screen's whole point. Knowledge.gs:
+  "ANYBODY SIGNED IN CAN POST, there is no approval step, and there is no
+  naming convention to get wrong." Learnings is the half with the approval
+  step; this is the other half.
+*/
+app.post('/api/knowledge', requireAuth, async function (req, res) {
+  try {
+    const out = await content.createKnowledge(req.user.employeeId, req.body);
+    res.status(out.ok ? 200 : 400).json(out);
+  } catch (err) {
+    fail(res, err, 'could not post that share');
+  }
+});
+
+
+// ---------------------------------------------------------------------------
+// POST /api/knowledge/delete - remove a share. THE AUTHOR ONLY.
+// ---------------------------------------------------------------------------
+/*
+  requireAuth and no more, because the check is not about rank: it is the
+  author and nobody else, not even a master. Knowledge.gs decided that
+  deliberately - this is a page people post half-finished thoughts to, and
+  a note somebody else can delete is a note people think twice about
+  writing. The awkward case, a share whose author has left, is rare; the
+  chilling effect would be constant.
+
+  So requireMaster here would be the wrong guard, not a stricter one.
+*/
+app.post('/api/knowledge/delete', requireAuth, async function (req, res) {
+  try {
+    const out = await content.deleteKnowledge(
+      req.user.employeeId, (req.body || {}).id);
+    res.status(out.ok ? 200 : 400).json(out);
+  } catch (err) {
+    fail(res, err, 'could not remove that share');
+  }
+});
+
+
+// ---------------------------------------------------------------------------
+// GET /api/learn - the approved document library.
+// ---------------------------------------------------------------------------
+/*
+  Ported from getLearning [Learn.gs:909]. READ ONLY from the page, and that
+  is correct - "an SOP anybody can edit from a browser is not an SOP."
+  Documents arrive by a folder scan, which this port has not replaced yet.
+*/
+app.get('/api/learn', requireAuth, async function (req, res) {
+  try {
+    const library = await content.readLearn();
+    library.ok = true;
+    res.json(library);
+  } catch (err) {
+    fail(res, err, 'could not read the library');
   }
 });
 

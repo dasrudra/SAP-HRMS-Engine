@@ -116,7 +116,7 @@ one is switched off.
 | Endpoint | Status |
 |---|---|
 | `getBootstrap` | TODO |
-| `getByWeeklyLinks` | TODO |
+| `getByWeeklyLinks` | `GET /api/byweekly` - DONE (plus a new MASTER-only `POST` to set an address) |
 
 ### Team and presence
 | Endpoint | Status | Notes |
@@ -265,11 +265,59 @@ nothing to prove they are the same human. The inbox and the badge both
 read it off one answer so they cannot disagree.
 
 ### Knowledge and learning
-| Endpoint | Status |
-|---|---|
-| `getKnowledge`, `createKnowledge`, `addKnowledgeChunk`, `deleteKnowledge` | TODO |
-| `getLearning` | TODO |
-| `faqEntries` | TODO |
+| Endpoint | New route | Status |
+|---|---|---|
+| `faqEntries` | `GET /api/faq` | DONE |
+| `getKnowledge` | `GET /api/knowledge` | DONE |
+| `createKnowledge` | `POST /api/knowledge` | DONE |
+| `deleteKnowledge` | `POST /api/knowledge/delete` | DONE |
+| `getLearning` | `GET /api/learn` | DONE |
+| `addKnowledgeChunk` | - | TODO - needs a file store |
+| `scanLearnFolder`, `walkLearnFolder`, `syncLearnFolder` | - | TODO - needs a file store |
+
+All four screens are in `api/content.js`, tables in `db/10-content.sql`,
+tested by `api/content-test.js` - 83 checks, 25 deliberate breaks, none
+survived.
+
+**The FAQ seed is a fallback, not a starting point.** An empty `faq` table
+means the seven questions in `Config.gs FAQ_SEED`, "so a fresh database
+still has something to show". One row in the table and the seed is not used
+at all - an override rather than a merge, which is the only version that
+lets somebody delete a seeded question.
+
+**Removing a Knowledge share is the author's and nobody else's**, not even
+a master's. `Knowledge.gs` decided it that way on purpose: this is a page
+people post half-finished thoughts to, and a note somebody else can delete
+is a note people think twice about writing. `requireMaster` on that route
+would be the wrong guard, not a stricter one. The awkward case - a share
+whose author has left - is rare, and the chilling effect would be constant.
+
+**Learnings and Knowledge look alike and behave nothing alike.** Learnings
+is the approved library, read-only from the page, because "an SOP anybody
+can edit from a browser is not an SOP". Knowledge is the other half:
+anybody signed in can post, no approval step. Sharing one file does not
+mean they are converging.
+
+**`GET /api/faq` is the only public, read-only endpoint in the API.** It
+takes no token because the FAQ is on the sign-in page, where nobody has
+one. It cannot be made to say anything about who works here, which is what
+makes leaving it open safe - unlike `POST /api/messages/signin`, which is
+public because it has to be and is defended from the inside.
+
+**`POST /api/byweekly` is new, and is MASTER only.** There is no tab to
+type an address into any more, so without it the four meeting links could
+only be changed with SQL. They are personal OneDrive links carrying their
+owner's work email in the path, and changing one points every colleague at
+a different document. A `javascript:` address is refused at the point of
+saving, not merely hidden at the point of drawing, so it cannot sit in the
+table looking saved.
+
+**Two caches were dropped deliberately**, both of which existed to avoid a
+whole-tab read: `byweekly.links` (one hour) and `learn.library` (ten
+minutes). A query on an indexed table is not what they were protecting
+against, and each had a cost the original records - `refreshByWeeklyLinks`
+exists only to clear the first after an edit, and `getLearning` notes that
+a library over 100KB is silently refused by the cache anyway.
 
 ### Uploads
 | Endpoint | Status |
@@ -295,12 +343,12 @@ read it off one answer so they cannot disagree.
 | `OPERATORS` | operator list | - | TODO |
 | `UPLOAD_LOG` | upload history | - | TODO |
 | `QUESTIONS` | questions | - | TODO |
-| `FAQ` | FAQ entries | - | TODO |
+| `FAQ` | FAQ entries | `faq` | DONE - empty table means the built-in seed |
 | `THREADS` | messenger threads | `msg_thread` | PART - table done, data not imported |
 | `MESSAGES` | messenger messages | `msg_line` | PART - table done, data not imported |
-| `LEARN` | learning entries | - | TODO |
-| `KNOWLEDGE` | knowledge posts | - | TODO |
-| `BY_WEEKLY` | meeting links | - | TODO |
+| `LEARN` | learning entries | `learn` | PART - table and read side done, the folder scan that fills it is not |
+| `KNOWLEDGE` | knowledge posts | `knowledge` | DONE - attachments wait on a file store |
+| `BY_WEEKLY` | meeting links | `by_weekly` | DONE - the four rows exist, paste the addresses in |
 | `OBJ_PLAN` / `OBJ_TASK` | objectives | `obj_plan` / `obj_task` | DONE - `node api/import-objectives.js` |
 | `OBJ_LOG` | objective marks | `obj_log` | PART |
 | MIN_MEET | orphaned - to be deleted | - | n/a |
@@ -374,7 +422,9 @@ decided for a reason.
    a file store, and the `faq` key in `messengerBoot`, which needs the FAQ
    tab. Reading, sending, replying, attaching and deleting are all ported
    and tested.
-7. Knowledge, Learn, FAQ, Links, By-Weekly
+7. ~~Knowledge, Learn, FAQ, By-Weekly~~ DONE except the two that need a
+   file store: Knowledge attachments and the Learnings folder scan.
+   ("Links" was `getByWeeklyLinks`, so it is four screens, not five.)
 8. KPI 1, KPI 2, Compare, Uploads
 9. Accounts and audit log
 10. The shell: home, nav, the remaining static screens
