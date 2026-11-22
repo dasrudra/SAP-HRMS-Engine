@@ -5,8 +5,12 @@
  * THIS FILE IS PLAIN ASCII, like the rest of the project.
  *
  *     cd api
- *     node restore.js <file> tvl_eas_check          into a second database
- *     node restore.js <file> tvl_eas --over-live    over the real one
+ *     node restore.js --latest tvl_eas_check --user=postgres
+ *     node restore.js --latest tvl_eas --over-live --user=postgres
+ *
+ * --latest means the newest file in BACKUP_DIR, so there is no name to
+ * type. Put a file name or a path in its place to use an older one; a bare
+ * name is looked for in BACKUP_DIR.
  *
  *
  * WHY THIS EXISTS AND WHY YOU SHOULD RUN IT TODAY
@@ -25,16 +29,29 @@
  *
  * WHAT IT NEEDS THAT THE REST OF THE API DOES NOT
  *
- * Creating a database is not something tvl_api is allowed to do, and that is
- * correct - see db/04-api-user.sql. So this one script needs a PostgreSQL
- * user that can. Set the two variables in the terminal before running it,
- * which beats them in api/.env because dotenv does not overwrite what is
- * already in the environment:
+ * Creating a database is not something tvl_api is allowed to do, and that
+ * is correct - see db/04-api-user.sql. So this one script needs a
+ * PostgreSQL user that can, and --user=postgres is how you say so. It then
+ * asks for that user's password and the typing is not echoed.
  *
- *     Windows:   set PGUSER=postgres
- *                set PGPASSWORD=the-postgres-password
+ * THE PASSWORD IS ASKED FOR RATHER THAN READ FROM THE TERMINAL, and the
+ * reason is a real afternoon lost to it. The instructions used to say
  *
- * They last only as long as that terminal window.
+ *     set PGUSER=postgres
+ *
+ * which is cmd.exe syntax. In PowerShell `set` is an alias for
+ * Set-Variable, so that line creates a PowerShell variable whose NAME is
+ * the whole string "PGUSER=postgres", sets no environment variable, prints
+ * no error, and the script then quietly carries on as whoever api/.env
+ * said. The PowerShell spelling is $env:PGUSER = "postgres". Two shells,
+ * two spellings, one of them silent when it is wrong - so the flag asks
+ * instead, and there is nothing to spell.
+ *
+ * It also keeps the password out of the terminal history and out of the
+ * scrollback, which matters on a shared machine.
+ *
+ * Setting $env:PGUSER and $env:PGPASSWORD by hand still works, for a script
+ * that cannot answer a prompt. Leave --user off when you do.
  *
  *
  * NO REAL DATA IS IN THIS FILE.
@@ -52,6 +69,126 @@ const backup = require('./backup');
 /** A database name this script is willing to touch. */
 function validName(name) {
   return /^[a-z_][a-z0-9_]{0,62}$/.test(String(name || ''));
+}
+
+
+/**
+ * The value of a --name=value argument, or ''.
+ *
+ * ONLY THE = FORM. Accepting `--user postgres` as well would mean
+ * 'postgres' was both the flag's value and a bare argument, and the bare
+ * arguments are how the file and the database are named - so a space there
+ * would silently make 'postgres' the database to restore into. The = form
+ * cannot be confused with anything.
+ *
+ * startsWith(name + '=') and not startsWith(name): otherwise --username=x
+ * would answer a question about --user.
+ */
+function optionValue(args, name) {
+  const hit = (args || []).find(function (a) {
+    return String(a).startsWith(name + '=');
+  });
+  return hit ? hit.slice(name.length + 1) : '';
+}
+
+
+/** True when exactly this flag is present. Not a prefix match. */
+function hasFlag(args, name) {
+  return (args || []).indexOf(name) !== -1;
+}
+
+
+/**
+ * Asks for a password without echoing it.
+ *
+ * Raw mode, so every keystroke arrives here instead of being printed. A
+ * chunk can hold more than one character - a fast typist, and certainly a
+ * paste - so it is walked character by character rather than treated as
+ * one key.
+ */
+function askPassword(label) {
+  return new Promise(function (resolve, reject) {
+    const stdin = process.stdin;
+
+    if (!stdin.isTTY) {
+      reject(new Error('there is no terminal to ask in. Set the password ' +
+                       'in the environment instead:  $env:PGPASSWORD = "..."' +
+                       '  and leave --user off.'));
+      return;
+    }
+
+    let value = '';
+    let done = false;
+
+    process.stdout.write(label);
+    stdin.setRawMode(true);
+    stdin.resume();
+    stdin.setEncoding('utf8');
+
+    function finish(cancelled) {
+      done = true;
+      stdin.setRawMode(false);
+      stdin.pause();
+      stdin.removeListener('data', onData);
+      process.stdout.write('\n');
+      if (cancelled) process.exit(130);      // what Ctrl+C means
+      resolve(value);
+    }
+
+    function onData(chunk) {
+      for (const ch of String(chunk)) {
+        if (done) return;
+        if (ch === '\r' || ch === '\n' || ch === '\u0004') { finish(false); }
+        else if (ch === '\u0003') { finish(true); }
+        else if (ch === '\u007f' || ch === '\b') { value = value.slice(0, -1); }
+        else if (ch >= ' ') { value += ch; }
+      }
+    }
+
+    stdin.on('data', onData);
+  });
+}
+
+
+/**
+ * Prints what is actually in the backup folder.
+ *
+ * Shown whenever a file cannot be found, because the reason it cannot be
+ * found is usually that an example file name from a set of instructions was
+ * copied literally. Seeing the real names beside the invented one ends that
+ * in a second.
+ */
+function listBackups() {
+  const dir = backup.backupDir();
+  let names = [];
+  try {
+    names = fs.readdirSync(dir).filter(backup.isBackupFile);
+  } catch (e) {
+    console.error('');
+    console.error('  BACKUP_DIR is ' + dir + ' and it cannot be read: ' +
+                  e.message);
+    return;
+  }
+
+  if (!names.length) {
+    console.error('');
+    console.error('  There are no backups in ' + dir);
+    console.error('  Make one with:  node backup.js');
+    return;
+  }
+
+  names.sort(function (a, b) {
+    return backup.parseBackupName(b).at - backup.parseBackupName(a).at;
+  });
+
+  console.error('');
+  console.error('  What is actually in ' + dir + ', newest first:');
+  names.slice(0, 5).forEach(function (n, i) {
+    console.error('    ' + (i === 0 ? '--latest ->' : '           ') + ' ' + n);
+  });
+  if (names.length > 5) {
+    console.error('    ... and ' + (names.length - 5) + ' more');
+  }
 }
 
 
@@ -141,29 +278,79 @@ function compare(expected, actual) {
 
 async function main() {
   const args = process.argv.slice(2);
-  const flags = args.filter(function (a) { return a.startsWith('--'); });
-  const plain = args.filter(function (a) { return !a.startsWith('--'); });
-  const overLive = flags.indexOf('--over-live') !== -1;
+  const plain = args.filter(function (a) { return !String(a).startsWith('--'); });
+  const overLive = hasFlag(args, '--over-live');
+  const latest = hasFlag(args, '--latest');
+  const asUser = optionValue(args, '--user');
 
-  const file = plain[0];
-  const target = plain[1];
-
-  if (!file || !target) {
+  // `--user postgres` with a space would make 'postgres' a bare argument,
+  // and bare arguments are the file and the database. Caught here rather
+  // than left to restore into a database called postgres.
+  if (hasFlag(args, '--user') && !asUser) {
     console.error('');
-    console.error('  node restore.js <file> <database> [--over-live]');
-    console.error('');
-    console.error('  Examples:');
-    console.error('    node restore.js "' +
-                  path.join(backup.backupDir(), backup.backupFileName()) +
-                  '" tvl_eas_check');
-    console.error('    node restore.js <file> ' + backup.settings().database +
-                  ' --over-live');
+    console.error('  Write it as --user=postgres, with the equals sign and');
+    console.error('  no space. With a space, "postgres" would be read as the');
+    console.error('  name of the database to restore into.');
     console.error('');
     process.exit(1);
   }
 
+  let file = latest ? '' : plain[0];
+  const target = latest ? plain[0] : plain[1];
+
+  if ((!latest && !file) || !target) {
+    console.error('');
+    console.error('  node restore.js --latest <database> --user=postgres');
+    console.error('  node restore.js <file>   <database> --user=postgres');
+    console.error('');
+    console.error('  Examples:');
+    console.error('    node restore.js --latest ' +
+                  backup.settings().database + '_check --user=postgres');
+    console.error('    node restore.js --latest ' + backup.settings().database +
+                  ' --over-live --user=postgres');
+    console.error('');
+    console.error('  --latest is the newest backup in BACKUP_DIR. Nothing to');
+    console.error('  type, nothing to mistype.');
+    listBackups();
+    console.error('');
+    process.exit(1);
+  }
+
+  if (latest) {
+    const dir = backup.backupDir();
+    let names = [];
+    try {
+      names = fs.readdirSync(dir);
+    } catch (e) {
+      console.error('  Could not read ' + dir + ': ' + e.message);
+      process.exit(1);
+    }
+    const newest = backup.newestBackup(names);
+    if (!newest) {
+      console.error('  There are no backups in ' + dir);
+      console.error('  Make one with:  node backup.js');
+      process.exit(1);
+    }
+    file = path.join(dir, newest);
+    console.log('');
+    console.log('  Newest backup: ' + newest);
+  }
+
+  /*
+    A bare file name means the one in BACKUP_DIR. Typing the folder as well
+    is the other half of what goes wrong - a long path with spaces in it,
+    quoted by hand, at a command prompt.
+  */
+  if (file && !/[\\/]/.test(file) && !fs.existsSync(file)) {
+    const inDir = path.join(backup.backupDir(), file);
+    if (fs.existsSync(inDir)) file = inDir;
+  }
+
   if (!fs.existsSync(file)) {
+    console.error('');
     console.error('  There is no file at ' + path.resolve(file));
+    listBackups();
+    console.error('');
     process.exit(1);
   }
 
@@ -177,6 +364,29 @@ async function main() {
   if (!backup.isBackupFile(path.basename(file))) {
     console.warn('  Note: ' + path.basename(file) + ' is not a name this system' +
                  ' wrote. Carrying on, but check it is the file you meant.');
+  }
+
+  /*
+    THE USER OVERRIDE, APPLIED BEFORE ANYTHING READS THE SETTINGS.
+
+    settings() reads process.env every time it is called, so writing to
+    process.env here is enough for adminClient(), countsIn() and
+    pg_restore. The pool in db.js is NOT affected - it captured its own
+    settings when the module loaded - which is what we want: the live
+    database carries on being read as tvl_api, and only the create/restore
+    work is done as the stronger user.
+
+    It always asks for the password, never reuses the one from api/.env:
+    that one belongs to tvl_api and would simply be wrong for postgres,
+    and a wrong password here produces an authentication failure that
+    looks like a permissions problem.
+  */
+  if (asUser) {
+    process.env.PGUSER = asUser;
+    const where = (process.env.PGHOST || '127.0.0.1') + ':' +
+                  (process.env.PGPORT || '5432');
+    process.env.PGPASSWORD =
+      await askPassword('  Password for ' + asUser + ' on ' + where + ': ');
   }
 
   const cfg = backup.settings();
@@ -197,7 +407,8 @@ async function main() {
     console.error('  REFUSING. ' + target + ' is the live database.');
     console.error('');
     console.error('  Restore into a second database first and look at it:');
-    console.error('    node restore.js "' + file + '" ' + live + '_check');
+    console.error('    node restore.js ' + (latest ? '--latest' : '"' + file + '"') +
+                  ' ' + live + '_check' + (asUser ? ' --user=' + asUser : ''));
     console.error('');
     console.error('  If you really do mean to replace the live database and');
     console.error('  lose everything since that file was written, add');
@@ -221,9 +432,11 @@ async function main() {
     console.error('    ' + e.message);
     console.error('');
     console.error('  This script needs a user that may CREATE DATABASE, and');
-    console.error('  tvl_api deliberately may not. In this terminal:');
-    console.error('    set PGUSER=postgres');
-    console.error('    set PGPASSWORD=the-postgres-password');
+    console.error('  tvl_api deliberately may not. Add the flag and it will');
+    console.error('  ask for the password:');
+    console.error('');
+    console.error('    node restore.js ' + (latest ? '--latest' : '<file>') +
+                  ' ' + target + ' --user=postgres');
     console.error('');
     process.exit(1);
   }
@@ -447,4 +660,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { validName, countsIn, compare };
+module.exports = { validName, optionValue, hasFlag, countsIn, compare };

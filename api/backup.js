@@ -189,6 +189,34 @@ function isBackupFile(name) {
 
 
 /**
+ * The newest backup in a list of file names, or '' if there is not one.
+ *
+ * EXISTS SO THAT NOBODY HAS TO TYPE A FILE NAME. A restore happens on the
+ * worst day of the year, by somebody who is not calm, and the name of the
+ * file to restore is 38 characters of digits. Worse, an example file name
+ * written in a set of instructions gets copied literally - which is exactly
+ * what happened the first time these instructions were followed, and the
+ * restore stopped on a file that had never existed.
+ *
+ * `node restore.js --latest` uses this instead.
+ */
+function newestBackup(names) {
+  let best = '';
+  let bestAt = -1;
+
+  (names || []).forEach(function (name) {
+    const parsed = parseBackupName(name);
+    if (parsed && parsed.at > bestAt) {
+      bestAt = parsed.at;
+      best = name;
+    }
+  });
+
+  return best;
+}
+
+
+/**
  * Which files to delete, newest kept.
  *
  * pruneBackups() in Backup.gs, with two differences, both deliberate:
@@ -892,7 +920,12 @@ function restoreGuide() {
   console.log('   look at it without touching the live one:');
   console.log('');
   console.log('     cd api');
-  console.log('     node restore.js <file> tvl_eas_check');
+  console.log('     node restore.js --latest ' + cfg.database +
+              '_check --user=postgres');
+  console.log('');
+  console.log('   --latest picks the newest file in that folder, so there');
+  console.log('   is no name to type. To use an older one, pass its name');
+  console.log('   in place of --latest.');
   console.log('');
   console.log('   Compare, then decide. Restoring over the live database is');
   console.log('   the same command with --over-live, and it replaces');
@@ -902,8 +935,9 @@ function restoreGuide() {
   console.log('   On the machine that will run it next:');
   console.log('     - install the same major version of PostgreSQL');
   console.log('     - git clone the repository');
-  console.log('     - createdb ' + cfg.database);
-  console.log('     - node restore.js <newest .dump> ' + cfg.database);
+  console.log('     - node restore.js --latest ' + cfg.database +
+              ' --user=postgres');
+  console.log('       (it creates the database for you)');
   console.log('     - psql -d ' + cfg.database + ' -f db/04-api-user.sql');
   console.log('       (the restore leaves out roles and grants on purpose -');
   console.log('        that file is where they come from)');
@@ -1063,7 +1097,7 @@ async function main() {
 
 module.exports = {
   BACKUP_KEEP, BACKUP_STALE_HOURS, BACKUP_PREFIX, BACKUP_SUFFIX,
-  stamp, backupFileName, parseBackupName, isBackupFile, toPrune,
+  stamp, backupFileName, parseBackupName, isBackupFile, newestBackup, toPrune,
   repoRoot, backupDir, insideRepo, mkdirProblem,
   pgTool, settings, dumpArgs, restoreArgs, run,
   countQueryFor, rowCounts, tablesInDump, tableCountProblem,

@@ -189,6 +189,91 @@ async function main() {
 
   check('an empty folder prunes nothing', backup.toPrune([], 30).length === 0);
 
+
+  // =======================================================================
+  console.log('');
+  console.log('  newestBackup() - so that no file name has to be typed');
+  // =======================================================================
+  /*
+    The first time these instructions were followed, the example file name
+    out of the instructions was pasted in literally and the restore stopped
+    on a file that had never existed. --latest exists so there is nothing
+    to copy.
+  */
+  check('the newest of five', backup.newestBackup(five) === nm('2026-11-22-0200'));
+  check('order does not matter',
+        backup.newestBackup(five.slice().reverse()) === nm('2026-11-22-0200'));
+  check('a messy folder still finds the newest backup',
+        backup.newestBackup(messy) === nm('2026-11-22-0200'));
+  check('an invalid-month file is never the newest',
+        backup.newestBackup(['tvl-eas-backup-2026-13-01-0200.dump',
+                             nm('2026-11-18-0200')]) === nm('2026-11-18-0200'));
+  check('a .dump.part is never the newest',
+        backup.newestBackup(['tvl-eas-backup-2026-11-30-0200.dump.part',
+                             nm('2026-11-18-0200')]) === nm('2026-11-18-0200'));
+  check('nothing at all gives an empty string',
+        backup.newestBackup([]) === '');
+  check('a folder with no backups gives an empty string',
+        backup.newestBackup(['TICKETS.csv', 'notes.txt']) === '');
+  check('undefined gives an empty string',
+        backup.newestBackup(undefined) === '');
+  check('one backup is its own newest',
+        backup.newestBackup([nm('2026-11-18-0200')]) === nm('2026-11-18-0200'));
+  check('minutes are compared, not only days',
+        backup.newestBackup([nm('2026-11-22-0200'), nm('2026-11-22-1629')]) ===
+        nm('2026-11-22-1629'));
+
+
+  // =======================================================================
+  console.log('');
+  console.log('  restore.js argument handling');
+  // =======================================================================
+  const restore = require('./restore');
+
+  check('--user=postgres is read',
+        restore.optionValue(['--user=postgres'], '--user') === 'postgres');
+  check('and it is found among other arguments',
+        restore.optionValue(['--latest', 'db', '--user=rudra', '--over-live'],
+                            '--user') === 'rudra');
+  /*
+    --username= must not answer a question about --user. A prefix match
+    would have the script connect as whatever came after a longer flag.
+  */
+  check('--username=x does not answer for --user',
+        restore.optionValue(['--username=x'], '--user') === '');
+  check('--user= with nothing after it is empty',
+        restore.optionValue(['--user='], '--user') === '');
+  check('no flag at all is empty',
+        restore.optionValue(['--latest', 'db'], '--user') === '');
+  check('no arguments at all is empty',
+        restore.optionValue([], '--user') === '' &&
+        restore.optionValue(undefined, '--user') === '');
+  /*
+    The space form is deliberately NOT accepted - see optionValue. Read as
+    a value it would also still be a bare argument, and bare arguments name
+    the database to restore into.
+  */
+  check('the space form is not read as a value',
+        restore.optionValue(['--user', 'postgres'], '--user') === '');
+
+  check('a flag that is present', restore.hasFlag(['--latest'], '--latest'));
+  check('a flag that is absent',
+        restore.hasFlag(['--over-live'], '--latest') === false);
+  check('a longer flag is not the same flag',
+        restore.hasFlag(['--over-lived'], '--over-live') === false);
+  check('no arguments, no flags',
+        restore.hasFlag([], '--latest') === false &&
+        restore.hasFlag(undefined, '--latest') === false);
+
+  check('a database name this script will use',
+        restore.validName('tvl_eas_check') === true);
+  check('upper case is refused', restore.validName('TVL_EAS') === false);
+  check('a semicolon is refused',
+        restore.validName('tvl; DROP DATABASE x') === false);
+  check('a leading digit is refused', restore.validName('1db') === false);
+  check('a hyphen is refused', restore.validName('tvl-eas') === false);
+  check('empty is refused', restore.validName('') === false);
+
   // A typo in a config value must not be able to delete every copy.
   check('keep 0 throws rather than deleting everything',
         threw(function () { backup.toPrune(five, 0); }));
