@@ -130,6 +130,14 @@ async function main() {
   const FORMER = liftObject(source, 'FORMER') || {};
 
   /*
+    AND THE MODULE EXCEPTIONS. CONFIG.PERSON_MODULES is the people whose
+    module is not their section's usual one - and only those; everybody
+    else takes SECTION_MODULES, which lives in the code because four
+    section names mapped to four module names is not personal data.
+  */
+  const PERSON_MODULES = liftObject(source, 'PERSON_MODULES') || {};
+
+  /*
     ONE ROW PER PERSON, KEYED BY THE NORMALISED NAME. Two spellings of one
     person in the roster would collide here rather than quietly becoming
     two people, which is the failure this key exists to prevent - so a
@@ -149,7 +157,7 @@ async function main() {
         return;
       }
       seen[key] = { display: person, section: section };
-      rows.push([key, person, section, false]);
+      rows.push([key, person, section, false, null]);
     });
   });
 
@@ -158,9 +166,33 @@ async function main() {
     const key = roster.matchPerson(person);
     if (!key || seen[key]) return;        // still here: that entry wins
     seen[key] = { display: person, section: FORMER[person] };
-    rows.push([key, person, FORMER[person], true]);
+    rows.push([key, person, FORMER[person], true, null]);
     leavers++;
   });
+
+  /*
+    The exceptions go onto the rows that are already there. Somebody in
+    PERSON_MODULES who is NOT on the chart is reported rather than
+    silently dropped - their exception would otherwise stop applying with
+    nothing to say why, and the symptom would be their tickets quietly
+    moving to another module's row.
+  */
+  let withModule = 0;
+  const strays = [];
+  Object.keys(PERSON_MODULES).forEach(function (person) {
+    const key = roster.matchPerson(person);
+    const row = rows.filter(function (r) { return r[0] === key; })[0];
+    if (!row) { strays.push(person); return; }
+    row[4] = PERSON_MODULES[person];
+    withModule++;
+  });
+
+  if (strays.length) {
+    console.log('  In PERSON_MODULES but not on the chart, so their module');
+    console.log('  exception is NOT being applied:');
+    strays.forEach(function (p) { console.log('    ' + p); });
+    console.log('');
+  }
 
   if (collisions.length) {
     console.log('  Two names reduce to the same key and only the first was ' +
@@ -177,8 +209,8 @@ async function main() {
     await client.query('DELETE FROM roster');
     for (const r of rows) {
       await client.query(
-        `INSERT INTO roster (person_key, display_name, section, is_former)
-         VALUES ($1,$2,$3,$4)`, r);
+        `INSERT INTO roster (person_key, display_name, section, is_former, module)
+         VALUES ($1,$2,$3,$4,$5)`, r);
     }
     await client.query('COMMIT');
   } catch (err) {
@@ -196,7 +228,8 @@ async function main() {
        FROM roster GROUP BY section ORDER BY section`);
 
   console.log('  ' + rows.length + ' people loaded, ' + leavers +
-              ' of them no longer here');
+              ' of them no longer here, ' + withModule +
+              ' with a module of their own');
   console.log('');
   bySection.forEach(function (s) {
     console.log('    ' + String(s.section).padEnd(30) + s.n +

@@ -127,7 +127,11 @@ async function main() {
                            request_date, completion_date, delay_days,
                            in_dept, in_overall, last_updated)
        VALUES ($1,$2,$3,$4,$5, ($6 || '-05 09:00+06')::timestamptz, $7,$8,$9,$10, now())`,
-      ['TEST-K-' + n, who, o.service || 'SAP', o.part || 'MM',
+      // `=== undefined`, not `||`: an explicitly empty Part is the whole
+      // point of some of these fixtures, and `o.part || 'MM'` quietly
+      // turned every one of them back into MM.
+      ['TEST-K-' + n, who, o.service || 'SAP',
+       o.part === undefined ? 'MM' : o.part,
        o.department || 'Claimed Dept', month,
        o.open ? null : (month + '-06 17:00+06'),
        o.delay === undefined ? 0 : o.delay,
@@ -397,6 +401,69 @@ async function main() {
   check('the source counts say which reports each ticket came from',
         src['In both reports'] === 3 && src['Department only'] === 1 &&
         src['Overall report only'] === 1, JSON.stringify(src));
+
+  // =======================================================================
+  console.log('');
+  console.log('  The module breakdown');
+  // =======================================================================
+  /*
+    THREE SOURCES IN ORDER: the Part column when it names a module, then
+    the person who handled it, then '(unassigned)' so it is visible.
+
+    P1 is in Manufacturing, whose usual module is PP; P2 is in Sales,
+    whose usual module is SD. Neither has a module of their own, so their
+    tickets fall through to those.
+  */
+  await db.query("DELETE FROM ticket WHERE ticket_id LIKE 'TEST-K-%'");
+  await ticket(POST + '-04', P1, { part: 'MM' });          // Part says MM
+  await ticket(POST + '-04', P1, { part: 'Monitoring' });  // not a module -> PP
+  await ticket(POST + '-04', P2, { part: '' });            // nothing -> SD
+  await ticket(POST + '-04', 'Nobody At All', { part: 'Others' });
+
+  r = await call('/api/kpi1?month=' + POST + '-04', token);
+  const mods = {};
+  r.body.modules.forEach(function (x) { mods[x.name] = x.received; });
+
+  check('the Part column names the module when it can',
+        mods.MM === 1, JSON.stringify(mods));
+  check('a Part that is not a module falls through to the person',
+        mods.PP === 1, JSON.stringify(mods));
+  check('and so does an empty Part',
+        mods.SD === 1, JSON.stringify(mods));
+  check('somebody off the chart with an unusable Part is VISIBLE, not guessed',
+        mods['(unassigned)'] === 1, JSON.stringify(mods));
+  check('every scored ticket lands in exactly one module',
+        Object.keys(mods).reduce(function (n, k) { return n + mods[k]; }, 0) === 4,
+        JSON.stringify(mods));
+
+  /*
+    'Accounting' CONTAINS 'co', and CO is a module. The word boundary in
+    the pattern is the only thing stopping every Accounting ticket being
+    filed under CO.
+  */
+  await db.query("DELETE FROM ticket WHERE ticket_id LIKE 'TEST-K-%'");
+  await ticket(POST + '-04', P1, { part: 'Accounting' });
+  r = await call('/api/kpi1?month=' + POST + '-04', token);
+  check('a Part containing "co" inside a word is NOT filed under CO',
+        r.body.modules.length === 1 && r.body.modules[0].name === 'PP',
+        JSON.stringify(r.body.modules.map(function (x) { return x.name; })));
+
+  /*
+    AND BUSIEST FIRST ACROSS MONTHS, which the single-month cases above
+    cannot see: groupByKey already returns the biggest bucket first within
+    a month, so the final sort only shows when two months disagree. SD
+    leads in the first month and MM is far bigger over the two.
+  */
+  await db.query("DELETE FROM ticket WHERE ticket_id LIKE 'TEST-K-%'");
+  for (let i = 0; i < 5; i++) await ticket(POST + '-04', P1, { part: 'SD' });
+  for (let i = 0; i < 3; i++) await ticket(POST + '-04', P1, { part: 'MM' });
+  for (let i = 0; i < 9; i++) await ticket(POST + '-05', P1, { part: 'MM' });
+
+  r = await call('/api/kpi1?month=' + POST + '-04,' + POST + '-05', token);
+  check('ACROSS MONTHS, the busiest module overall comes first',
+        r.body.modules[0].name === 'MM' && r.body.modules[0].received === 12,
+        JSON.stringify(r.body.modules.map(function (x) {
+          return x.name + '=' + x.received; })));
 
   // =======================================================================
   console.log('');

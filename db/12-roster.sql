@@ -19,6 +19,13 @@ CREATE TABLE roster (
   display_name text NOT NULL CHECK (btrim(display_name) <> ''),
   section      text NOT NULL CHECK (btrim(section) <> ''),
   is_former    boolean NOT NULL DEFAULT false,
+
+  -- CONFIG.PERSON_MODULES. The module this person works in when it is not
+  -- their section's usual one - somebody can sit in Financial and work CO.
+  -- NULL for everybody else, who take SECTION_MODULES instead. See
+  -- db/13-roster-module.sql for the full reasoning.
+  module       text,
+
   loaded_at    timestamptz NOT NULL DEFAULT now()
 );
 

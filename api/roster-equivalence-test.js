@@ -295,9 +295,25 @@ ODD.forEach(function (odd) {
 // The index itself
 // ---------------------------------------------------------------------------
 SCENARIOS.forEach(function (s) {
+  /*
+    THE THREE MAPS rosterIndex BUILDS, NOT THE WHOLE OBJECT.
+
+    The port's index also carries `module`, which Config.gs keeps in a
+    separate personModuleIndex(). Comparing the objects whole made this
+    fail the moment that was added, while every lookup through it still
+    agreed - the comparison was over-specified, asserting a shape rather
+    than an answer.
+
+    The module map has its own comparison, in module-equivalence-test.js,
+    against the function that actually holds it over there.
+  */
+  const threeMaps = function (i) {
+    return { full: i.full, bare: i.bare, clash: i.clash };
+  };
+
   compare('rosterIndex() [' + s.name + ']',
-          function () { return s.original.rosterIndex(); },
-          function () { return s.index; });
+          function () { return threeMaps(s.original.rosterIndex()); },
+          function () { return threeMaps(s.index); });
 
   /*
     AND sectionFor THROUGH THAT INDEX, for every name in that scenario and

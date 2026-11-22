@@ -113,6 +113,17 @@ function buildIndex(rows) {
   const full = {};
   const bare = {};
   const clash = {};
+  /*
+    AND THE MODULE EXCEPTIONS, keyed the same way. Only the people who have
+    one - CONFIG.PERSON_MODULES is the exceptions and nobody else, so an
+    empty entry here means "take your section's usual module", not "no
+    module". modules.js reads it; sectionFor does not.
+
+    Carried on the index rather than looked up per ticket, for the same
+    reason the sections are: this is asked once per ticket and there are
+    twenty-six thousand of them.
+  */
+  const module = {};
 
   const add = function (key, section) {
     if (!key) return;
@@ -130,14 +141,18 @@ function buildIndex(rows) {
   rows.filter(function (r) { return r.is_former; })
       .forEach(function (r) { if (!full[r.person_key]) add(r.person_key, r.section); });
 
-  return { full: full, bare: bare, clash: clash };
+  rows.forEach(function (r) {
+    if (r.module) module[r.person_key] = r.module;
+  });
+
+  return { full: full, bare: bare, clash: clash, module: module };
 }
 
 
 /** The whole roster, as an index. One query, not one per ticket. */
 async function loadIndex() {
   const rows = await db.query(
-    'SELECT person_key, section, is_former FROM roster ORDER BY person_key');
+    'SELECT person_key, section, is_former, module FROM roster ORDER BY person_key');
   return buildIndex(rows);
 }
 

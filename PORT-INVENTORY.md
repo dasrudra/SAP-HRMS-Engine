@@ -133,7 +133,7 @@ one is switched off.
 | the KPI 1 arithmetic - `scoreRows`, `isCompleted`, `toNumber`, `bandFor`, `achievementFor`, `headroomFor`, `groupBy`, `groupByKey`, `round2`, `monthsInScope`, `quarterOf`, `monthsOfQuarter`, `quarterLabel`, `quarterScheme` | DONE - `api/kpi.js` |
 | `sectionFor`, `matchPerson`, `rosterIndex`, `rosterOrderFor` | DONE - `api/roster.js`, table `roster`, filled by `node api/import-roster.js` |
 | `getKpi1`, `readKpi1` | DONE - `GET /api/kpi1`, `api/kpi-read.js` |
-| `moduleForTicket`, `moduleFromPart`, `moduleForPerson` | TODO - the module breakdown; its own subsystem, like the roster |
+| `moduleForTicket`, `moduleFromPart`, `moduleForPerson`, `ticketModulePatterns`, `personModuleIndex`, `whyModule` | DONE - `api/modules.js`, exceptions on `roster.module` |
 | `getKpiComparison` | TODO |
 | `getPeopleByAffiliate`, `listAffiliates` | TODO |
 | `recomputeKpiCache`, `recomputeAfterUpload` | NOT PORTED, deliberately - see below |
@@ -588,3 +588,49 @@ into four new files without a moment's thought. `roster-equivalence-test.js`
 now fails if any name from the chart appears in a file the port added -
 checked against the roster lifted at run time, so the guard carries no
 list of its own.
+
+## The module breakdown
+
+`api/modules.js`, with the per-person exceptions on `roster.module`
+(`db/13-roster-module.sql`, filled by `node api/import-roster.js`). Proved
+identical to `src/Config.gs` by `api/module-equivalence-test.js` - **2,716
+comparisons**, in `npm test`. 10 deliberate breaks, all caught.
+
+Three sources, in order, and the order is the design:
+
+1. the **Part column**, when it names one of the modules EAS reports on.
+   That list is closed - the Part column also carries Account, Monitoring,
+   Groupware, PC/Monitor, Others, FRP, TexManager and WMIS, and letting
+   those through "produced a table of fifteen rows, half of which no one
+   reports against".
+2. otherwise the **person** who handled it - "whoever handled the ticket,
+   it belongs to their module".
+3. failing both, **`(unassigned)`**, so it is visible rather than guessed.
+
+**Grouped from the tickets, not rolled up from the Part rows**, because "a
+Part that names no module has to fall through to the person who handled
+the ticket - and only the ticket row carries both columns".
+
+**Codes before words, longest first within each.** A code is what the ITSM
+writes in a Part cell on purpose; a word is a guess at what a prose Part
+might mean, and a guess must never beat a deliberate label. The word
+boundary in each pattern is what stops `co` firing inside `Accounting`.
+
+### Two things that cannot be tested against the real data
+
+Recorded so they read as decisions rather than gaps:
+
+**The regex escaping in `ticketModulePatterns` is a no-op today.** Not one
+of the 24 Part patterns contains a character it changes, so deleting it
+alters no answer. It matters the day somebody adds a spelling with a dot or
+a plus - unescaped, `c.o` stops being a literal and would claim `cao` and
+`c-o` too. The function now takes an optional list so a synthetic one with
+metacharacters reaches the guard, the same technique `portalLinks` uses.
+
+**The `month` argument to `moduleForTicket` changes nothing.**
+`moduleForPerson` reads the section at today's names whatever month the
+ticket is from, because the pre-split name covered three modules at once
+and cannot name just one. Replacing the month with `null` is an equivalent
+mutation - no test can catch it because there is no behaviour to catch. It
+is kept because `Config.gs` takes it, and a port that quietly drops an
+argument is a port that has decided something.

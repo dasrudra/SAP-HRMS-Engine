@@ -39,6 +39,7 @@
 const db = require('./db');
 const kpi = require('./kpi');
 const roster = require('./roster');
+const modules = require('./modules');
 
 // The dashboard's own clock. A ticket's month is the month it was raised in
 // Bangladesh, not in UTC - see the long note in db/11-tickets.sql.
@@ -114,11 +115,6 @@ async function readKpi1(month, standard) {
     total: null,
     departments: [],
     parts: [],
-    // NOT YET. The module breakdown needs moduleForTicket, which reads a
-    // module out of the Part column by pattern and falls back to the
-    // person who handled the ticket. That is its own subsystem and gets
-    // its own equivalence test, like the roster did. Empty rather than
-    // missing, so the page's shape does not change when it arrives.
     modules: [],
     people: [],
     sources: [],
@@ -165,6 +161,7 @@ async function readKpi1(month, standard) {
   const eas = [];
   const bySection = {};
   const byPart = {};
+  const byModule = {};
   const byPerson = {};
   const personSection = {};
   let both = 0, deptOnly = 0, overallOnly = 0;
@@ -210,6 +207,35 @@ async function readKpi1(month, standard) {
       return String(r.service || '').trim() + ' / ' + String(r.part || '').trim();
     }).forEach(function (g) {
       (byPart[g.key] = byPart[g.key] || []).push.apply(byPart[g.key], g.rows);
+    });
+
+    /*
+      MODULES ARE GROUPED HERE, not rolled up from the Part rows above, and
+      Kpi.gs says why: "a Part that names no module has to fall through to
+      the person who handled the ticket - and only the ticket row carries
+      both columns."
+
+      A Part row knows its Part and nothing about who handled it, so
+      summing Part rows into modules would file every unlabelled Part under
+      '(unassigned)' instead of under the module of the person who did the
+      work.
+    */
+    /*
+      THE MONTH IS PASSED AND CURRENTLY CHANGES NOTHING, which is worth
+      saying rather than leaving as a puzzle. moduleForPerson reads the
+      section at TODAY'S names whatever month the ticket is from -
+      'Functional Applications' covered three modules at once and cannot
+      name just one - so the month never reaches a decision. Replacing it
+      with null is an equivalent mutation: no test can catch it, because
+      there is no behaviour to catch.
+
+      It stays because moduleForTicket takes it in Config.gs and a port
+      that quietly drops an argument is a port that has decided something.
+    */
+    kpi.groupByKey(scored, function (r) {
+      return modules.moduleForTicket(index, r.part, r.in_charge, m);
+    }).forEach(function (g) {
+      (byModule[g.key] = byModule[g.key] || []).push.apply(byModule[g.key], g.rows);
     });
 
     /*
@@ -265,6 +291,10 @@ async function readKpi1(month, standard) {
     result.parts.push(
       kpi.finaliseEntry(tally(name, byPart[name], standardUsed), standardUsed));
   });
+  Object.keys(byModule).forEach(function (name) {
+    result.modules.push(
+      kpi.finaliseEntry(tally(name, byModule[name], standardUsed), standardUsed));
+  });
   Object.keys(byPerson).forEach(function (name) {
     const entry = kpi.finaliseEntry(
       tally(name, byPerson[name], standardUsed), standardUsed);
@@ -283,6 +313,7 @@ async function readKpi1(month, standard) {
   // name's rank in January says nothing about its rank overall.
   result.departments.sort(kpi.byReceived);
   result.parts.sort(kpi.byReceived);
+  result.modules.sort(kpi.byReceived);
   result.people.sort(kpi.byReceived);
 
   return result;
