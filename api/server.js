@@ -1502,6 +1502,34 @@ app.get('/api/kpi1', requireAuth, async function (req, res) {
 
 
 // ---------------------------------------------------------------------------
+// GET /api/kpi1/compare - KPI 1 across several months at once.
+// ---------------------------------------------------------------------------
+/*
+  Ported from getKpiComparison [Kpi.gs:825].
+
+      ?months=2026-08,2026-09,2026-10
+
+  FOLLOWS THE SAME ?standard TOGGLE as /api/kpi1, and that is not a
+  convenience. The two screens read the same counts, so judging them
+  against different targets puts the same section in the same month in two
+  different bands - which happened on the live system when the target
+  moved and only one of the two recomputed.
+*/
+app.get('/api/kpi1/compare', requireAuth, async function (req, res) {
+  try {
+    const months = String(req.query.months || '')
+      .split(',').map(function (m) { return m.trim(); }).filter(Boolean);
+    const out = await kpiRead.kpiComparison(months, req.query.standard);
+    out.ok = true;
+    out.months = await kpiRead.monthsAvailable();
+    res.json(out);
+  } catch (err) {
+    fail(res, err, 'could not compare those months');
+  }
+});
+
+
+// ---------------------------------------------------------------------------
 // GET /api/accounts - who has a login. ADMINS ONLY.
 // ---------------------------------------------------------------------------
 /*

@@ -467,6 +467,123 @@ async function main() {
 
   // =======================================================================
   console.log('');
+  console.log('  Comparing months');
+  // =======================================================================
+  await db.query("DELETE FROM ticket WHERE ticket_id LIKE 'TEST-K-%'");
+  // Two months, two sections, one of them late in the second month only.
+  for (let i = 0; i < 4; i++) await ticket(POST + '-01', P1);
+  for (let i = 0; i < 2; i++) await ticket(POST + '-01', P2);
+  for (let i = 0; i < 3; i++) await ticket(POST + '-02', P1);
+  await ticket(POST + '-02', P1, { delay: 2 });
+  for (let i = 0; i < 2; i++) await ticket(POST + '-02', P2);
+
+  r = await call('/api/kpi1/compare?months=' + POST + '-01,' + POST + '-02',
+                 token);
+  check('the comparison answers', r.code === 200 && r.body.ok === true);
+  check('with the periods asked for, in order',
+        JSON.stringify(r.body.periods) ===
+        JSON.stringify([POST + '-01', POST + '-02']),
+        JSON.stringify(r.body.periods));
+  check('a total per period', Boolean(r.body.totals[POST + '-01']) &&
+        Boolean(r.body.totals[POST + '-02']));
+  check('the first month is clean', r.body.totals[POST + '-01'].rate === 100,
+        String(r.body.totals[POST + '-01'].rate));
+  check('and the second carries its one delay',
+        r.body.totals[POST + '-02'].delayed === 1 &&
+        r.body.totals[POST + '-02'].completed === 6,
+        JSON.stringify(r.body.totals[POST + '-02']));
+
+  check('sections are listed alphabetically, not busiest first',
+        JSON.stringify(r.body.sections) ===
+        JSON.stringify(['Manufacturing Applications', 'Sales Applications']),
+        JSON.stringify(r.body.sections));
+  check('each section has a cell per period it had tickets in',
+        Object.keys(r.body.bySection['Manufacturing Applications']).length === 2);
+
+  /*
+    THE SCREEN RENDERS WHAT THE KPI DECLARES, so that the same table can
+    draw KPI 2 without a second implementation. A KPI also names its own
+    reporting period - KPI 1 is monthly, KPI 2 quarterly - and taking that
+    from here is what stops one of them being mislabelled.
+  */
+  check('the KPI describes its own columns and period',
+        r.body.kpi === 'KPI1' && r.body.periodKind === 'MONTH' &&
+        r.body.measures.length === 5 && r.body.volumeKey === 'completed',
+        JSON.stringify({ kpi: r.body.kpi, period: r.body.periodKind }));
+
+  /*
+    THE TWO SCREENS MUST AGREE. Reading stored verdicts back was a live
+    defect: the same section, the same month and the same rate came out
+    YELLOW on one screen and GREEN on the other, because one recomputed
+    against the current target and the other did not.
+  */
+  const one = (await call('/api/kpi1?month=' + POST + '-02', token)).body;
+  const cmp = r.body.totals[POST + '-02'];
+  check('AND AGREE WITH /api/kpi1 FOR THE SAME MONTH, to the band',
+        cmp.rate === one.total.rate && cmp.band === one.total.band &&
+        cmp.achievement === one.total.achievement &&
+        cmp.headroom === one.total.headroom,
+        JSON.stringify({ compare: cmp.rate + ' ' + cmp.band,
+                         kpi1: one.total.rate + ' ' + one.total.band }));
+
+  const eas = await call('/api/kpi1/compare?months=' + POST + '-02&standard=EAS',
+                         token);
+  const easOne = (await call('/api/kpi1?month=' + POST + '-02&standard=EAS',
+                             token)).body;
+  check('and under the other standard too, which is where they drifted before',
+        eas.body.totals[POST + '-02'].band === easOne.total.band &&
+        eas.body.target === easOne.target,
+        eas.body.totals[POST + '-02'].band + ' vs ' + easOne.total.band);
+
+  /*
+    THE SAME BASIS RULE AS /api/kpi1, AND IT NEEDS ITS OWN FIXTURE HERE.
+    Every month above has a department file, so `usingDept` is always true
+    and neither branch can be seen - two deliberate breaks survived until
+    these two months existed.
+
+    POST-06 has both kinds, so only the department rows must be scored.
+    POST-07 has none, so it is scored whole AND gets no section row at all:
+    a breakdown by section of a population that includes non-EAS engineers
+    is not a breakdown of EAS.
+  */
+  await db.query("DELETE FROM ticket WHERE ticket_id LIKE 'TEST-K-%'");
+  for (let i = 0; i < 3; i++) await ticket(POST + '-06', P1, { inDept: true });
+  for (let i = 0; i < 2; i++) {
+    await ticket(POST + '-06', P2, { inDept: false, inOverall: true });
+  }
+  for (let i = 0; i < 4; i++) {
+    await ticket(POST + '-07', P2, { inDept: false, inOverall: true });
+  }
+
+  r = await call('/api/kpi1/compare?months=' + POST + '-06,' + POST + '-07',
+                 token);
+  check('a month with department files scores only those',
+        r.body.totals[POST + '-06'].received === 3,
+        String(r.body.totals[POST + '-06'].received) + ' of 5');
+  check('a month without one is scored whole',
+        r.body.totals[POST + '-07'].received === 4,
+        String(r.body.totals[POST + '-07'].received));
+  check('AND HAS NO SECTION ROW, because that would not be EAS',
+        r.body.sections.every(function (s) {
+          return !r.body.bySection[s][POST + '-07'];
+        }),
+        JSON.stringify(r.body.sections.map(function (s) {
+          return s + ':' + Object.keys(r.body.bySection[s]).join('|'); })));
+  check('while the month that does have one still gets its sections',
+        r.body.sections.some(function (s) {
+          return Boolean(r.body.bySection[s][POST + '-06']);
+        }));
+
+  check('no months asked for means an empty table, not an error',
+        (await call('/api/kpi1/compare?months=', token)).body.periods.length === 0);
+  check('a month with no tickets simply has no cell',
+        Object.keys((await call('/api/kpi1/compare?months=2098-05', token))
+          .body.totals).length === 0);
+  check('the comparison needs a sign-in',
+        (await call('/api/kpi1/compare?months=' + POST + '-01', null)).code === 401);
+
+  // =======================================================================
+  console.log('');
   console.log('  Permission');
   // =======================================================================
   check('the figures need a sign-in',

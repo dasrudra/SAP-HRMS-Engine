@@ -134,7 +134,7 @@ one is switched off.
 | `sectionFor`, `matchPerson`, `rosterIndex`, `rosterOrderFor` | DONE - `api/roster.js`, table `roster`, filled by `node api/import-roster.js` |
 | `getKpi1`, `readKpi1` | DONE - `GET /api/kpi1`, `api/kpi-read.js` |
 | `moduleForTicket`, `moduleFromPart`, `moduleForPerson`, `ticketModulePatterns`, `personModuleIndex`, `whyModule` | DONE - `api/modules.js`, exceptions on `roster.module` |
-| `getKpiComparison` | TODO |
+| `getKpiComparison` | DONE - `GET /api/kpi1/compare` |
 | `getPeopleByAffiliate`, `listAffiliates` | TODO |
 | `recomputeKpiCache`, `recomputeAfterUpload` | NOT PORTED, deliberately - see below |
 | the ticket merge (`mergeRows`, `stampOf`, `isBlank`, `truthy`) | DONE - `api/import-tickets.js` |

@@ -320,6 +320,122 @@ async function readKpi1(month, standard) {
 }
 
 
+/**
+ * KPI 1 across several months at once.   [Kpi.gs:825 getKpiComparison]
+ *
+ * ONE PASS, NOT ONE readKpi1 PER MONTH. Six months would otherwise be six
+ * scans of the same table, which is the same reason the original reads its
+ * cache once and buckets by month rather than calling getKpi1 six times.
+ *
+ * COUNTS ARE FACTS. JUDGEMENTS ARE RECOMPUTED. The original stores eight
+ * numbers per row and is emphatic that they are not the same kind of
+ * thing, because reading the stored verdicts back was a live defect:
+ *
+ *   "The Comparison screen showed Sales Applications at 99.08% for August
+ *    marked YELLOW, while the KPI 1 screen showed the same section, the
+ *    same month and the same 99.08% marked GREEN - because one recomputed
+ *    and the other did not. It was almost invisible: every other cell in
+ *    that table was above 99.50% as well as above 90%, so only the single
+ *    section that fell between the two targets showed the disagreement.
+ *    Achievement and Headroom were wrong in every cell and simply looked
+ *    plausible - 100.13% instead of 110.70%, +4 instead of +308."
+ *
+ * There is nothing stored to read back here, so that defect cannot recur -
+ * every figure on this screen is worked out from the tickets when the
+ * screen is drawn, by the same functions KPI 1 uses.
+ *
+ * AND IT FOLLOWS THE SAME STANDARD TOGGLE, for the same reason: the two
+ * screens read the same counts, so judging them against different targets
+ * would put the same section in the same month in two different bands.
+ */
+async function kpiComparison(months, standard) {
+  const standardUsed = kpi.resolutionStandard(standard);
+  const wanted = {};
+  (months || []).forEach(function (m) {
+    const text = String(m || '').trim();
+    if (text) wanted[text] = true;
+  });
+
+  const result = {
+    periods: Object.keys(wanted).sort(),
+    sections: [],
+    totals: {},        // period -> entry
+    bySection: {},     // section -> { period -> entry }
+    target: standardUsed.target,
+    standard: standardUsed.standard,
+    standardLabel: standardUsed.standardLabel,
+
+    /*
+      THE SCREEN RENDERS WHAT THE KPI DECLARES HERE rather than hardcoding
+      KPI 1's columns, so the same table can draw KPI 2 without a second
+      implementation. A KPI also names its own reporting period: tickets
+      arrive daily so KPI 1 is read month by month, training runs a few
+      times a quarter so KPI 2 is read quarter by quarter. Taking that from
+      here is what stops one of them being mislabelled.
+    */
+    kpi: 'KPI1',
+    name: standardUsed.name || 'Error/Issue Resolution Time',
+    unit: '%',
+    periodKind: 'MONTH',
+    periodLabel: 'Month',
+    periodLabelPlural: 'months',
+    sectionLabel: 'Section',
+    rateLabel: 'Success Rate',
+    volumeKey: 'completed',
+    volumeLabel: 'Tickets completed',
+    measures: [
+      { key: 'received',   label: 'Received' },
+      { key: 'completed',  label: 'Completed' },
+      { key: 'open',       label: 'Open' },
+      { key: 'delayed',    label: 'Delayed' },
+      { key: 'successful', label: 'Successful' }
+    ]
+  };
+
+  if (!result.periods.length) return result;
+
+  const rows = await scoredRows(wanted);
+  if (!rows.length) return result;
+
+  const byMonth = {};
+  rows.forEach(function (r) {
+    if (r.month) (byMonth[r.month] = byMonth[r.month] || []).push(r);
+  });
+
+  const index = await roster.loadIndex();
+  const seen = {};
+
+  Object.keys(byMonth).sort().forEach(function (m) {
+    const all = byMonth[m];
+    const deptRows = all.filter(function (r) { return r.in_dept === true; });
+    const usingDept = deptRows.length > 0;
+    const scored = usingDept ? deptRows : all;
+
+    result.totals[m] = kpi.finaliseEntry(tally(m, scored, standardUsed),
+                                         standardUsed);
+
+    // A month with no department file has no section rows, exactly as the
+    // original's cache has none to read - a breakdown by section of a
+    // population that includes non-EAS engineers is not a breakdown of EAS.
+    if (!usingDept) return;
+
+    kpi.groupByKey(scored, function (r) {
+      return roster.sectionFor(index, r.in_charge, m, r.department);
+    }).forEach(function (g) {
+      if (!seen[g.key]) { seen[g.key] = true; result.sections.push(g.key); }
+      (result.bySection[g.key] = result.bySection[g.key] || {})[m] =
+        kpi.finaliseEntry(tally(g.key, g.rows, standardUsed), standardUsed);
+    });
+  });
+
+  // Alphabetical, not busiest-first: this table's rows are a fixed list of
+  // sections read across several columns, and a row that moved between
+  // months would be unreadable.
+  result.sections.sort();
+  return result;
+}
+
+
 /** Every month there are tickets for, newest first. */
 async function monthsAvailable() {
   const rows = await db.query(
@@ -329,4 +445,4 @@ async function monthsAvailable() {
 }
 
 
-module.exports = { readKpi1, monthsAvailable, scoredRows };
+module.exports = { readKpi1, kpiComparison, monthsAvailable, scoredRows };
