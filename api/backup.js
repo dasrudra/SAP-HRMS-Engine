@@ -280,6 +280,46 @@ function insideRepo(dir) {
 }
 
 
+/**
+ * Why a folder could not be created, in words that name the cause.
+ *
+ * WRITTEN AFTER WATCHING IT WASTE SOMEBODY'S TIME. mkdirSync with
+ * recursive:true creates every missing folder in the path, so the ONLY
+ * ordinary way it can fail with ENOENT is that the thing at the start of
+ * the path - the drive letter, or the server in a \\server\share - is not
+ * there at all. The raw message for that reads
+ *
+ *     ENOENT: no such file or directory, mkdir 'G:\My Drive\Backups'
+ *
+ * which looks exactly like a folder name typed wrongly, so the natural
+ * response is to try a different folder name, and that fails identically.
+ * The folder name was never the problem: there was no G: drive. A Google
+ * Drive or OneDrive folder only HAS a drive letter once the desktop app is
+ * installed and signed in - the website alone gives you nothing a program
+ * on this machine can write to.
+ *
+ * @param {string} dir the folder that could not be made
+ * @param {string} reason err.message
+ * @param {boolean} rootExists whether the drive or share the path starts
+ *     with exists. Passed in rather than looked up so this can be tested on
+ *     a machine that has no drive letters at all.
+ */
+function mkdirProblem(dir, reason, rootExists) {
+  const root = path.parse(path.resolve(dir)).root;
+
+  if (!rootExists) {
+    return 'could not create ' + dir + ' because there is no ' + root +
+           ' on this machine - so it is the drive, not the folder name, ' +
+           'that is wrong. A Google Drive or OneDrive letter exists only ' +
+           'while the desktop app is installed and signed in. See what ' +
+           'this machine actually has with:  Get-PSDrive -PSProvider ' +
+           'FileSystem';
+  }
+
+  return 'could not create ' + dir + ': ' + reason;
+}
+
+
 // ---------------------------------------------------------------------------
 // Talking to pg_dump
 // ---------------------------------------------------------------------------
@@ -608,7 +648,11 @@ async function backupNow(opts) {
   try {
     fs.mkdirSync(dir, { recursive: true });
   } catch (e) {
-    result.message = 'could not create ' + dir + ': ' + e.message;
+    let rootExists = false;
+    try {
+      rootExists = fs.existsSync(path.parse(path.resolve(dir)).root);
+    } catch (x) { rootExists = false; }
+    result.message = mkdirProblem(dir, e.message, rootExists);
     await record({});
     return result;
   }
@@ -1020,7 +1064,7 @@ async function main() {
 module.exports = {
   BACKUP_KEEP, BACKUP_STALE_HOURS, BACKUP_PREFIX, BACKUP_SUFFIX,
   stamp, backupFileName, parseBackupName, isBackupFile, toPrune,
-  repoRoot, backupDir, insideRepo,
+  repoRoot, backupDir, insideRepo, mkdirProblem,
   pgTool, settings, dumpArgs, restoreArgs, run,
   countQueryFor, rowCounts, tablesInDump, tableCountProblem,
   formatBytes, isStale,

@@ -322,6 +322,54 @@ async function main() {
   check('a sibling folder whose name starts the same is not inside',
         backup.insideRepo(root + '-backups') === false);
 
+
+  // =======================================================================
+  console.log('');
+  console.log('  mkdirProblem() - the message that stops the wrong fix');
+  // =======================================================================
+  /*
+    The raw ENOENT from mkdir reads like a mistyped folder name, so the
+    natural response is to try a different folder name - which fails in
+    exactly the same way, because the drive was never there. The message
+    has to say which of the two it is.
+  */
+  const noDrive = backup.mkdirProblem(
+    path.join('G:', 'My Drive', 'TVL-EAS Backups'),
+    'ENOENT: no such file or directory, mkdir', false);
+
+  /*
+    The raw text is REPLACED, not appended to. "no such file or directory,
+    mkdir 'G:\\My Drive\\Backups'" is the sentence that sends people off to
+    rename the folder, and leaving it in the message leaves the wrong fix
+    on screen next to the right one.
+  */
+  check('the misleading raw ENOENT text is not repeated',
+        noDrive.indexOf('no such file or directory') === -1, noDrive);
+  check('and it says the folder name is not the problem',
+        /not the folder/.test(noDrive));
+  check('and it names the folder that was wanted',
+        noDrive.indexOf('TVL-EAS Backups') !== -1);
+  /*
+    THE WHOLE COMMAND, not just its first word. `Get-PSDrive -PSProvider`
+    with the provider missing is a syntax error, so a message carrying half
+    of it hands somebody a command that fails - which is worse than giving
+    them no command at all. Mutation testing found this: deleting
+    'FileSystem' left a broken line and every assertion still passed.
+  */
+  check('and it says how to find out what drives exist, in full',
+        noDrive.indexOf('Get-PSDrive -PSProvider FileSystem') !== -1, noDrive);
+  check('and it explains why a cloud folder may have no letter',
+        /desktop app/.test(noDrive));
+
+  const otherFault = backup.mkdirProblem(
+    path.join(os.tmpdir(), 'somewhere'), 'EACCES: permission denied', true);
+  check('any other failure keeps its own reason',
+        /EACCES: permission denied/.test(otherFault), otherFault);
+  check('and does not blame the drive',
+        /not the folder/.test(otherFault) === false);
+  check('and still names the folder',
+        otherFault.indexOf('somewhere') !== -1);
+
   const hadBin = process.env.PG_BIN;
   delete process.env.PG_BIN;
   check('with no PG_BIN the tool is looked up on PATH',
