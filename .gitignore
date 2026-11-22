@@ -13,6 +13,16 @@ data/
 exports/
 uploads/
 
+# A pg_dump of the database is EVERYTHING - every employee name, every
+# employee ID, every ticket body, every password hash - in one file. The
+# default BACKUP_DIR is backups/ inside this folder, which is convenient on
+# day one and is why these three lines exist. Set BACKUP_DIR in api/.env to
+# somewhere outside the repository and off this machine; api/backup.js warns
+# on every run until you do.
+backups/
+*.dump
+*.backup
+
 # ---------------------------------------------------------------------------
 # SECRETS — never commit.
 # .clasp.json holds the Apps Script project ID that links this folder to your

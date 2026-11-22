@@ -36,6 +36,7 @@ const msgRead = require('./messenger-read');
 const msgWrite = require('./messenger-write');
 const content = require('./content');
 const kpiRead = require('./kpi-read');
+const backup = require('./backup');
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
@@ -1552,6 +1553,44 @@ app.get('/api/accounts', requireAuth, requireAdmin, async function (req, res) {
     res.json({ ok: true, count: rows.length, accounts: rows });
   } catch (err) {
     fail(res, err, 'could not list accounts');
+  }
+});
+
+
+// ---------------------------------------------------------------------------
+// GET /api/backup/health - is the database being looked after.
+// ---------------------------------------------------------------------------
+/*
+  backupHealth() in Backup.gs, and NOT GUARDED BY A TOKEN, for the reason
+  that file gives: it says when the last copy was made and nothing about
+  what is in it, and somebody being able to see that the database is looked
+  after is a good thing rather than a leak.
+
+  TWO FIELDS ARE WITHHELD that backupHealth() returns. `folder` is an
+  absolute path on the server, and `message` is the text of a failure, which
+  can name a user, a host or a port. Neither is needed to render "last
+  backup: 2am today", and the same reasoning applies as in fail() below: the
+  detail belongs in the terminal, where the one person who can act on it is
+  looking, not in a response a stranger can fetch.
+
+  Both are in `node backup.js --health`, which only runs on the machine.
+*/
+app.get('/api/backup/health', async function (req, res) {
+  try {
+    const h = await backup.backupHealth();
+    res.json({
+      ok: true,
+      on: h.on,
+      last: h.last,
+      name: h.name,
+      lastOk: h.lastOk,
+      count: h.count,
+      keep: h.keep,
+      bytes: h.bytes,
+      stale: h.stale
+    });
+  } catch (err) {
+    fail(res, err, 'could not read the backup history');
   }
 });
 

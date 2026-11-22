@@ -363,6 +363,57 @@ a library over 100KB is silently refused by the cache anyway.
 
 ---
 
+## Backups
+
+`src/Backup.gs` ported to `api/backup.js`, `api/restore.js` and
+`db/14-backup.sql`. 166 checks in `api/backup-test.js`, 170 when it is run
+with a user that may create a database; 44 mutations run, 43 caught.
+
+| Apps Script | Here | Status |
+|---|---|---|
+| `backupNow` | `backupNow()`, `node backup.js` | DONE |
+| `pruneBackups` | `toPrune()` | DONE |
+| `backupHealth` | `backupHealth()`, `GET /api/backup/health` | DONE |
+| `restoreGuide` | `restoreGuide()`, `node backup.js --guide` | DONE |
+| `installBackupTrigger` | `node backup.js --install` prints the `schtasks` | PART - it cannot create the task itself |
+| `removeBackupTrigger` | the `schtasks /delete` line in the same output | PART |
+| `pruneAuthLog`, called between the copy and the prune | nothing to call yet - there is no `auth_log` table. **The call goes back in at that exact point**, and `backupNow()` says so where it belongs | TODO with Accounts |
+| Drive version history | **nothing. There is no equivalent** | n/a |
+| Drive Trash, 30 days | **nothing. `DROP` is final** | n/a |
+
+Same constants as the original: 30 daily copies, 02:00 local, stale after 36
+hours.
+
+**What Google was doing for free, and now nobody is.** Three of the four
+things that can go wrong were Drive's problem and are now ours: a deleted
+row, a deleted database, and a dead disk. Only the fourth - a bad upload -
+has the same answer in both systems, and it was never a job for a backup.
+
+**The two decisions that differ from `Backup.gs`, both deliberate:**
+
+- It **deletes** where Drive **trashed**. There is no recycle bin for a
+  file a script deletes, so the care went into never choosing the wrong
+  file: `parseBackupName()` refuses anything this system did not write,
+  down to rejecting hour 24 and a `.dump.bak` suffix, and `toPrune()`
+  throws rather than accept a `keep` below 1.
+- A dump that **cannot be read back is renamed `.bad`**, not deleted and
+  not left alone. Left alone it keeps a backup's name while being the
+  newest file in the folder, which makes it the one somebody restores in a
+  panic.
+
+**Still outstanding, and it is configuration rather than code:**
+
+1. `BACKUP_DIR` must point somewhere **that is not this machine**. Unset, it
+   writes into `backups/` beside the database, which survives a dropped
+   table and nothing else. `backup.js` warns on every run until it is set.
+2. The nightly task has to exist, and then `BACKUP_SCHEDULED=yes`.
+3. **A restore has to be done by hand, once, before cutover.** The suite
+   proves the loop against a scratch database when it is given a user that
+   can create one; on the live machine that is `node restore.js <file>
+   tvl_eas_check`. A backup nobody has restored is a guess.
+
+---
+
 ## Spreadsheet tabs
 
 | Tab | Holds | New table | Status |
@@ -441,6 +492,10 @@ decided for a reason.
    blocks `200000xx`, `2090xxxx`, `2099xxxx`.
 8. **The deployment is published to "Anyone"**, so every endpoint is a URL a
    stranger can call. Nothing may trust its input.
+9. **PostgreSQL has no version history and no trash.** Sheets quietly gave
+   the old system both; a `DELETE` here is final the moment it commits, and
+   `DROP DATABASE` has no thirty days of grace. Every recovery story now
+   starts with a dump that was taken beforehand.
 
 ---
 
@@ -459,12 +514,22 @@ decided for a reason.
 7. ~~Knowledge, Learn, FAQ, By-Weekly~~ DONE except the two that need a
    file store: Knowledge attachments and the Learnings folder scan.
    ("Links" was `getByWeeklyLinks`, so it is four screens, not five.)
-8. **KPI 1, KPI 2, Compare, Uploads** - in progress. The KPI 1
-   arithmetic is ported and proved identical (16,239 comparisons); the
-   `ticket` table exists. Next: the ticket import, then `getKpi1`,
-   then Compare, then KPI 2.
-9. Accounts and audit log
-10. The shell: home, nav, the remaining static screens
+8. **KPI 1, KPI 2, Compare, Uploads** - in progress. KPI 1 and Compare are
+   ported, tested and proved identical to the original arithmetic (16,239
+   comparisons); the ticket import and the roster both work. Left in this
+   stage: **Uploads**, which is what removes the export-a-CSV-and-run-a-
+   command step, and then **KPI 2**.
+9. ~~Backups~~ DONE as code. **NOT done as a working arrangement** until
+   `BACKUP_DIR` points off this machine, the nightly task exists, and one
+   restore has actually been done. See the Backups section above. This has
+   to be true before cutover, not after - the moment the new system is the
+   one people type into, a message or a Knowledge post exists nowhere else.
+10. Accounts and audit log - and `pruneAuthLog()` goes back into
+    `backupNow()` when `auth_log` arrives.
+11. **Deployment.** `clasp push` is lost at cutover: today VS Code to live
+    is one command, afterwards something has to put the code on the server
+    and restart Node. Not built, and not optional.
+12. The shell: home, nav, the remaining static screens
 
 Apps Script keeps running untouched throughout. Nothing is switched off
 until its row says DONE.
