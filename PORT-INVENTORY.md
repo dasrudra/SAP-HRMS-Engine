@@ -354,12 +354,61 @@ exists only to clear the first after an edit, and `getLearning` notes that
 a library over 100KB is silently refused by the cache anyway.
 
 ### Uploads
-| Endpoint | Status |
-|---|---|
-| `beginUpload`, `getUploadCsvChunk`, `finishUpload`, `deleteUpload` | TODO |
-| `appendTicketBatch`, `appendFeedbackBatch` | TODO |
-| `finishFeedbackUpload`, `purgeOrphanedFeedback` | TODO |
-| `getUploadHistory` | TODO |
+
+`src/Ingest.gs` ported to `api/uploads.js`, `api/ticket-merge.js` and
+`db/15-uploads.sql`. 98 checks in `api/uploads-test.js`; 34 mutations run,
+32 caught. **This is what removes the export-a-CSV-and-run-a-command step.**
+
+| Apps Script | New route | Status |
+|---|---|---|
+| `beginUpload` | `POST /api/uploads/begin` | DONE |
+| `appendTicketBatch` | `POST /api/uploads/tickets` | DONE |
+| `finishUpload` | `POST /api/uploads/finish` | DONE |
+| `getUploadHistory` | `GET /api/uploads` | DONE |
+| `deleteUpload` | `POST /api/uploads/delete` | DONE |
+| `getUploadCsvChunk`, `uploadCsvName`, `csvCell` | - | TODO - the download-this-upload-again button |
+| `appendFeedbackBatch`, `finishFeedbackUpload`, `purgeOrphanedFeedback`, `compactFeedback`, `auditFeedback` | - | TODO with KPI 2 |
+| `compactTickets`, `rewrite`, `mergeRows`, `stampOf` | `ticket-merge.js`, as one SQL statement | DONE, differently - see below |
+| `recomputeAfterUpload` | - | **dropped**, with the KPI cache |
+| `uploadStamp` | one lookup of `upload_run.uploaded_at` | DONE, differently |
+| `clearAllTickets` | - | TODO, if it is wanted at all |
+
+**Three functions have no port, and each is an improvement rather than a
+gap:**
+
+- **`compactTickets` / `rewrite`.** `appendTicketBatch` appended blindly
+  because "looking up 20,000 existing IDs on every one of 20 batches would
+  mean reading the whole sheet 20 times", and `finishUpload` then read the
+  whole tab, merged in JavaScript and rewrote it. A primary key does that
+  per row, indexed, inside the insert. The dangerous part goes with it:
+  `rewrite()` exists only because an earlier version "destroyed twenty
+  thousand tickets" by clearing before writing. **Nothing in the port ever
+  clears the table.**
+- **`recomputeAfterUpload`.** It rebuilt `KPI_MONTHLY`. There is no cache -
+  scoring 26,000 tickets across eleven months measures 200ms - so there is
+  nothing to rebuild, nothing to go stale, and no second call that can be
+  interrupted half way.
+- **`uploadStamp`.** It re-derived the upload's start time by parsing it
+  back out of the ID string. One indexed lookup is exact and has no
+  timezone arithmetic in it. It also closes a hole: the original returned
+  `new Date()` for an ID it did not recognise, so rows could be appended
+  against an upload that was never opened. That is now refused.
+
+**`api/ticket-merge.js` is new and exists for one reason.** There are now
+two ways a ticket gets in - the CSV importer and this screen - and they must
+reach the same answer, not a similar one. Two copies of twenty-four
+near-identical CASE expressions would agree on the day they were written and
+drift the first time one was corrected. **`import-tickets.js` still holds
+its own copy and has not been switched over yet** - that is the one piece of
+this work that is outstanding.
+
+**`rows_added` and `rows_updated` mean something different now, and better.**
+`finishUpload` wrote the result of `compactTickets` into those columns - the
+number of unique tickets left in the WHOLE SHEET and the number of
+duplicates collapsed across all of it. Facts about the tab, displayed beside
+one upload's filename as though they were facts about the upload. The merge
+reports per row whether it inserted or updated, so they now answer the
+question their heading asks.
 
 ---
 
@@ -515,10 +564,12 @@ decided for a reason.
    file store: Knowledge attachments and the Learnings folder scan.
    ("Links" was `getByWeeklyLinks`, so it is four screens, not five.)
 8. **KPI 1, KPI 2, Compare, Uploads** - in progress. KPI 1 and Compare are
-   ported, tested and proved identical to the original arithmetic (16,239
-   comparisons); the ticket import and the roster both work. Left in this
-   stage: **Uploads**, which is what removes the export-a-CSV-and-run-a-
-   command step, and then **KPI 2**.
+   ported and proved identical to the original arithmetic (16,239
+   comparisons); the ticket import and the roster both work; **Uploads is
+   ported for tickets**, which is what removes the export-a-CSV-and-run-a-
+   command step. Left in this stage: the download-this-upload-again button,
+   switching `import-tickets.js` onto `ticket-merge.js`, and then **KPI 2**,
+   which is the feedback half of Uploads as well as its own screen.
 9. ~~Backups~~ DONE as code. **NOT done as a working arrangement** until
    `BACKUP_DIR` points off this machine, the nightly task exists, and one
    restore has actually been done. See the Backups section above. This has

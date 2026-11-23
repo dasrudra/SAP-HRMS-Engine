@@ -37,6 +37,7 @@ const msgWrite = require('./messenger-write');
 const content = require('./content');
 const kpiRead = require('./kpi-read');
 const backup = require('./backup');
+const uploads = require('./uploads');
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
@@ -70,6 +71,37 @@ app.use(cors({
     return done(new Error('Origin not allowed: ' + origin));
   }
 }));
+
+/*
+  ONE ROUTE GETS A BIGGER BODY, AND IT HAS TO BE SET UP BEFORE THE REST.
+
+  express.json() below defaults to 100KB, which is right for everything in
+  this API: a sign-in, a message, a tick on an objective. A batch of ticket
+  rows is a different kind of object - 500 rows of 29 cells, some of them
+  ticket bodies - and runs to a few megabytes.
+
+  WHY IT IS HERE AND NOT ON THE ROUTE. Middleware runs in the order it is
+  registered, so the 100KB parser below would reach a ticket batch first and
+  reject it with 413 before a bigger parser on the route ever ran. Declared
+  first, this one consumes the body, and body-parser skips a request whose
+  body is already parsed - so the general rule below applies to everything
+  except this one path, which is what was wanted.
+
+  WHY requireAuth IS IN FRONT OF THE PARSER. Otherwise a stranger could post
+  8MB to this path and have the server parse all of it before finding out
+  they are not allowed to. The token is in a header, so it can be checked
+  without reading the body at all. The route repeats both guards: a route
+  that looks unguarded while its protection lives forty lines away in a
+  use() is how an endpoint quietly loses it.
+
+  8MB is roughly 2,000 rows. The browser sends smaller batches than that -
+  the point of batching is progress on screen, not filling a request - so
+  this is headroom, not a target.
+*/
+app.use('/api/uploads/tickets',
+        function (req, res, next) { requireAuth(req, res, next); },
+        function (req, res, next) { requireAdmin(req, res, next); },
+        express.json({ limit: '8mb' }));
 
 app.use(express.json());
 
@@ -1555,6 +1587,106 @@ app.get('/api/accounts', requireAuth, requireAdmin, async function (req, res) {
     fail(res, err, 'could not list accounts');
   }
 });
+
+
+// ---------------------------------------------------------------------------
+// Uploads - the five ITSM exports, straight into PostgreSQL.
+// ---------------------------------------------------------------------------
+/* The 8MB body for /api/uploads/tickets is set up near the top of this
+   file, before the general 100KB parser - see the note there. */
+
+/** Opens an upload. Admin only, as beginUpload in Ingest.gs is. */
+app.post('/api/uploads/begin', requireAuth, requireAdmin,
+  async function (req, res) {
+    try {
+      const b = req.body || {};
+      const out = await uploads.beginUpload({
+        // FROM THE TOKEN, NEVER FROM THE BODY. The browser could claim to be
+        // anybody; req.user is what requireAuth verified a signature over.
+        who: req.user.employeeId,
+        fileNames:   b.fileNames,
+        reportTypes: b.reportTypes,
+        departments: b.departments,
+        totalRows:   b.totalRows,
+        dateFrom:    b.dateFrom,
+        dateTo:      b.dateTo
+      });
+      res.json({ ok: true, uploadId: out.uploadId, startedAt: out.startedAt });
+    } catch (err) {
+      fail(res, err, 'could not open the upload');
+    }
+  });
+
+
+/** One chunk of rows. Admin only. */
+app.post('/api/uploads/tickets', requireAuth, requireAdmin,
+  async function (req, res) {
+    const b = req.body || {};
+
+    if (!Array.isArray(b.rows)) {
+      return res.status(400).json({ ok: false, error: 'rows must be an array' });
+    }
+
+    try {
+      const out = await uploads.appendTicketBatch(b.uploadId, b.rows);
+      res.json({ ok: true, appended: out.appended, inserted: out.inserted,
+                 updated: out.updated, totalRows: out.totalRows,
+                 problems: out.problems });
+    } catch (err) {
+      /*
+        "was never opened" is the caller's mistake, not the server's, and it
+        is the one failure here that a person can act on - so it gets a 400
+        and its own sentence rather than the generic 500. Everything else
+        still goes through fail(), which does not hand a stranger the text of
+        a PostgreSQL error.
+      */
+      if (/never opened|No upload ID/.test(err.message)) {
+        return res.status(400).json({ ok: false, error: err.message });
+      }
+      fail(res, err, 'could not store the rows');
+    }
+  });
+
+
+/** Closes the upload. Admin only. Safe to call twice. */
+app.post('/api/uploads/finish', requireAuth, requireAdmin,
+  async function (req, res) {
+    try {
+      const out = await uploads.finishUpload((req.body || {}).uploadId);
+      res.json(Object.assign({ ok: true }, out));
+    } catch (err) {
+      if (/not found|No upload ID/.test(err.message)) {
+        return res.status(404).json({ ok: false, error: err.message });
+      }
+      fail(res, err, 'could not close the upload');
+    }
+  });
+
+
+/** The history table. Any signed-in person, as getUploadHistory is. */
+app.get('/api/uploads', requireAuth, async function (req, res) {
+  try {
+    const list = await uploads.uploadHistory();
+    res.json({ ok: true, count: list.length, uploads: list });
+  } catch (err) {
+    fail(res, err, 'could not read the upload history');
+  }
+});
+
+
+/** Removes an upload and the rows that came only from its files. Admin only. */
+app.post('/api/uploads/delete', requireAuth, requireAdmin,
+  async function (req, res) {
+    try {
+      const out = await uploads.deleteUpload((req.body || {}).uploadId);
+      res.json(Object.assign({ ok: true }, out));
+    } catch (err) {
+      if (/not found|No upload ID/.test(err.message)) {
+        return res.status(404).json({ ok: false, error: err.message });
+      }
+      fail(res, err, 'could not delete the upload');
+    }
+  });
 
 
 // ---------------------------------------------------------------------------
