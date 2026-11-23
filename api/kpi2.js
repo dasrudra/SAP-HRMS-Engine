@@ -1,0 +1,370 @@
+/**
+ * kpi2.js - SAP User Training Satisfaction & Feedback, the arithmetic.
+ * ===========================================================================
+ *
+ * THE PORT OF Kpi2.gs AND THE FEEDBACK HALF OF Config.gs.
+ *
+ * KPI 2 asks a different question from KPI 1 and asks it of different data.
+ * KPI 1 scores TICKETS by SECTION. This scores ANSWERS by MODULE - "that is
+ * how the existing Department Summary is built, and the two axes are
+ * genuinely different questions".
+ *
+ *
+ * IT IS NOT A POLICY KPI, AND THAT HAS TO SURVIVE THE PORT.
+ *
+ * Config.gs is blunt about it: TVL-KPI-001 section 5.3 gives EAS three KPIs
+ * and this is not one of them, so it "is not reported to TVL against the
+ * policy and must never be presented as though it were". It stays because
+ * the team wants it - "training feedback is the only thing here that says
+ * anything about how the people on the other end of a ticket are finding the
+ * system".
+ *
+ * `policy: false` is carried through so every screen can keep labelling it
+ * INTERNAL rather than letting it sit silently beside three approved
+ * indicators.
+ *
+ *
+ * WHAT IS NOT IN THIS FILE
+ *
+ * The bands, the achievement curve, the headroom and round2 are in kpi.js
+ * already. They are not KPI 1's arithmetic that KPI 2 borrows - they are the
+ * company's scoring rules, which both KPIs are scored by. One copy.
+ *
+ *
+ * NO REAL DATA IS IN THIS FILE.
+ */
+
+const { round2, bandFor, achievementFor, headroomFor } = require('./kpi');
+
+
+/**
+ * The KPI 2 standard. CONFIG.KPIS.FEEDBACK.
+ *
+ * Target 90, yellow floor 81 - and the floor is worth a note, because the
+ * policy text used to contradict itself. Config.gs:
+ *
+ *   "The earlier policy text said Avg Score / Max Score; the signed
+ *    definition sheet replaces it with a positive-response ratio, and
+ *    resolves the old contradictory thresholds (<90 yellow AND <60 red) into
+ *    a clean 81.00-89.99 band."
+ */
+const KPI_FEEDBACK = {
+  id: 'KPI2',
+  name: 'SAP User Training Satisfaction & Feedback',
+  shortName: 'Training Feedback',
+  policy: false,
+  layer: 3,
+  slaLayer: 'Layer 3: Service Requests',
+  measure: 'Actual Success Rate (%)',
+  formula: '(Total Positive Responses / Total Applicable Responses) x 100',
+  target: 90.00,
+  yellowFloor: 81.00,
+  unit: '%',
+  period: 'monthly',
+  active: true
+};
+
+
+/**
+ * Does a skipped question count against the rate?
+ *
+ * CONFIG.COUNT_NON_RESPONSES, and the reasoning is worth keeping where
+ * somebody will find it:
+ *
+ *   "The signed definition says 'Total APPLICABLE Responses', which reads as
+ *    excluding a question nobody answered. The existing workbook includes
+ *    them: PP reports 1107/1120, and 1120 counts its 4 non-responses.
+ *
+ *    TRUE keeps the figures continuous with everything reported so far, and
+ *    is the more conservative of the two - it can only lower the rate.
+ *    Across all 667 respondents the difference is 97.19% against 97.28%, so
+ *    it changes no band today."
+ */
+const COUNT_NON_RESPONSES = true;
+
+
+/**
+ * Answer text to tier. CONFIG.FEEDBACK_ANSWERS.
+ *
+ * DERIVED FROM THE EXISTING WORKBOOK, NOT INVENTED. Overall_Feedback.xlsx
+ * covers 32 training sessions, 667 respondents and 4,669 answers, and its
+ * Department Summary splits them into Excellent & Good / Average / Poor /
+ * Not Responded. This mapping reproduces those four totals exactly -
+ * 4,538 / 121 / 6 / 4 - with no answer left unclassified.
+ *
+ * The seven questions use four different wordings for the same idea, and the
+ * forms changed over time, so every variant seen across all 32 files is
+ * listed.
+ *
+ * POSITIVE is the numerator. AVERAGE and POOR sit in the denominator but not
+ * the numerator.
+ */
+const FEEDBACK_ANSWERS = {
+  POSITIVE: [
+    'Excellent', 'Good',                                        // Q1, Q3, Q4
+    'Highly relevant and very useful', 'Relevant and useful',    // Q2
+    'Extremely helpful', 'Very helpful', 'Helpful',              // Q5
+    'Much more confident', 'More confident', 'Confident',        // Q6
+    'Appropriate', 'Mostly appropriate'                          // Q7
+  ],
+  AVERAGE: [
+    'Average',                  // Q1, Q3, Q4
+    'Somewhat relevant',        // Q2
+    'Slightly helpful',         // Q5
+    'Slightly more confident',  // Q6
+    'Somewhat appropriate'      // Q7
+  ],
+  POOR: [
+    'Poor',                     // Q1, Q3, Q4
+    'Not more confident at all' // Q6
+  ],
+  NO_RESPONSE: [
+    'No response', 'N/A', 'NA', '-'
+  ]
+};
+
+/**
+ * The order the tiers are applied in when the lookup is built.
+ *
+ * IT DOES NOT MATTER, AND THAT IS A PROPERTY OF THE MAP ABOVE RATHER THAN OF
+ * THIS LINE. Mutation testing reversed this array and not one of 27,000
+ * answers changed tier - because the four lists do not overlap, so whichever
+ * is applied last has nothing to overwrite.
+ *
+ * Left as it is, with a test in kpi2-equivalence-test.js that fails the day
+ * an answer appears in two of the lists. Without that test this constant
+ * would look like a decision when it is an accident waiting to become one:
+ * add 'Helpful' to AVERAGE without removing it from POSITIVE, and the order
+ * silently starts deciding a tier.
+ */
+const TIER_ORDER = ['POSITIVE', 'AVERAGE', 'POOR', 'NO_RESPONSE'];
+
+
+/**
+ * The SAP modules training is reported against. CONFIG.TRAINING_MODULES.
+ *
+ * `match` is tried in this order and the FIRST hit wins, which is why the
+ * order is not alphabetical.
+ */
+const TRAINING_MODULES = [
+  { key: 'EACC', name: 'E-Accounting',
+    match: ['e-accounting', 'e accounting', 'eaccounting'] },
+  // 'fi' folded in from what used to be a separate FI module, so a bare-FI
+  // filename lands in the same row as FI_TR rather than a row of its own.
+  // 'tr' is deliberately not here: it is safe against a short Part value but
+  // not against a filename, where too much begins with 'Tr'.
+  { key: 'FITR', name: 'FI/TR',
+    match: ['fi_tr', 'fi-tr', 'fitr', 'fi tr', 'fi'] },
+  { key: 'MM',   name: 'MM',   match: ['inventory', 'purchase', 'mcd', 'mm'] },
+  { key: 'MD',   name: 'MD',   match: ['md'] },
+  { key: 'PP',   name: 'PP',   match: ['production', 'ypl', 'pp'] },
+  { key: 'SD',   name: 'SD',   match: ['development', 'export', 'shipping', 'sd'] },
+  { key: 'CO',   name: 'CO',   match: ['co'] }
+];
+
+
+/** The seven scored questions, in the order the form asks them. */
+const QUESTION_LABELS = [
+  'Overall training session',
+  'Content relevance & usefulness',
+  'Trainer knowledge & expertise',
+  'Concept explanation & Q&A',
+  'Training materials',
+  'Confidence after training',
+  'Duration & pace'
+];
+
+
+// ---------------------------------------------------------------------------
+// Classifying one answer
+// ---------------------------------------------------------------------------
+
+/**
+ * Strips a feedback answer down to something matchable.
+ *
+ * THE BRACKETS ARE THE WHOLE REASON THIS EXISTS. Config.gs:
+ *
+ *   "The forms carry a Bangla gloss in brackets - 'Excellent [...]' - and the
+ *    bracket style varies between square and round across batches. One
+ *    respondent answered 'Confident (...]' with mismatched brackets, so the
+ *    gloss is removed by looking for either kind rather than by pairing
+ *    them."
+ *
+ * Which is why there are two passes: the first removes a bracketed run, the
+ * second sweeps up a bracket left on its own by a respondent who opened one
+ * kind and closed another. Pairing them properly would have left that one
+ * answer unclassified, and an unclassified answer depresses the rate.
+ */
+function normaliseAnswer(answer) {
+  return String(answer === null || answer === undefined ? '' : answer)
+    .replace(/[\(\[][^\)\]]*[\)\]]/g, ' ')   // drop the bracketed gloss
+    .replace(/[\(\[\)\]]/g, ' ')             // and any orphaned bracket
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+
+/**
+ * Normalised answer -> tier, built from a map of tiers to answer lists.
+ *
+ * TAKES THE MAP, so a test can score a form wording that does not exist yet
+ * without editing the real one. Defaults to FEEDBACK_ANSWERS, which is what
+ * every caller uses.
+ */
+function answerTiers(answers) {
+  const source = answers || FEEDBACK_ANSWERS;
+  const tiers = {};
+
+  TIER_ORDER.forEach(function (tier) {
+    (source[tier] || []).forEach(function (answer) {
+      const key = normaliseAnswer(answer);
+      if (key) tiers[key] = tier;
+    });
+  });
+
+  return tiers;
+}
+
+/* Built once for the default map. Rebuilding it per answer would be forty
+   normalisations per respondent for a result that cannot change. */
+const DEFAULT_TIERS = answerTiers();
+
+
+/**
+ * Which tier does one feedback answer fall into?
+ *
+ * UNKNOWN IS A REAL ANSWER AND NOT AN ERROR. Config.gs: "An answer nobody
+ * anticipated returns 'UNKNOWN' rather than being quietly counted as
+ * positive or quietly dropped. Unknowns are surfaced on the KPI 2 screen so
+ * a new form wording gets noticed instead of silently moving the number."
+ *
+ * A blank is NO_RESPONSE, not UNKNOWN - somebody skipping a question is a
+ * thing the form expects, and it has its own tier.
+ *
+ * @return {string} 'POSITIVE' | 'AVERAGE' | 'POOR' | 'NO_RESPONSE' | 'UNKNOWN'
+ */
+function answerTier(answer, answers) {
+  const key = normaliseAnswer(answer);
+  if (!key) return 'NO_RESPONSE';
+  const tiers = answers ? answerTiers(answers) : DEFAULT_TIERS;
+  return tiers[key] || 'UNKNOWN';
+}
+
+
+// ---------------------------------------------------------------------------
+// Which module a session belongs to
+// ---------------------------------------------------------------------------
+
+/**
+ * Which SAP module does a training file belong to?
+ *
+ * FROM THE FILENAME, because the feedback form itself has no module field.
+ * First match wins. Matched at a word boundary so 'CO' does not fire on
+ * 'Accounting' - which is not hypothetical, it is why the boundary is there.
+ *
+ * @param {string} fileName
+ * @param {Array} [list] the module table, for testing
+ * @return {string} module name, or '' when nothing matches
+ */
+function moduleFor(fileName, list) {
+  const text = String(fileName || '').toLowerCase();
+  const modules = list || TRAINING_MODULES;
+
+  for (let i = 0; i < modules.length; i++) {
+    const module = modules[i];
+    for (let j = 0; j < module.match.length; j++) {
+      const pattern = module.match[j].replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      if (new RegExp('(^|[^a-z0-9])' + pattern + '([^a-z0-9]|$)').test(text)) {
+        return module.name;
+      }
+    }
+  }
+
+  return '';
+}
+
+
+// ---------------------------------------------------------------------------
+// The KPI itself
+// ---------------------------------------------------------------------------
+
+/**
+ * Turns counted answers into the KPI. Kpi2.gs scoreFeedback.
+ *
+ * @param {{name, respondents, positive, average, poor, noResponse, unknown}} b
+ * @param {Object} [kpi] defaults to KPI_FEEDBACK
+ *
+ * THE DENOMINATOR IS THE DECISION WORTH UNDERSTANDING, and there are two
+ * halves to it.
+ *
+ * COUNT_NON_RESPONSES decides whether a skipped question counts - see that
+ * constant.
+ *
+ * An UNKNOWN answer always counts in the denominator and never in the
+ * numerator. "That is the safe direction: an unrecognised wording depresses
+ * the rate and shows up on screen, rather than quietly inflating it."
+ *
+ * NO DATA IS NOT ZERO PER CENT. A module with no applicable answers gets
+ * band 'NO DATA' and achievement 0, not a rate of 0 and a red band - there
+ * is a difference between "they scored nothing" and "nobody asked".
+ */
+function scoreFeedback(b, kpi) {
+  const standard = kpi || KPI_FEEDBACK;
+
+  const positive   = Number(b.positive) || 0;
+  const average    = Number(b.average) || 0;
+  const poor       = Number(b.poor) || 0;
+  const unknown    = Number(b.unknown) || 0;
+  const noResponse = Number(b.noResponse) || 0;
+
+  const answered = positive + average + poor + unknown;
+  const applicable = COUNT_NON_RESPONSES ? answered + noResponse : answered;
+
+  const rate = applicable ? (positive / applicable) * 100 : 0;
+
+  return {
+    name:        b.name,
+    respondents: Number(b.respondents) || 0,
+    responses:   answered + noResponse,
+    positive:    positive,
+    average:     average,
+    poor:        poor,
+    noResponse:  noResponse,
+    unknown:     unknown,
+    applicable:  applicable,
+    rate:        round2(rate),
+    /*
+      THE TWO GUARDS ARE NOT BOTH LOAD-BEARING, and it is worth knowing
+      which is which before somebody tidies one away.
+
+      The band guard IS: bandFor(0) is RED, so without it a module nobody
+      was asked about reads as a failing one.
+
+      The achievement guard is NOT: achievementFor is (rate / target) * 100,
+      so at a rate of 0 it already returns 0. Removing it changes nothing -
+      mutation testing confirmed that. Kept because it is the original's
+      line, and because it says in the code that no data is not nought per
+      cent, which is the thing a reader needs to know.
+    */
+    achievement: round2(applicable ? achievementFor(rate, standard) : 0),
+    band:        applicable ? bandFor(rate, standard) : 'NO DATA',
+    // How many more non-positive answers before the band drops. Same idea as
+    // KPI 1's headroom: a percentage alone does not say how close it ran.
+    headroom:    headroomFor(applicable, positive, standard)
+  };
+}
+
+
+/** Busiest module first. Kpi2.gs byRespondents. */
+function byRespondents(a, b) {
+  return b.respondents - a.respondents;
+}
+
+
+module.exports = {
+  KPI_FEEDBACK, COUNT_NON_RESPONSES, FEEDBACK_ANSWERS, TIER_ORDER,
+  TRAINING_MODULES, QUESTION_LABELS,
+  normaliseAnswer, answerTiers, answerTier, moduleFor,
+  scoreFeedback, byRespondents
+};

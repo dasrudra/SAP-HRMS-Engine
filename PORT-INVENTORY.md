@@ -137,13 +137,38 @@ one is switched off.
 | `getKpiComparison` | DONE - `GET /api/kpi1/compare` |
 | `getPeopleByAffiliate`, `listAffiliates` | TODO |
 | `recomputeKpiCache`, `recomputeAfterUpload` | NOT PORTED, deliberately - see below |
-| the ticket merge (`mergeRows`, `stampOf`, `isBlank`, `truthy`) | DONE - `api/import-tickets.js` |
-| `getKpi2` and everything feedback | TODO |
+| the ticket merge (`mergeRows`, `stampOf`, `isBlank`, `truthy`) | DONE - `api/ticket-merge.js`, shared by the CSV importer and the Uploads screen |
+| the KPI 2 arithmetic - `normaliseAnswer`, `answerTier`, `answerTiers`, `moduleFor`, `scoreFeedback`, `byRespondents`, `FEEDBACK_ANSWERS`, `TRAINING_MODULES`, `QUESTION_LABELS` | DONE - `api/kpi2.js`, table `training` |
+| `getKpi2`, `getKpi2Comparison`, `listFeedbackMonths`, `listFeedbackQuarters`, `comparisonEntry`, `byQuarterKey` | TODO - the read side |
+| `runKpi2SelfTest` | NOT PORTED - `api/kpi2-equivalence-test.js` does more than it did |
 
 `api/kpi.js` is pure arithmetic and is proved identical to `src/Kpi.gs` and
 `src/Config.gs` by `api/kpi-equivalence-test.js` - **16,239 comparisons**,
 in `npm test`, needing nothing switched on. 21 deliberate breaks were made
 and all 21 were caught.
+
+`api/kpi2.js` is the same arrangement: **27,041 comparisons** against the
+real `normaliseAnswer`, `answerTier`, `moduleFor` and `scoreFeedback`,
+lifted out of `src/Config.gs`, `src/Kpi.gs` and `src/Kpi2.gs` at run time.
+31 mutations, 29 caught; the two survivors are equivalent and each now has
+an assertion pinning the reason.
+
+**KPI 2 is NOT a policy KPI and that survives the port.** Config.gs is
+blunt: TVL-KPI-001 section 5.3 gives EAS three KPIs and this is not one of
+them, so it "must never be presented as though it were". `policy: false` is
+carried through, and the equivalence suite fails if it changes.
+
+**Two things about KPI 2 that are easy to get wrong and silent when you do:**
+
+- **An answer nobody anticipated is UNKNOWN**, which counts in the
+  denominator and never in the numerator. An unrecognised form wording
+  therefore *lowers* the rate and shows on screen, rather than quietly
+  inflating it.
+- **No data is not nought per cent.** A module nobody was asked about gets
+  band `NO DATA`, not `RED`. `bandFor(0)` is `RED`, so the guard that
+  produces `NO DATA` is load-bearing; the matching guard on `achievement`
+  is not, because `achievementFor(0)` is already 0. Both are written down
+  in `api/kpi2.js` so neither gets tidied away by mistake.
 
 **The target moved on 1 October 2026 and history is NOT frozen.**
 `Config.gs` records that KPI 1 was 99.50 / 89.55 and that TVL-KPI-001 v1.0
@@ -367,7 +392,7 @@ a library over 100KB is silently refused by the cache anyway.
 | `getUploadHistory` | `GET /api/uploads` | DONE |
 | `deleteUpload` | `POST /api/uploads/delete` | DONE |
 | `getUploadCsvChunk`, `uploadCsvName`, `csvCell` | `GET /api/uploads/csv` | DONE |
-| `appendFeedbackBatch`, `finishFeedbackUpload`, `purgeOrphanedFeedback`, `compactFeedback`, `auditFeedback` | - | TODO with KPI 2 |
+| `appendFeedbackBatch`, `finishFeedbackUpload`, `purgeOrphanedFeedback`, `compactFeedback`, `auditFeedback` | - | TODO - the `training` table exists; `removeFeedbackOf` is the piece `deleteUpload` still lacks |
 | `compactTickets`, `rewrite`, `mergeRows`, `stampOf` | `ticket-merge.js`, as one SQL statement | DONE, differently - see below |
 | `recomputeAfterUpload` | - | **dropped**, with the KPI cache |
 | `uploadStamp` | one lookup of `upload_run.uploaded_at` | DONE, differently |
@@ -589,8 +614,10 @@ decided for a reason.
    ported and proved identical to the original arithmetic (16,239
    comparisons); the ticket import and the roster both work; **Uploads is
    ported for tickets**, download included, which is what removes the
-   export-a-CSV-and-run-a-command step. Left in this stage: **KPI 2**, which
-   is the feedback half of Uploads as well as its own screen.
+   export-a-CSV-and-run-a-command step. **KPI 2's arithmetic is ported and
+   proved identical over 27,041 comparisons**, and the `training` table
+   exists. Left in this stage: KPI 2's read side (`getKpi2`,
+   `getKpi2Comparison`) and the feedback half of Uploads.
 9. ~~Backups~~ DONE as code. **NOT done as a working arrangement** until
    `BACKUP_DIR` points off this machine, the nightly task exists, and one
    restore has actually been done. See the Backups section above. This has
