@@ -265,6 +265,35 @@ async function main() {
         restore.hasFlag([], '--latest') === false &&
         restore.hasFlag(undefined, '--latest') === false);
 
+  /*
+    The hidden password prompt reads raw keystrokes, so it also receives
+    everything else the terminal sends. Pasting is the dangerous one: the
+    ESC is a control character and is dropped, but "[200~" is five
+    ordinary printable characters, so without this the pasted password
+    silently gains a prefix and authentication fails with nothing on
+    screen to explain it.
+  */
+  check('a bracketed paste leaves only the password',
+        restore.stripEscapes('\u001b[200~secret\u001b[201~') === 'secret');
+  check('an up arrow is not part of the password',
+        restore.stripEscapes('\u001b[Asecret') === 'secret');
+  check('a function key is not part of the password',
+        restore.stripEscapes('\u001bOPsecret') === 'secret');
+  check('a stray escape on its own is dropped',
+        restore.stripEscapes('se\u001bcret') === 'secret');
+  check('ordinary typing is untouched',
+        restore.stripEscapes('Ex4mple.P4ss') === 'Ex4mple.P4ss');
+  /*
+    AND IT MUST NOT EAT A REAL PASSWORD. Every rule needs a literal ESC
+    first, and ESC is not something anybody types into a password, so
+    brackets and tildes in a password survive.
+  */
+  check('a password full of brackets survives',
+        restore.stripEscapes('pa[200~ss]~x') === 'pa[200~ss]~x');
+  check('a password that is only punctuation survives',
+        restore.stripEscapes('[]~;?@') === '[]~;?@');
+  check('an empty string stays empty', restore.stripEscapes('') === '');
+
   check('a database name this script will use',
         restore.validName('tvl_eas_check') === true);
   check('upper case is refused', restore.validName('TVL_EAS') === false);

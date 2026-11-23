@@ -99,12 +99,45 @@ function hasFlag(args, name) {
 
 
 /**
+ * Removes the escape sequences a terminal sends alongside real keystrokes.
+ *
+ * WHY A HIDDEN PROMPT NEEDS THIS AND AN ORDINARY ONE DOES NOT. In raw mode
+ * everything the terminal sends arrives here, and a terminal sends more
+ * than the keys that were pressed:
+ *
+ *   pasting      modern terminals wrap pasted text in "bracketed paste":
+ *                ESC [ 2 0 0 ~ before it and ESC [ 2 0 1 ~ after. The ESC
+ *                is a control character and gets dropped, but [200~ is
+ *                five perfectly ordinary printable characters, so a pasted
+ *                password silently becomes "[200~" + the password +
+ *                "[201~" and authentication fails for no visible reason.
+ *   arrow keys   ESC [ A and friends, same problem
+ *
+ * Nothing is echoed, so there is no way to see any of this happening.
+ *
+ * It cannot damage a real password: every rule here needs a literal ESC
+ * first, and ESC is not a character anybody can type into a password
+ * field. A password containing [ or ~ comes through untouched.
+ */
+function stripEscapes(text) {
+  return String(text)
+    .replace(/\u001b\[[0-9;?]*[ -\/]*[@-~]/g, '')   // CSI: arrows, paste markers
+    .replace(/\u001bO[@-~]/g, '')                   // SS3: F1 to F4 on some terminals
+    .replace(/\u001b/g, '');                        // a stray ESC on its own
+}
+
+
+/**
  * Asks for a password without echoing it.
  *
  * Raw mode, so every keystroke arrives here instead of being printed. A
  * chunk can hold more than one character - a fast typist, and certainly a
  * paste - so it is walked character by character rather than treated as
  * one key.
+ *
+ * It prints how many characters it read. Nothing was echoed, so without
+ * that there is no way to tell a mistyped password from a prompt that
+ * captured nothing, or captured five characters too many.
  */
 function askPassword(label) {
   return new Promise(function (resolve, reject) {
@@ -132,11 +165,12 @@ function askPassword(label) {
       stdin.removeListener('data', onData);
       process.stdout.write('\n');
       if (cancelled) process.exit(130);      // what Ctrl+C means
+      process.stdout.write('  (' + value.length + ' characters read)\n');
       resolve(value);
     }
 
     function onData(chunk) {
-      for (const ch of String(chunk)) {
+      for (const ch of stripEscapes(chunk)) {
         if (done) return;
         if (ch === '\r' || ch === '\n' || ch === '\u0004') { finish(false); }
         else if (ch === '\u0003') { finish(true); }
@@ -431,12 +465,48 @@ async function main() {
     console.error('  Could not connect as ' + cfg.user + ' to create a database:');
     console.error('    ' + e.message);
     console.error('');
-    console.error('  This script needs a user that may CREATE DATABASE, and');
-    console.error('  tvl_api deliberately may not. Add the flag and it will');
-    console.error('  ask for the password:');
-    console.error('');
-    console.error('    node restore.js ' + (latest ? '--latest' : '<file>') +
-                  ' ' + target + ' --user=postgres');
+
+    /*
+      THREE DIFFERENT FAILURES ARRIVE HERE and they need three different
+      answers. The first version printed "add --user=postgres" for all of
+      them, including to somebody who had just passed --user=postgres -
+      advice that is not merely useless but actively misleading, because
+      it suggests the flag did not take.
+    */
+    const authFailed = /password authentication failed|authentication failed|no password supplied|role .* does not exist/i
+      .test(e.message);
+
+    if (authFailed && asUser) {
+      console.error('  THE PASSWORD WAS NOT ACCEPTED. Usually one of two things:');
+      console.error('');
+      console.error('  1. It is not the password you think it is. The ' + asUser);
+      console.error('     password is the one set when PostgreSQL was');
+      console.error('     INSTALLED. It is not the tvl_api password in');
+      console.error('     api/.env, and it is not your Windows password.');
+      console.error('     Check the character count printed above against');
+      console.error('     the length of what you meant to type.');
+      console.error('');
+      console.error('  2. Nobody remembers it. You can set a new one WITHOUT');
+      console.error('     knowing the old one, because pgAdmin is already');
+      console.error('     signed in as ' + asUser + '. In pgAdmin, open the');
+      console.error('     Query Tool on any database and run:');
+      console.error('');
+      console.error("       ALTER USER " + asUser + " WITH PASSWORD 'choose-one';");
+      console.error('');
+      console.error('     pgAdmin will ask you for it the next time it');
+      console.error('     reconnects. Then run this command again.');
+    } else if (!asUser) {
+      console.error('  This script needs a user that may CREATE DATABASE, and');
+      console.error('  tvl_api deliberately may not. Add the flag and it will');
+      console.error('  ask for the password:');
+      console.error('');
+      console.error('    node restore.js ' + (latest ? '--latest' : '<file>') +
+                    ' ' + target + ' --user=postgres');
+    } else {
+      console.error('  That is not a password problem. Check that PostgreSQL');
+      console.error('  is running and that PGHOST and PGPORT in api/.env');
+      console.error('  match it - this tried ' + cfg.host + ':' + cfg.port + '.');
+    }
     console.error('');
     process.exit(1);
   }
@@ -660,4 +730,5 @@ if (require.main === module) {
   });
 }
 
-module.exports = { validName, optionValue, hasFlag, countsIn, compare };
+module.exports = { validName, optionValue, hasFlag, stripEscapes,
+                   countsIn, compare };
