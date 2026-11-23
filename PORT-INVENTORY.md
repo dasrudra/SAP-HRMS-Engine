@@ -366,7 +366,7 @@ a library over 100KB is silently refused by the cache anyway.
 | `finishUpload` | `POST /api/uploads/finish` | DONE |
 | `getUploadHistory` | `GET /api/uploads` | DONE |
 | `deleteUpload` | `POST /api/uploads/delete` | DONE |
-| `getUploadCsvChunk`, `uploadCsvName`, `csvCell` | - | TODO - the download-this-upload-again button |
+| `getUploadCsvChunk`, `uploadCsvName`, `csvCell` | `GET /api/uploads/csv` | DONE |
 | `appendFeedbackBatch`, `finishFeedbackUpload`, `purgeOrphanedFeedback`, `compactFeedback`, `auditFeedback` | - | TODO with KPI 2 |
 | `compactTickets`, `rewrite`, `mergeRows`, `stampOf` | `ticket-merge.js`, as one SQL statement | DONE, differently - see below |
 | `recomputeAfterUpload` | - | **dropped**, with the KPI cache |
@@ -398,9 +398,31 @@ gap:**
 two ways a ticket gets in - the CSV importer and this screen - and they must
 reach the same answer, not a similar one. Two copies of twenty-four
 near-identical CASE expressions would agree on the day they were written and
-drift the first time one was corrected. **`import-tickets.js` still holds
-its own copy and has not been switched over yet** - that is the one piece of
-this work that is outstanding.
+drift the first time one was corrected. `import-tickets.js` now takes the
+merge, the column list and every cell reader from it, which removed 186
+lines from that file; a structural check in `uploads-test.js` fails if a
+copy of the statement ever reappears there.
+
+**Two things were found while porting this, and both are fixed.**
+
+1. **A timestamp with no timezone on it was being read in the timezone of
+   the process.** The ITSM exports write `2026-08-20 10:00` and nothing in
+   the text says where. On the Windows machine in Dhaka that is right by
+   accident; on a server - and almost every Linux server is set to UTC - it
+   is six hours late. Six hours is invisible mid-month and decisive at the
+   end of one: a ticket raised at 20:00 on 31 August becomes 02:00 on 1
+   September, and a **monthly KPI scores it in the wrong month**. A naive
+   timestamp is now read as Dhaka explicitly, and one that names its zone is
+   believed. **Nothing changes on a machine already set to Dhaka, so no
+   re-import is needed.** There is a test that runs the same export in child
+   processes set to UTC, Dhaka and New York and requires all three to agree.
+2. **The random part of an upload ID was four hex characters**, as the sheet
+   used. 65,536 values collide about a quarter of the time over 200 draws -
+   measured, not estimated: the test that generates 200 IDs failed on its
+   first run at 199 unique. In the sheet that produced the duplicate-log-row
+   bug Ingest.gs describes; here `upload_id` is the primary key, so the
+   database refuses the second upload and it fails to start. Now eight
+   characters. Nothing reads the suffix.
 
 **`rows_added` and `rows_updated` mean something different now, and better.**
 `finishUpload` wrote the result of `compactTickets` into those columns - the
@@ -566,10 +588,9 @@ decided for a reason.
 8. **KPI 1, KPI 2, Compare, Uploads** - in progress. KPI 1 and Compare are
    ported and proved identical to the original arithmetic (16,239
    comparisons); the ticket import and the roster both work; **Uploads is
-   ported for tickets**, which is what removes the export-a-CSV-and-run-a-
-   command step. Left in this stage: the download-this-upload-again button,
-   switching `import-tickets.js` onto `ticket-merge.js`, and then **KPI 2**,
-   which is the feedback half of Uploads as well as its own screen.
+   ported for tickets**, download included, which is what removes the
+   export-a-CSV-and-run-a-command step. Left in this stage: **KPI 2**, which
+   is the feedback half of Uploads as well as its own screen.
 9. ~~Backups~~ DONE as code. **NOT done as a working arrangement** until
    `BACKUP_DIR` points off this machine, the nightly task exists, and one
    restore has actually been done. See the Backups section above. This has

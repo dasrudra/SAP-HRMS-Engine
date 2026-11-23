@@ -93,12 +93,18 @@ async function main() {
         uploads.stamp(new Date('2026-11-21T18:00:00Z')) === '20261122-000000');
 
   const id1 = uploads.newUploadId();
-  check('an upload ID has the shape the sheet used',
-        /^UPL-\d{8}-\d{6}-[0-9a-f]{4}$/.test(id1), id1);
+  check('an upload ID has the shape the sheet used, with a longer suffix',
+        /^UPL-\d{8}-\d{6}-[0-9a-f]{8}$/.test(id1), id1);
   /*
     "Seconds are not unique enough. Two uploads started in the same second
      used to share an ID, and deleting one then found two matching log rows
      and removed a single one."
+
+    THIS CHECK FAILED ON ITS FIRST RUN, at 199 of 200, which is why the
+    suffix is eight characters and not the original's four. 65,536 values
+    collide about a quarter of the time over 200 draws; four billion put
+    that at roughly one run in two hundred thousand, so this is bounded
+    rather than hoped for.
   */
   const many = [];
   for (let i = 0; i < 200; i++) many.push(uploads.newUploadId());
@@ -180,6 +186,70 @@ async function main() {
   check('TRUE in any case is true, and nothing else is',
         merge.truthy('TRUE') && merge.truthy('true') && merge.truthy(true) &&
         !merge.truthy('yes') && !merge.truthy('1') && !merge.truthy(''));
+
+
+  // =======================================================================
+  console.log('');
+  console.log('  A timestamp with no timezone on it means Dhaka');
+  // =======================================================================
+  /*
+    The ITSM exports write '2026-08-20 10:00'. That is ten in the morning in
+    the office, and nothing in the text says so - so `new Date` reads it in
+    the timezone of the PROCESS. On the Windows machine in Dhaka that is
+    right by accident. On a server it would not be, and almost every Linux
+    server is set to UTC.
+
+    Six hours is invisible in the middle of a month and decisive at the end
+    of one: a ticket raised at 20:00 on 31 August becomes 02:00 on 1
+    September, and a monthly KPI scores it in the wrong month.
+  */
+  check('ten in the morning is ten in the morning in Dhaka',
+        merge.readDate('2026-08-20 10:00') === '2026-08-20T04:00:00.000Z',
+        merge.readDate('2026-08-20 10:00'));
+  check('SO A TICKET AT 20:00 ON 31 AUGUST STAYS IN AUGUST',
+        merge.readDate('2026-08-31 20:00') === '2026-08-31T14:00:00.000Z',
+        merge.readDate('2026-08-31 20:00'));
+  check('seconds are read when they are there',
+        merge.readDate('2026-08-20 10:00:30') === '2026-08-20T04:00:30.000Z');
+  check('a T between the date and the time is the same thing',
+        merge.readDate('2026-08-20T10:00') === merge.readDate('2026-08-20 10:00'));
+  /*
+    ISO says a bare date is UTC midnight, which is six in the morning in the
+    office - a day that starts at breakfast.
+  */
+  check('a bare date is midnight in Dhaka, not midnight in London',
+        merge.readDate('2026-08-20') === '2026-08-19T18:00:00.000Z',
+        merge.readDate('2026-08-20'));
+  check('a timestamp that names its zone is believed',
+        merge.readDate('2026-08-20T10:00:00Z') === '2026-08-20T10:00:00.000Z');
+  check('including an offset that happens to be Dhaka\'s',
+        merge.readDate('2026-08-20T10:00:00+06:00') === '2026-08-20T04:00:00.000Z');
+  check('and something unreadable is still reported, not guessed at',
+        merge.readDate('the third of never', [], 'x') === null);
+
+  /*
+    THE POINT OF ALL OF THAT, CHECKED THE ONLY WAY THAT PROVES IT: run the
+    same function in child processes whose clocks are set differently. If
+    the answers match, the result does not depend on where the server is.
+  */
+  const { execFileSync } = require('child_process');
+  const mergePath = require('path').join(__dirname, 'ticket-merge');
+  function readUnder(tz, text) {
+    return execFileSync(process.execPath, ['-e',
+      'process.stdout.write(String(require(' + JSON.stringify(mergePath) +
+      ').readDate(' + JSON.stringify(text) + ')))'],
+      { encoding: 'utf8',
+        env: Object.assign({}, process.env, { TZ: tz }) });
+  }
+  const utc   = readUnder('UTC', '2026-08-31 20:00');
+  const dhaka = readUnder('Asia/Dhaka', '2026-08-31 20:00');
+  const ny    = readUnder('America/New_York', '2026-08-31 20:00');
+  check('THE SAME EXPORT READ ON A UTC MACHINE AND A DHAKA ONE AGREES',
+        utc === dhaka, utc + ' vs ' + dhaka);
+  check('and on a machine in New York as well',
+        ny === dhaka, ny + ' vs ' + dhaka);
+  check('and all three are the Dhaka answer',
+        dhaka === '2026-08-31T14:00:00.000Z', dhaka);
 
 
   // =======================================================================
@@ -401,6 +471,160 @@ async function main() {
 
   // =======================================================================
   console.log('');
+  console.log('  NUL bytes, which real exports contain');
+  // =======================================================================
+  /*
+    "A PostgreSQL text value cannot contain one, at all, by design." The
+    first real import stopped on exactly this after 25,808 rows. Stripping
+    it is right; doing so without saying anything is not - and this path had
+    no end-of-run to print a count at, so the count was being lost.
+  */
+  const withNul = await uploads.appendTicketBatch(second, [
+    cells({ 'Ticket ID': 'TEST-UPL-nul', 'Title': 'before\u0000after',
+            'Source Files': B })
+  ]);
+  check('the NUL cells are counted', withNul.nulCells === 1,
+        String(withNul.nulCells));
+  check('and reported rather than stripped in silence',
+        withNul.problems.some(function (p) { return /NUL byte/.test(p); }),
+        JSON.stringify(withNul.problems));
+  check('the row is stored with the character removed and nothing else',
+        (await one('TEST-UPL-nul')).title === 'beforeafter',
+        JSON.stringify((await one('TEST-UPL-nul')).title));
+  const noNul = await uploads.appendTicketBatch(second, [
+    cells({ 'Ticket ID': 'TEST-UPL-nul2', 'Title': 'clean', 'Source Files': B })
+  ]);
+  check('a clean batch reports none',
+        noNul.nulCells === 0 && noNul.problems.length === 0);
+
+
+  // =======================================================================
+  console.log('');
+  console.log('  Downloading an upload again');
+  // =======================================================================
+  check('the download is named after the files, not the upload ID',
+        uploads.uploadCsvName('UPL-20261028-102822-8817', ['Overall_Aug.xlsx'])
+        === 'Overall_Aug 2026-10-28.csv',
+        uploads.uploadCsvName('UPL-20261028-102822-8817', ['Overall_Aug.xlsx']));
+  check('several files become "and N more"',
+        uploads.uploadCsvName('UPL-20261028-102822-8817',
+                              ['a.xlsx', 'b.xlsx', 'c.xlsx'])
+        === 'a and 2 more 2026-10-28.csv');
+  check('no files falls back to the upload ID',
+        /^UPL-20261028-102822-8817 2026-10-28\.csv$/
+          .test(uploads.uploadCsvName('UPL-20261028-102822-8817', [])));
+  /*
+    Windows refuses these outright and the rest make a mess of a shell. A
+    file name is not a place to find out.
+  */
+  check('characters Windows will not accept are replaced',
+        uploads.uploadCsvName('UPL-20261028-102822-8817',
+                              ['a/b:c*d?e"f<g>h|i.xlsx'])
+          .indexOf('/') === -1);
+  check('and the name stays short enough to be a file name',
+        uploads.uploadCsvName('UPL-20261028-102822-8817',
+                              ['x'.repeat(400) + '.xlsx']).length <= 124);
+
+  check('a plain value is not quoted', uploads.csvCell('KSL') === 'KSL');
+  check('a comma forces quotes',
+        uploads.csvCell('one, two') === '"one, two"');
+  check('a quote is doubled',
+        uploads.csvCell('say "hi"') === '"say ""hi"""');
+  check('a newline forces quotes',
+        uploads.csvCell('line\nline') === '"line\nline"');
+  check('null and undefined are empty',
+        uploads.csvCell(null) === '' && uploads.csvCell(undefined) === '');
+
+  check('every column is rendered by the SELECT',
+        merge.NAMES.every(function (n) {
+          return new RegExp('AS ' + n + '\\b').test(uploads.csvSelectList());
+        }));
+  check('timestamps are rendered in Dhaka, by the database',
+        /AT TIME ZONE 'Asia\/Dhaka'/.test(uploads.csvSelectList()));
+  check('booleans come out as TRUE and FALSE, which truthy reads back',
+        /THEN 'TRUE' ELSE 'FALSE'/.test(uploads.csvSelectList()) &&
+        merge.truthy('TRUE') === true);
+
+  const slice = await uploads.uploadCsvChunk(second, 1);
+  const csvLines = slice.csv.split('\n');
+  check('the first slice carries the header row',
+        csvLines[0] === merge.HEADERS.join(','), csvLines[0].slice(0, 40));
+  check('it offers a file name', /\.csv$/.test(slice.fileName), slice.fileName);
+  check('the total counts only this upload\'s tickets',
+        slice.total === (await db.query(
+          "SELECT count(*)::int AS n FROM ticket" +
+          " WHERE source_files LIKE '%' || $1 || '%'", [B]))[0].n,
+        String(slice.total));
+  check('one call was enough for a small upload', slice.done === true);
+  check('and it emitted a line per ticket, under the header',
+        csvLines.length === slice.total + 1,
+        csvLines.length + ' lines for ' + slice.total + ' tickets');
+  check('scanned reports how far it got', slice.scanned === slice.total);
+
+  /*
+    A title containing a comma is the case that breaks a CSV written without
+    escaping, and ticket titles contain them routinely.
+  */
+  await uploads.appendTicketBatch(second, [
+    cells({ 'Ticket ID': 'TEST-UPL-csv', 'Source Files': B,
+            'Title': 'Adjust, then re-run the "month end" job',
+            'Request Date': '2026-08-20 10:00', 'In Overall Report': 'TRUE' })
+  ]);
+  const quoted = await uploads.uploadCsvChunk(second, 1);
+  check('a title with a comma and quotes survives as one field',
+        quoted.csv.indexOf('"Adjust, then re-run the ""month end"" job"') !== -1);
+  check('a true flag is written as TRUE',
+        quoted.csv.split('\n').some(function (l) {
+          return l.indexOf('TEST-UPL-csv') !== -1 && l.indexOf('TRUE') !== -1;
+        }));
+  check('a timestamp is written as a plain local datetime',
+        /2026-08-20 10:00:00/.test(quoted.csv), 'request date not found');
+
+  const second2 = await uploads.uploadCsvChunk(second, 2);
+  check('a later slice has no header row',
+        second2.csv.split('\n')[0] !== merge.HEADERS.join(','));
+  check('and no file name, because the download already has one',
+        second2.fileName === '');
+  check('starting past the end is done, with nothing in it',
+        (await uploads.uploadCsvChunk(second, 9999)).done === true);
+
+  const otherUpload = await openUpload(['TEST-UPL-c.xlsx'], '2099-01-03T00:00:00Z');
+  const none = await uploads.uploadCsvChunk(otherUpload, 1);
+  check('AN UPLOAD DOWNLOADS ITS OWN ROWS AND NOBODY ELSE\'S',
+        none.total === 0 && none.csv.split('\n').length === 1,
+        String(none.total));
+  await uploads.deleteUpload(otherUpload);
+
+  check('downloading an upload that does not exist is an error',
+        await threwSaying(function () {
+          return uploads.uploadCsvChunk('UPL-nope', 1);
+        }, /not found/));
+
+
+  // =======================================================================
+  console.log('');
+  console.log('  The merge is defined once');
+  // =======================================================================
+  /*
+    STRUCTURAL, AND IT EARNS ITS PLACE. ticket-merge.js exists so that the
+    CSV importer and this screen cannot disagree about what merging two
+    tickets means. Nothing stops somebody pasting the statement back into
+    one of them, and the day that happens both suites still pass - the
+    duplication is invisible until the copies drift.
+  */
+  const importer = require('fs')
+    .readFileSync(require('path').join(__dirname, 'import-tickets.js'), 'utf8');
+  check('IMPORT-TICKETS HAS NO MERGE OF ITS OWN',
+        importer.indexOf('ON CONFLICT') === -1);
+  check('it takes the merge from the shared module',
+        /require\('\.\/ticket-merge'\)/.test(importer) &&
+        /merge\.MERGE_SQL/.test(importer));
+  check('and it does not keep its own copy of the column list',
+        /^const COLUMNS = merge\.COLUMNS;$/m.test(importer));
+
+
+  // =======================================================================
+  console.log('');
   console.log('  Closing it, and the history');
   // =======================================================================
   const done = await uploads.finishUpload(first);
@@ -449,6 +673,7 @@ async function main() {
       TEST-UPL-4   no sources      belongs to nobody
       TEST-UPL-5   no sources      belongs to nobody
       TEST-UPL-6   sources B       only the second
+      TEST-UPL-nul, TEST-UPL-nul2, TEST-UPL-csv   sources B
 
     Deleting the FIRST upload must remove TEST-UPL-2 and nothing else, and
     must prune A out of TEST-UPL-1 while leaving the row alone.
@@ -519,7 +744,7 @@ async function main() {
   // Now the second upload, which owns what is left.
   const rest = await uploads.deleteUpload(second);
   check('deleting the second removes the rows it alone owned',
-        rest.removed === 3, String(rest.removed));
+        rest.removed === 6, String(rest.removed));
   check('TEST-UPL-1 is gone now that nobody vouches for it',
         (await one('TEST-UPL-1')) === undefined);
   check('and the sourceless rows are STILL there',

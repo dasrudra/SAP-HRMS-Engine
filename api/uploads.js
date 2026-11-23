@@ -110,20 +110,32 @@ function stamp(when) {
 /**
  * 'UPL-20260916-103455-a1b2'.
  *
- * THE FOUR RANDOM CHARACTERS ARE NOT DECORATION. Ingest.gs:
+ * THE RANDOM SUFFIX IS NOT DECORATION. Ingest.gs:
  *
  *   "Seconds are not unique enough. Two uploads started in the same second
  *    used to share an ID, and deleting one then found two matching log rows
  *    and removed a single one - so the row appeared to survive being
  *    deleted."
  *
- * Here upload_id is also the PRIMARY KEY, so a collision would be refused by
- * the database rather than producing two rows. The suffix stops that refusal
- * ever happening to a legitimate second upload.
+ * EIGHT CHARACTERS HERE, WHERE THE ORIGINAL USED FOUR, and that is the one
+ * deliberate difference. Four hex characters is 65,536 values, and 65,536
+ * is a much smaller number than it looks: drawing 200 of them collides
+ * about a quarter of the time. That is not arithmetic on paper - a test
+ * that generates 200 IDs and checks they differ failed on its first run,
+ * with 199 unique.
+ *
+ * In the sheet a repeat produced two log rows with one ID, which is the bug
+ * quoted above. Here upload_id is the PRIMARY KEY, so the database refuses
+ * the second one and the upload fails to start - better, and still a
+ * failure nobody could explain. Eight characters is four billion values,
+ * which puts a repeat in 200 at about one run in two hundred thousand.
+ *
+ * Nothing reads the suffix. uploadCsvName only parses the date out of the
+ * front, so the longer ID costs nothing anywhere.
  */
 function newUploadId(when) {
   return 'UPL-' + stamp(when) + '-' +
-         crypto.randomUUID().replace(/-/g, '').slice(0, 4);
+         crypto.randomUUID().replace(/-/g, '').slice(0, 8);
 }
 
 
@@ -261,13 +273,27 @@ async function appendTicketBatch(uploadId, rows) {
     if (!batch.length) {
       await client.query('COMMIT');
       const total = (await db.query('SELECT count(*)::int AS n FROM ticket'))[0].n;
-      return { appended: 0, inserted: 0, updated: 0, totalRows: total, problems: [] };
+      return { appended: 0, inserted: 0, updated: 0, totalRows: total,
+               nulCells: 0, problems: [] };
     }
 
     const lastUpdated = new Date(open.uploaded_at).toISOString();
     const problems = [];
     let inserted = 0;
     let updated = 0;
+
+    /*
+      NUL BYTES ARE STRIPPED, AND SAYING SO IS PART OF THE DEAL. The rule in
+      ticket-merge.js is "we quietly removed characters from your tickets is
+      not something to do silently", and the CSV importer prints a count at
+      the end of its run. This path had no end-of-run to print at, so the
+      count was being lost - the one caller that is a person watching a
+      progress bar was the one caller not being told.
+
+      Counted as a difference rather than read directly, because the module
+      counts for the life of the process and this is one batch of one upload.
+    */
+    const nulBefore = merge.nulCount();
 
     for (let i = 0; i < batch.length; i++) {
       const values = merge.valuesFromCells(batch[i], {
@@ -302,11 +328,18 @@ async function appendTicketBatch(uploadId, rows) {
 
     await client.query('COMMIT');
 
+    const nulCells = merge.nulCount() - nulBefore;
+    if (nulCells) {
+      problems.push(nulCells + ' cell(s) contained a NUL byte, which ' +
+                    'PostgreSQL cannot store - removed');
+    }
+
     return {
       appended: inserted + updated,
       inserted: inserted,
       updated: updated,
       totalRows: total,
+      nulCells: nulCells,
       problems: problems
     };
   } catch (err) {
@@ -502,8 +535,186 @@ async function deleteUpload(uploadId) {
 }
 
 
+// ---------------------------------------------------------------------------
+// Downloading one again
+// ---------------------------------------------------------------------------
+
+/**
+ * A download name built from the files the upload actually contained.
+ *
+ * Ingest.gs, unchanged, including why:
+ *
+ *   "It used to be the upload ID - 'UPL-20261028-102822-8817.csv' - which is
+ *    the right name for a row in a log and the wrong one for something
+ *    landing in somebody's Downloads folder beside four other exports."
+ */
+function uploadCsvName(uploadId, files) {
+  const clean = (files || [])
+    .map(function (f) { return String(f || '').replace(/\.[^.]+$/, '').trim(); })
+    .filter(Boolean);
+
+  let base = clean[0] || uploadId;
+  if (clean.length > 1) base += ' and ' + (clean.length - 1) + ' more';
+
+  // Windows refuses these outright and the rest make a mess of a shell, so
+  // they go. The date is appended because the same export gets re-uploaded
+  // monthly and two files of the same name in one folder helps nobody.
+  base = base.replace(/[\\/:*?"<>|]+/g, '-').replace(/\s+/g, ' ').trim();
+
+  const when = String(uploadId).match(/^UPL-(\d{4})(\d{2})(\d{2})/);
+  const day = when ? ' ' + when[1] + '-' + when[2] + '-' + when[3] : '';
+
+  return (base + day).slice(0, 120) + '.csv';
+}
+
+
+/**
+ * Escapes one value for CSV.
+ *
+ * Ingest.gs: "Ticket titles contain commas, quotes and newlines routinely,
+ * so this is not optional - without it a single title splits into several
+ * columns."
+ *
+ * Everything arriving here is already a string, because the SELECT renders
+ * each column - see csvSelectList. The original had to cope with Dates and
+ * booleans in the same function, which is where its date formatting lived.
+ */
+function csvCell(value) {
+  if (value === null || value === undefined) return '';
+  const text = String(value);
+  return /[",\n\r]/.test(text) ? '"' + text.replace(/"/g, '""') + '"' : text;
+}
+
+
+/**
+ * Every column, rendered as the text the CSV should carry.
+ *
+ * DONE IN SQL, NOT IN JAVASCRIPT, and the timestamps are why. Reading a
+ * timestamptz into Node gives a Date, and turning it back into
+ * '2026-08-03 09:15:00' means formatting it in Asia/Dhaka by hand, in a
+ * process whose own timezone is whatever the machine happens to be set to.
+ * `AT TIME ZONE 'Asia/Dhaka'` says it once, in the one place that cannot be
+ * wrong about it, and what comes back is already the string.
+ *
+ * Booleans come out as TRUE and FALSE, which is what the ITSM exports use
+ * and what truthy() reads back, so a downloaded file can be fed straight
+ * into import-tickets.js.
+ */
+function csvSelectList() {
+  return merge.COLUMNS.map(function (c) {
+    const col = c[1];
+    const kind = c[2];
+
+    if (kind === 'ts') {
+      return "coalesce(to_char(" + col + " AT TIME ZONE '" + TZ +
+             "', 'YYYY-MM-DD HH24:MI:SS'), '') AS " + col;
+    }
+    if (kind === 'bool') {
+      return "CASE WHEN " + col + " THEN 'TRUE' ELSE 'FALSE' END AS " + col;
+    }
+    if (kind === 'num') {
+      return 'coalesce(' + col + "::text, '') AS " + col;
+    }
+    return 'coalesce(' + col + ", '') AS " + col;
+  }).join(',\n       ');
+}
+
+
+/**
+ * One slice of an upload's tickets, as CSV text.
+ *
+ * WHY IT IS CHUNKED. Ingest.gs, and it still applies: the old whole-file
+ * version was "24,000 rows and about 11MB travelling through
+ * google.script.run in one go, and the page gave no sign of life for the
+ * whole of it". Sliced, "none of them is near any limit however big the
+ * sheet gets, and the page can say how far it has got".
+ *
+ * WHAT CHANGED, AND IT IS WORTH KNOWING BEFORE READING THE NUMBERS. The
+ * original sliced the whole TICKETS tab by row number and threw away the
+ * rows that did not belong to the upload, because a sheet has no index to
+ * ask. So its `total` was every ticket in the system and its progress was
+ * "scanned 24,000 of 26,414" while the file being built held four hundred.
+ *
+ * Here the filtering is in the WHERE clause, so the slice is over the
+ * upload's OWN rows. Same keys, same progress arithmetic, and the numbers
+ * now describe the thing being downloaded.
+ *
+ * @param {string} uploadId
+ * @param {number} startRow  1-based row of this upload's tickets to resume
+ *                           at; 1 to start
+ * @return {Promise<{csv, nextRow, done, scanned, total, fileName}>}
+ */
+async function uploadCsvChunk(uploadId, startRow) {
+  const id = String(uploadId || '').trim();
+  if (!id) throw new Error('No upload ID.');
+
+  const log = (await db.query(
+    'SELECT file_names FROM upload_run WHERE upload_id = $1', [id]))[0];
+  if (!log) throw new Error('Upload ' + id + ' not found.');
+
+  const files = splitList(log.file_names);
+
+  // The caller counts from 1 and means "the first data row", which keeps
+  // the arithmetic out of the page.
+  const from = Math.max(1, Number(startRow) || 1);
+  const first = from === 1;
+
+  const lines = [];
+  if (first) lines.push(merge.HEADERS.map(csvCell).join(','));
+
+  // An upload that named no files owns no rows. Asking the database "which
+  // tickets have a source in this empty list" would be a full scan to reach
+  // the answer zero.
+  if (!files.length) {
+    return { csv: lines.join('\n'), nextRow: from, done: true, scanned: 0,
+             total: 0, fileName: first ? uploadCsvName(id, files) : '' };
+  }
+
+  const belongs =
+    `EXISTS (SELECT 1
+               FROM unnest(string_to_array(source_files, ' | ')) AS s
+              WHERE btrim(s) = ANY($1::text[]))`;
+
+  const total = (await db.query(
+    'SELECT count(*)::int AS n FROM ticket WHERE ' + belongs, [files]))[0].n;
+
+  /*
+    ORDERED BY request_date AND THEN BY ticket_id. The date is the order
+    compactTickets left the sheet in, so a downloaded file looks the way it
+    always did. The ticket ID is what makes the order TOTAL - without a
+    tie-break, two rows sharing a request date could come back in either
+    order on different calls, and a row would be sent twice or not at all
+    across a page boundary.
+  */
+  const rows = await db.query(
+    'SELECT ' + csvSelectList() +
+    '\n  FROM ticket WHERE ' + belongs +
+    '\n ORDER BY request_date NULLS LAST, ticket_id' +
+    '\n LIMIT $2 OFFSET $3',
+    [files, UPLOAD_CSV_CHUNK, from - 1]);
+
+  rows.forEach(function (r) {
+    lines.push(merge.NAMES.map(function (n) { return csvCell(r[n]); }).join(','));
+  });
+
+  const nextRow = from + rows.length;
+
+  return {
+    csv: lines.join('\n'),
+    nextRow: nextRow,
+    // rows.length < the chunk size means the table ran out, which is the
+    // honest end condition even if `total` moved under us.
+    done: rows.length < UPLOAD_CSV_CHUNK || nextRow > total,
+    scanned: nextRow - 1,
+    total: total,
+    fileName: first ? uploadCsvName(id, files) : ''
+  };
+}
+
+
 module.exports = {
   UPLOAD_CSV_CHUNK, IN_PROGRESS, COMPLETE,
   stamp, newUploadId, joinList, splitList, readDay,
+  uploadCsvName, csvCell, csvSelectList, uploadCsvChunk,
   beginUpload, appendTicketBatch, finishUpload, uploadHistory, deleteUpload
 };

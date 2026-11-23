@@ -165,6 +165,37 @@ function nulCount() { return nulCells; }
 function resetNulCount() { nulCells = 0; }
 
 
+/** The dashboard's own timezone. appsscript.json. */
+const TZ = 'Asia/Dhaka';
+
+
+/**
+ * The moment at which it was this wall-clock time in Dhaka.
+ *
+ * Guess that the numbers are UTC, ask what that instant looks like in
+ * Dhaka, and correct by however far off that was. Two steps rather than a
+ * hardcoded +6 so that the zone's own rules decide - Bangladesh ran an hour
+ * of daylight saving in 2009 and could again.
+ */
+function dhakaInstant(y, mo, d, h, mi, s) {
+  const guess = Date.UTC(y, mo - 1, d, h, mi, s);
+
+  const p = {};
+  new Intl.DateTimeFormat('en-GB', {
+    timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+  }).formatToParts(new Date(guess)).forEach(function (part) {
+    p[part.type] = part.value;
+  });
+
+  const seen = Date.UTC(Number(p.year), Number(p.month) - 1, Number(p.day),
+                        p.hour === '24' ? 0 : Number(p.hour),
+                        Number(p.minute), Number(p.second));
+
+  return new Date(guess - (seen - guess));
+}
+
+
 /**
  * A date cell as an ISO timestamp, or null.
  *
@@ -174,10 +205,52 @@ function resetNulCount() { nulCells = 0; }
  *
  * An unreadable date is REPORTED rather than quietly becoming null, because
  * a column of dates that silently emptied is how a KPI loses a month.
+ *
+ *
+ * A TIMESTAMP WITH NO TIMEZONE ON IT MEANS DHAKA, AND SAYING SO MATTERS.
+ *
+ * The ITSM exports write '2026-08-20 10:00'. That is ten in the morning in
+ * the office, and nothing in the text says so. Handed to `new Date`, a
+ * string like that is read in the TIMEZONE OF THE PROCESS - so the same
+ * export produces different instants depending on what the machine's clock
+ * is set to.
+ *
+ * Today that is invisible, because the import runs on a Windows machine in
+ * Dhaka and the two agree. It stops being invisible the moment this runs on
+ * a server, and almost every Linux server in the world is set to UTC. Every
+ * timestamp would then land six hours late, and the ones that matter are
+ * the ones near midnight: a ticket raised at 20:00 on 31 August becomes
+ * 02:00 on 1 September, and a MONTHLY KPI moves it into the wrong month.
+ * One ticket, in the month whose whole margin is one ticket.
+ *
+ * So a naive timestamp is read as Dhaka explicitly, and a timestamp that
+ * does carry a zone is believed. Nothing changes on a machine already set
+ * to Dhaka - which is why no re-import is needed - and nothing changes when
+ * it moves.
  */
 function readDate(value, problems, where) {
   if (isBlank(value)) return null;
   const text = stripNul(String(value).trim());
+
+  // 2026-08-20 10:00, 2026-08-20 10:00:00, 2026-08-20T10:00
+  const naive = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?$/.exec(text);
+  if (naive) {
+    return dhakaInstant(Number(naive[1]), Number(naive[2]), Number(naive[3]),
+                        Number(naive[4]), Number(naive[5]),
+                        Number(naive[6] || 0)).toISOString();
+  }
+
+  // 2026-08-20. ISO says a bare date is UTC midnight, which is 6am in the
+  // office - a day that starts at breakfast. Midnight in Dhaka is what the
+  // export means.
+  const day = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text);
+  if (day) {
+    return dhakaInstant(Number(day[1]), Number(day[2]), Number(day[3]),
+                        0, 0, 0).toISOString();
+  }
+
+  // Anything else - an ISO string with a Z or an offset, or one of the
+  // wordier formats - says what it means, so it is believed.
   const when = new Date(text);
   if (isNaN(when.getTime())) {
     if (problems) problems.push(where + ': cannot read the date ' + JSON.stringify(text));
@@ -324,6 +397,7 @@ const MERGE_SQL = buildMergeSql();
 
 module.exports = {
   COLUMNS, SPECIAL, HEADERS, NAMES, AT,
+  TZ, dhakaInstant,
   isBlank, truthy, stripNul, nulCount, resetNulCount,
   readDate, readNumber, valuesFromCells,
   buildMergeSql, MERGE_SQL

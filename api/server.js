@@ -1674,6 +1674,28 @@ app.get('/api/uploads', requireAuth, async function (req, res) {
 });
 
 
+/**
+ * One slice of an upload's tickets, as CSV text.
+ *
+ * Any signed-in person, as getUploadCsvChunk is. It returns JSON holding the
+ * text rather than a file, because the page assembles the slices and hands
+ * the finished thing to the browser itself - which is what lets it show
+ * progress instead of a download that either arrives or does not.
+ */
+app.get('/api/uploads/csv', requireAuth, async function (req, res) {
+  try {
+    const out = await uploads.uploadCsvChunk(req.query.uploadId,
+                                             req.query.startRow);
+    res.json(Object.assign({ ok: true }, out));
+  } catch (err) {
+    if (/not found|No upload ID/.test(err.message)) {
+      return res.status(404).json({ ok: false, error: err.message });
+    }
+    fail(res, err, 'could not read the upload');
+  }
+});
+
+
 /** Removes an upload and the rows that came only from its files. Admin only. */
 app.post('/api/uploads/delete', requireAuth, requireAdmin,
   async function (req, res) {

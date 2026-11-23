@@ -25,10 +25,16 @@
  * the 6-minute execution ceiling". By the time rows reach the TICKETS tab
  * that work is done. This reads the finished article.
  *
- * Replacing the browser-side parse is the Uploads screen, which is a
- * separate job and is listed as outstanding in PORT-INVENTORY.md. Until
- * then the Apps Script side keeps doing the merging, exactly as it does
- * today, and this carries the result across.
+ * Replacing the browser-side parse is the Uploads screen, whose server side
+ * is now ported - see api/uploads.js. Until the screen itself exists the
+ * Apps Script side keeps doing the merging, exactly as it does today, and
+ * this carries the result across.
+ *
+ * THE MERGE ITSELF IS NOT IN THIS FILE ANY MORE. It is in ticket-merge.js,
+ * because the Uploads screen reaches the same table by a different road and
+ * the two have to produce the same rows - not similar rows. Two copies of
+ * twenty-four near-identical CASE expressions would agree on the day they
+ * were written and drift the first time one of them was corrected.
  *
  * NO REAL DATA IS IN THIS FILE. It reads the CSV, which .gitignore keeps
  * out of the repository.
@@ -39,6 +45,7 @@ require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
 const db = require('./db');
+const merge = require('./ticket-merge');
 
 const DATA = path.join(__dirname, '..', 'data');
 
@@ -65,51 +72,21 @@ const TICKETS_CSV = process.argv[2]
 
 
 /*
-  The 25 headers of the TICKETS tab, in order, each with the column it
-  loads into and how it is read.
+  The 29 headers of the TICKETS tab, the column each loads into and how it
+  is read, are all in ticket-merge.js. They live there rather than here
+  because the Uploads screen needs exactly the same list and exactly the
+  same merge.
 
-  MATCHED BY HEADER NAME, NOT BY POSITION. The tab's order is checked and
+  MATCHED BY HEADER NAME, NOT BY POSITION, and that part is this file's own
+  decision rather than the module's. The tab's order is checked and
   reported, but a column that has moved still lands in the right place -
-  which is the opposite of how the Apps Script side works, and deliberately
-  so. There, rows travel as bare arrays between the browser and the server
-  and position is all there is. Here the header row is right in front of
-  us, so using it costs nothing and means a reordered export is a warning
-  rather than silently scrambled data.
+  which is the opposite of how the Uploads path works, and deliberately so.
+  There, rows travel as bare arrays from the browser and position is all
+  there is. Here the header row is right in front of us, so using it costs
+  nothing and means a reordered export is a warning rather than silently
+  scrambled data.
 */
-const COLUMNS = [
-  ['Ticket ID',                  'ticket_id',             'text'],
-  ['Affiliate',                  'affiliate',             'text'],
-  ['Service',                    'service',               'text'],
-  ['Part',                       'part',                  'text'],
-  ['Process',                    'process',               'text'],
-  ['Category',                   'category',              'text'],
-  ['Sub Category',               'sub_category',          'text'],
-  ['Title',                      'title',                 'text'],
-  ['Details',                    'details',               'text'],
-  ['Request Date',               'request_date',          'ts'],
-  ['Requestor',                  'requestor',             'text'],
-  ['Current Activity',           'current_activity',      'text'],
-  ['Current Activity Date',      'current_activity_date', 'ts'],
-  ['Current Activity In Charge', 'in_charge',             'text'],
-  ['Due date',                   'due_date',              'ts'],
-  ['Completion Date',            'completion_date',       'ts'],
-  ['Lead-time',                  'lead_time',             'num'],
-  ['Delay Days',                 'delay_days',            'num'],
-  ['Status',                     'status',                'text'],
-  ['CTS Number',                 'cts_number',            'text'],
-  ['Remarks',                    'remarks',               'text'],
-  ['Acceptance M/H (Level1)',    'acceptance_mh',         'num'],
-  ['Processing M/H (Level1)',    'processing_mh',         'num'],
-  ['Man*Hour',                   'man_hour',              'num'],
-  ['Department',                 'department',            'text'],
-  ['In Overall Report',          'in_overall',            'bool'],
-  ['In Dept Report',             'in_dept',               'bool'],
-  ['Source Files',               'source_files',          'text'],
-  ['Last Updated',               'last_updated',          'ts']
-];
-
-// These three are merged by their own rules, not by "blank or newer".
-const SPECIAL = ['in_overall', 'in_dept', 'source_files'];
+const COLUMNS = merge.COLUMNS;
 
 
 // ---------------------------------------------------------------------------
@@ -155,185 +132,23 @@ function parseCsv(text) {
 // ---------------------------------------------------------------------------
 // Reading one cell
 // ---------------------------------------------------------------------------
-
-/**
- * Ingest.gs isBlank, and the trim is the whole point.
- *
- *   "Some Completion Date cells in the ITSM export contain a single space.
- *    Testing only for '' treats that space as a real value, so the merge
- *    keeps it and the genuine completion date from the other report never
- *    replaces it - one ticket silently becomes incomplete. With a KPI whose
- *    whole margin is one ticket, that is not a rounding detail."
- */
-function isBlank(value) {
-  return value === null || value === undefined || String(value).trim() === '';
-}
-
-/** Ingest.gs truthy. 'TRUE', 'true' and a real boolean; nothing else. */
-function truthy(value) {
-  return value === true || String(value).toLowerCase() === 'true';
-}
-
 /*
-  NUL BYTES, WHICH REAL EXPORTS CONTAIN AND PostgreSQL CANNOT STORE.
+  isBlank, truthy, stripNul, readDate and readNumber are in ticket-merge.js.
 
-  The first real import stopped on
+  Every one of them is part of what "the same export produces the same rows"
+  means, and each exists because of something that went wrong: isBlank trims
+  because a Completion Date of one space was being treated as a completion,
+  and stripNul exists because a NUL byte in a real ITSM export stopped the
+  first import after 25,808 rows.
 
-      invalid byte sequence for encoding "UTF8": 0x00
-
-  after reading 25,808 rows. U+0000 is perfectly valid UTF-8 and perfectly
-  valid in a JavaScript string, so it travels all the way from the ITSM
-  export through the CSV and into a parameter before the database refuses
-  it. A PostgreSQL text value cannot contain one, at all, by design - the
-  type is a C string underneath.
-
-  A spreadsheet never complained, which is why these have been sitting in
-  the data unnoticed: Sheets stores the cell and simply does not draw the
-  character.
-
-  SO IT IS STRIPPED, AND ONLY IT. Every other control character is storable
-  and is left exactly as it came - stripping those as well would be
-  cleaning up data nobody asked me to change, on the strength of a problem
-  they did not cause. The count is reported, because "we quietly removed
-  characters from your tickets" is not something to do silently.
+  Aliased rather than called through the module everywhere below, so that
+  the body of this file reads as it always did.
 */
-let nulCells = 0;
-
-function stripNul(text) {
-  if (text.indexOf('\u0000') === -1) return text;
-  nulCells++;
-  return text.replace(/\u0000/g, '');
-}
-
-/**
- * A date cell as a timestamp, or null.
- *
- * NULL FOR ANYTHING BLANK-ISH, which is where isCompleted's whitespace rule
- * moves to in a typed column. A Completion Date of ' ' becomes NULL here,
- * so the ticket is open - the same answer the Apps Script side reaches, one
- * step earlier and without the column having to hold a space to prove it.
- *
- * Anything that is not blank and not a date it can read is reported rather
- * than quietly becoming null, because a column of dates that silently
- * emptied is how a KPI loses a month.
- */
-function readDate(value, problems, where) {
-  if (isBlank(value)) return null;
-  const text = stripNul(String(value).trim());
-  const when = new Date(text);
-  if (isNaN(when.getTime())) {
-    problems.push(where + ': cannot read the date ' + JSON.stringify(text));
-    return null;
-  }
-  return when.toISOString();
-}
-
-/** A number cell, or null. Blank is null, not zero. */
-function readNumber(value, problems, where) {
-  if (isBlank(value)) return null;
-  const n = parseFloat(stripNul(String(value).trim()));
-  if (isNaN(n)) {
-    problems.push(where + ': cannot read the number ' + JSON.stringify(String(value)));
-    return null;
-  }
-  return n;
-}
-
-
-// ---------------------------------------------------------------------------
-// The merge, as one statement
-// ---------------------------------------------------------------------------
-/**
- * Ingest.gs mergeRows, written as ON CONFLICT DO UPDATE.
- *
- * The original reads the existing row, merges in JavaScript and writes the
- * result back. That is a read-modify-write, and two imports running together
- * would each start from the same copy. One statement cannot do that: the row
- * is read and written inside it, by the database.
- *
- * THREE RULES, AND THEY ARE NOT THE SAME RULE:
- *
- *   most columns   take the incoming value if the existing one is blank, OR
- *                  if the incoming row is newer. A blank incoming value
- *                  never overwrites anything - a partial export must not
- *                  erase what a fuller one supplied.
- *
- *   the two flags  are OR'd, always. "A ticket can legitimately appear in
- *                  both kinds of export", and which reports it appeared in
- *                  is the thing that decides whether EAS is scored on it.
- *
- *   Source Files   accumulates, unique, in the order first seen, "so the
- *                  audit trail shows every file that contributed".
- *
- * `newer` is decided on Last Updated, and a row with no readable stamp
- * counts as oldest - "the safe answer, since it cannot then overwrite
- * anything on a recency claim it has not made". coalesce to epoch does
- * that here.
- */
-function buildMergeSql() {
-  const names = COLUMNS.map(function (c) { return c[1]; });
-  const placeholders = names.map(function (_, i) { return '$' + (i + 1); });
-
-  // Written out by rule rather than by hand, because twenty-four
-  // near-identical CASE expressions typed one after another is twenty-four
-  // chances to paste the wrong column name into one of them - and that
-  // mistake is invisible: the import succeeds and one field silently stops
-  // updating.
-  const sets = [];
-  COLUMNS.forEach(function (c) {
-    const col = c[1];
-    const kind = c[2];
-    if (col === 'ticket_id' || SPECIAL.indexOf(col) !== -1) return;
-
-    // Blank means '' for text and NULL for everything typed.
-    const incomingBlank = kind === 'text'
-      ? "btrim(EXCLUDED." + col + ") = ''"
-      : 'EXCLUDED.' + col + ' IS NULL';
-    const existingBlank = kind === 'text'
-      ? "btrim(ticket." + col + ") = ''"
-      : 'ticket.' + col + ' IS NULL';
-
-    sets.push(
-      '  ' + col + ' = CASE' +
-      ' WHEN ' + incomingBlank + ' THEN ticket.' + col +
-      ' WHEN ' + existingBlank + ' OR EXCLUDED.last_updated >' +
-      " coalesce(ticket.last_updated, 'epoch'::timestamptz)" +
-      ' THEN EXCLUDED.' + col +
-      ' ELSE ticket.' + col + ' END');
-  });
-
-  sets.push('  in_overall = ticket.in_overall OR EXCLUDED.in_overall');
-  sets.push('  in_dept    = ticket.in_dept    OR EXCLUDED.in_dept');
-
-  /*
-    The union of two ' | ' separated lists, unique, order preserved. Done in
-    SQL so that it happens inside the same statement as everything else -
-    pulling the existing list into JavaScript to concatenate it would put
-    the read back outside the write.
-
-    WITH ORDINALITY is what keeps the order: without it the DISTINCT could
-    hand the names back in any order it liked, and the audit trail would
-    stop saying which file arrived first.
-  */
-  sets.push(
-    "  source_files = (\n" +
-    "    SELECT coalesce(string_agg(f, ' | ' ORDER BY n), '')\n" +
-    "      FROM (SELECT DISTINCT ON (f) f, n FROM unnest(\n" +
-    "              string_to_array(\n" +
-    "                CASE WHEN btrim(ticket.source_files) = '' THEN EXCLUDED.source_files\n" +
-    "                     WHEN btrim(EXCLUDED.source_files) = '' THEN ticket.source_files\n" +
-    "                     ELSE ticket.source_files || ' | ' || EXCLUDED.source_files END,\n" +
-    "                ' | ')\n" +
-    "            ) WITH ORDINALITY AS t(f, n)\n" +
-    "            WHERE btrim(f) <> ''\n" +
-    "            ORDER BY f, n) AS u)");
-
-  return 'INSERT INTO ticket (' + names.join(', ') + ')\n' +
-         'VALUES (' + placeholders.join(', ') + ')\n' +
-         'ON CONFLICT (ticket_id) DO UPDATE SET\n' +
-         sets.join(',\n') + '\n' +
-         'RETURNING (xmax = 0) AS inserted';
-}
+const isBlank    = merge.isBlank;
+const truthy     = merge.truthy;
+const stripNul   = merge.stripNul;
+const readDate   = merge.readDate;
+const readNumber = merge.readNumber;
 
 
 // ---------------------------------------------------------------------------
@@ -424,8 +239,8 @@ async function main() {
   if (skipped) {
     console.log('                ' + skipped + ' with no Ticket ID, not loaded');
   }
-  if (nulCells) {
-    console.log('                ' + nulCells + ' cell(s) contained a NUL ' +
+  if (merge.nulCount()) {
+    console.log('                ' + merge.nulCount() + ' cell(s) contained a NUL ' +
                 'byte, which PostgreSQL cannot store - removed');
   }
   if (problems.length) {
@@ -438,7 +253,7 @@ async function main() {
     }
   }
 
-  const sql = buildMergeSql();
+  const sql = merge.MERGE_SQL;
   const client = await db.pool.connect();
   let inserted = 0, updated = 0;
 
