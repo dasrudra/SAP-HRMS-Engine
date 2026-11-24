@@ -43,6 +43,7 @@ const kpi2Read = require('./kpi2-read');
 // patterns it parses a dropped .xlsx with. Taken from the modules the insert
 // statements are built from, so client and server cannot disagree.
 const merge = require('./ticket-merge');
+const kpi = require('./kpi');
 const kpi2 = require('./kpi2');
 const roster = require('./roster');
 
@@ -1557,6 +1558,67 @@ app.get('/api/kpi1', requireAuth, async function (req, res) {
   different bands - which happened on the live system when the target
   moved and only one of the two recomputed.
 */
+// ---------------------------------------------------------------------------
+// GET /api/kpi1/boot - the few things the screen needs that /api/kpi1 lacks
+// ---------------------------------------------------------------------------
+/*
+  The KPI 1 half of getBootstrap [Code.gs:191]. Most of what that sent is
+  already in the /api/kpi1 reply - the months, the target, the standard's
+  label - so this carries only the three things that are not.
+
+  THE COVERAGE LINE IS ABOUT THE DATABASE, NOT THE VIEW. "January 2026 to
+  September 2026" does not say whether September is a whole month or the
+  first four days of one, and that decides whether the period's rate means
+  anything yet: an export taken mid-month scores a month that is still
+  running. The month picker says which slice you are reading; this says how
+  much there is to read, which is a different question.
+
+  BOTH STANDARDS, in the order the toggle shows them. The screen reads its
+  labels, targets and band edges from here rather than repeating them, so a
+  figure printed on the toggle cannot disagree with the figure the server
+  scored against.
+*/
+app.get('/api/kpi1/boot', requireAuth, async function (req, res) {
+  try {
+    const span = (await db.query(
+      `SELECT coalesce(to_char(min(request_date) AT TIME ZONE $1,
+                               'YYYY-MM-DD'), '') AS from_day,
+              coalesce(to_char(max(request_date) AT TIME ZONE $1,
+                               'YYYY-MM-DD'), '') AS to_day,
+              count(*)::int                       AS tickets
+         FROM ticket
+        WHERE request_date IS NOT NULL`, ['Asia/Dhaka']))[0];
+
+    // How many ticket uploads the history still claims. With no tickets
+    // stored, that is the "a run was killed part way" case, and the screen
+    // says so rather than reporting an empty month.
+    const logged = (await db.query(
+      `SELECT count(*)::int AS n FROM upload_run
+        WHERE upper(coalesce(report_types, '')) NOT LIKE '%FEEDBACK%'
+          AND rows_added > 0`))[0].n;
+
+    res.json({
+      ok: true,
+      configured: true,
+      role: req.user.role,
+      canAdmin: rankOf(req.user.role) >= ROLE_RANK.ADMIN,
+
+      standards: [kpi.KPI_RESOLUTION, kpi.KPI_RESOLUTION_EAS],
+      // For the chart labels: 'Supply Chain Applications' does not fit on an
+      // axis, and dropping the word 'Applications' leaves it two words where
+      // its neighbours have one. SCA is what that team calls itself.
+      sections: roster.SECTIONS,
+
+      ticketFrom: span.from_day,
+      ticketTo: span.to_day,
+      stats: { tickets: span.tickets, ticketUploads: logged }
+    });
+  } catch (err) {
+    fail(res, err, 'could not open the KPI 1 screen');
+  }
+});
+
+
 // ---------------------------------------------------------------------------
 // GET /api/kpi1/affiliates - which affiliates have tickets in this period
 // ---------------------------------------------------------------------------

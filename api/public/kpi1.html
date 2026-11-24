@@ -1,0 +1,1622 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>KPI 1 - TVL-EAS</title>
+<!--
+  KPI 1: ERROR/ISSUE RESOLUTION TIME.
+
+  Ported from the KPI 1 half of src/Index.html (the markup) and
+  src/App.html (the behaviour). Same six tiles in the same order, same two
+  charts, same three tables, same filters, same words.
+
+  WHAT IS NOT HERE, and why.
+
+  The Rebuild button. The original scored every ticket into a KPI_MONTHLY
+  cache after each upload, and that button rebuilt it. There is no cache:
+  26,000 tickets score in about 200ms straight out of PostgreSQL, so there
+  is nothing to rebuild, nothing to go stale, and no month that quietly
+  shows last week's figures because a rebuild was missed. The "the stored
+  figures were built before modules existed" empty state goes with it.
+
+  The SLA layer pill beside the heading. It reads CONFIG.KPI_LIST, which
+  belongs to the Summary screen and is not ported yet. The sentence under
+  the standard toggle names the policy document instead, which is the same
+  fact in the place it is actually read.
+-->
+<link rel="stylesheet" href="app.css">
+<!-- Chart.js, pinned for the same reason App.html pins it: a dashboard
+     that redraws itself differently because a CDN shipped a new minor
+     version is not a dashboard anybody can report off. -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="kpi-charts.js"></script>
+<style>
+  body { background: var(--bg); }
+  .page { max-width: 1320px; margin: 0 auto; padding: 28px 20px 60px; }
+  .signin { max-width: 400px; margin: 60px auto; }
+  .signin label { display: block; font-size: 12px; color: var(--text-dim);
+                  margin: 14px 0 4px; }
+  .signin input { width: 100%; padding: 9px 11px; border: 1px solid var(--line);
+                  border-radius: 8px; font: inherit; background: var(--card);
+                  color: var(--text); }
+  .signin .btn { margin-top: 18px; width: 100%; }
+  .signin .why { color: var(--red); font-size: 13px; margin: 12px 0 0;
+                 min-height: 18px; }
+  .whoami { display: flex; align-items: center; justify-content: space-between;
+            gap: 12px; margin-bottom: 18px; font-size: 13px;
+            color: var(--text-dim); }
+  .standard-note { font-size: 12px; color: var(--text-dim); margin: 8px 0 0;
+                   max-width: 640px; }
+</style>
+</head>
+<body>
+
+<section class="card signin" id="signinCard" hidden>
+  <div class="card-head">Sign in</div>
+  <label for="employeeId">Employee ID</label>
+  <input id="employeeId" autocomplete="username" inputmode="numeric">
+  <label for="password">Password</label>
+  <input id="password" type="password" autocomplete="current-password">
+  <p class="why" id="signinWhy"></p>
+  <button class="btn btn-primary" id="signinGo">Sign in</button>
+</section>
+
+
+<div class="page" id="page" hidden>
+
+  <div class="whoami">
+    <span id="whoami"></span>
+    <button class="btn btn-ghost" id="signOut">Sign out</button>
+  </div>
+
+  <section class="view" id="view-kpi1">
+    <div class="page-head">
+      <div>
+        <h1>KPI 1: Error/Issue Resolution Time
+          <span class="track-pill" id="kpi1Track" hidden></span></h1>
+        <!--
+          The formula itself, not a paraphrase of it. Filled from the
+          standard the server scored against, so the screen and the engine
+          quote the same definition.
+        -->
+        <p class="sub" id="kpi1Sub">
+          Ticket Resolution Success Rate (%) =
+          (Completed Successfully &#xF7; Total Completed) &#xD7; 100
+        </p>
+        <!--
+          What the stored tickets actually cover, to the day. Always on,
+          and about the DATABASE rather than the month on screen.
+        -->
+        <p class="coverage-note" id="kpi1Coverage" hidden></p>
+
+        <!--
+          WHICH STANDARD THIS PAGE IS SCORED AGAINST.
+
+          The same tickets and the same two formulas against two different
+          targets: the policy's 90%, which is what goes to TVL
+          headquarters, and the EAS team's own 99.50%. Nothing about the
+          data changes - no second upload, no second table. What moves is
+          the target the rate is judged against, and with it the
+          achievement, the band colour and the headroom.
+        -->
+        <div class="standard-toggle" id="kpi1StandardWrap" role="group"
+             aria-label="Which KPI standard to score against" hidden>
+          <button type="button" class="standard-opt" data-standard="COMPANY"
+                  aria-pressed="true"></button>
+          <button type="button" class="standard-opt" data-standard="EAS"
+                  aria-pressed="false"></button>
+        </div>
+        <input type="hidden" id="fKpi1Standard" value="COMPANY">
+        <p class="standard-note" id="kpi1StandardNote"></p>
+      </div>
+      <div class="page-actions">
+        <!--
+          Several months at once, which a <select> cannot express without
+          ctrl-clicking a list box. A button and a panel of checkboxes can,
+          and All months stays exclusive inside it.
+        -->
+        <div class="picker" id="monthPickerWrap">
+          <button type="button" class="select picker-btn" id="monthPicker"
+                  aria-haspopup="listbox" aria-expanded="false">
+            <span id="monthPickerLabel">All months</span>
+          </button>
+          <div class="picker-menu" id="monthPickerMenu" role="listbox" hidden></div>
+        </div>
+        <button class="btn btn-ghost" id="refreshKpi1">&#x21BB; Refresh</button>
+      </div>
+    </div>
+
+    <!--
+      Only appears when the month was scored from the WRONG population -
+      no section exports loaded, so the figure includes work by people
+      outside EAS. The healthy case says nothing: a banner that is always
+      on screen stops being read, and this one carries a warning.
+    -->
+    <div id="kpi1Basis" class="notice notice-warn" hidden></div>
+
+    <!-- Uploads are logged but the tickets behind them are not stored. -->
+    <div id="kpi1Missing" class="notice notice-error" hidden></div>
+
+    <div class="tiles" id="kpi1Tiles">
+      <div class="tile tile-empty"><span>No data loaded yet</span></div>
+    </div>
+
+    <div class="chart-row">
+      <div class="card chart-card">
+        <div class="chart-head">
+          <div>
+            <h2>Success rate by section</h2>
+            <p id="chartRateNote">Against the target.</p>
+          </div>
+        </div>
+        <div class="chart-box">
+          <canvas id="chartRate"></canvas>
+          <div class="chart-empty" id="chartRateEmpty" hidden></div>
+        </div>
+      </div>
+
+      <div class="card chart-card">
+        <div class="chart-head">
+          <div>
+            <h2>Delayed tickets by section</h2>
+            <p>Completed past their due date. Counted from zero.</p>
+          </div>
+        </div>
+        <div class="chart-box">
+          <canvas id="chartDelay"></canvas>
+          <div class="chart-empty" id="chartDelayEmpty" hidden></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head" id="kpi1BreakdownHead" data-report="kpi1Table">By section</div>
+      <div class="table-filter">
+        <select id="fSection" class="select" title="Section">
+          <option value="">All sections</option>
+        </select>
+        <button class="btn btn-ghost" id="fSectionReset">&#x2715; Reset</button>
+        <span class="filter-count" id="cSection"></span>
+      </div>
+      <div class="table-wrap">
+        <table id="kpi1Table">
+          <thead>
+            <tr>
+              <th id="kpi1BreakdownCol">Section</th>
+              <th class="r">Received</th>
+              <th class="r">Completed</th>
+              <th class="r">Open</th>
+              <th class="r">Delayed</th>
+              <th class="r">Successful</th>
+              <th class="r">Success Rate</th>
+              <th class="r">Achievement</th>
+              <th>Band</th>
+              <th class="r">Headroom</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td colspan="10" class="empty">Upload an ITSM export to see results.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!--
+      By module. Replaces the old "Individuals carrying the delays" table,
+      which said nothing the By individuals table below does not already
+      say. This asks a different question: which part of SAP the work is in.
+    -->
+    <div class="card">
+      <div class="card-head" data-report="kpi1Modules">By module</div>
+      <div class="table-filter">
+        <select id="fModuleK1" class="select" title="Module">
+          <option value="">All modules</option>
+        </select>
+        <input id="fModuleK1Name" class="select" type="search" placeholder="Search module&#x2026;">
+        <button class="btn btn-ghost" id="fModuleK1Reset">&#x2715; Reset</button>
+        <span class="filter-count" id="cModuleK1"></span>
+      </div>
+      <div class="table-wrap">
+        <table id="kpi1Modules">
+          <thead>
+            <tr>
+              <th>Module</th>
+              <th class="r">Received</th>
+              <th class="r">Completed</th>
+              <th class="r">Open</th>
+              <th class="r">Delayed</th>
+              <th class="r">Successful</th>
+              <th class="r">Success Rate</th>
+              <th class="r">Achievement</th>
+              <th>Band</th>
+              <th class="r">Headroom</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td colspan="10" class="empty">Nothing to show yet.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head" data-report="kpi1AllPeople">By individuals</div>
+      <div class="table-filter">
+        <!--
+          Scope is this table's alone. Every other panel stays on the month
+          chosen at the top; only these rows re-scope, which is what
+          "quarterly individual data" asks for.
+        -->
+        <select id="fAllScope" class="select" title="Period">
+          <option value="">Follow the page</option>
+        </select>
+        <select id="fAllPerson" class="select" title="Individual">
+          <option value="">All individuals</option>
+        </select>
+        <!--
+          Section. A section is a fact - one person, one desk, one team -
+          while a module is what a ticket was about, and the people and the
+          work do not line up one to one. A module filter here had to
+          either slice each person's figures (and no two screens then
+          agreed on what their numbers were) or guess which single module
+          somebody belongs to.
+        -->
+        <select id="fAllSection" class="select" title="Section">
+          <option value="">All sections</option>
+        </select>
+        <!--
+          AFFILIATE IS A FACT ABOUT A TICKET, NOT ABOUT A PERSON. Nobody
+          belongs to KSL; tickets do. So unlike the section filter beside
+          it, choosing one RECOMPUTES every figure in the table from that
+          affiliate's tickets alone - there is no other thing it could
+          honestly mean. The note under the table says so while it is on.
+        -->
+        <select id="fAllAffiliate" class="select" title="Affiliate">
+          <option value="">All affiliates</option>
+        </select>
+        <input id="fAllName" class="select" type="search" placeholder="Search name&#x2026;">
+        <button class="btn btn-ghost" id="fAllReset">&#x2715; Reset</button>
+        <span class="filter-count" id="cAll"></span>
+      </div>
+      <div class="table-wrap">
+        <table id="kpi1AllPeople">
+          <thead>
+            <tr>
+              <th>Individual</th>
+              <th>Section</th>
+              <th class="r">Tickets</th>
+              <th class="r">Completed</th>
+              <th class="r">Open</th>
+              <th class="r">Delayed</th>
+              <th class="r">Successful</th>
+              <th class="r">Success Rate</th>
+              <th>Band</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td colspan="9" class="empty">Nothing to show yet.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="standard-note" id="kpi1AllNote" hidden></p>
+    </div>
+  </section>
+</div>
+
+
+<script>
+(function () {
+  'use strict';
+
+  const C = window.kpiCharts;
+
+  const ALL_MONTHS = 'ALL';
+  const TOKEN_STORE = 'easToken';
+  const FILTER_STORE = 'easKpi1Filters';
+
+  const state = { token: '', user: null, boot: null, kpi: null,
+                  month: ALL_MONTHS, months: [],
+                  affiliate: null, scopePeople: null, scopeKey: '' };
+
+
+  // =======================================================================
+  // TALKING TO THE SERVER
+  // =======================================================================
+  async function api(method, path, body) {
+    const opts = { method: method, headers: {} };
+    if (state.token) opts.headers.Authorization = 'Bearer ' + state.token;
+    if (body !== undefined) {
+      opts.headers['Content-Type'] = 'application/json';
+      opts.body = JSON.stringify(body);
+    }
+
+    const res = await fetch(path, opts);
+    if (res.status === 401) {
+      signedOut('Your session has ended.');
+      throw new Error('signed out');
+    }
+
+    let data = null;
+    try { data = await res.json(); } catch (e) { /* not JSON */ }
+
+    if (!res.ok || !data || data.ok === false) {
+      throw new Error((data && data.error) ||
+                      ('the server answered ' + res.status));
+    }
+    return data;
+  }
+
+  const get = function (path) { return api('GET', path); };
+
+
+  // =======================================================================
+  // SIGNING IN
+  // =======================================================================
+  function signedOut(why) {
+    state.token = '';
+    state.user = null;
+    state.boot = null;
+    try { sessionStorage.removeItem(TOKEN_STORE); } catch (e) { /* fine */ }
+    document.getElementById('page').hidden = true;
+    document.getElementById('signinCard').hidden = false;
+    document.getElementById('signinWhy').textContent = why || '';
+  }
+
+  async function signIn() {
+    const button = document.getElementById('signinGo');
+    const why = document.getElementById('signinWhy');
+    why.textContent = '';
+    button.disabled = true;
+    try {
+      const out = await api('POST', '/api/login', {
+        employee_id: document.getElementById('employeeId').value.trim(),
+        password: document.getElementById('password').value
+      });
+      state.token = out.token;
+      state.user = out.user;
+      try { sessionStorage.setItem(TOKEN_STORE, out.token); } catch (e) { /* fine */ }
+      document.getElementById('password').value = '';
+      await start();
+    } catch (err) {
+      why.textContent = err.message;
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+
+  async function start() {
+    const boot = await get('/api/kpi1/boot');
+    state.boot = boot;
+
+    document.getElementById('signinCard').hidden = true;
+    document.getElementById('page').hidden = false;
+    document.getElementById('whoami').textContent =
+      'Signed in as ' + (state.user ? state.user.employee_id : boot.role) +
+      ' \u00b7 ' + boot.role;
+
+    fillStandardToggle(boot);
+    renderCoverage();
+    restoreFilters();
+    await loadKpi1();
+  }
+
+
+  // =======================================================================
+  // WHICH STANDARD
+  // =======================================================================
+  function currentStandard() {
+    return getValue('fKpi1Standard') || 'COMPANY';
+  }
+
+  function standardNow() {
+    const list = (state.boot && state.boot.standards) || [];
+    return list.filter(function (s) {
+      return s.standard === currentStandard();
+    })[0] || list[0] || null;
+  }
+
+  function fillStandardToggle(boot) {
+    const wrap = document.getElementById('kpi1StandardWrap');
+    const list = (boot && boot.standards) || [];
+    if (!wrap || list.length < 2) return;
+
+    wrap.hidden = false;
+    wrap.querySelectorAll('.standard-opt').forEach(function (button) {
+      const want = button.getAttribute('data-standard');
+      const kpi = list.filter(function (k) { return k.standard === want; })[0];
+      if (!kpi) return;
+      button.innerHTML =
+        '<span class="standard-name">' + escapeHtml(kpi.standardLabel) + '</span>' +
+        '<span class="standard-target">' + escapeHtml(String(kpi.target)) + '%</span>';
+      button.title = kpi.standardNote || '';
+      button.addEventListener('click', function () {
+        if (currentStandard() === want) return;
+        setValue('fKpi1Standard', want);
+        paintStandardToggle();
+        saveFilters();
+        // The scoped people, if any, were scored against the other target.
+        state.scopeKey = '';
+        state.scopePeople = null;
+        state.affiliate = null;
+        loadKpi1();
+      });
+    });
+
+    paintStandardToggle();
+  }
+
+  /**
+   * Paints the toggle, and names the document the figures answer to.
+   *
+   * THE SENTENCE IS TAKEN FROM THE READING, not from the control - so
+   * while a switch is still in flight it describes the numbers actually on
+   * screen rather than the ones that are coming. A report of EAS-scored
+   * figures must not go out saying it was defined by the policy.
+   */
+  function paintStandardToggle() {
+    const showing = state.kpi ? state.kpi.standard : currentStandard();
+
+    document.querySelectorAll('.standard-opt').forEach(function (button) {
+      const on = button.getAttribute('data-standard') === currentStandard();
+      button.classList.toggle('is-on', on);
+      button.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+
+    const list = (state.boot && state.boot.standards) || [];
+    const scored = list.filter(function (s) { return s.standard === showing; })[0];
+    setText('kpi1StandardNote', scored ? scored.standardNote : '');
+    if (state.kpi && state.kpi.measure) setText('kpi1Sub', state.kpi.measure);
+  }
+
+
+  // =======================================================================
+  // THE MONTH PICKER
+  // =======================================================================
+  function selectedMonths() {
+    return String(state.month || '').split(',')
+      .map(function (m) { return m.trim(); })
+      .filter(Boolean);
+  }
+
+  function fillMonthPicker(months) {
+    const button = document.getElementById('monthPicker');
+    const menu = document.getElementById('monthPickerMenu');
+    if (!button || !menu) return;
+
+    state.months = months || [];
+
+    if (!state.months.length) {
+      setText('monthPickerLabel', 'No data loaded');
+      button.disabled = true;
+      menu.innerHTML = '';
+      return;
+    }
+    button.disabled = false;
+
+    // Drop anything the data no longer has, then fall back rather than
+    // showing a period nothing can be scored for.
+    const chosen = selectedMonths().filter(function (m) {
+      return m === ALL_MONTHS || state.months.indexOf(m) !== -1;
+    });
+    state.month = chosen.length ? chosen.join(',') : ALL_MONTHS;
+
+    menu.innerHTML = '';
+    menu.appendChild(monthOption(ALL_MONTHS,
+      'All months (' + state.months.length + ')', 'is-all'));
+
+    const rule = document.createElement('div');
+    rule.className = 'picker-rule';
+    menu.appendChild(rule);
+
+    state.months.forEach(function (month) {
+      menu.appendChild(monthOption(month, formatMonth(month), ''));
+    });
+
+    syncMonthPicker(true);
+  }
+
+  function monthOption(value, label, extra) {
+    const row = document.createElement('button');
+    row.type = 'button';
+    row.className = 'picker-option' + (extra ? ' ' + extra : '');
+    row.dataset.month = value;
+    row.setAttribute('role', 'option');
+    row.innerHTML = '<span class="picker-tick" aria-hidden="true"></span>' +
+                    '<span>' + escapeHtml(label) + '</span>';
+    row.addEventListener('click', function () { toggleMonth(value); });
+    return row;
+  }
+
+  function toggleMonth(value) {
+    const chosen = selectedMonths();
+
+    if (value === ALL_MONTHS) {
+      state.month = ALL_MONTHS;
+    } else {
+      const without = chosen.filter(function (m) {
+        return m !== value && m !== ALL_MONTHS;
+      });
+      const next = (without.length === chosen.filter(function (m) {
+        return m !== ALL_MONTHS;
+      }).length) ? without.concat([value]) : without;
+
+      // Newest first, matching the order they are listed in.
+      next.sort().reverse();
+      state.month = next.length ? next.join(',') : ALL_MONTHS;
+    }
+
+    syncMonthPicker();
+    loadKpi1();
+  }
+
+  function syncMonthPicker(quiet) {
+    const menu = document.getElementById('monthPickerMenu');
+    const chosen = selectedMonths();
+
+    if (menu) {
+      Array.prototype.forEach.call(menu.querySelectorAll('.picker-option'),
+        function (row) {
+          row.classList.toggle('is-on', chosen.indexOf(row.dataset.month) !== -1);
+        });
+    }
+
+    setText('monthPickerLabel', monthPickerLabel(chosen));
+    if (!quiet) saveFilters();
+  }
+
+  function monthPickerLabel(chosen) {
+    if (!chosen.length || chosen.indexOf(ALL_MONTHS) !== -1) {
+      return 'All months (' + state.months.length + ')';
+    }
+    if (chosen.length === 1) return formatMonth(chosen[0]);
+    return chosen.length + ' months selected';
+  }
+
+  function wireMonthPicker() {
+    const button = document.getElementById('monthPicker');
+    const menu = document.getElementById('monthPickerMenu');
+    if (!button || !menu) return;
+
+    button.addEventListener('click', function (e) {
+      e.stopPropagation();
+      const open = menu.hidden;
+      menu.hidden = !open;
+      button.setAttribute('aria-expanded', open ? 'true' : 'false');
+    });
+    menu.addEventListener('click', function (e) { e.stopPropagation(); });
+    document.addEventListener('click', function () {
+      menu.hidden = true;
+      button.setAttribute('aria-expanded', 'false');
+    });
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') {
+        menu.hidden = true;
+        button.setAttribute('aria-expanded', 'false');
+      }
+    });
+  }
+
+
+  // =======================================================================
+  // READING THE FIGURES
+  // =======================================================================
+  async function loadKpi1() {
+    if (!state.boot || !state.boot.configured) return;
+
+    try {
+      const k = await get('/api/kpi1?month=' + encodeURIComponent(state.month) +
+                          '&standard=' + encodeURIComponent(currentStandard()));
+      renderKpi1(k);
+    } catch (err) {
+      if (err.message === 'signed out') return;
+      setText('kpi1StandardNote', 'Could not read the figures \u2014 ' + err.message);
+    }
+  }
+
+
+  function renderKpi1(k) {
+    state.kpi = k;
+    // The toggle's own line quotes the standard the FIGURES were scored
+    // against, which is only known once they arrive.
+    paintStandardToggle();
+    renderTrack(k);
+
+    fillMonthPicker(k.months || state.months);
+
+    const basisBox = document.getElementById('kpi1Basis');
+    const tiles = document.getElementById('kpi1Tiles');
+
+    renderCoverage();
+    renderKpi1Missing();
+
+    if (!k || !k.hasData) {
+      basisBox.hidden = true;
+      tiles.innerHTML = '<div class="tile tile-empty"><span>' +
+        (k && k.allMonths ? 'No data loaded' : 'No data for this month') +
+        '</span></div>';
+      C.chartMessage('chartRate', '<p>Nothing to chart for this period.</p>');
+      C.chartMessage('chartDelay', '<p>Nothing to chart for this period.</p>');
+      emptyTable('#kpi1Table tbody', 10, 'Upload an ITSM export to see results.');
+      emptyTable('#kpi1Modules tbody', 10, 'Nothing to show yet.');
+      emptyTable('#kpi1AllPeople tbody', 9, 'Nothing to show yet.');
+      fillSectionFilters([]);
+      return;
+    }
+
+    renderBasis(k, basisBox);
+    renderTiles(k, tiles);
+    drawRateChart(k);
+    drawDelayChart(k);
+    fillSectionFilters(k.departments);
+    fillPersonFilters(k);
+    fillScopeFilter(k);
+
+    // The options exist now, so a filter saved before the reload can
+    // finally be put back. Between building the dropdowns and drawing the
+    // tables - any earlier and the <select> has nothing to match.
+    applyPendingFilters();
+
+    applySectionFilter();
+    applyModuleFilterK1();
+
+    // The individuals table may be pinned to a quarter - restored from the
+    // saved filters or left over from a previous month.
+    if (getValue('fAllScope')) applyScopeFilter(); else applyAllFilter();
+  }
+
+
+  /**
+   * The pill beside the heading: is this indicator passing right now.
+   *
+   * The status the signed sheet's Assessment column names, taken from the
+   * band the server worked out rather than recomputed here - two places
+   * deciding the same thing is two places that can disagree.
+   */
+  function renderTrack(k) {
+    const pill = document.getElementById('kpi1Track');
+    if (!pill) return;
+
+    if (!k || !k.hasData || !k.total) { pill.hidden = true; return; }
+
+    const band = k.total.band;
+    pill.hidden = false;
+    pill.className = 'track-pill ' + bandClass(band);
+    pill.textContent = band === 'GREEN' ? 'On target'
+                     : band === 'YELLOW' ? 'Below target'
+                     : 'Not met';
+    pill.title = 'Success rate ' + fmt(k.total.rate) + '% against a target of ' +
+                 k.target + '%';
+  }
+
+
+  /**
+   * Warns when the month was scored from the wrong population.
+   *
+   * There is deliberately NO message for the healthy case. A banner on
+   * screen every single time gets tuned out within a week, and then the
+   * one month it turns into a warning gets tuned out with it. Silence
+   * means the scope is right; the panel only speaks when something is off.
+   */
+  function renderBasis(k, box) {
+    if (!k.basis || k.basis.source === 'DEPARTMENT') {
+      box.hidden = true;
+      return;
+    }
+
+    box.hidden = false;
+    box.className = 'notice notice-warn';
+    box.innerHTML =
+      '<h3>Scored from the overall report</h3>' +
+      '<p>' + (k.allMonths
+        ? 'At least one month in this range has no section exports, so its '
+        : 'No section exports loaded for this month, so its ') +
+      'tickets were counted from the overall report \u2014 including work by ' +
+      'individuals outside EAS (' + count(k.basis.total) + ' tickets in scope). ' +
+      'Upload the section files for the accurate departmental figure.</p>';
+  }
+
+
+  function renderCoverage() {
+    const box = document.getElementById('kpi1Coverage');
+    if (!box) return;
+
+    const boot = state.boot || {};
+    if (!boot.ticketFrom || !boot.ticketTo) { box.hidden = true; return; }
+
+    const tickets = (boot.stats && boot.stats.tickets) || 0;
+
+    box.hidden = false;
+    box.innerHTML =
+      'Data loaded from <b class="part">' + escapeHtml(formatDay(boot.ticketFrom)) +
+      '</b> to <b class="part">' + escapeHtml(formatDay(boot.ticketTo)) + '</b>' +
+      (tickets ? ' \u00b7 <span class="part">' + count(tickets) + ' tickets</span>' : '');
+  }
+
+
+  /**
+   * Says why the screen is empty when the uploads say it should not be.
+   *
+   * "No data for this month" beside an upload history listing 19,946
+   * tickets reads as a broken dashboard. It is not: the tickets are not in
+   * the database. Saying which of the two it is turns an unanswerable
+   * screen into one instruction.
+   */
+  function renderKpi1Missing() {
+    const box = document.getElementById('kpi1Missing');
+    if (!box) return;
+
+    const stats = (state.boot && state.boot.stats) || {};
+    const stored = stats.tickets || 0;
+    const uploads = stats.ticketUploads || 0;
+
+    if (stored > 0 || !uploads) { box.hidden = true; return; }
+
+    box.hidden = false;
+    box.innerHTML =
+      '<h3>No tickets are stored, though ' + uploads + ' ticket upload' +
+      (uploads === 1 ? ' is' : 's are') + ' still listed</h3>' +
+      '<p>The upload history has entries for ITSM exports, and the database ' +
+      'holds no tickets at all \u2014 so there is nothing for this screen to ' +
+      'report, on any month. That is the state left behind when a run is ' +
+      'stopped part-way: the log entry is written as the upload starts, the ' +
+      'rows only as it finishes.</p>' +
+      '<p>Go to <b>Data Uploads</b>, delete the stale entries, and upload the ' +
+      'ITSM exports again \u2014 the overall export, the section exports, or both.</p>';
+  }
+
+
+  // =======================================================================
+  // THE SIX TILES
+  // =======================================================================
+  const TILE_ICONS = {
+    target: '<circle cx="8" cy="8" r="6"/><circle cx="8" cy="8" r="2.6"/>' +
+            '<path d="M8 .8v1.6M8 13.6v1.6M.8 8h1.6M13.6 8h1.6"/>',
+    shield: '<path d="M8 1.4l5 2v3.9c0 3.1-2.1 5.7-5 7.2-2.9-1.5-5-4.1-5-7.2V3.4z"/>' +
+            '<path d="M5.9 8.1l1.5 1.5 2.8-3"/>',
+    inbox:  '<path d="M2 9.4h3.1l1 1.9h3.8l1-1.9H14"/>' +
+            '<path d="M2 9.4l1.7-6a1.1 1.1 0 0 1 1-.8h6.6a1.1 1.1 0 0 1 1 .8l1.7 6v3.1a1.1 1.1 0 0 1-1.1 1.1H3.1A1.1 1.1 0 0 1 2 12.5z"/>',
+    check:  '<circle cx="8" cy="8" r="6.1"/><path d="M5.3 8.2l1.9 1.9 3.5-3.8"/>',
+    clock:  '<circle cx="8" cy="8" r="6.1"/><path d="M8 4.3V8.2l2.5 1.6"/>'
+  };
+
+  /**
+   * The five headline figures.
+   *
+   * Order matches the reading order of the KPI itself: the rate, how much
+   * room is left, then the counts the rate is computed from.
+   *
+   * `tone` is a colour family, not decoration. The first two carry a state
+   * and take the reserved status hues; the rest are plain counts with no
+   * good or bad about them, so they take neutral families that can never
+   * be mistaken for a band.
+   */
+  function renderTiles(k, container) {
+    const t = k.total;
+    const band = bandClass(t.band);
+
+    // At a 99.50% target, N completed tickets buy a fixed number of delays.
+    // headroom is successful - ceil(target% x completed), so delayed +
+    // headroom is that permitted count - no extra server field needed.
+    const allowed = t.delayed + t.headroom;
+    const usedPct = allowed > 0 ? Math.min(100, (t.delayed / allowed) * 100)
+                                : (t.delayed > 0 ? 100 : 0);
+
+    let headroomNote;
+    if (t.headroom > 0) {
+      headroomNote = t.delayed + ' of ' + allowed + ' permitted delay' +
+                     (allowed === 1 ? '' : 's') + ' used';
+    } else if (t.headroom === 0) {
+      headroomNote = 'on the edge \u2014 one more delay drops the band';
+    } else {
+      headroomNote = Math.abs(t.headroom) + ' fewer delays needed to reach target';
+    }
+
+    const gap = round2(t.rate - k.target);
+    const gapText = (gap >= 0 ? '+' : '\u2212') + fmt(Math.abs(gap)) + ' pts';
+    const headroomTone = t.headroom > 0 ? 'g' : (t.headroom === 0 ? 'a' : 'r');
+
+    const chosen = selectedMonths();
+
+    container.innerHTML =
+      tile({
+        label: 'Success Rate', icon: 'target', tone: band,
+        value: fmt(t.rate) + '%',
+        // The target belongs here, not on an achievement tile: this is the
+        // target for THIS number.
+        note: '<span class="pill ' + band + '">' + escapeHtml(t.band) + '</span>' +
+              '<span class="tile-target">target ' + k.target + '% \u00b7 ' +
+              escapeHtml(gapText) + '</span>'
+      }) +
+      tile({
+        label: 'Headroom', icon: 'shield', tone: headroomTone,
+        value: (t.headroom > 0 ? '+' : '') + t.headroom,
+        note: escapeHtml(headroomNote),
+        // A hairline of the delay budget, drawn to scale. The number above
+        // says how much room is left; this says how much of it has gone.
+        bar: allowed > 0 ? usedPct : null
+      }) +
+      tile({
+        label: 'Received', icon: 'inbox', tone: 'blue',
+        value: count(t.received),
+        // "this month" would be a lie over a three-month selection, and
+        // the tile is the first thing read on the screen.
+        note: k.allMonths ? 'tickets across all months'
+            : (chosen.length > 1 ? 'tickets across ' + chosen.length + ' months'
+                                 : 'tickets this month')
+      }) +
+      tile({
+        label: 'Completed', icon: 'check', tone: 'teal',
+        value: count(t.completed),
+        note: count(t.successful) + ' on time \u00b7 ' +
+              count(openOf(t)) + ' still open'
+      }) +
+      tile({
+        label: 'Delayed', icon: 'clock', tone: t.delayed ? 'a' : 'g',
+        value: delayRateText(t),
+        note: count(t.delayed) + ' delayed'
+      });
+  }
+
+  function tile(o) {
+    return '<div class="tile t-' + o.tone + '">' +
+             '<div class="tile-top">' +
+               '<span class="tile-ico" aria-hidden="true">' +
+                 '<svg viewBox="0 0 16 16">' + TILE_ICONS[o.icon] + '</svg>' +
+               '</span>' +
+               '<span class="tile-label">' + escapeHtml(o.label) + '</span>' +
+             '</div>' +
+             '<div class="tile-value">' + o.value + '</div>' +
+             '<div class="tile-note">' + o.note + '</div>' +
+             (typeof o.bar === 'number'
+               ? '<div class="tile-bar"><i style="width:' + o.bar.toFixed(1) + '%"></i></div>'
+               : '') +
+           '</div>';
+  }
+
+  /** Tickets still open: received, but with no completion date. */
+  function openOf(row) {
+    if (!row) return 0;
+    if (typeof row.open === 'number') return row.open;
+    return Math.max(0, (row.received || 0) - (row.completed || 0));
+  }
+
+  /**
+   * Delayed tickets as a share of completed ones.
+   *
+   * Computed from the two counts rather than as 100 minus the success
+   * rate. The two are arithmetically identical today, but deriving it from
+   * the counts on the tile means the tile cannot start disagreeing with
+   * itself if the rate is ever defined differently upstream.
+   *
+   * One exception to the usual two places: a handful of delays in twenty
+   * thousand tickets rounds to 0.00%, and a tile reading 0.00% above the
+   * words "85 delayed" is a contradiction. Below that it says "<0.01%",
+   * which is true and does not claim none.
+   */
+  function delayRateText(t) {
+    if (!t.completed) return '\u2014';
+    if (!t.delayed) return '0%';
+    const rate = (t.delayed / t.completed) * 100;
+    return rate < 0.005 ? '<0.01%' : fmt(rate) + '%';
+  }
+
+
+  // =======================================================================
+  // THE CHARTS
+  // =======================================================================
+  function drawRateChart(k) {
+    const rows = k.departments.length ? k.departments : k.parts;
+    const note = document.getElementById('chartRateNote');
+
+    if (!rows.length) {
+      const noneMsg = k.allMonths ? 'No section data loaded.'
+                                  : 'No section data for this month.';
+      C.chartMessage('chartRate',
+        '<p>' + noneMsg + ' Upload the section exports to see the breakdown.</p>');
+      if (note) note.textContent = noneMsg;
+      return;
+    }
+    C.chartMessage('chartRate', null);
+
+    const lowest = Math.min.apply(null, rows.map(function (r) { return r.rate; })
+                                             .concat([k.target]));
+    const floor = Math.max(0, Math.floor(lowest) - 1);
+
+    if (note) {
+      note.textContent = 'Against the ' + k.target + '% target. Axis starts at ' +
+                         floor + '% \u2014 the sections sit close together, so the ' +
+                         'differences are small by design.';
+    }
+
+    C.drawChart('chartRate', {
+      type: 'bar',
+      data: {
+        labels: rows.map(function (r) { return shortLabel(r.name); }),
+        datasets: [Object.assign({
+          label: 'Success rate',
+          data: rows.map(function (r) { return round2(r.rate); }),
+          backgroundColor: rows.map(function (r) { return C.bandColour(r.band); })
+        }, C.BAR)]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        layout: { padding: { top: 24, right: 92 } },   // gutter for the badge
+        scales: {
+          y: Object.assign({ min: floor, max: 100.4 }, C.gridStyle()),
+          x: C.categoryAxis()
+        },
+        plugins: {
+          legend: { display: false },        // one series - the title names it
+          tooltip: C.tooltipStyle({
+            label: function (item) {
+              const row = rows[item.dataIndex];
+              return [
+                'Success rate: ' + fmt(row.rate) + '%',
+                'Band: ' + row.band,
+                'Completed: ' + row.completed + ' \u00b7 delayed: ' + row.delayed
+              ];
+            }
+          }),
+          targetLine: { value: k.target, label: 'Target ' + k.target + '%' },
+          valueLabels: { enabled: true, decimals: 2, suffix: '%' }
+        }
+      },
+      plugins: [C.targetLinePlugin, C.valueLabelPlugin]
+    });
+  }
+
+
+  function drawDelayChart(k) {
+    const rows = k.departments.length ? k.departments : k.parts;
+
+    if (!rows.length) {
+      C.chartMessage('chartDelay', '<p>' +
+        (k.allMonths ? 'No section data loaded.' : 'No section data for this month.') +
+        '</p>');
+      return;
+    }
+
+    /*
+      EVERY SECTION AT ZERO. Plotting that draws four invisible bars under
+      a fractional axis; saying it plainly is both truer and better news.
+    */
+    const worst = Math.max.apply(null, rows.map(function (r) { return r.delayed; }));
+    if (worst === 0) {
+      C.chartMessage('chartDelay',
+        '<div class="big">0</div>' +
+        '<p>No ticket in any section was completed past its due date ' +
+        (k.allMonths ? 'in any month loaded' : 'this month') + '.</p>');
+      return;
+    }
+    C.chartMessage('chartDelay', null);
+
+    C.drawChart('chartDelay', {
+      type: 'bar',
+      data: {
+        labels: rows.map(function (r) { return shortLabel(r.name); }),
+        datasets: [Object.assign({
+          label: 'Delayed tickets',
+          data: rows.map(function (r) { return r.delayed; }),
+          backgroundColor: C.SERIES[0]
+        }, C.BAR)]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        layout: { padding: { top: 24 } },
+        scales: {
+          // suggestedMax keeps a lone delay from filling the card, and
+          // stepSize 1 stops Chart.js subdividing a count into halves.
+          y: { beginAtZero: true,
+               suggestedMax: Math.max(4, worst + 1),
+               border: { display: false },
+               grid: { color: '#eaeff5', drawTicks: false },
+               ticks: { precision: 0, stepSize: 1, color: '#7b8b9d',
+                        font: C.AXIS_FONT, padding: 8 } },
+          x: C.categoryAxis()
+        },
+        plugins: {
+          legend: { display: false },
+          tooltip: C.tooltipStyle({
+            label: function (item) {
+              const row = rows[item.dataIndex];
+              return row.delayed + ' delayed of ' + row.completed + ' completed';
+            }
+          }),
+          valueLabels: { enabled: true, decimals: 0 }
+        }
+      },
+      plugins: [C.valueLabelPlugin]
+    });
+  }
+
+
+  // =======================================================================
+  // THE TABLES
+  // =======================================================================
+  function fillSectionFilters(sections) {
+    fillSelect('fSection', 'All sections',
+      (sections || []).map(function (s) { return s.name; }));
+  }
+
+  function applySectionFilter() {
+    const k = state.kpi;
+    if (!k || !k.hasData) return;
+
+    const useSections = k.departments.length > 0;
+    const all = useSections ? k.departments : k.parts;
+
+    setHeadText('kpi1BreakdownHead',
+      useSections ? 'By section' : 'By service / part');
+    document.getElementById('kpi1BreakdownCol').textContent =
+      useSections ? 'Section' : 'Service / Part';
+
+    const wanted = getValue('fSection');
+    const rows = wanted ? all.filter(function (r) { return r.name === wanted; }) : all;
+
+    setCount('cSection', rows.length, all.length, useSections ? 'sections' : 'parts');
+
+    if (!rows.length) return emptyTable('#kpi1Table tbody', 10, 'No rows match.');
+
+    fillRows('#kpi1Table tbody', rows, function (r) {
+      return '<td class="name">' + escapeHtml(r.name) + '</td>' +
+             num(r.received) + num(r.completed) + num(openOf(r)) +
+             num(r.delayed) + num(r.successful) +
+             '<td class="r">' + fmt(r.rate) + '%</td>' +
+             '<td class="r">' + fmt(r.achievement) + '%</td>' +
+             '<td>' + pill(r.band) + '</td>' +
+             '<td class="r">' + (r.headroom > 0 ? '+' : '') + r.headroom + '</td>';
+    });
+  }
+
+
+  function applyModuleFilterK1() {
+    const k = state.kpi;
+    if (!k || !k.hasData) return;
+
+    const all = k.modules || [];
+    const wanted = getValue('fModuleK1');
+    const term = getValue('fModuleK1Name').trim().toLowerCase();
+
+    const rows = all.filter(function (m) {
+      if (wanted && m.name !== wanted) return false;
+      if (term && m.name.toLowerCase().indexOf(term) === -1) return false;
+      return true;
+    });
+
+    setCount('cModuleK1', rows.length, all.length, 'modules');
+
+    /*
+      TICKETS ON SCREEN BUT NOT ONE MODULE ROW.
+
+      In the original this meant the cache had been built before modules
+      existed, and the empty state offered a Rebuild button. There is no
+      cache here - every ticket is filed into a module as it is scored - so
+      if this is ever empty while tickets are not, the Part column and the
+      roster between them could place none of them, which is a question
+      about the data rather than about a rebuild.
+    */
+    if (!all.length) {
+      return emptyTable('#kpi1Modules tbody', 10,
+        'None of the ' + count(k.total.completed) + ' tickets in this period ' +
+        'could be filed under a module \u2014 neither their Part column nor ' +
+        'the person who handled them placed one.');
+    }
+
+    if (!rows.length) {
+      return emptyTable('#kpi1Modules tbody', 10, 'No modules match the filters.');
+    }
+
+    fillRows('#kpi1Modules tbody', rows, function (m) {
+      return '<td class="name">' + escapeHtml(m.name) + '</td>' +
+             num(m.received) + num(m.completed) + num(openOf(m)) +
+             num(m.delayed) + num(m.successful) +
+             '<td class="r">' + fmt(m.rate) + '%</td>' +
+             '<td class="r">' + fmt(m.achievement) + '%</td>' +
+             '<td>' + pill(m.band) + '</td>' +
+             '<td class="r">' + (m.headroom > 0 ? '+' : '') + m.headroom + '</td>';
+    });
+  }
+
+
+  function fillPersonFilters(k) {
+    fillSelect('fAllPerson', 'All individuals',
+      k.people.map(function (p) { return p.name; }).sort());
+
+    fillSelect('fModuleK1', 'All modules',
+      (k.modules || []).map(function (m) { return m.name; }));
+
+    /*
+      The individuals table's own section filter, listed from the people
+      actually in the table rather than from the six the org chart names -
+      so a section nobody worked in that month is not offered, and every
+      choice in this dropdown returns somebody.
+    */
+    const sections = [];
+    (k.people || []).forEach(function (row) {
+      if (row.department && sections.indexOf(row.department) === -1) {
+        sections.push(row.department);
+      }
+    });
+    sections.sort();
+    fillSelect('fAllSection', 'All sections', sections);
+
+    /*
+      The affiliates for this period, fetched rather than taken from `k`.
+      An affiliate is a fact about a ticket, so it is not a dimension of
+      the scored figures. Quiet on failure: a dropdown that did not fill is
+      not worth a banner over the page, and everything else still works.
+    */
+    get('/api/kpi1/affiliates?month=' + encodeURIComponent(state.month))
+      .then(function (out) { fillAffiliateFilter(out.affiliates || []); })
+      .catch(function () { /* leave it as it was */ });
+  }
+
+  function fillAffiliateFilter(list) {
+    fillSelect('fAllAffiliate', 'All affiliates',
+      list.map(function (a) { return a.name; }));
+  }
+
+
+  /**
+   * The quarters this data covers, for the individuals table's own scope.
+   *
+   * Derived from the months the figures came back with, so it can never
+   * offer a quarter that would open on an empty table.
+   */
+  function fillScopeFilter(k) {
+    const months = k.months || state.months || [];
+    const seen = {};
+    const quarters = [];
+    months.forEach(function (m) {
+      const parts = String(m).match(/^(\d{4})-(\d{2})$/);
+      if (!parts) return;
+      const key = parts[1] + '-Q' + (Math.floor((Number(parts[2]) - 1) / 3) + 1);
+      if (!seen[key]) { seen[key] = true; quarters.push(key); }
+    });
+    quarters.sort().reverse();
+
+    const select = document.getElementById('fAllScope');
+    if (!select) return;
+    const previous = select.value;
+    select.innerHTML = '<option value="">Follow the page</option>';
+    quarters.forEach(function (key) {
+      const option = document.createElement('option');
+      option.value = key;
+      option.textContent = quarterLabel(key);
+      select.appendChild(option);
+    });
+    select.value = previous;
+    if (select.value !== previous) select.value = '';
+  }
+
+
+  async function applyScopeFilter() {
+    const scope = getValue('fAllScope');
+
+    if (!scope) {
+      state.scopePeople = null;
+      state.scopeKey = '';
+      applyAllFilter();
+      saveFilters();
+      return;
+    }
+
+    if (state.scopeKey === scope && state.scopePeople) {
+      applyAllFilter();
+      saveFilters();
+      return;
+    }
+
+    try {
+      const k = await get('/api/kpi1?month=' + encodeURIComponent(scope) +
+                          '&standard=' + encodeURIComponent(currentStandard()));
+      state.scopeKey = scope;
+      state.scopePeople = (k && k.hasData) ? k : null;
+      applyAllFilter();
+      saveFilters();
+    } catch (err) {
+      if (err.message !== 'signed out') {
+        emptyTable('#kpi1AllPeople tbody', 9, err.message);
+      }
+    }
+  }
+
+
+  async function applyAffiliateFilter() {
+    const wanted = getValue('fAllAffiliate');
+
+    if (!wanted) {
+      state.affiliate = null;
+      applyAllFilter();
+      saveFilters();
+      return;
+    }
+
+    try {
+      state.affiliate = await get(
+        '/api/kpi1/by-affiliate?month=' +
+        encodeURIComponent(getValue('fAllScope') || state.month) +
+        '&affiliate=' + encodeURIComponent(wanted) +
+        '&standard=' + encodeURIComponent(currentStandard()));
+      applyAllFilter();
+      saveFilters();
+    } catch (err) {
+      if (err.message !== 'signed out') {
+        emptyTable('#kpi1AllPeople tbody', 9, err.message);
+      }
+    }
+  }
+
+
+  function applyAllFilter() {
+    const k = state.scopePeople || state.kpi;
+    const note = document.getElementById('kpi1AllNote');
+
+    if (!k || !k.hasData) {
+      if (state.scopePeople === null && getValue('fAllScope')) {
+        setCount('cAll', 0, 0, 'individuals');
+        return emptyTable('#kpi1AllPeople tbody', 9,
+          'No tickets in ' + quarterLabel(getValue('fAllScope')) + '.');
+      }
+      return;
+    }
+
+    /*
+      SECTION, NOT MODULE.
+
+      A section is where somebody sits, and it is a fact about them: one
+      person, one desk, one team, already in the column beside their name.
+      So this filter is just that column, and the figures beside each name
+      do not change when it is on.
+
+      AN AFFILIATE IS DIFFERENT, and the note under the table says so while
+      it is on: those figures come from the server, already summed from
+      that affiliate's tickets alone.
+    */
+    const chosenAffiliate = getValue('fAllAffiliate');
+    const base = (chosenAffiliate && state.affiliate)
+      ? state.affiliate.people : k.people;
+
+    if (note) {
+      note.hidden = !chosenAffiliate;
+      note.textContent = chosenAffiliate
+        ? 'Scored from ' + chosenAffiliate + ' tickets alone. An affiliate is ' +
+          'a fact about a ticket, not about a person, so these figures are ' +
+          'not a slice of the ones above - they are a different sum.'
+        : '';
+    }
+
+    const chosenSection = getValue('fAllSection');
+    const source = chosenSection
+      ? base.filter(function (p) { return p.department === chosenSection; })
+      : base;
+
+    const rows = filterPeople(source, 'fAllPerson', 'fAllName')
+                   .sort(function (a, b) { return b.received - a.received; });
+
+    setCount('cAll', rows.length, source.length, 'individuals');
+
+    if (!rows.length) {
+      return emptyTable('#kpi1AllPeople tbody', 9,
+        chosenAffiliate
+          ? 'Nobody handled a ' + chosenAffiliate + ' ticket in this period' +
+            (chosenSection ? ' from ' + chosenSection : '') + '.'
+          : chosenSection
+            ? 'Nobody in ' + chosenSection + ' handled a ticket in this period.'
+            : 'No individuals match the filters.');
+    }
+
+    fillRows('#kpi1AllPeople tbody', rows, function (p) {
+      return '<td class="name">' + escapeHtml(p.name) + '</td>' +
+             '<td>' + escapeHtml(p.department) + '</td>' +
+             num(p.received) + num(p.completed) + num(openOf(p)) +
+             num(p.delayed) + num(p.successful) +
+             '<td class="r">' + fmt(p.rate) + '%</td>' +
+             '<td>' + pill(p.band) + '</td>';
+    });
+  }
+
+
+  function filterPeople(people, personId, nameId) {
+    const exact = getValue(personId);
+    const term = getValue(nameId).trim().toLowerCase();
+
+    return people.filter(function (p) {
+      if (exact && p.name !== exact) return false;
+      if (term && p.name.toLowerCase().indexOf(term) === -1) return false;
+      return true;
+    });
+  }
+
+
+  // =======================================================================
+  // FILTERS THAT SURVIVE A RELOAD
+  // =======================================================================
+  /*
+    Kept in sessionStorage rather than the URL. The original put them in
+    the URL because an Apps Script page has no other durable place to
+    stand; this one does, and a filter is not something anybody wants to
+    share by pasting a link.
+  */
+  const FILTER_IDS = ['fKpi1Standard', 'fSection', 'fModuleK1', 'fModuleK1Name',
+                      'fAllScope', 'fAllPerson', 'fAllSection', 'fAllAffiliate',
+                      'fAllName'];
+
+  function saveFilters() {
+    const out = { month: state.month };
+    FILTER_IDS.forEach(function (id) { out[id] = getValue(id); });
+    try { sessionStorage.setItem(FILTER_STORE, JSON.stringify(out)); }
+    catch (e) { /* private mode - the filters just will not persist */ }
+  }
+
+  function restoreFilters() {
+    let saved = null;
+    try { saved = JSON.parse(sessionStorage.getItem(FILTER_STORE) || 'null'); }
+    catch (e) { saved = null; }
+    if (!saved) return;
+
+    if (saved.month) state.month = saved.month;
+    // Only the standard can be put back before the data arrives; the rest
+    // are <select>s whose options do not exist yet.
+    if (saved.fKpi1Standard) setValue('fKpi1Standard', saved.fKpi1Standard);
+    state.pendingFilters = saved;
+  }
+
+  /**
+   * Puts the saved filters back once their options exist.
+   *
+   * Has to happen between building the dropdowns and drawing the tables -
+   * any earlier and the <select> has nothing to match.
+   */
+  function applyPendingFilters() {
+    const saved = state.pendingFilters;
+    if (!saved) return;
+    state.pendingFilters = null;
+
+    FILTER_IDS.forEach(function (id) {
+      if (id === 'fKpi1Standard') return;
+      const el = document.getElementById(id);
+      if (!el || !saved[id]) return;
+      el.value = saved[id];
+      if (el.value !== saved[id]) el.value = '';
+    });
+  }
+
+
+  // =======================================================================
+  // SMALL THINGS
+  // =======================================================================
+  function escapeHtml(value) {
+    return String(value == null ? '' : value)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  function count(value) {
+    const n = Number(value);
+    return isFinite(n) ? n.toLocaleString('en-US') : String(value);
+  }
+
+  function fmt(n) {
+    return (Math.round((Number(n) || 0) * 100) / 100).toFixed(2);
+  }
+
+  function round2(n) { return Math.round((Number(n) || 0) * 100) / 100; }
+
+  function bandClass(band) {
+    if (band === 'GREEN') return 'g';
+    if (band === 'YELLOW') return 'a';
+    if (band === 'RED') return 'r';
+    return '';
+  }
+
+  function pill(band) {
+    return '<span class="pill ' + bandClass(band) + '">' +
+           escapeHtml(band) + '</span>';
+  }
+
+  function num(value) {
+    return '<td class="r' + (Number(value) === 0 ? ' zero' : '') + '">' +
+           count(value) + '</td>';
+  }
+
+  function fillRows(selector, rows, toHtml) {
+    const body = document.querySelector(selector);
+    if (!body) return;
+    body.innerHTML = '';
+    rows.forEach(function (row) {
+      const tr = document.createElement('tr');
+      tr.innerHTML = toHtml(row);
+      body.appendChild(tr);
+    });
+  }
+
+  function emptyTable(selector, columns, message) {
+    const body = document.querySelector(selector);
+    if (body) {
+      body.innerHTML = '<tr><td colspan="' + columns + '" class="empty">' +
+                       escapeHtml(message) + '</td></tr>';
+    }
+  }
+
+  function setCount(id, shown, total, noun) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = shown === total ? total + ' ' + noun
+                                     : shown + ' of ' + total + ' ' + noun;
+  }
+
+  /** Replaces a card head's text without disturbing anything beside it. */
+  function setHeadText(id, text) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    let node = null;
+    for (let i = 0; i < el.childNodes.length; i++) {
+      if (el.childNodes[i].nodeType === 3) { node = el.childNodes[i]; break; }
+    }
+    if (node) node.nodeValue = text;
+    else el.insertBefore(document.createTextNode(text), el.firstChild);
+  }
+
+  function fillSelect(id, allLabel, values) {
+    const select = document.getElementById(id);
+    if (!select) return;
+
+    const previous = select.value;
+    select.innerHTML = '<option value="">' + escapeHtml(allLabel) + '</option>';
+
+    values.forEach(function (value) {
+      const option = document.createElement('option');
+      option.value = value;
+      option.textContent = value;
+      select.appendChild(option);
+    });
+
+    select.value = previous;
+    if (select.value !== previous) select.value = '';
+  }
+
+  /**
+   * A section's name, short enough for a chart axis.
+   *
+   * 'Supply Chain Applications' does not fit, and dropping the word
+   * 'Applications' leaves it two words where its neighbours have one. SCA
+   * is what that team calls itself, and it comes from the server with the
+   * section so the chart and the table cannot disagree.
+   */
+  function shortLabel(name) {
+    const sections = (state.boot && state.boot.sections) || [];
+    for (let i = 0; i < sections.length; i++) {
+      if (sections[i].name === name && sections[i].short) return sections[i].short;
+    }
+    return String(name).replace(/\s+Applications$/, '');
+  }
+
+  const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June',
+                       'July', 'August', 'September', 'October', 'November',
+                       'December'];
+
+  function formatMonth(key) {
+    if (key === ALL_MONTHS) return 'All months';
+    const parts = String(key).split('-');
+    const index = parseInt(parts[1], 10) - 1;
+    return (MONTH_NAMES[index] || key) + ' ' + parts[0];
+  }
+
+  /** '2026-09-04' -> '4 September 2026'. */
+  function formatDay(key) {
+    const parts = String(key || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!parts) return String(key || '');
+    const month = MONTH_NAMES[Number(parts[2]) - 1] || parts[2];
+    return Number(parts[3]) + ' ' + month + ' ' + parts[1];
+  }
+
+  function quarterLabel(key) {
+    const parts = String(key || '').match(/^(\d{4})-Q([1-4])$/);
+    if (!parts) return String(key);
+    const spans = ['Jan\u2013Mar', 'Apr\u2013Jun', 'Jul\u2013Sep', 'Oct\u2013Dec'];
+    return 'Q' + parts[2] + ' ' + parts[1] + ' \u00b7 ' + spans[Number(parts[2]) - 1];
+  }
+
+  function getValue(id) {
+    const el = document.getElementById(id);
+    return el ? (el.value || '') : '';
+  }
+
+  function setValue(id, value) {
+    const el = document.getElementById(id);
+    if (el) el.value = value;
+  }
+
+  function setText(id, text) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = text;
+  }
+
+  function bind(id, event, handler) {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener(event, handler);
+  }
+
+
+  // =======================================================================
+  // WIRING
+  // =======================================================================
+  function wireFilters() {
+    bind('fSection', 'change', function () { applySectionFilter(); saveFilters(); });
+    bind('fSectionReset', 'click', function () {
+      setValue('fSection', ''); applySectionFilter(); saveFilters();
+    });
+
+    bind('fModuleK1', 'change', function () { applyModuleFilterK1(); saveFilters(); });
+    bind('fModuleK1Name', 'input', function () { applyModuleFilterK1(); saveFilters(); });
+    bind('fModuleK1Reset', 'click', function () {
+      setValue('fModuleK1', ''); setValue('fModuleK1Name', '');
+      applyModuleFilterK1(); saveFilters();
+    });
+
+    bind('fAllScope', 'change', function () { applyScopeFilter(); });
+    bind('fAllAffiliate', 'change', function () { applyAffiliateFilter(); });
+    bind('fAllPerson', 'change', function () { applyAllFilter(); saveFilters(); });
+    bind('fAllSection', 'change', function () { applyAllFilter(); saveFilters(); });
+    bind('fAllName', 'input', function () { applyAllFilter(); saveFilters(); });
+    bind('fAllReset', 'click', function () {
+      ['fAllScope', 'fAllPerson', 'fAllSection', 'fAllAffiliate', 'fAllName']
+        .forEach(function (id) { setValue(id, ''); });
+      state.scopePeople = null;
+      state.scopeKey = '';
+      state.affiliate = null;
+      applyAllFilter();
+      saveFilters();
+    });
+
+    bind('refreshKpi1', 'click', function () {
+      state.scopeKey = '';
+      state.scopePeople = null;
+      state.affiliate = null;
+      start().catch(function () {});
+    });
+  }
+
+
+  document.addEventListener('DOMContentLoaded', function () {
+    wireMonthPicker();
+    wireFilters();
+
+    bind('signinGo', 'click', function () { signIn(); });
+    bind('password', 'keydown', function (e) { if (e.key === 'Enter') signIn(); });
+    bind('employeeId', 'keydown', function (e) { if (e.key === 'Enter') signIn(); });
+    bind('signOut', 'click', function () { signedOut(''); });
+
+    try { state.token = sessionStorage.getItem(TOKEN_STORE) || ''; }
+    catch (e) { state.token = ''; }
+
+    if (!state.token) { signedOut(''); return; }
+
+    start().catch(function (err) {
+      if (String(err && err.message) === 'signed out') return;
+      signedOut('Could not open the screen \u2014 ' +
+                (err && err.message ? err.message : String(err)));
+    });
+  });
+
+  // For the browser suite, which drives this page against the real server.
+  window.__kpi1Screen = {
+    openOf: openOf, delayRateText: delayRateText, bandClass: bandClass,
+    shortLabel: shortLabel, formatMonth: formatMonth, formatDay: formatDay,
+    quarterLabel: quarterLabel, monthPickerLabel: monthPickerLabel,
+    selectedMonths: selectedMonths, currentStandard: currentStandard,
+    chartOn: function (id) { return C.chartOn(id); },
+    reading: function () { return state.kpi; }
+  };
+})();
+</script>
+</body>
+</html>

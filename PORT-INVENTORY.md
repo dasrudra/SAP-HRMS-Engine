@@ -813,9 +813,11 @@ decided for a reason.
    screens and the one that
    changes the Saturday routine** - the `.xlsx` is parsed in the browser
    and fed straight to the endpoints, so there is no CSV and no terminal.
-   Left in this stage: **the KPI 1 and KPI 2 screens**, which the Uploads
-   screen's Open Dashboard button already works out the target for and
-   says rather than opens.
+   **The KPI 1 screen is ported** - `api/public/kpi1.html`, with the chart
+   layer in `api/public/kpi-charts.js`: six tiles, two charts, three tables
+   with their filters, the multi-month picker and the company/EAS standard
+   toggle. 72 checks in a real browser. Left in this stage: **the KPI 2
+   screen**.
 9. ~~Backups~~ DONE as code. **NOT done as a working arrangement** until
    `BACKUP_DIR` points off this machine, the nightly task exists, and one
    restore has actually been done. See the Backups section above. This has
@@ -826,7 +828,9 @@ decided for a reason.
 11. **Deployment.** `clasp push` is lost at cutover: today VS Code to live
     is one command, afterwards something has to put the code on the server
     and restart Node. Not built, and not optional.
-12. The shell: home, nav, the remaining static screens. `api/public/app.css`
+12. The shell: home, nav, the remaining static screens. Uploads and KPI 1
+    are pages of their own until it exists, and Open Dashboard says where
+    an upload belongs rather than going there. `api/public/app.css`
     is already there - the whole of `src/Styles.html`, copied - so each
     screen as it arrives looks like the finished thing rather than like a
     test page. Uploads is a page of its own until the nav exists to put it
@@ -1050,6 +1054,58 @@ PostgreSQL returns this data in the right order anyway. The assertion
 stays, because it is what would catch a plan change or a bigger table
 reordering them - which is when the guarantee matters and when nobody
 would be looking.
+
+### The KPI 1 screen
+
+`api/public/kpi1.html`, with the chart layer in `api/public/kpi-charts.js`
+and `GET /api/kpi1/boot` for the three things the figures do not carry.
+The KPI 1 half of `src/Index.html` and `src/App.html`: six tiles in the
+same order, two charts, three tables with their filters, the multi-month
+picker and the standard toggle. **72 checks in a real browser.**
+
+| Apps Script | New | Status |
+|---|---|---|
+| the KPI 1 view in `Index.html` | `api/public/kpi1.html` | DONE |
+| `loadKpi1`, `renderKpi1`, `renderBasis`, `renderCoverage` | in the page | DONE |
+| `renderTiles`, `tile`, `openOf`, `delayRateText` | in the page | DONE |
+| `drawRateChart`, `drawDelayChart` | in the page, on `kpi-charts.js` | DONE |
+| `drawChart`, `bandColour`, `gridStyle`, `categoryAxis`, `tooltipStyle`, `chartMessage`, the two plugins | `api/public/kpi-charts.js` | DONE, shared |
+| `fillMonthPicker`, `toggleMonth`, `syncMonthPicker`, `monthPickerLabel` | in the page | DONE |
+| `fillStandardToggle`, `paintStandardToggle`, `currentStandard` | in the page | DONE |
+| `applySectionFilter`, `applyModuleFilterK1`, `applyAllFilter`, `applyScopeFilter`, `filterPeople` | in the page | DONE |
+| `fillAffiliateFilter`, `loadAffiliate` | in the page, on the two new endpoints | DONE |
+| `renderKpi1Missing` | in the page | DONE |
+| `rebuildKpi1`, `renderRebuildState` | - | **dropped**, with the cache |
+| the SLA layer pill | - | TODO, with the Summary screen |
+
+**Two things are deliberately not there.**
+
+The **Rebuild button**, and the "the stored figures were built before
+modules existed" empty state behind it. Both exist because the original
+scored every ticket into a `KPI_MONTHLY` cache after each upload. There is
+no cache: 26,000 tickets score in about 200ms straight out of PostgreSQL,
+so there is nothing to rebuild, nothing to go stale, and no month quietly
+showing last week's figures because a rebuild was missed.
+
+The **SLA layer pill** beside the heading, which reads `CONFIG.KPI_LIST` -
+that belongs to the Summary screen and is not ported yet. The sentence
+under the standard toggle names the policy document instead, which is the
+same fact in the place it is actually read.
+
+**The suite is built so the two standards disagree.** Eighteen tickets
+scoring 94.12% are GREEN against the company's 90.00% and YELLOW against
+the EAS team's 99.50% - same tickets, same arithmetic, different verdict.
+A fixture where both agreed would pass with a toggle that did nothing. The
+same figures also put the headroom at exactly zero (`ceil(0.9 x 17)` is 16
+and 16 succeeded), so the tile has to say "one more delay drops the band"
+rather than printing a bare 0.
+
+**What the charts are asserted on is the half that is ours** - the labels,
+the numbers, the band colours, the target line's value and label, and that
+the rate axis does not start at zero while the delay axis does. Whether
+Chart.js can then paint them is Chart.js's problem and no test here would
+improve it. Where the CDN is unreachable a stand-in records the config it
+was handed, so those assertions hold either way.
 
 ### Two things that cannot be tested against the real data
 
