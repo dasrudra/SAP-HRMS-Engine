@@ -1023,6 +1023,34 @@ them already restarted the server - `mutate-content.sh`,
 document is affected. The new script simply did not copy that step, and a
 run where nothing at all is caught is the only reason it was noticed.
 
+**With the restart in place: 15 mutations, 13 caught.** Getting there took
+three rounds, and what the first two rounds found was worth more than the
+figure.
+
+- **A person row was never checked for being scored.** A mutation meant
+  for the affiliate function landed on `readKpi1`'s people loop instead -
+  the file has the same line twice and perl takes the first - and
+  survived. `kpi-read-test.js` checked a person's name, their ticket count
+  and their section, and nothing else. Every row of the **By individuals**
+  table could have rendered 0.00% RED and no check would have moved. The
+  rate, band, achievement, headroom, successful and delayed are all
+  asserted now, and the two mutations are anchored on text only one of
+  them has.
+- **Two checks were passing on insertion order.** "Busiest first" and the
+  alphabetical tie-break both happened to match the order the fixture was
+  written in, so removing the sort changed nothing. The fixture now lays
+  the rows down in deliberately the wrong order.
+
+The two survivors are both honest. One is equivalent: `monthsInScope`
+never returns an empty set, and if it did, falling through builds
+`= ANY('{}')`, which matches nothing - the same answer the early return
+gives. The other cannot be falsified by any single run: dropping `, name`
+from the `ORDER BY` removes a *guarantee* rather than a behaviour, and
+PostgreSQL returns this data in the right order anyway. The assertion
+stays, because it is what would catch a plan change or a bigger table
+reordering them - which is when the guarantee matters and when nobody
+would be looking.
+
 ### Two things that cannot be tested against the real data
 
 Recorded so they read as decisions rather than gaps:

@@ -338,6 +338,33 @@ async function main() {
         'Manufacturing Applications',
         people.filter(function (p) { return p.name === P1; })[0].department);
 
+  /*
+    AND A PERSON ROW IS SCORED, NOT JUST COUNTED.
+
+    This suite checked a person's name, their ticket count and their
+    section, and nothing else - so every row of the By individuals table
+    could have rendered 0.00% RED and no check here would have moved. A
+    mutation aimed at a different function landed on this one and survived,
+    which is how it came to light.
+
+    P1 has two tickets in this range, both completed, neither delayed.
+  */
+  const p1row = people.filter(function (p) { return p.name === P1; })[0];
+  check('A PERSON ROW CARRIES ITS SCORED FIGURES, not only a count',
+        p1row && p1row.completed === 2 && p1row.delayed === 0 &&
+        p1row.successful === 2,
+        p1row && JSON.stringify({ c: p1row.completed, d: p1row.delayed,
+                                  s: p1row.successful }));
+  check('with a rate worked out from them',
+        p1row && p1row.rate === 100, p1row && String(p1row.rate));
+  check('and a band that is one of the three words, not a number',
+        p1row && ['GREEN', 'YELLOW', 'RED'].indexOf(p1row.band) !== -1,
+        p1row && JSON.stringify(p1row.band));
+  check('and an achievement and a headroom beside it',
+        p1row && typeof p1row.achievement === 'number' &&
+        typeof p1row.headroom === 'number',
+        p1row && JSON.stringify({ a: p1row.achievement, h: p1row.headroom }));
+
   // =======================================================================
   console.log('');
   console.log('  Service / Part, and the source counts');
@@ -618,13 +645,51 @@ async function main() {
        o.delay === undefined ? 0 : o.delay]);
   }
 
-  // Two affiliates, two people, and a blank affiliate that must not vanish.
-  await affTicket(POST + '-03', 'Test Person One', 'KSL');
-  await affTicket(POST + '-03', 'Test Person One', 'KSL', { delay: 3 });
-  await affTicket(POST + '-03', 'Test Person One', 'YOUNGONE');
-  await affTicket(POST + '-03', 'Test Person Two', 'KSL');
-  await affTicket(POST + '-03', 'Test Person Two', '');
-  await affTicket(POST + '-04', 'Test Person One', 'KSL');
+  /*
+    THE FIXTURE IS BUILT FOR THE CHECKS, which a mutation run had to teach
+    it. The first version was three affiliates with counts 4, 1 and 1 -
+    and "listed busiest first" passed a third of the time under a random
+    ORDER BY, because any shuffle that happens to put the 4 first reads as
+    sorted. Distinct counts, far apart, make that vanishingly unlikely.
+
+    It also now carries two things it did not: a ticket with NOBODY in
+    charge, and a second month, because every by-affiliate check asked for
+    All months and so could not tell whether the month filter worked.
+  */
+  /*
+    THE INSERT ORDER IS DELIBERATELY THE WRONG ORDER.
+
+    Two of these checks passed for a while because the rows happened to
+    come back already in the order being asserted, so removing the sort
+    changed nothing. Both fixtures are now laid down so that the natural
+    order is NOT the right one:
+
+      P2's KSL tickets go in before P1's, though P1 has more of them, so
+      "busiest first" cannot be satisfied by insertion order.
+
+      ZEPHYR goes in before (none given), though they tie at one ticket
+      each and '(' sorts before 'Z', so the alphabetical tie-break cannot
+      be satisfied by insertion order either.
+  */
+  // KSL: 5 across two months, plus one with nobody on it. YOUNGONE: 3.
+  // ZEPHYR and (none given): one each, tied.
+  await affTicket(POST + '-03', P2, 'KSL');
+  await affTicket(POST + '-03', P2, 'KSL');
+  await affTicket(POST + '-03', P1, 'KSL');
+  await affTicket(POST + '-03', P1, 'KSL', { delay: 3 });
+  await affTicket(POST + '-04', P1, 'KSL');
+
+  await affTicket(POST + '-03', P1, 'YOUNGONE');
+  await affTicket(POST + '-03', P1, 'YOUNGONE');
+  await affTicket(POST + '-03', P2, 'YOUNGONE');
+
+  await affTicket(POST + '-03', P1, 'ZEPHYR');
+  await affTicket(POST + '-03', P2, '');
+
+  // A ticket nobody is recorded against. It still counts towards the
+  // affiliate, because the affiliate is on the ticket - but it cannot
+  // become a person, because there is no person on it.
+  await affTicket(POST + '-03', '', 'KSL');
 
   const affAll = (await call('/api/kpi1/affiliates?month=ALL', token)).body;
   const affNames = (affAll.affiliates || []).map(function (a) { return a.name; });
@@ -636,8 +701,10 @@ async function main() {
   const ksl = (affAll.affiliates || []).filter(function (a) {
     return a.name === 'KSL';
   })[0];
-  check('and each carries its ticket count', ksl && ksl.tickets === 4,
+  check('and each carries its ticket count', ksl && ksl.tickets === 6,
         ksl && String(ksl.tickets));
+  check('A TICKET WITH NOBODY IN CHARGE STILL COUNTS TOWARDS ITS AFFILIATE',
+        ksl && ksl.tickets === 6, ksl && String(ksl.tickets));
   /*
     BUSIEST FIRST, and the tie broken by name. Without the tie-break the
     order of two equally busy affiliates is whatever the database felt like,
@@ -647,6 +714,35 @@ async function main() {
   check('listed busiest first',
         counts.every(function (c, i) { return i === 0 || counts[i - 1] >= c; }),
         JSON.stringify(counts));
+  check('and busiest first means exactly this order',
+        JSON.stringify(affNames.slice(0, 4)) ===
+        JSON.stringify(['KSL', 'YOUNGONE', '(none given)', 'ZEPHYR']),
+        JSON.stringify(affNames));
+  /*
+    A TIE IS BROKEN BY NAME, not left to the database. Without it, the
+    order of two equally busy affiliates is whatever the plan felt like
+    that day, and a dropdown that reshuffles between page loads looks
+    broken.
+
+    THIS CHECK CANNOT BE MADE TO FAIL BY REMOVING THE TIE-BREAK, and that
+    is worth being honest about rather than leaving as an apparent pass.
+    Dropping `, name` from the ORDER BY removes a GUARANTEE, not a
+    behaviour: PostgreSQL is then free to return these two in either
+    order, and on this data it happens to return them in the right one
+    anyway. The fixture inserts ZEPHYR first precisely to make the natural
+    order wrong, and the aggregate still came back sorted.
+
+    So the mutation survives. The assertion stays because it is the thing
+    that would catch a plan change, a version upgrade or a bigger table
+    reordering them - which is exactly when the guarantee matters and
+    exactly when nobody would be looking.
+  */
+  const tied = affNames.filter(function (n) {
+    return n === '(none given)' || n === 'ZEPHYR';
+  });
+  check('and two equally busy affiliates are ordered by name',
+        JSON.stringify(tied) === JSON.stringify(['(none given)', 'ZEPHYR']),
+        JSON.stringify(tied));
 
   const affMonth = (await call('/api/kpi1/affiliates?month=' + POST + '-04',
                                token)).body;
@@ -675,26 +771,71 @@ async function main() {
         byKsl.hasData === true && byKsl.people.length === 2,
         JSON.stringify((byKsl.people || []).map(function (p) { return p.name; })));
   const kslOne = (byKsl.people || []).filter(function (p) {
-    return p.name === 'Test Person One';
+    return p.name === P1;
   })[0];
   check('THE FIGURES ARE THAT AFFILIATE\'S ALONE, not a slice of the total',
         kslOne && kslOne.received === 3, kslOne && String(kslOne.received));
+  /*
+    AND THE TICKET WITH NOBODY ON IT IS NOT A PERSON. It counted towards
+    KSL's six above; it cannot become a row here, and it must not become a
+    row with an empty name either.
+  */
+  check('a ticket with nobody in charge does not become a nameless person',
+        (byKsl.people || []).every(function (p) {
+          return String(p.name || '').trim() !== '';
+        }), JSON.stringify((byKsl.people || []).map(function (p) { return p.name; })));
+  check('so KSL has six tickets but only two people',
+        byKsl.people.reduce(function (n, p) { return n + p.received; }, 0) === 5,
+        String(byKsl.people.reduce(function (n, p) { return n + p.received; }, 0)));
+  /*
+    BUSIEST FIRST. One handled three KSL tickets, Two handled two - so the
+    order is a fact here rather than a coincidence, and sorting it wrongly
+    puts the quietest person at the top of a table people read top-down.
+  */
+  check('the busiest person is first',
+        byKsl.people[0] && byKsl.people[0].name === P1,
+        byKsl.people.map(function (p) { return p.name + ':' + p.received; }).join(', '));
   check('and they are scored, not just counted',
         kslOne && kslOne.delayed === 1 && kslOne.successful === 2 &&
         typeof kslOne.rate === 'number' && typeof kslOne.band === 'string',
         kslOne && JSON.stringify({ d: kslOne.delayed, s: kslOne.successful,
                                 r: kslOne.rate, b: kslOne.band }));
+  /*
+    THE SECTION IS THE ROSTER'S ANSWER, and it has to be the text itself.
+    Asserting only that it is a string passed happily when the field was
+    blanked - '' is a string.
+  */
   check('each person keeps the section the roster puts them in',
-        kslOne && typeof kslOne.department === 'string');
+        kslOne && kslOne.department === 'Manufacturing Applications',
+        kslOne && JSON.stringify(kslOne.department));
   check('the full affiliate list comes back with it, for the dropdown',
         (byKsl.affiliates || []).length >= 3,
         String((byKsl.affiliates || []).length));
+
+  /*
+    ONE MONTH, SCORED. Every other by-affiliate check here asks for All
+    months, so ignoring the month filter entirely changed nothing and
+    passed. KSL has five tickets across two months and one of them is in
+    April.
+  */
+  const kslApril = (await call('/api/kpi1/by-affiliate?month=' + POST +
+                               '-04&affiliate=KSL', token)).body;
+  check('A BY-AFFILIATE CALL FOR ONE MONTH SCORES ONLY THAT MONTH',
+        kslApril.hasData === true && kslApril.people.length === 1 &&
+        kslApril.people[0].received === 1,
+        JSON.stringify((kslApril.people || []).map(function (p) {
+          return p.name + ':' + p.received;
+        })));
+  check('and the person who worked only the other month is absent',
+        (kslApril.people || []).every(function (p) {
+          return p.name !== P2;
+        }), JSON.stringify(kslApril.people));
 
   const byBlank = (await call('/api/kpi1/by-affiliate?month=ALL&affiliate=',
                               token)).body;
   check('no affiliate chosen scores everybody',
         byBlank.people.length === 2 &&
-        byBlank.people.reduce(function (n, p) { return n + p.received; }, 0) === 6,
+        byBlank.people.reduce(function (n, p) { return n + p.received; }, 0) === 10,
         JSON.stringify(byBlank.people.map(function (p) {
           return p.name + ':' + p.received;
         })));
@@ -719,7 +860,7 @@ async function main() {
   const kslEas = (await call('/api/kpi1/by-affiliate?month=ALL&affiliate=KSL' +
                              '&standard=EAS', token)).body;
   const oneEas = (kslEas.people || []).filter(function (p) {
-    return p.name === 'Test Person One';
+    return p.name === P1;
   })[0];
   check('the standard is honoured, so the band can differ from the company one',
         kslEas.standard === 'EAS' && kslOne && oneEas &&
