@@ -55,6 +55,7 @@ const SRC = path.join(__dirname, '..', 'src');
 const configSrc = fs.readFileSync(path.join(SRC, 'Config.gs'), 'utf8');
 const kpiSrc = fs.readFileSync(path.join(SRC, 'Kpi.gs'), 'utf8');
 const kpi2Src = fs.readFileSync(path.join(SRC, 'Kpi2.gs'), 'utf8');
+const codeSrc = fs.readFileSync(path.join(SRC, 'Code.gs'), 'utf8');
 
 let pass = 0, fail = 0, compared = 0;
 function check(name, ok, detail) {
@@ -118,11 +119,29 @@ function liftFunction(source, name, where) {
 
 const FEEDBACK_ANSWERS = liftLiteral('FEEDBACK_ANSWERS', '{', '}');
 const TRAINING_MODULES = liftLiteral('TRAINING_MODULES', '[', ']');
+const ZONES = liftLiteral('ZONES', '[', ']');
+const PLANT_ZONES = liftLiteral('PLANT_ZONES', '{', '}') || {};
 const COUNT_NON_RESPONSES =
   /\n  COUNT_NON_RESPONSES:\s*(true|false)/.exec(configSrc)[1] === 'true';
+const ZONE_UNSPECIFIED =
+  /\n  ZONE_UNSPECIFIED:\s*'([^']*)'/.exec(configSrc)[1];
 
-if (!FEEDBACK_ANSWERS || !TRAINING_MODULES) {
-  console.error('\n  Could not lift the answer map or the module table.\n');
+/*
+  THE TRAINER FALLBACK LIST IS LIFTED AND NEVER WRITTEN DOWN.
+
+  CONFIG.TRAINER_MODULES is three colleagues' names. It is read out of
+  src/Config.gs here, at run time, and passed to both sides as an argument -
+  so this file, like api/kpi2.js, contains none of it. Same arrangement as
+  roster-equivalence-test.js, and the same reason: the repository is public.
+*/
+const TRAINER_MODULES = liftLiteral('TRAINER_MODULES', '[', ']') || [];
+
+if (!FEEDBACK_ANSWERS || !TRAINING_MODULES || !ZONES) {
+  console.error('\n  Could not lift the answer map, the module table or the zones.\n');
+  process.exit(1);
+}
+if (!TRAINER_MODULES.length) {
+  console.error('\n  CONFIG.TRAINER_MODULES is empty or could not be read.\n');
   process.exit(1);
 }
 
@@ -132,15 +151,21 @@ function loadOriginal() {
   let code = 'let ANSWER_TIERS = null;\n';
 
   ['normaliseAnswer', 'answerTiers', 'answerTier', 'moduleFor',
+   'moduleForResponse', 'matchZone', 'zoneFor',
+   'quarterKeyFrom', 'quarterFromFileName',
    'bandFor', 'achievementFor', 'headroomFor'].forEach(function (n) {
     code += liftFunction(configSrc, n, 'src/Config.gs') + '\n';
   });
+
+  code += liftFunction(codeSrc, 'monthKey', 'src/Code.gs') + '\n';
 
   code += liftFunction(kpiSrc, 'round2', 'src/Kpi.gs') + '\n';
   code += liftFunction(kpi2Src, 'scoreFeedback', 'src/Kpi2.gs') + '\n';
   code += liftFunction(kpi2Src, 'byRespondents', 'src/Kpi2.gs') + '\n';
 
   code += 'module.exports = { normaliseAnswer, answerTier, moduleFor, ' +
+          'moduleForResponse, matchZone, zoneFor, monthKey, ' +
+          'quarterKeyFrom, quarterFromFileName, ' +
           'scoreFeedback, byRespondents };';
 
   const sandbox = {
@@ -148,10 +173,15 @@ function loadOriginal() {
     CONFIG: {
       FEEDBACK_ANSWERS: FEEDBACK_ANSWERS,
       TRAINING_MODULES: TRAINING_MODULES,
+      TRAINER_MODULES: TRAINER_MODULES,
+      ZONES: ZONES,
+      ZONE_UNSPECIFIED: ZONE_UNSPECIFIED,
+      PLANT_ZONES: PLANT_ZONES,
       COUNT_NON_RESPONSES: COUNT_NON_RESPONSES
     },
     Object: Object, String: String, Array: Array, Number: Number,
-    Math: Math, JSON: JSON, RegExp: RegExp, isNaN: isNaN
+    Math: Math, JSON: JSON, RegExp: RegExp, isNaN: isNaN,
+    isFinite: isFinite, Date: Date
   };
   vm.createContext(sandbox);
   vm.runInContext(code, sandbox);
@@ -382,6 +412,196 @@ function main() {
         port.moduleFor('Accounting Feedback.xlsx'));
   check('and E-Accounting is E-Accounting, not FI/TR',
         port.moduleFor('E-Accounting Feedback.xlsx') === 'E-Accounting');
+
+
+  // =======================================================================
+  console.log('');
+  console.log('  moduleForResponse - the trainer fallback, and its order');
+  // =======================================================================
+  check('the zone list is the one in Config.gs',
+        JSON.stringify(port.ZONES) === JSON.stringify(ZONES));
+  check('and the name for a session with no zone',
+        port.ZONE_UNSPECIFIED === ZONE_UNSPECIFIED, port.ZONE_UNSPECIFIED);
+  check('the plant lookup matches, empty or not',
+        JSON.stringify(port.PLANT_ZONES) === JSON.stringify(PLANT_ZONES));
+  check('and the port holds no trainer names of its own',
+        port.NO_TRAINERS.length === 0);
+
+  /*
+    THE ORDER IS THE RULE: what the respondent answered beats the filename,
+    and the filename beats the trainer's usual module. Config.gs is explicit
+    that taking the trainer first would file one trainer's E-Accounting
+    sessions under her usual module and move a whole course between rows.
+
+    So every combination is tried: a module answered or not, crossed with a
+    filename that names a module, names only a trainer, names both, or names
+    neither.
+  */
+  const answeredValues = ['', '   ', 'MM', 'PP', null, undefined];
+  const fileShapes = [''];
+  TRAINING_MODULES.slice(0, 3).forEach(function (m) {
+    fileShapes.push('Trainee Feedback- ' + m.match[0] + '.xlsx');
+  });
+  TRAINER_MODULES.forEach(function (t) {
+    fileShapes.push('Trainee Feedback-' + t.match + '.xlsx');
+    fileShapes.push('Feedback ' + t.match + ' Q1-2026.xlsx');
+    // Names a module AND a trainer. The filename must win.
+    fileShapes.push('Trainee Feedback- e-accounting_' + t.match + '.xlsx');
+    fileShapes.push('Feedback ' + t.match + 'x.xlsx');   // no word boundary
+  });
+  fileShapes.push('Feedback Session.xlsx', 'Overall.xlsx', 'Q3-2026.xlsx');
+
+  let responseFails = 0;
+  answeredValues.forEach(function (a) {
+    fileShapes.forEach(function (f) {
+      [f, f.toUpperCase()].forEach(function (file) {
+        if (!same('moduleForResponse',
+                  original.moduleForResponse(a, file),
+                  port.moduleForResponse(a, file, TRAINER_MODULES),
+                  { answered: a, file: file })) {
+          responseFails++;
+        }
+      });
+    });
+  });
+  check('every response lands in the same module', responseFails === 0,
+        responseFails + ' differed');
+
+  check('what the respondent answered always wins',
+        port.moduleForResponse('MM', 'Trainee Feedback- pp.xlsx',
+                               TRAINER_MODULES) === 'MM');
+  check('AND A FILENAME THAT NAMES A MODULE BEATS THE TRAINER',
+        port.moduleForResponse('', 'Trainee Feedback- e-accounting_' +
+                               TRAINER_MODULES[0].match + '.xlsx',
+                               TRAINER_MODULES) === 'E-Accounting');
+  check('with no trainer list at all, a trainer-only file is unassigned',
+        port.moduleForResponse('', 'Feedback ' + TRAINER_MODULES[0].match +
+                               '.xlsx') === '');
+
+
+  // =======================================================================
+  console.log('');
+  console.log('  zoneFor - said, then looked up, then guessed');
+  // =======================================================================
+  const zoneTexts = [''];
+  ZONES.forEach(function (z) {
+    zoneTexts.push(z.name, z.name.toLowerCase());
+    z.match.forEach(function (m) {
+      zoneTexts.push(m, m.toUpperCase(), 'Feedback ' + m + ' Q1.xlsx',
+                     m + 'ONE', 'x' + m);     // the boundary cases
+    });
+  });
+  zoneTexts.push('Unspecified', 'Somewhere else', 'DEPZONE', null, undefined);
+
+  let zoneFails = 0;
+  zoneTexts.forEach(function (t) {
+    if (!same('matchZone', original.matchZone(t), port.matchZone(t), { text: t })) {
+      zoneFails++;
+    }
+  });
+  check('every text reads the same zone', zoneFails === 0, zoneFails + ' differed');
+  check('DEPZONE is not DEPZ', port.matchZone('DEPZONE') === '');
+
+  /*
+    THE EXACT-NAME SHORTCUT, ISOLATED. Removing it changes nothing against
+    the real zone list, because every zone happens to carry its own name in
+    its match list - mutation testing proved that. So it is tested against a
+    zone whose name is NOT in its patterns, which is the only arrangement
+    where the branch does any work and is a perfectly legal one to add.
+  */
+  const oddZone = [{ key: 'X', name: 'Alpha Zone', match: ['zzz'] }];
+  check('a zone name matches outright even when its patterns do not',
+        port.matchZone('Alpha Zone', oddZone) === 'Alpha Zone' &&
+        port.matchZone('alpha zone', oddZone) === 'Alpha Zone');
+  check('and its patterns still work alongside',
+        port.matchZone('Feedback zzz.xlsx', oddZone) === 'Alpha Zone');
+  check('while something unrelated still matches nothing',
+        port.matchZone('Feedback yyy.xlsx', oddZone) === '');
+
+  let zoneForFails = 0;
+  zoneTexts.slice(0, 20).forEach(function (file) {
+    ['', 'P1', null].forEach(function (plant) {
+      zoneTexts.slice(0, 8).forEach(function (answered) {
+        if (!same('zoneFor', original.zoneFor(file, plant, answered),
+                  port.zoneFor(file, plant, answered),
+                  { file: file, plant: plant, answered: answered })) {
+          zoneForFails++;
+        }
+      });
+    });
+  });
+  check('every combination resolves to the same zone', zoneForFails === 0,
+        zoneForFails + ' differed');
+  check('nothing at all is Unspecified, not blank',
+        port.zoneFor('', '', '') === ZONE_UNSPECIFIED);
+
+
+  // =======================================================================
+  console.log('');
+  console.log('  The period - monthKey and the quarter in a filename');
+  // =======================================================================
+  const monthInputs = [
+    '2026-08-20', '2026-08-20 19:59:35', '2026-08', '2026/08/20', '20-08-2026',
+    '', '   ', 'August 2026', null, undefined, 0,
+    new Date('2026-08-20T10:00:00Z'), new Date('2026-01-01T00:00:00Z'),
+    /*
+      A MONTH THAT IS NOT AT THE START. monthKey anchors its match with ^,
+      and mutation testing showed nothing noticed when the anchor was
+      removed - because every input above begins with the date. These do
+      not, and the Month column of a real export is a free-text cell that
+      can hold any of them.
+    */
+    'Training 2026-08-20', 'x2026-08', 'Session on 2026-08-20 at KEPZ',
+    'FY2026-08'
+  ];
+  let monthFails = 0;
+  monthInputs.forEach(function (v) {
+    if (!same('monthKey', original.monthKey(v), port.monthKey(v),
+              { value: String(v) })) {
+      monthFails++;
+    }
+  });
+  check('every date shape gives the same month', monthFails === 0,
+        monthFails + ' differed');
+
+  /*
+    THE FILENAME BEATS THE SESSION DATE, and this is why it has to be read
+    exactly right: "a file named Q1-2026 whose dates Excel turned into
+    January 1974 belongs in Q1 2026, and filtering by month would drop it".
+  */
+  const quarterNames = [];
+  [1, 2, 3, 4].forEach(function (q) {
+    ['2026', '26'].forEach(function (y) {
+      ['-', '_', '.', ' ', '/'].forEach(function (sep) {
+        quarterNames.push('Feedback Q' + q + sep + y + '.xlsx');
+        quarterNames.push('Feedback ' + y + sep + 'Q' + q + '.xlsx');
+        quarterNames.push('q' + q + sep + y);
+        quarterNames.push(y + sep + 'q' + q);
+      });
+      quarterNames.push('Feedback ' + y + 'Q' + q + '.xlsx');
+    });
+  });
+  // The ones that must NOT fire, and the years that are not plausible years.
+  ['FAQ1-2026.xlsx', 'Feedback Q5-2026.xlsx', 'Feedback Q0-2026.xlsx',
+   'Feedback Q1-1874.xlsx', 'Feedback Q1-2126.xlsx', 'Feedback Q12026.xlsx',
+   'Overall.xlsx', '', null, undefined].forEach(function (n) {
+    quarterNames.push(n);
+  });
+
+  let quarterFails = 0;
+  quarterNames.forEach(function (n) {
+    if (!same('quarterFromFileName', original.quarterFromFileName(n),
+              port.quarterFromFileName(n), { file: n })) {
+      quarterFails++;
+    }
+  });
+  check('every filename gives the same quarter', quarterFails === 0,
+        quarterFails + ' differed');
+  check('FAQ1-2026 is not Q1', port.quarterFromFileName('FAQ1-2026.xlsx') === '');
+  check('a two-digit year becomes 20xx',
+        port.quarterFromFileName('Feedback Q1-26.xlsx') === '2026-Q1');
+  check('an implausible year is refused rather than guessed',
+        port.quarterFromFileName('Feedback Q1-1874.xlsx') === '');
 
 
   // =======================================================================

@@ -163,6 +163,50 @@ const TRAINING_MODULES = [
 ];
 
 
+/**
+ * The three plant zones training is reported against. CONFIG.ZONES.
+ *
+ * A FIXED, KNOWN SET - which is why the KPI 2 screen seeds all three rather
+ * than discovering them. "KEPZ ran nothing this month" is a finding, and a
+ * row that vanishes hides it.
+ */
+const ZONES = [
+  { key: 'KEPZ', name: 'KEPZ', match: ['kepz', 'karnaphuli'] },
+  { key: 'CEPZ', name: 'CEPZ', match: ['cepz', 'chittagong', 'chattogram'] },
+  { key: 'DEPZ', name: 'DEPZ', match: ['depz', 'dhaka'] }
+];
+
+/** Shown for a session whose file names no zone. */
+const ZONE_UNSPECIFIED = 'Unspecified';
+
+/**
+ * Plant code to zone. CONFIG.PLANT_ZONES, which is empty today.
+ *
+ * Kept because zoneFor consults it BEFORE falling back to the filename, so
+ * it is the place a plant code gets an authoritative answer the day somebody
+ * fills it in. An empty object is not a missing feature; it is the honest
+ * state of a lookup nobody has needed yet.
+ */
+const PLANT_ZONES = {};
+
+
+/**
+ * The trainers whose usual module answers for a file that names none.
+ *
+ * NOT IN THIS FILE, AND THAT IS DELIBERATE. CONFIG.TRAINER_MODULES is three
+ * colleagues' names, and this repository is public. It lives in the
+ * `trainer_module` table instead, filled by node api/import-roster.js, for
+ * the same reason the org chart does - see db/12-roster.sql.
+ *
+ * So every function that needs it TAKES it. Passed nothing, they behave as
+ * though the list were empty, which is the correct behaviour for a system
+ * whose roster has not been imported yet: a file that names no module falls
+ * through to '(unassigned)' and is reported, rather than being filed under a
+ * guess.
+ */
+const NO_TRAINERS = [];
+
+
 /** The seven scored questions, in the order the form asks them. */
 const QUESTION_LABELS = [
   'Overall training session',
@@ -285,6 +329,162 @@ function moduleFor(fileName, list) {
 }
 
 
+/**
+ * Which module does one RESPONSE belong to? Config.gs moduleForResponse.
+ *
+ * THREE SOURCES, IN ORDER, AND THE ORDER IS THE WHOLE RULE.
+ *
+ *   1. What the respondent answered. If the form asked and somebody typed a
+ *      module, that is the answer and nothing overrides it.
+ *   2. The filename, via moduleFor.
+ *   3. The trainer's usual module - and ONLY as a fallback. Config.gs is
+ *      explicit about why: one trainer runs sessions in two modules, so
+ *      'Trainee Feedback- E-Accounting_<trainer>.xlsx' is filed as
+ *      E-Accounting by its filename and never reaches this list. Only a file
+ *      that names no module at all falls through to their usual one.
+ *
+ * Resolved when the figures are read, never frozen at upload. Correcting the
+ * mapping re-files every affected response on the next page load, with
+ * nothing to re-upload.
+ *
+ * @param {string} answered    the Module column of the response
+ * @param {string} sourceFile  the file it arrived in
+ * @param {Array} [trainers]   [{match, name}] from the trainer_module table
+ * @return {string} module name, or ''
+ */
+function moduleForResponse(answered, sourceFile, trainers) {
+  const said = String(answered === null || answered === undefined ? '' : answered).trim();
+  if (said) return said;
+
+  const byName = moduleFor(sourceFile);
+  if (byName) return byName;
+
+  const text = String(sourceFile || '').toLowerCase();
+  const list = trainers || NO_TRAINERS;
+  for (let i = 0; i < list.length; i++) {
+    const pattern = String(list[i].match)
+      .replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    if (new RegExp('(^|[^a-z0-9])' + pattern + '([^a-z0-9]|$)').test(text)) {
+      return list[i].name;
+    }
+  }
+
+  return '';
+}
+
+
+// ---------------------------------------------------------------------------
+// Which zone a session was run in
+// ---------------------------------------------------------------------------
+
+/**
+ * Reads a zone out of a piece of text, or ''. Config.gs matchZone.
+ *
+ * Matched at a word boundary so 'KEPZ' cannot fire inside a longer token -
+ * 'DEPZONE' is not DEPZ. An exact name still wins outright, which is the
+ * normal case for a dropdown answer.
+ */
+function matchZone(value, list) {
+  const text = String(value === null || value === undefined ? '' : value)
+    .trim().toLowerCase();
+  if (!text) return '';
+
+  const zones = list || ZONES;
+  for (let i = 0; i < zones.length; i++) {
+    const zone = zones[i];
+    if (text === zone.name.toLowerCase()) return zone.name;
+    for (let j = 0; j < zone.match.length; j++) {
+      if (new RegExp('(^|[^a-z0-9])' + zone.match[j] + '([^a-z0-9]|$)').test(text)) {
+        return zone.name;
+      }
+    }
+  }
+  return '';
+}
+
+
+/**
+ * Which zone, from the answer, the plant code, or the filename. Config.gs.
+ *
+ * Same shape of rule as moduleForResponse: what somebody said beats a lookup,
+ * a lookup beats a guess from a filename, and a guess beats nothing.
+ */
+function zoneFor(sourceFile, plant, answered, zones, plantZones) {
+  const said = matchZone(answered, zones);
+  if (said) return said;
+
+  const code = String(plant === null || plant === undefined ? '' : plant).trim();
+  const table = plantZones || PLANT_ZONES;
+  if (code && table[code]) return table[code];
+
+  return matchZone(sourceFile, zones) || ZONE_UNSPECIFIED;
+}
+
+
+// ---------------------------------------------------------------------------
+// Which period a response belongs to
+// ---------------------------------------------------------------------------
+
+/**
+ * 'YYYY-MM' out of a date or a date-ish string. Code.gs monthKey.
+ *
+ * It reads the FIRST SEVEN CHARACTERS of a text value rather than parsing
+ * it, which looks lazy and is not: '2026-08-20 19:59:35' and '2026-08-20'
+ * both mean August, and handing either to `new Date` would reintroduce the
+ * timezone question that ticket-merge.js exists to settle. The month is
+ * already written in the text; there is nothing to work out.
+ */
+function monthKey(value) {
+  if (!value) return '';
+
+  if (value instanceof Date) {
+    const y = value.getFullYear();
+    const m = String(value.getMonth() + 1).padStart(2, '0');
+    return y + '-' + m;
+  }
+
+  const text = String(value).trim();
+  const match = text.match(/^(\d{4})-(\d{2})/);
+  return match ? match[1] + '-' + match[2] : '';
+}
+
+
+/** 2026 + 1 -> '2026-Q1'. Two-digit years become 20xx. Config.gs. */
+function quarterKeyFrom(year, quarter) {
+  let y = Number(year);
+  if (!isFinite(y) || !y) return '';
+  if (y < 100) y += 2000;
+  if (y < 2000 || y > 2099) return '';
+  return y + '-Q' + Number(quarter);
+}
+
+
+/**
+ * The quarter a file NAMES, or ''. Config.gs quarterFromFileName.
+ *
+ * WHY THE FILENAME BEATS THE SESSION DATE, which is the surprising part.
+ * Kpi2.gs: "a file named Q1-2026 whose dates Excel turned into January 1974
+ * belongs in Q1 2026, and filtering by month would drop it". The person who
+ * named the file knew which quarter it was; the date column has been through
+ * a spreadsheet.
+ *
+ * Both orders are read - 'Q1-2026' and '2026-Q1' - and the q must start a
+ * token, so 'FAQ1-2026' cannot fire.
+ */
+function quarterFromFileName(fileName) {
+  const text = String(fileName === null || fileName === undefined ? '' : fileName).trim();
+  if (!text) return '';
+
+  let found = text.match(/(?:^|[^a-z0-9])q\s*([1-4])\s*[-_. \/]\s*(\d{4}|\d{2})(?!\d)/i);
+  if (found) return quarterKeyFrom(found[2], found[1]);
+
+  found = text.match(/(?:^|[^0-9])(\d{4}|\d{2})\s*[-_. \/]?\s*q\s*([1-4])(?!\d)/i);
+  if (found) return quarterKeyFrom(found[1], found[2]);
+
+  return '';
+}
+
+
 // ---------------------------------------------------------------------------
 // The KPI itself
 // ---------------------------------------------------------------------------
@@ -365,6 +565,9 @@ function byRespondents(a, b) {
 module.exports = {
   KPI_FEEDBACK, COUNT_NON_RESPONSES, FEEDBACK_ANSWERS, TIER_ORDER,
   TRAINING_MODULES, QUESTION_LABELS,
-  normaliseAnswer, answerTiers, answerTier, moduleFor,
+  ZONES, ZONE_UNSPECIFIED, PLANT_ZONES, NO_TRAINERS,
+  normaliseAnswer, answerTiers, answerTier, moduleFor, moduleForResponse,
+  matchZone, zoneFor,
+  monthKey, quarterKeyFrom, quarterFromFileName,
   scoreFeedback, byRespondents
 };

@@ -64,11 +64,14 @@ const CONFIG_GS = path.join(__dirname, '..', 'src', 'Config.gs');
  * nested arrays and comments; a lazy match would stop at the first '}' it
  * found, which is inside the object rather than at the end of it.
  */
-function liftObject(source, key) {
-  const start = source.indexOf('\n  ' + key + ': {');
+function liftObject(source, key, openCh, closeCh) {
+  const o = openCh || '{';
+  const c = closeCh || '}';
+
+  const start = source.indexOf('\n  ' + key + ': ' + o);
   if (start === -1) return null;
 
-  const open = source.indexOf('{', start);
+  const open = source.indexOf(o, start);
   let depth = 0;
   let inString = null;
   let inLineComment = false;
@@ -92,8 +95,8 @@ function liftObject(source, key) {
     if (ch === '/' && next === '*') { inBlockComment = true; i++; continue; }
     if (ch === '"' || ch === "'" || ch === '`') { inString = ch; continue; }
 
-    if (ch === '{') depth++;
-    else if (ch === '}') {
+    if (ch === o) depth++;
+    else if (ch === c) {
       depth--;
       if (depth === 0) {
         const text = source.slice(open, i + 1);
@@ -118,6 +121,13 @@ async function main() {
   }
 
   const source = fs.readFileSync(CONFIG_GS, 'utf8');
+
+  /*
+    THE TRAINER FALLBACK LIST, lifted for the same reason the chart is: it is
+    three colleagues' names and this repository is public. api/kpi2.js takes
+    it as an argument and holds none of it - see db/17-trainer-module.sql.
+  */
+  const TRAINER_MODULES = liftObject(source, 'TRAINER_MODULES', '[', ']') || [];
 
   const ROSTER = liftObject(source, 'ROSTER');
   if (!ROSTER || !Object.keys(ROSTER).length) {
@@ -212,6 +222,19 @@ async function main() {
         `INSERT INTO roster (person_key, display_name, section, is_former, module)
          VALUES ($1,$2,$3,$4,$5)`, r);
     }
+
+    // Same transaction and the same rule: a complete list, replaced rather
+    // than merged, so a trainer removed from Config.gs leaves the table too.
+    await client.query('DELETE FROM trainer_module');
+    for (const t of TRAINER_MODULES) {
+      const key = String(t.match || '').trim().toLowerCase();
+      if (!key) continue;
+      await client.query(
+        `INSERT INTO trainer_module (match_key, module) VALUES ($1,$2)
+         ON CONFLICT (match_key) DO UPDATE SET module = EXCLUDED.module`,
+        [key, String(t.name || '').trim()]);
+    }
+
     await client.query('COMMIT');
   } catch (err) {
     await client.query('ROLLBACK');
@@ -227,6 +250,8 @@ async function main() {
             count(*) FILTER (WHERE is_former)::int AS gone
        FROM roster GROUP BY section ORDER BY section`);
 
+  console.log('  ' + TRAINER_MODULES.length + ' trainer fallback(s) loaded ' +
+              'into trainer_module');
   console.log('  ' + rows.length + ' people loaded, ' + leavers +
               ' of them no longer here, ' + withModule +
               ' with a module of their own');
