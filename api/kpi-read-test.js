@@ -743,20 +743,40 @@ async function main() {
         affAllRes.code === 200 && Array.isArray(affAll.affiliates),
         affAllRes.code + ' ' + (affAll.error ||
           JSON.stringify(affAll).slice(0, 160)));
+  /*
+    THE STATUS CODE NAMES THE FILE, and 404 and 500 name different ones.
+
+    The first version of this message gave one answer for both, and the
+    one that actually happened was the one it did not cover: a 404 means
+    the ROUTE is not registered, which is api/server.js, and the message
+    sent the reader to api/kpi-read.js instead. Two files, two codes, two
+    sentences.
+  */
   if (affAllRes.code !== 200) {
     console.log('');
     console.log('  Everything below needs that call to work, so the failures');
-    console.log('  under it are all this one failure. Two things cause it:');
+    console.log('  under it are all this one failure.');
     console.log('');
-    console.log('    api/kpi-read.js is not the version that has');
-    console.log('    affiliateList in it - check it is the file you were');
-    console.log('    sent, not the older one; or');
+    if (affAllRes.code === 404) {
+      console.log('  404 means api/server.js has no such route in it. That');
+      console.log('  file is the one to replace - it has been sent more than');
+      console.log('  once, so check the copy on disk actually contains');
+      console.log('      app.get(\'/api/kpi1/affiliates\'');
+      console.log('  and that it is not an older copy put back over a newer');
+      console.log('  one.');
+    } else if (affAllRes.code === 500) {
+      console.log('  500 means the route is there but the function behind it');
+      console.log('  is not: api/kpi-read.js is the file to replace. The');
+      console.log('  server terminal prints the real error beside the 500.');
+    } else {
+      console.log('  ' + affAllRes.code + ' is neither of the two usual');
+      console.log('  causes. The server terminal will say more.');
+    }
     console.log('');
-    console.log('    the API has not been restarted since it was replaced.');
-    console.log('    Node loads a file once and keeps it: Terminal 3,');
-    console.log('    Ctrl+C, npm start.');
-    console.log('');
-    console.log('  The server terminal prints the real error beside a 500.');
+    console.log('  Then restart the API either way. Node loads a file once');
+    console.log('  and keeps it, so replacing one on disk changes nothing');
+    console.log('  until the process is replaced: Terminal 3, Ctrl+C,');
+    console.log('  npm start.');
     console.log('');
   }
   const affNames = (affAll.affiliates || []).map(function (a) { return a.name; });
