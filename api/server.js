@@ -1765,9 +1765,14 @@ app.post('/api/uploads/tickets', requireAuth, requireAdmin,
 
     try {
       const out = await uploads.appendTicketBatch(b.uploadId, b.rows);
+      // nulCells is a COUNT, and the screen needs it as one. Left out, the
+      // page could only count the problem STRINGS - one per batch - and a
+      // real upload of 26,000 tickets reported "34 rows needed cleaning"
+      // when what it meant was "34 batches had at least one bad cell in
+      // them". Sent as a number so it can be added up honestly.
       res.json({ ok: true, appended: out.appended, inserted: out.inserted,
                  updated: out.updated, totalRows: out.totalRows,
-                 problems: out.problems });
+                 nulCells: out.nulCells, problems: out.problems });
     } catch (err) {
       /*
         "was never opened" is the caller's mistake, not the server's, and it

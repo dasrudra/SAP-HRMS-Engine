@@ -254,7 +254,9 @@ async function main() {
           return document.documentElement.innerHTML.indexOf('header: 1') !== -1;
         }));
   check('it reported the merge: four rows in, three tickets out',
-        /3 tickets stored/.test(ticketStatus), ticketStatus);
+        /3 new tickets stored/.test(ticketStatus), ticketStatus);
+  check('and said how many tickets exist altogether',
+        /3 tickets in the database/.test(ticketStatus), ticketStatus);
   check('the per-file summary named both files and what each was',
         /OVERALL/.test(ticketStatus) && /INDIVIDUAL/.test(ticketStatus),
         ticketStatus);
@@ -364,6 +366,107 @@ async function main() {
 
   // =======================================================================
   console.log('');
+  console.log('  Re-uploading data that is already stored');
+  // =======================================================================
+  /*
+    THE FIRST THING A REAL UPLOAD DID.
+
+    Three ITSM exports, 26,533 rows, every ticket already in the database
+    from an earlier import. The screen said "Done. 0 tickets stored" and
+    put a 0 in the Stored column beside 26,533 in Rows - which is what
+    rows_added honestly was, and reads as an upload that failed. 26,414
+    rows had just been written.
+
+    So: drop the same two files again, unchanged, and insist the screen
+    says what happened.
+  */
+  const again = await dropAndWait(p, [
+    { name: TICKET_FILE, sheet: [
+      ['Ticket ID', 'Request Date', 'Title', 'Details', 'Part', 'Status',
+       'Completion Date', 'Delay Days', 'Current Activity In Charge'],
+      ['TEST-UI-1', '2026-07-01 09:15:00', '', 'from the overall export',
+       'MM', 'Completed', '2026-07-01 11:00:00', 0, 'Nobody Real'],
+      ['TEST-UI-2', '2026-07-02 10:00:00', 'Only in the overall export', '',
+       'SD', 'Pending', '', 2, 'Nobody Real']
+    ] },
+    { name: SECTION_FILE, sheet: [
+      ['Ticket ID', 'Request Date', 'Title', 'Man*Hour', 'Delay Days',
+       'Part', 'Status'],
+      ['TEST-UI-1', '2026-07-01 09:15:00', 'Cannot post invoice', 1.5, 0,
+       'MM', 'Completed'],
+      ['TEST-UI-3', '2026-07-03 08:00:00', 'Only in the section export', 2, 1,
+       'MM', 'Completed']
+    ] }
+  ], /Done\./);
+
+  check('AN UPLOAD THAT STORED NOTHING NEW DOES NOT SAY "0 TICKETS STORED"',
+        !/0 tickets stored/.test(again) && !/0 new tickets/.test(again), again);
+  check('it says every row was already there',
+        /Nothing new \u2014 all 3 tickets in those files were already stored/
+          .test(again), again);
+  check('and that they were refreshed from these files rather than ignored',
+        /refreshed from them/.test(again), again);
+  check('it still says how many tickets exist, which is the reassuring number',
+        /tickets in the database/.test(again), again);
+  check('and no ticket was duplicated by the re-upload',
+        (await db.query("SELECT count(*)::int AS n FROM ticket" +
+                        " WHERE ticket_id LIKE 'TEST-UI-%'"))[0].n === 3,
+        String((await db.query("SELECT count(*)::int AS n FROM ticket" +
+                               " WHERE ticket_id LIKE 'TEST-UI-%'"))[0].n));
+
+  const reRow = (await historyRows(p)).filter(function (r) {
+    return r.files.indexOf('TEST-UI_Overall') !== -1;
+  })[0];
+  check('THE STORED COLUMN COUNTS ROWS WRITTEN, so it is 3 and not 0',
+        reRow && reRow.cells[6] === '3', reRow && reRow.cells[6]);
+
+  // Tidy up: the re-upload opened a second log row for the same files.
+  await db.query("DELETE FROM upload_run WHERE file_names LIKE '%TEST-UI_Overall%'" +
+                 " AND upload_id <> (SELECT min(upload_id) FROM upload_run" +
+                 " WHERE file_names LIKE '%TEST-UI_Overall%')");
+
+
+  // =======================================================================
+  console.log('');
+  console.log('  A cell PostgreSQL cannot store');
+  // =======================================================================
+  /*
+    A NUL BYTE IS A REAL THING IN THESE EXPORTS and PostgreSQL refuses it.
+    It is stripped on the way in - but removing a character from somebody's
+    data silently is not on, so the screen has to say so, and say it in
+    cells rather than in batches.
+
+    The old wording counted the problem STRINGS, one per batch, and told a
+    real upload that "34 row(s) needed cleaning" when 34 was the number of
+    batches that had had at least one bad cell in them.
+  */
+  const nul = await dropAndWait(p, [
+    { name: 'TEST-UI_Nul KPI-1_ITSM.xlsx', sheet: [
+      ['Ticket ID', 'Request Date', 'Title', 'Details', 'Part', 'Status'],
+      ['TEST-UI-N1', '2026-10-01 09:00:00', 'bad\u0000title',
+       'bad\u0000details', 'MM', 'Completed'],
+      ['TEST-UI-N2', '2026-10-02 09:00:00', 'clean', 'clean', 'MM', 'Pending']
+    ] }
+  ], /Done\./);
+
+  check('THE SCREEN SAYS A CELL HAD TO BE CLEANED',
+        /Cleaned on the way in/.test(nul), nul);
+  check('and counts CELLS, not batches',
+        /2 cells contained a NUL byte/.test(nul), nul);
+  check('and says why it was removed',
+        /PostgreSQL cannot store/.test(nul), nul);
+  const cleaned = (await db.query(
+    "SELECT title, details FROM ticket WHERE ticket_id = 'TEST-UI-N1'"))[0];
+  check('the row was stored, with the NUL byte gone and the rest intact',
+        cleaned && cleaned.title === 'badtitle' && cleaned.details === 'baddetails',
+        cleaned && JSON.stringify(cleaned));
+
+  await db.query("DELETE FROM ticket WHERE ticket_id LIKE 'TEST-UI-N%'");
+  await db.query("DELETE FROM upload_run WHERE file_names LIKE '%TEST-UI_Nul%'");
+
+
+  // =======================================================================
+  console.log('');
   console.log('  An export bigger than one batch');
   // =======================================================================
   /*
@@ -394,8 +497,8 @@ async function main() {
 
   check('the bulk upload finished', /Done\./.test(bulkStatus), bulkStatus);
   check('it reported all ' + BULK + ' stored',
-        new RegExp(BULK.toLocaleString('en-US') + ' tickets stored').test(bulkStatus),
-        bulkStatus);
+        new RegExp(BULK.toLocaleString('en-US') + ' new tickets stored')
+          .test(bulkStatus), bulkStatus);
 
   const bulkCount = (await db.query(
     "SELECT count(*)::int AS n FROM ticket WHERE ticket_id LIKE 'TEST-UI-B%'"))[0].n;
@@ -458,7 +561,9 @@ async function main() {
 
   check('the feedback upload finished', /Done\./.test(fbStatus), fbStatus);
   check('two responses were stored, not three',
-        /2 feedback responses stored for KPI 2/.test(fbStatus), fbStatus);
+        /2 new responses stored/.test(fbStatus) &&
+        /2 responses from those files are now stored for KPI 2/.test(fbStatus),
+        fbStatus);
   check('and it SAID that a typed date had to be overruled',
         /1 response had its typed session date replaced/.test(fbStatus), fbStatus);
   check('the module was read out of the filename',

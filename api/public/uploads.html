@@ -502,13 +502,16 @@
 
     const begun = await post('/api/uploads/begin', meta);
 
-    let stored = 0;
-    let updated = 0;
+    let nulCells = 0;
+    const problems = [];
     for (let start = 0; start < rows.length; start += BATCH_SIZE) {
       const batch = await post('/api/uploads/feedback',
         { uploadId: begun.uploadId, rows: rows.slice(start, start + BATCH_SIZE) });
-      stored += batch.inserted || 0;
-      updated += batch.updated || 0;
+      nulCells += batch.nulCells || 0;
+      (batch.problems || []).forEach(function (text) {
+        if (/NUL byte/.test(text)) return;
+        if (problems.indexOf(text) === -1) problems.push(text);
+      });
       const done = Math.min(start + BATCH_SIZE, rows.length);
       setStatus('Uploading\u2026 ' + done + ' of ' + rows.length + ' responses (' +
                 Math.round((done / rows.length) * 100) + '%)', null, summary);
@@ -528,10 +531,10 @@
                  ' could not be placed in a module: ' + unnamed.join(', ') + '.');
     }
 
-    setStatus('Done. ' + count(result.stored) +
-              ' feedback responses stored for KPI 2' +
-              (updated ? ', ' + count(updated) + ' corrected' : '') + '.' +
-              notes.join(''),
+    setStatus('Done. ' + didWhat(result, 'response') + ' ' +
+              count(result.stored) + ' responses from those files are now ' +
+              'stored for KPI 2.' +
+              cleaningNote(nulCells, problems) + notes.join(''),
               'ok', summary);
   }
 
@@ -585,13 +588,26 @@
 
     const begun = await post('/api/uploads/begin', meta);
 
+    /*
+      PROBLEMS ARE ADDED UP, NOT LISTED.
+
+      Each batch reports its own, and a 26,000-ticket upload is sixty-seven
+      batches. Listing the first three printed the same sentence three
+      times with three different numbers in it, and counting the strings
+      said "34 rows needed cleaning" when it meant "34 of the batches had a
+      bad cell somewhere". NUL bytes are counted as cells, because that is
+      what the server counts; anything else is listed once each.
+    */
+    let nulCells = 0;
     const problems = [];
     for (let start = 0; start < merged.length; start += BATCH_SIZE) {
       const batch = await post('/api/uploads/tickets',
         { uploadId: begun.uploadId, rows: merged.slice(start, start + BATCH_SIZE) });
-      if (batch.problems && batch.problems.length) {
-        problems.push.apply(problems, batch.problems);
-      }
+      nulCells += batch.nulCells || 0;
+      (batch.problems || []).forEach(function (text) {
+        if (/NUL byte/.test(text)) return;            // counted above instead
+        if (problems.indexOf(text) === -1) problems.push(text);
+      });
       const done = Math.min(start + BATCH_SIZE, merged.length);
       setStatus('Uploading\u2026 ' + done + ' of ' + merged.length + ' tickets (' +
                 Math.round((done / merged.length) * 100) + '%)', null, summary);
@@ -611,12 +627,65 @@
     */
     const result = await post('/api/uploads/finish', { uploadId: begun.uploadId });
 
-    setStatus('Done. ' + count(result.added) + ' tickets stored' +
-              (result.updated ? ', ' + count(result.updated) + ' merged into rows ' +
-                                'another export already supplied' : '') + '.' +
-              (problems.length ? ' ' + problems.length + ' row(s) needed cleaning: ' +
-                                 problems.slice(0, 3).join('; ') : ''),
+    setStatus('Done. ' + didWhat(result, 'ticket') + ' ' +
+              count(result.total) + ' tickets in the database.' +
+              cleaningNote(nulCells, problems),
               'ok', summary);
+  }
+
+
+  /**
+   * What an upload actually did, in a sentence.
+   *
+   * THE FIRST VERSION OF THIS SAID "0 tickets stored" and it was the first
+   * thing a real upload printed. 26,414 rows had just been written - every
+   * one of them an update, because the same tickets were already there from
+   * an earlier import - and the screen reported it as though nothing had
+   * happened. Nobody reading that would believe the upload had worked.
+   *
+   * Four outcomes, and each of them is a different sentence rather than a
+   * number that happens to be zero.
+   */
+  function didWhat(result, noun) {
+    const added = Number(result.added) || 0;
+    const updated = Number(result.updated) || 0;
+
+    if (added && updated) {
+      return count(added) + ' new ' + noun + 's stored and ' +
+             count(updated) + ' updated.';
+    }
+    if (added) {
+      return count(added) + ' new ' + noun + (added === 1 ? '' : 's') + ' stored.';
+    }
+    if (updated) {
+      return 'Nothing new \u2014 all ' + count(updated) + ' ' + noun +
+             (updated === 1 ? '' : 's') + ' in those files were already ' +
+             'stored, and have been refreshed from them.';
+    }
+    return 'Nothing was stored \u2014 those files held no ' + noun + ' rows.';
+  }
+
+
+  /**
+   * What had to be cleaned on the way in, if anything.
+   *
+   * A NUL byte is a real thing in these exports and PostgreSQL cannot store
+   * one, so it is removed - but silently removing a character from somebody's
+   * data is not something to do quietly.
+   */
+  function cleaningNote(nulCells, problems) {
+    const parts = [];
+    if (nulCells) {
+      parts.push(count(nulCells) + ' cell' + (nulCells === 1 ? '' : 's') +
+                 ' contained a NUL byte, which PostgreSQL cannot store, so it ' +
+                 'was removed');
+    }
+    if (problems.length) {
+      parts.push(problems.slice(0, 3).join('; ') +
+                 (problems.length > 3 ? ' (and ' + (problems.length - 3) +
+                                        ' more)' : ''));
+    }
+    return parts.length ? ' Cleaned on the way in: ' + parts.join('. ') + '.' : '';
   }
 
 
@@ -798,7 +867,7 @@
         '<td class="nowrap">' + summariseRepeats(h.reportType) + '</td>' +
         '<td>' + summariseRepeats(h.department) + '</td>' +
         '<td class="r">' + count(h.rowsInFile) + '</td>' +
-        '<td class="r">' + count(h.rowsKept) + '</td>' +
+        '<td class="r">' + storedCell(h) + '</td>' +
         '<td class="nowrap">' + summariseRange(h) + '</td>' +
         '<td>' + (deleted
           ? '<span class="pill a">' + escapeHtml(h.notes) + '</span>'
@@ -808,6 +877,38 @@
     });
 
     wireRowActions();
+  }
+
+
+  /**
+   * How much of this upload is in the database.
+   *
+   * ROWS WRITTEN, which is new rows plus updated ones. A re-upload of data
+   * that is already stored writes every row and inserts none, and showing
+   * only the inserts put a 0 in this column beside 26,533 in the one before
+   * it - which reads as an upload that failed rather than one that found
+   * everything already there.
+   *
+   * THE ORIGINAL PUT SOMETHING ELSE HERE and it is worth saying what,
+   * because this is a deliberate difference rather than a slip.
+   * finishUpload [Ingest.gs:518] wrote `result.kept` into this column, and
+   * compactTickets returns `kept` as the size of the WHOLE TICKETS sheet
+   * after consolidating - not as anything this upload did. Every upload
+   * made on the same day therefore showed the same number, and that number
+   * was the table's row count. Per-upload is what the column header claims
+   * and what a person reading the history is asking.
+   */
+  function storedCell(h) {
+    const added = Number(h.rowsKept) || 0;
+    const updated = Number(h.rowsMerged) || 0;
+    const written = added + updated;
+
+    if (!written) return '<span class="muted" title="Nothing from this upload ' +
+                         'is stored - it was either empty or every row was ' +
+                         'skipped">0</span>';
+
+    return '<span title="' + count(added) + ' new, ' + count(updated) +
+           ' updated">' + count(written) + '</span>';
   }
 
 
