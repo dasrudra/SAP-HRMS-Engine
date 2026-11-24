@@ -458,6 +458,119 @@ condition in SQL, so the two cannot disagree about a `'#'` inside a text
 field. `GET /api/uploads/orphans` reports what it found and changes
 nothing; the purge is a second, separate call.
 
+### The Uploads screen
+
+`api/public/uploads.html`, with the parsing in `api/public/upload-parse.js`
+and the design in `api/public/app.css`. The uploads half of `src/Index.html`
+and `src/App.html`, which is where the `.xlsx` is actually read. **This is
+the piece that removes the Saturday routine**: drop the exports on the page
+and they are in PostgreSQL, with no CSV written and no command typed.
+
+| Apps Script | New | Status |
+|---|---|---|
+| the Uploads view in `Index.html` | `api/public/uploads.html` | DONE - same markup, same words |
+| `Styles.html` | `api/public/app.css` | DONE - copied whole, for all twenty screens |
+| `readWorkbook` | in the page; hands its grid to `gridToFile` | DONE |
+| `detectReportType`, `findFeedbackQuestions` | `upload-parse.js` | DONE |
+| `normalizeFeedback`, `feedbackDateParts`, `asDate` | `upload-parse.js` | DONE |
+| `normalizeRows`, `mergeFiles`, `isBlank`, `formatDate` | `upload-parse.js` | DONE |
+| `detectModule`, `detectSection`, `describeFeedbackFile` | `upload-parse.js` | DONE |
+| `getBootstrap`'s upload half | `GET /api/uploads/boot` | DONE |
+| `wireUploads`, `handleFiles`, `runUpload` | in the page | DONE |
+| `loadUploads`, `summariseFiles`, `summariseRepeats`, `summariseRange` | in the page | DONE |
+| `renderOrphans`, `askThenPurge` | in the page | DONE |
+| `renderMissingData`, `uploaderText`, `rowActions` | in the page | DONE |
+| `downloadUpload`, `downloadText` | in the page | DONE |
+| `askThenDelete`, `confirmDialog`, `describeDeletion` | in the page | DONE |
+| `openUpload` | `dashboardFor`, which says the answer | the KPI screens it would open are not ported yet |
+| `recomputeAfterUpload` | - | **dropped**, with the KPI cache |
+
+**The parsing is a file of its own, and that is the only structural change.**
+In Apps Script it lived inside the dashboard's one script block, where
+nothing could reach it. It is the only code in the system that reads a file
+somebody else's software wrote, and the only part of this port where a
+mistake is not an error on screen but a number in a monthly report that is
+quietly wrong. Out on its own, `api/upload-parse-test.js` can lift the real
+functions out of `src/App.html` and run them beside it: **55,590
+comparisons** across 75 checks, every cell of every row.
+
+Those functions take the column lists and the match patterns as arguments
+where the original read them off `state.boot`. That is the one signature
+change, it is what makes them testable, and the page passes exactly what the
+server sent it.
+
+**66 mutations of the parser, 64 caught.** The two survivors are facts about
+the original rather than gaps: taking the report flags out of `mergeFiles`'s
+skip list changes nothing, because `isBlank` stringifies and `String(false)`
+is not blank; and the explicit "the section export is authoritative" block
+is redundant, because `Department` is not in that skip list and the generic
+blank-fill has already done it. Both are kept - they state the intent - and
+both have an assertion pinning the reason they cannot be caught.
+
+**The screen is tested in a real browser**, against the real server and a
+real database: `api/uploads-ui-test.js`, 123 checks. Three things in the
+chain exist nowhere else - `FileReader`, SheetJS reading the zip an `.xlsx`
+is, and the drop itself - and the option that matters most in the whole
+screen lives exactly there. `cellDates: true` is one word; without it every
+date cell arrives as `46162`, the number of days since 1900, and KPI 2 goes
+blank while the data sits in the file perfectly well. No unit test reaches
+that. The browser suite asserts the option was asked for, on every workbook.
+
+**What the mutation runs found in the screen, rather than confirmed.** Each
+of these was a check that passed and could not be made to fail:
+
+- **Batching was never exercised.** Rows go up in batches of 400 and every
+  fixture was three rows, so the loop ran once and the slice boundary never
+  existed. Sending only the first batch passed everything. There is now a
+  900-row upload, and the rows either side of 400 and 800 are named
+  individually.
+- **The orphan notice had no test at all.** Making its purge button appear
+  for viewers changed nothing, because no run ever drew the notice. It is
+  now created by writing an orphan straight into the table - which is how
+  real ones got there - and purged through the dialog, with a non-orphan
+  present that has to survive.
+- **Saying no was never tested.** Every run clicked Confirm, so a delete
+  that ignored the answer passed. Escape and Cancel are both checked now,
+  on both dialogs.
+- **No fixture had a special character in it**, so dropping `escapeHtml`
+  entirely changed nothing. A file called `TEST-UI <b>bold</b> & 'quoted'`
+  is now uploaded, and its tags have to come back as text.
+- **A trailing blank row**, which real exports carry, and **a feedback file
+  whose name places no module**, which has to be reported rather than
+  quietly filed under `(unassigned)`.
+
+**One real regression was caught this way.** `GET /api/uploads/boot` was
+written to compute the orphan count for admins only, on the reasoning that
+the button it feeds is admin-only. `App.html` is explicit that this is
+wrong: "The warning is worth showing everybody - the button that acts on it
+is not." A viewer reading a KPI 2 figure inflated by responses nobody can
+account for should be told, whether or not they can fix it. The count goes
+to everybody now; the per-file breakdown stays admin-only, because a
+feedback export's filename can carry the trainer's name.
+
+**Open Dashboard stays, and says rather than opens.** KPI 1 and KPI 2 have
+their endpoints and their arithmetic but no screen yet. The button's two
+hard parts are ported and tested all the same - which KPI an upload belongs
+to (counted, not "does the word FEEDBACK appear anywhere", which sent every
+mixed drop to KPI 2) and which period it opens on (All months when it spans
+several, not the first month of the range, which opened a January-to-
+September export on January). One line changes when those screens arrive.
+
+**One thing to check in `app.css`, carried over from `Styles.html`.** The
+`.msgr-bar-icon` rule embeds a photograph of a person as a base64 WebP. It
+is already in this public repository, because `src/Styles.html` is - this
+copy does not expose anything new - but if that is a colleague rather than
+a stock image it should not be in a public repository at all, and it is the
+kind of thing that is easy to forget is in there. It belongs on the same
+list as the colleague names in `Config.gs`.
+
+**SheetJS is still loaded from the CDN**, pinned to 0.18.5 exactly as
+`App.html` pins it. Worth knowing before go-live: if the hosting network
+blocks `cdnjs.cloudflare.com`, the dropzone cannot read a file and nothing
+else on the screen is affected, which is a confusing way to fail. Serving a
+local copy is a ten-minute change and the right one to make once the server
+is a Youngone machine.
+
 **Three functions have no port, and each is an improvement rather than a
 gap:**
 
@@ -670,18 +783,21 @@ decided for a reason.
 7. ~~Knowledge, Learn, FAQ, By-Weekly~~ DONE except the two that need a
    file store: Knowledge attachments and the Learnings folder scan.
    ("Links" was `getByWeeklyLinks`, so it is four screens, not five.)
-8. **KPI 1, KPI 2, Compare, Uploads** - server side DONE. KPI 1 and Compare
+8. **KPI 1, KPI 2, Compare, Uploads** - KPI 1 and Compare
    are ported and proved identical to the original arithmetic (16,239
    comparisons); the ticket import and the roster both work. **KPI 2's
    arithmetic is ported and proved identical over 27,991 comparisons**, and
    **KPI 2's read side is ported** - three endpoints, 67 checks, 26
-   mutations and all 26 caught. **Uploads is ported whole** - tickets and
-   training feedback, download, history, delete, orphan audit and purge:
-   183 checks, 51 mutations, 47 caught and four equivalent. The ingest
-   chain is complete and the `training` table takes real rows.
-   Left in this stage: **the Uploads screen itself**, which is where the
-   `.xlsx` gets parsed in the browser and fed to these endpoints. Until it
-   exists the Saturday routine is unchanged.
+   mutations and all 26 caught. **Uploads is ported whole, screen included**
+   - tickets and training feedback, download, history, delete, orphan audit
+   and purge: 183 server checks, and the screen itself at
+   `api/public/uploads.html`, driven end to end in a real browser (123
+   checks). **This is the first of the twenty screens and the one that
+   changes the Saturday routine** - the `.xlsx` is parsed in the browser
+   and fed straight to the endpoints, so there is no CSV and no terminal.
+   Left in this stage: **the KPI 1 and KPI 2 screens**, which the Uploads
+   screen's Open Dashboard button already works out the target for and
+   says rather than opens.
 9. ~~Backups~~ DONE as code. **NOT done as a working arrangement** until
    `BACKUP_DIR` points off this machine, the nightly task exists, and one
    restore has actually been done. See the Backups section above. This has
@@ -692,7 +808,11 @@ decided for a reason.
 11. **Deployment.** `clasp push` is lost at cutover: today VS Code to live
     is one command, afterwards something has to put the code on the server
     and restart Node. Not built, and not optional.
-12. The shell: home, nav, the remaining static screens
+12. The shell: home, nav, the remaining static screens. `api/public/app.css`
+    is already there - the whole of `src/Styles.html`, copied - so each
+    screen as it arrives looks like the finished thing rather than like a
+    test page. Uploads is a page of its own until the nav exists to put it
+    behind.
 
 Apps Script keeps running untouched throughout. Nothing is switched off
 until its row says DONE.

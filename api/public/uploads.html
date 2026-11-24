@@ -1,0 +1,1451 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Data Uploads - TVL-EAS</title>
+<!--
+  THE UPLOADS SCREEN.
+
+  Ported from the uploads half of src/Index.html (the markup) and
+  src/App.html (the behaviour). Same layout, same words, same dropzone, same
+  history table, same confirmation dialogs. What changed underneath:
+
+      google.script.run.appendTicketBatch(token, id, rows)
+        ->  POST /api/uploads/tickets  with a Bearer token
+
+  and nothing else. The parse itself is not in this file at all - it is in
+  upload-parse.js, which api/upload-parse-test.js proves gives the same
+  answer as App.html did, cell for cell, over 32,000 comparisons. A screen
+  is the wrong place for the one piece of code that reads somebody else's
+  spreadsheet.
+
+  WHY THIS IS A PAGE OF ITS OWN FOR NOW.
+  The shell - the sidebar, the nav, the twenty screens behind it - is the
+  last thing on the porting list, because every screen has to exist before
+  there is anything to navigate between. This page is the first of the
+  twenty and stands alone until then. It loads app.css, which IS the design
+  system copied from Styles.html, so it already looks like the finished
+  thing rather than like a test page.
+-->
+<link rel="stylesheet" href="app.css">
+<!--
+  SheetJS reads .xlsx in the browser. Pinned to an exact version on purpose,
+  the same one the Apps Script version pins: a dropped file is read by
+  whatever the CDN is serving that minute, and "the upload broke and nobody
+  changed anything" is not a morning anybody needs.
+-->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="upload-parse.js"></script>
+<style>
+  /*
+    The handful of rules the standalone page needs and the shell will
+    provide later: a page wrapper, and the sign-in card that is its own
+    screen in the finished system.
+  */
+  body { background: var(--bg); }
+  .page { max-width: 1180px; margin: 0 auto; padding: 28px 20px 60px; }
+  .signin { max-width: 400px; margin: 60px auto; }
+  .signin label { display: block; font-size: 12px; color: var(--text-dim);
+                  margin: 14px 0 4px; }
+  .signin input { width: 100%; padding: 9px 11px; border: 1px solid var(--line);
+                  border-radius: 8px; font: inherit; background: var(--card);
+                  color: var(--text); }
+  .signin .btn { margin-top: 18px; width: 100%; }
+  .signin .why { color: var(--red); font-size: 13px; margin: 12px 0 0; min-height: 18px; }
+  .whoami { display: flex; align-items: center; justify-content: space-between;
+            gap: 12px; margin-bottom: 18px; font-size: 13px;
+            color: var(--text-dim); }
+</style>
+</head>
+<body>
+
+<!-- ============ SIGN IN ============ -->
+<section class="card signin" id="signinCard" hidden>
+  <div class="card-head">Sign in</div>
+  <label for="employeeId">Employee ID</label>
+  <input id="employeeId" autocomplete="username" inputmode="numeric">
+  <label for="password">Password</label>
+  <input id="password" type="password" autocomplete="current-password">
+  <p class="why" id="signinWhy"></p>
+  <button class="btn btn-primary" id="signinGo">Sign in</button>
+</section>
+
+
+<!-- ============ VIEW: UPLOADS ============ -->
+<div class="page" id="page" hidden>
+
+  <div class="whoami">
+    <span id="whoami"></span>
+    <button class="btn btn-ghost" id="signOut">Sign out</button>
+  </div>
+
+  <section class="view" id="view-uploads">
+    <div class="page-head">
+      <div>
+        <h1>Data Uploads</h1>
+        <p class="sub">
+          Upload the Service/Part overall export, the section exports, or
+          both &#x2014; in one go or one at a time.
+        </p>
+      </div>
+    </div>
+
+    <!-- Shown to viewers in place of the upload card, so its absence
+         reads as a permission rather than as a missing feature. -->
+    <div class="notice notice-info" id="uploadReadOnly" hidden>
+      <h3>You are signed in as a viewer</h3>
+      <p>
+        You can read every screen, filter and compare. Uploading and
+        deleting need the admin login.
+      </p>
+    </div>
+
+    <!-- Left-behind responses, with the button that clears them. -->
+    <div id="uploadOrphans" class="notice notice-warn" hidden></div>
+
+    <!-- An upload is logged but its rows are not in the database. -->
+    <div id="uploadMissing" class="notice notice-error" hidden></div>
+
+    <!-- Admin only. Hidden for viewers by applyRole(); the server refuses
+         the upload calls regardless of what is on screen. -->
+    <div class="card" data-admin-only>
+      <div class="card-head">Upload ITSM exports</div>
+      <div class="dropzone" id="dropzone">
+        <div class="dropzone-inner">
+          <div class="dropzone-ico">&#x21A5;</div>
+          <p><strong>Drop .xlsx files here</strong></p>
+          <p class="muted">or click to choose &#x2014; several at once is fine</p>
+        </div>
+        <input type="file" id="fileInput" multiple accept=".xlsx" hidden>
+      </div>
+      <div id="uploadStatus" class="upload-status" hidden></div>
+    </div>
+
+    <div class="card">
+      <div class="card-head" data-report="uploadTable">Upload history</div>
+      <div class="table-wrap">
+        <table id="uploadTable">
+          <thead>
+            <tr>
+              <th>Uploaded</th><th>By</th><th>Files</th><th>Type</th><th>Section</th>
+              <th class="r">Rows</th><th class="r">Stored</th>
+              <th>Range</th><th>Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td colspan="9" class="empty">Nothing uploaded yet.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+</div>
+
+
+<div class="modal-backdrop" id="modalBackdrop" hidden>
+  <div class="modal" id="modal" role="alertdialog" aria-modal="true"
+       aria-labelledby="modalTitle" aria-describedby="modalBody">
+    <div class="modal-head">
+      <span class="modal-icon" id="modalIcon" aria-hidden="true"></span>
+      <div>
+        <h2 id="modalTitle"></h2>
+        <p class="modal-sub" id="modalSub"></p>
+      </div>
+    </div>
+    <div class="modal-body" id="modalBody"></div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" id="modalCancel">Cancel</button>
+      <button class="btn btn-danger" id="modalConfirm">Delete</button>
+    </div>
+  </div>
+</div>
+
+
+<script>
+(function () {
+  'use strict';
+
+  const P = window.uploadParse;
+
+  const BATCH_SIZE = 400;            // App.html:103
+  const TOKEN_STORE = 'easToken';
+
+  const state = { token: '', user: null, boot: null, busy: false };
+
+
+  // =======================================================================
+  // TALKING TO THE SERVER
+  // =======================================================================
+  /**
+   * One call to the API.
+   *
+   * THE TOKEN IS ATTACHED HERE AND NOWHERE ELSE, for the reason App.html's
+   * callServer gives: "injected here rather than at each call site, so a new
+   * server call cannot be added without one by forgetting."
+   *
+   * A 401 is not an error to report. It is a sign-in to ask for - the same
+   * rule the old version applied to "session has ended".
+   */
+  async function api(method, path, body) {
+    const opts = { method: method, headers: {} };
+    if (state.token) opts.headers.Authorization = 'Bearer ' + state.token;
+    if (body !== undefined) {
+      opts.headers['Content-Type'] = 'application/json';
+      opts.body = JSON.stringify(body);
+    }
+
+    const res = await fetch(path, opts);
+
+    if (res.status === 401) { signedOut('Your session has ended.'); throw new Error('signed out'); }
+
+    let data = null;
+    try { data = await res.json(); } catch (e) { /* not JSON - fall through */ }
+
+    if (!res.ok || !data || data.ok === false) {
+      throw new Error((data && data.error) ||
+                      ('the server answered ' + res.status));
+    }
+    return data;
+  }
+
+  const get  = function (path) { return api('GET', path); };
+  const post = function (path, body) { return api('POST', path, body || {}); };
+
+
+  /**
+   * Gives up waiting after a while.    [App.html:1428]
+   *
+   * A delete or a purge can take a while, and the useful thing to say when
+   * it does is not "it failed" - it is that it may well have worked and the
+   * table below has been re-read to find out.
+   */
+  function withTimeout(promise, ms, what) {
+    let timer;
+    return Promise.race([
+      promise.then(function (v) { clearTimeout(timer); return v; },
+                   function (e) { clearTimeout(timer); throw e; }),
+      new Promise(function (_, reject) {
+        timer = setTimeout(function () {
+          reject(new Error(what + ' did not finish in ' + Math.round(ms / 1000) +
+                           ' seconds. It may still have worked \u2014 the list ' +
+                           'below has been re-read from the database.'));
+        }, ms);
+      })
+    ]);
+  }
+
+
+  // =======================================================================
+  // SIGNING IN
+  // =======================================================================
+
+  function signedOut(why) {
+    state.token = '';
+    state.user = null;
+    state.boot = null;
+    try { sessionStorage.removeItem(TOKEN_STORE); } catch (e) { /* fine */ }
+    document.getElementById('page').hidden = true;
+    document.getElementById('signinCard').hidden = false;
+    document.getElementById('signinWhy').textContent = why || '';
+  }
+
+  async function signIn() {
+    const button = document.getElementById('signinGo');
+    const why = document.getElementById('signinWhy');
+    const id = document.getElementById('employeeId').value.trim();
+    const password = document.getElementById('password').value;
+
+    why.textContent = '';
+    button.disabled = true;
+    try {
+      const out = await api('POST', '/api/login',
+                            { employee_id: id, password: password });
+      state.token = out.token;
+      state.user = out.user;
+      try { sessionStorage.setItem(TOKEN_STORE, out.token); } catch (e) { /* fine */ }
+      document.getElementById('password').value = '';
+      await start();
+    } catch (err) {
+      why.textContent = err.message;
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+
+  // =======================================================================
+  // STARTING UP
+  // =======================================================================
+
+  async function start() {
+    const boot = await get('/api/uploads/boot');
+    state.boot = boot;
+
+    document.getElementById('signinCard').hidden = true;
+    document.getElementById('page').hidden = false;
+    document.getElementById('whoami').textContent =
+      'Signed in as ' + (state.user ? state.user.employee_id : boot.role) +
+      ' \u00b7 ' + boot.role;
+
+    applyRole(boot);
+    await loadUploads();
+  }
+
+
+  /**
+   * Hides what this person cannot use.
+   *
+   * FOR TIDINESS, NOT FOR SAFETY. Every upload and delete endpoint is behind
+   * requireAdmin on the server; this only stops a viewer being shown a
+   * dropzone that would refuse them. Code.gs says the same thing about the
+   * same code.
+   */
+  function applyRole(boot) {
+    const admin = Boolean(boot.canAdmin);
+    document.querySelectorAll('[data-admin-only]').forEach(function (el) {
+      el.hidden = !admin;
+    });
+    document.getElementById('uploadReadOnly').hidden = admin;
+  }
+
+  function canAdmin() { return Boolean(state.boot && state.boot.canAdmin); }
+
+
+  // =======================================================================
+  // READING .xlsx FILES
+  // =======================================================================
+
+  function readWorkbook(file) {
+    return new Promise(function (resolve, reject) {
+      const reader = new FileReader();
+
+      reader.onerror = function () {
+        reject(new Error('Could not read ' + file.name));
+      };
+
+      reader.onload = function (event) {
+        try {
+          // cellDates is not optional here. The ITSM exports store dates as
+          // TEXT, so they parse either way - but the feedback form stores
+          // them as real date cells, and without this SheetJS hands back the
+          // Excel serial number instead. '2026-05-20' arrives as 46162, no
+          // month can be read from it, and the KPI 2 screen goes blank while
+          // the data sits in the sheet perfectly well.
+          //
+          // upload-parse.js's asDate() refuses a bare number, so dropping
+          // this option empties the session dates rather than filing every
+          // response in 1900. There is a test that says so.
+          const workbook = XLSX.read(new Uint8Array(event.target.result),
+                                     { type: 'array', cellDates: true });
+          const sheet = workbook.Sheets[workbook.SheetNames[0]];
+          const grid = XLSX.utils.sheet_to_json(
+            sheet, { header: 1, defval: '', blankrows: false });
+          resolve(P.gridToFile(file.name, grid));
+        } catch (err) {
+          reject(new Error(file.name + ': ' + err.message));
+        }
+      };
+
+      reader.readAsArrayBuffer(file);
+    });
+  }
+
+
+  // =======================================================================
+  // UPLOADING
+  // =======================================================================
+
+  function wireUploads() {
+    const zone = document.getElementById('dropzone');
+    const input = document.getElementById('fileInput');
+    if (!zone || !input) return;
+
+    zone.addEventListener('click', function () { if (!state.busy) input.click(); });
+
+    ['dragenter', 'dragover'].forEach(function (type) {
+      zone.addEventListener(type, function (event) {
+        event.preventDefault();
+        if (!state.busy) zone.classList.add('is-over');
+      });
+    });
+
+    ['dragleave', 'drop'].forEach(function (type) {
+      zone.addEventListener(type, function (event) {
+        event.preventDefault();
+        zone.classList.remove('is-over');
+      });
+    });
+
+    zone.addEventListener('drop', function (event) {
+      if (!state.busy) handleFiles(event.dataTransfer.files);
+    });
+
+    input.addEventListener('change', function () {
+      if (!state.busy) handleFiles(input.files);
+      input.value = '';
+    });
+  }
+
+
+  function handleFiles(fileList) {
+    if (!fileList || !fileList.length) return;
+    if (!state.boot || !state.boot.configured) {
+      return setStatus('The database is not connected yet.', 'error');
+    }
+
+    const files = Array.prototype.slice.call(fileList).filter(function (f) {
+      return /\.xlsx$/i.test(f.name);
+    });
+
+    if (!files.length) return setStatus('No .xlsx files in that selection.', 'error');
+
+    state.busy = true;
+    runUpload(files)
+      .catch(function (err) {
+        setStatus('Upload failed: ' + (err && err.message ? err.message : err), 'error');
+      })
+      .then(function () { state.busy = false; });
+  }
+
+
+  /**
+   * Reads every dropped file, then sends each kind down its own pipeline.
+   *
+   * ONE DROPZONE, TWO KPIs. A ticket export scores KPI 1 and a training
+   * feedback form scores KPI 2, and the two share nothing - different
+   * sheets, different merge keys, different maths. Rather than ask which is
+   * which, the headers are read and each file is routed on what it actually
+   * is. Drop both kinds together and both land correctly.
+   */
+  async function runUpload(files) {
+    setStatus('Reading ' + files.length + ' file(s)\u2026');
+
+    const read = [];
+    const summary = [];
+
+    for (let i = 0; i < files.length; i++) {
+      const parsed = await readWorkbook(files[i]);
+      const type = P.detectReportType(parsed.headers);
+      read.push({ parsed: parsed, type: type });
+      summary.push({ name: parsed.fileName, type: type, dept: '',
+                     rows: parsed.rows.length });
+      setStatus('Read ' + (i + 1) + ' of ' + files.length + ' file(s)\u2026',
+                null, summary);
+    }
+
+    const tickets = read.filter(function (f) { return f.type !== 'FEEDBACK'; });
+    const feedback = read.filter(function (f) { return f.type === 'FEEDBACK'; });
+
+    if (feedback.length) await uploadFeedback(feedback, summary);
+    if (tickets.length)  await uploadTickets(tickets, summary);
+
+    await refreshAfterChange();
+  }
+
+
+  /** KPI 2 - training feedback forms. */
+  async function uploadFeedback(files, summary) {
+    const columns = state.boot.trainingColumns;
+    const meta = { fileNames: [], reportTypes: [], departments: [], totalRows: 0,
+                   kind: 'FEEDBACK' };
+    const rows = [];
+
+    // Files the filename could not place, and responses whose typed session
+    // date had to be overruled. Both are reported rather than quietly
+    // absorbed: an unplaced file lands in the '(unassigned)' module and a
+    // wrong date lands in the wrong month, and neither is visible afterwards
+    // unless the upload says so.
+    const unnamed = [];
+    let corrected = 0;
+
+    files.forEach(function (f) {
+      const parsed = P.normalizeFeedback(f.parsed, columns,
+                                         state.boot.trainingModules,
+                                         state.boot.trainerModules);
+      rows.push.apply(rows, parsed);
+      corrected += parsed.corrected || 0;
+
+      const detected = P.detectModule(f.parsed.fileName,
+                                      state.boot.trainingModules,
+                                      state.boot.trainerModules);
+      if (!detected) unnamed.push(f.parsed.fileName);
+
+      const module = detected || 'Unrecognised module';
+      meta.fileNames.push(f.parsed.fileName);
+      meta.reportTypes.push('FEEDBACK');
+      meta.departments.push(module);
+      meta.totalRows += parsed.length;
+
+      // Overwrite this file's line in the shared summary with what we learned.
+      summary.forEach(function (s) {
+        if (s.name === f.parsed.fileName) { s.dept = module; s.rows = parsed.length; }
+      });
+    });
+
+    if (!rows.length) {
+      throw new Error('No feedback responses found in those files.');
+    }
+
+    const monthAt = columns.indexOf('Month');
+    const dateAt = columns.indexOf('Session Date');
+    const dates = rows.map(function (r) { return String(r[dateAt] || ''); })
+                      .filter(Boolean).sort();
+    meta.dateFrom = dates[0] || '';
+    meta.dateTo = dates[dates.length - 1] || '';
+
+    const months = {};
+    rows.forEach(function (r) { if (r[monthAt]) months[r[monthAt]] = true; });
+
+    setStatus('Read ' + rows.length + ' feedback responses across ' +
+              Object.keys(months).length + ' month(s). Uploading\u2026', null, summary);
+
+    const begun = await post('/api/uploads/begin', meta);
+
+    let stored = 0;
+    let updated = 0;
+    for (let start = 0; start < rows.length; start += BATCH_SIZE) {
+      const batch = await post('/api/uploads/feedback',
+        { uploadId: begun.uploadId, rows: rows.slice(start, start + BATCH_SIZE) });
+      stored += batch.inserted || 0;
+      updated += batch.updated || 0;
+      const done = Math.min(start + BATCH_SIZE, rows.length);
+      setStatus('Uploading\u2026 ' + done + ' of ' + rows.length + ' responses (' +
+                Math.round((done / rows.length) * 100) + '%)', null, summary);
+    }
+
+    const result = await post('/api/uploads/feedback/finish',
+                              { uploadId: begun.uploadId });
+
+    const notes = [];
+    if (corrected) {
+      notes.push(' ' + corrected + ' response' +
+                 (corrected === 1 ? ' had its' : 's had their') +
+                 ' typed session date replaced with the submission date.');
+    }
+    if (unnamed.length) {
+      notes.push(' ' + unnamed.length + ' file' + (unnamed.length === 1 ? '' : 's') +
+                 ' could not be placed in a module: ' + unnamed.join(', ') + '.');
+    }
+
+    setStatus('Done. ' + count(result.stored) +
+              ' feedback responses stored for KPI 2' +
+              (updated ? ', ' + count(updated) + ' corrected' : '') + '.' +
+              notes.join(''),
+              'ok', summary);
+  }
+
+
+  /** KPI 1 - ITSM ticket exports. */
+  async function uploadTickets(files, summary) {
+    const columns = state.boot.ticketColumns;
+
+    const perFile = [];
+    const meta = { fileNames: [], reportTypes: [], departments: [], totalRows: 0 };
+
+    for (let i = 0; i < files.length; i++) {
+      const parsed = files[i].parsed;
+      const type = files[i].type;
+      const section = type === 'INDIVIDUAL'
+        ? P.detectSection(parsed.fileName, state.boot.departments) : '';
+
+      // A filename with no section in it is no longer an error. Every section
+      // is resolved from the individual who handled the ticket, so one
+      // combined export of all four sections works exactly as well as four
+      // separate ones - and the filename is only ever a hint for people who
+      // are not on the org chart.
+
+      const rows = P.normalizeRows(parsed, type, section, columns);
+      perFile.push(rows);
+
+      meta.fileNames.push(parsed.fileName);
+      meta.reportTypes.push(type);
+      // 'All sections' rather than a blank, so the upload log says plainly
+      // that this file was not one section's export.
+      const label = type === 'INDIVIDUAL' ? (section || 'All sections') : '';
+      if (label) meta.departments.push(label);
+      meta.totalRows += rows.length;
+
+      summary.forEach(function (sm) {
+        if (sm.name === parsed.fileName) { sm.dept = label; sm.rows = rows.length; }
+      });
+    }
+
+    const merged = P.mergeFiles(perFile, columns);
+
+    const dateAt = columns.indexOf('Request Date');
+    const dates = merged.map(function (r) { return String(r[dateAt] || '').slice(0, 10); })
+                        .filter(Boolean).sort();
+    meta.dateFrom = dates[0] || '';
+    meta.dateTo = dates[dates.length - 1] || '';
+
+    setStatus('Merged ' + count(meta.totalRows) + ' rows into ' + count(merged.length) +
+              ' unique tickets (' + meta.dateFrom + ' to ' + meta.dateTo +
+              '). Uploading\u2026', null, summary);
+
+    const begun = await post('/api/uploads/begin', meta);
+
+    const problems = [];
+    for (let start = 0; start < merged.length; start += BATCH_SIZE) {
+      const batch = await post('/api/uploads/tickets',
+        { uploadId: begun.uploadId, rows: merged.slice(start, start + BATCH_SIZE) });
+      if (batch.problems && batch.problems.length) {
+        problems.push.apply(problems, batch.problems);
+      }
+      const done = Math.min(start + BATCH_SIZE, merged.length);
+      setStatus('Uploading\u2026 ' + done + ' of ' + merged.length + ' tickets (' +
+                Math.round((done / merged.length) * 100) + '%)', null, summary);
+    }
+
+    /*
+      ONE CALL, WHERE THERE USED TO BE TWO.
+
+      The old version finished the upload and then called
+      recomputeAfterUpload to rebuild KPI_MONTHLY - split in two because
+      doing both together ran past Apps Script's six-minute ceiling and got
+      killed part way through rewriting the sheet. There is no cache to
+      rebuild now: KPI 1 is scored from the tickets every time it is asked
+      for, which measures 200ms across 26,000 of them. So there is nothing
+      to recompute, nothing to go stale, and no second call that can be
+      interrupted half way.
+    */
+    const result = await post('/api/uploads/finish', { uploadId: begun.uploadId });
+
+    setStatus('Done. ' + count(result.added) + ' tickets stored' +
+              (result.updated ? ', ' + count(result.updated) + ' merged into rows ' +
+                                'another export already supplied' : '') + '.' +
+              (problems.length ? ' ' + problems.length + ' row(s) needed cleaning: ' +
+                                 problems.slice(0, 3).join('; ') : ''),
+              'ok', summary);
+  }
+
+
+  /**
+   * Re-reads what exists after data has been added or removed.
+   *
+   * Every cached answer is dropped, not just the screen in front of you. A
+   * delete used to leave the trend and comparison figures holding rows that
+   * no longer existed, so the Comparison screen went on drawing deleted data
+   * until the tab was reloaded.
+   */
+  async function refreshAfterChange() {
+    state.boot = await get('/api/uploads/boot');
+    applyRole(state.boot);
+    await loadUploads();
+  }
+
+
+  function setStatus(message, kind, files) {
+    const box = document.getElementById('uploadStatus');
+    if (!box) return;
+
+    box.hidden = false;
+
+    let colour = 'var(--text-dim)';
+    if (kind === 'error') colour = 'var(--red)';
+    if (kind === 'ok') colour = 'var(--green)';
+
+    let html = '<strong style="color:' + colour + '">' + escapeHtml(message) + '</strong>';
+
+    if (files && files.length) {
+      html += '<div style="margin-top:8px" class="muted">';
+      files.forEach(function (f) {
+        html += escapeHtml(f.name) + ' \u2014 ' + f.type +
+                (f.dept ? ' \u00b7 ' + escapeHtml(f.dept) : '') + ' \u00b7 ' +
+                f.rows + ' rows<br>';
+      });
+      html += '</div>';
+    }
+
+    box.innerHTML = html;
+  }
+
+
+  // =======================================================================
+  // ORPHANED RESPONSES
+  // =======================================================================
+  /**
+   * Offers to clear responses whose upload no longer exists.
+   *
+   * These are the wreckage of the old delete, which removed the log row and
+   * the tickets and left the TRAINING tab alone. They cannot be seen in the
+   * upload history - there is nothing left to see - but KPI 2 still counts
+   * them, which is why a deleted feedback file went on showing attendees.
+   */
+  function renderOrphans() {
+    const n = (state.boot && state.boot.orphanedFeedback) || 0;
+    const box = document.getElementById('uploadOrphans');
+    if (!box) return;
+
+    if (!n) { box.hidden = true; return; }
+
+    box.hidden = false;
+    box.innerHTML =
+      '<h3>' + count(n) + ' training response' + (n === 1 ? '' : 's') +
+      ' left over from a deleted upload</h3>' +
+      '<p>' + (n === 1 ? 'It belongs' : 'They belong') + ' to a feedback file ' +
+      'that is no longer in the upload history, so ' +
+      (n === 1 ? 'it is' : 'they are') + ' still being counted in KPI 2 with ' +
+      'no way to see where ' + (n === 1 ? 'it' : 'they') + ' came from. ' +
+      'Earlier versions removed the history entry without removing the ' +
+      'responses; that is fixed, but what was already orphaned is still here.</p>' +
+      // The warning is worth showing everybody - the button that acts on it
+      // is not, because removing responses changes KPI 2 for everyone.
+      (canAdmin()
+        ? '<p><button class="btn btn-danger" data-purge="1">' +
+          'Remove ' + count(n) + ' orphaned response' + (n === 1 ? '' : 's') +
+          '</button></p>'
+        : '<p class="muted">Signed in as a viewer \u2014 clearing these needs the ' +
+          'admin login.</p>');
+
+    box.querySelectorAll('[data-purge]').forEach(function (button) {
+      button.addEventListener('click', function () { askThenPurge(button); });
+    });
+  }
+
+
+  function askThenPurge(button) {
+    const n = (state.boot && state.boot.orphanedFeedback) || 0;
+
+    confirmDialog({
+      title: 'Remove the orphaned responses?',
+      subtitle: count(n) + ' response' + (n === 1 ? '' : 's'),
+      body:
+        '<p>Only responses whose upload is <strong>no longer in the ' +
+        'history</strong> are removed. Everything belonging to an upload you ' +
+        'can still see is kept, untouched.</p>' +
+        '<p>KPI 2 is scored live, so its figures correct themselves as soon ' +
+        'as this finishes.</p>' +
+        '<p>This cannot be undone. If you want the data back, re-upload the ' +
+        'file it came from.</p>',
+      confirmLabel: 'Remove them'
+    }).then(function (yes) {
+      if (!yes) return;
+
+      button.disabled = true;
+      setStatus('Removing ' + count(n) + ' orphaned responses\u2026');
+
+      return withTimeout(post('/api/uploads/orphans/purge'), 120000, 'The cleanup')
+        .then(function (result) {
+          setStatus('Removed ' + count(result.removed) + ' orphaned response' +
+                    (result.removed === 1 ? '' : 's') + ' \u2014 ' +
+                    count(result.kept) + ' kept.', 'ok');
+          return refreshAfterChange();
+        })
+        .catch(function (err) {
+          button.disabled = false;
+          setStatus(err.message, 'error');
+          return refreshAfterChange().catch(function () {});
+        });
+    });
+  }
+
+
+  // =======================================================================
+  // THE HISTORY TABLE
+  // =======================================================================
+
+  async function loadUploads() {
+    if (!state.boot || !state.boot.configured) return;
+    renderOrphans();
+
+    const body = document.querySelector('#uploadTable tbody');
+    if (!body) return;
+
+    let history;
+    try {
+      history = (await get('/api/uploads')).uploads;
+    } catch (err) {
+      setStatus(err.message, 'error');
+      return;
+    }
+
+    if (!history || !history.length) {
+      body.innerHTML = '<tr><td colspan="9" class="empty">Nothing uploaded yet.</td></tr>';
+      renderMissingData([]);
+      return;
+    }
+
+    renderMissingData(history);
+
+    body.innerHTML = '';
+    history.forEach(function (h) {
+      const deleted = /^deleted/.test(h.notes || '');
+      const tr = document.createElement('tr');
+
+      // The full values live on the row, not in the cells.
+      //
+      // A forty-three file upload printed every filename, then the word
+      // FEEDBACK forty-three times, then its module forty-three times - one
+      // row a thousand pixels tall that you had to scroll past to reach the
+      // next. The cells are summaries now, and Open Dashboard and Delete
+      // read these instead, which they should have been doing anyway:
+      // driving logic off displayed text breaks the moment the display
+      // changes, as it just did.
+      tr.dataset.files = h.fileName || '';
+      tr.dataset.types = h.reportType || '';
+      tr.dataset.range = (h.dateFrom || '') + ' \u2192 ' + (h.dateTo || '');
+      tr.dataset.rows = String(h.rowsKept);
+
+      tr.innerHTML =
+        '<td class="nowrap">' +
+          escapeHtml(String(h.uploadedAt).slice(0, 16).replace('T', ' ')) + '</td>' +
+        // Who. Rows uploaded before individual logins existed say "unknown",
+        // and that is the truth about them rather than a gap to paper over -
+        // at the time there was one shared admin password and no way to tell.
+        '<td class="nowrap">' + uploaderText(h.uploadedBy) + '</td>' +
+        '<td>' + summariseFiles(h.fileName) + '</td>' +
+        '<td class="nowrap">' + summariseRepeats(h.reportType) + '</td>' +
+        '<td>' + summariseRepeats(h.department) + '</td>' +
+        '<td class="r">' + count(h.rowsInFile) + '</td>' +
+        '<td class="r">' + count(h.rowsKept) + '</td>' +
+        '<td class="nowrap">' + summariseRange(h) + '</td>' +
+        '<td>' + (deleted
+          ? '<span class="pill a">' + escapeHtml(h.notes) + '</span>'
+          : rowActions(h.uploadId)) + '</td>';
+
+      body.appendChild(tr);
+    });
+
+    wireRowActions();
+  }
+
+
+  /**
+   * One upload's filenames, in a cell you can read at a glance.
+   *
+   * The whole list is still there - on the row's dataset, in the tooltip, and
+   * in the delete dialog, which is where you actually want to check it before
+   * removing something. What the table needs is the one fact that identifies
+   * the upload: what it was, and how much of it.
+   */
+  function summariseFiles(value) {
+    const files = splitList(value);
+    if (!files.length) return '<span class="muted">\u2014</span>';
+
+    const first = files[0];
+    const rest = files.length - 1;
+    const all = files.join('\n');
+
+    return '<span class="cell-files" title="' + escapeHtml(all) + '">' +
+      '<b>' + escapeHtml(first) + '</b>' +
+      (rest > 0 ? '<span class="cell-more">+' + rest + ' more</span>' : '') +
+      '</span>';
+  }
+
+
+  /**
+   * 'FEEDBACK | FEEDBACK | FEEDBACK' -> 'FEEDBACK x3'.
+   *
+   * A pipe-joined column that repeats one value forty-three times is saying
+   * one thing forty-three times. Distinct values, counted, say the same thing
+   * in a line - and where they genuinely differ you can still see that they do.
+   */
+  function summariseRepeats(value) {
+    const items = splitList(value);
+    if (!items.length) return '<span class="muted">\u2014</span>';
+
+    const counts = {};
+    const order = [];
+    items.forEach(function (item) {
+      if (!counts[item]) { counts[item] = 0; order.push(item); }
+      counts[item]++;
+    });
+
+    const LIMIT = 3;
+    const shown = order.slice(0, LIMIT).map(function (item) {
+      return escapeHtml(item) + (counts[item] > 1 ? ' \u00d7' + counts[item] : '');
+    }).join(', ');
+    const rest = order.length - LIMIT;
+
+    return '<span title="' + escapeHtml(order.map(function (item) {
+      return item + (counts[item] > 1 ? ' \u00d7' + counts[item] : '');
+    }).join('\n')) + '">' + shown +
+      (rest > 0 ? '<span class="cell-more">+' + rest + ' more</span>' : '') + '</span>';
+  }
+
+
+  /**
+   * What period an upload covers.
+   *
+   * For feedback, the quarter its filenames name - the session dates inside
+   * those files are the ones Excel mangled, and a range reading
+   * "1984-06-15 -> 2026-07-04" says nothing true about a Q1 2026 upload. The
+   * raw range is still on the row and in the delete dialog.
+   */
+  function summariseRange(h) {
+    const isFeedback =
+      String(h.reportType || '').toUpperCase().indexOf('FEEDBACK') !== -1;
+    const named = isFeedback ? quartersInText(h.fileName) : [];
+
+    if (named.length) {
+      const label = named.length === 1
+        ? formatPeriod(named[0])
+        : formatPeriod(named[0]) + ' \u2013 ' + formatPeriod(named[named.length - 1]);
+      return '<span title="Dates in the files: ' +
+        escapeHtml((h.dateFrom || '') + ' \u2192 ' + (h.dateTo || '')) + '">' +
+        escapeHtml(label) + '</span>';
+    }
+
+    return escapeHtml((h.dateFrom || '') + ' \u2192 ' + (h.dateTo || ''));
+  }
+
+
+  /** Splits a ' | ' joined column into its trimmed, non-empty parts. */
+  function splitList(value) {
+    return String(value == null ? '' : value).split('|')
+      .map(function (part) { return part.trim(); })
+      .filter(Boolean);
+  }
+
+
+  /**
+   * Says so when the history claims rows the database does not have.
+   *
+   * The two can disagree after a run is killed part-way: the log entry was
+   * written and flushed at the start of the upload, the rows were not. Before
+   * this, the only sign was a KPI screen that had gone blank while the history
+   * still confidently listed 19,946 tickets, which reads as the dashboard
+   * being broken rather than as the data being gone.
+   */
+  function renderMissingData(history) {
+    const box = document.getElementById('uploadMissing');
+    if (!box) return;
+
+    const stats = (state.boot && state.boot.stats) || {};
+    const claimed = history.filter(function (h) {
+      return String(h.reportType || '').toUpperCase().indexOf('FEEDBACK') === -1 &&
+             h.rowsKept > 0;
+    });
+
+    if (!claimed.length || (stats.tickets || 0) > 0) { box.hidden = true; return; }
+
+    box.hidden = false;
+    box.innerHTML =
+      '<h3>' + claimed.length + ' ticket upload' + (claimed.length === 1 ? '' : 's') +
+      ' logged, but no tickets are stored</h3>' +
+      '<p>The history below says these uploads landed, and the ticket table ' +
+      'is empty. That happens when a run is stopped part-way: the log entry ' +
+      'is written when the upload starts, the rows only as it finishes.</p>' +
+      '<p>KPI 1 has nothing to report until the exports are uploaded again. ' +
+      'Delete the ' + claimed.length + ' row' + (claimed.length === 1 ? '' : 's') +
+      ' below and re-upload the files \u2014 the history entries describe data ' +
+      'that no longer exists, so leaving them only makes this harder to read.</p>';
+  }
+
+
+  /** The employee ID behind an upload, or an honest dash. */
+  function uploaderText(who) {
+    const name = String(who == null ? '' : who).trim();
+    if (!name || name.toLowerCase() === 'unknown') {
+      return '<span class="muted" title="Uploaded before individual logins ' +
+             'existed, when everyone shared one admin password">\u2014</span>';
+    }
+    return escapeHtml(name);
+  }
+
+
+  function rowActions(uploadId) {
+    const id = escapeHtml(uploadId);
+    return '<div class="row-actions">' +
+      '<button class="btn-open" data-open="' + id + '">Open Dashboard</button>' +
+      '<button class="btn-icon is-primary" data-download="' + id + '" title="Download CSV">' +
+        '<svg viewBox="0 0 16 16"><path d="M8 2v8M5 7l3 3 3-3M3 13h10"/></svg></button>' +
+      // Deleting is admin-only. A viewer keeps Open and Download, because
+      // reading an upload back is not a change to anything.
+      (canAdmin()
+        ? '<button class="btn-icon is-danger" data-delete="' + id + '" title="Delete this upload">' +
+          '<svg viewBox="0 0 16 16"><path d="M2.5 4h11M6 4V2.5h4V4M4 4l.6 9.5h6.8L12 4"/></svg></button>'
+        : '') +
+      '</div>';
+  }
+
+
+  function wireRowActions() {
+    document.querySelectorAll('[data-open]').forEach(function (button) {
+      button.addEventListener('click', function () { openUpload(button.closest('tr')); });
+    });
+
+    document.querySelectorAll('[data-download]').forEach(function (button) {
+      button.addEventListener('click', function () { downloadUpload(button); });
+    });
+
+    document.querySelectorAll('[data-delete]').forEach(function (button) {
+      button.addEventListener('click', function () { askThenDelete(button); });
+    });
+  }
+
+
+  // =======================================================================
+  // DOWNLOADING ONE UPLOAD BACK OUT
+  // =======================================================================
+  /**
+   * Fetches one upload's tickets and saves them, a slice at a time.
+   *
+   * IT USED TO BE ONE CALL and the page said nothing for the whole of it.
+   * Twenty-four thousand rows is about eleven megabytes; the button went
+   * grey, half a minute passed, and the only thing distinguishing "working"
+   * from "broken" was whether you were patient enough. The complaint it
+   * earned was that the download was slow, and it was - but what made it
+   * feel broken was the silence rather than the seconds.
+   */
+  function downloadUpload(button) {
+    const uploadId = button.dataset.download;
+    const was = button.title || '';
+    let name = '';
+    const parts = [];
+
+    button.disabled = true;
+    button.classList.add('is-busy');
+
+    const step = function (startRow) {
+      return get('/api/uploads/csv?uploadId=' + encodeURIComponent(uploadId) +
+                 '&startRow=' + encodeURIComponent(startRow))
+        .then(function (chunk) {
+          if (chunk.fileName) name = chunk.fileName;
+          if (chunk.csv) parts.push(chunk.csv);
+
+          // Read rows, not matched rows: the bar is a measure of how much of
+          // the table has been looked at, and most of it belongs to other
+          // uploads. Counting only the matches would sit at nothing for a
+          // long time and then jump.
+          const pct = chunk.total ? Math.round((chunk.scanned / chunk.total) * 100) : 100;
+          button.title = 'Preparing the file... ' + Math.min(pct, 100) + '%';
+
+          if (!chunk.done) return step(chunk.nextRow);
+
+          downloadText(name || (uploadId + '.csv'), parts.join('\n'));
+        });
+    };
+
+    step(1)
+      .catch(function (err) { setStatus(err.message, 'error'); })
+      .then(function () {
+        button.disabled = false;
+        button.classList.remove('is-busy');
+        button.title = was;
+      });
+  }
+
+
+  function downloadText(fileName, text) {
+    try {
+      const blob = new Blob([text], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+    } catch (e) {
+      setStatus('Could not start the download: ' + e.message, 'error');
+    }
+  }
+
+
+  // =======================================================================
+  // OPENING THE DASHBOARD AN UPLOAD FEEDS
+  // =======================================================================
+  /**
+   * Works out which KPI screen and which period an upload belongs to.
+   *
+   * TWO THINGS THIS HAS TO GET RIGHT.
+   *
+   * Which KPI. The Type cell lists one entry per file, so a mixed drop reads
+   * 'FEEDBACK | INDIVIDUAL | ...'. Testing for the word FEEDBACK anywhere
+   * sent every such upload to KPI 2. It counts which kind the upload is
+   * mostly made of, and ticket exports win a tie because that is the older,
+   * larger pipeline.
+   *
+   * Which period. The Range cell holds 'YYYY-MM-DD -> YYYY-MM-DD' and the
+   * code took the first seven characters - the FIRST month of the range. An
+   * overall export covering January to September therefore opened on January
+   * and showed one ninth of itself. An upload that spans several months now
+   * opens on All months, which is the only period that shows what was
+   * actually uploaded.
+   *
+   * THE TWO SCREENS IT OPENS ARE NOT PORTED YET. KPI 1 and KPI 2 have their
+   * endpoints and their arithmetic - 16,239 and 27,991 comparisons against
+   * the original - but no page in this front end. So the button stays, the
+   * answer is worked out exactly as before, and it is SAID rather than acted
+   * on. One line changes when those screens arrive.
+   */
+  function openUpload(row) {
+    const target = dashboardFor(row);
+    confirmDialog({
+      title: target.view === 'kpi2' ? 'KPI 2, ' + target.period
+                                    : 'KPI 1, ' + target.period,
+      subtitle: 'The dashboard screens are not ported yet',
+      tone: 'info',
+      body:
+        '<p>This upload belongs to <strong>' +
+        (target.view === 'kpi2' ? 'KPI 2' : 'KPI 1') +
+        '</strong>, opened on <strong>' + escapeHtml(target.period) +
+        '</strong>.</p>' +
+        '<p>Both are ported on the server and proved identical to the ' +
+        'original arithmetic. Their screens are still to come - this button ' +
+        'will open them without anything else changing.</p>',
+      confirmLabel: 'Close',
+      oneButton: true
+    });
+  }
+
+
+  /** Which screen and period a history row points at. Pure, so it is testable. */
+  function dashboardFor(row) {
+    const ALL_MONTHS = 'All months';
+    if (!row) return { view: 'kpi1', period: ALL_MONTHS };
+
+    const types = String(row.dataset.types || '').toUpperCase().split('|');
+    let feedback = 0;
+    let tickets = 0;
+    types.forEach(function (t) {
+      if (t.indexOf('FEEDBACK') !== -1) feedback++;
+      else if (t.trim()) tickets++;
+    });
+
+    const range = String(row.dataset.range || '').trim();
+    const found = range.match(/(\d{4}-\d{2})-\d{2}[^\d]*(\d{4}-\d{2})?/);
+    const from = found ? found[1] : '';
+    const to = found && found[2] ? found[2] : from;
+
+    if (feedback > tickets) {
+      // KPI 2 reports by quarter. The filenames name it now, so they are
+      // asked first - the session dates behind `from` and `to` are the
+      // unreliable half of this, and an upload of files all named Q1-2026
+      // should open on Q1 2026 whatever Excel did to the dates inside them.
+      const named = quartersInText(row.dataset.files);
+      const fromQ = named.length ? named[0] : quarterForMonth(from);
+      const toQ   = named.length ? named[named.length - 1] : quarterForMonth(to);
+      return { view: 'kpi2',
+               period: (fromQ && fromQ === toQ) ? formatPeriod(fromQ)
+                                                : 'All quarters' };
+    }
+
+    // One month covered: open on it. More than one: open on all of them.
+    return { view: 'kpi1',
+             period: (from && from === to) ? formatPeriod(from) : ALL_MONTHS };
+  }
+
+
+  function quarterForMonth(month) {
+    const m = String(month || '').match(/^(\d{4})-(\d{2})$/);
+    if (!m) return '';
+    return m[1] + '-Q' + (Math.floor((Number(m[2]) - 1) / 3) + 1);
+  }
+
+
+  // =======================================================================
+  // DELETING ONE
+  // =======================================================================
+  /**
+   * Confirms, deletes, and puts the table back in step with the database.
+   *
+   * The old version asked with window.confirm, then relied on the server
+   * replying to refresh anything. deleteUpload could take minutes - long
+   * enough to be killed - so the reply often never came, nothing on screen
+   * moved, and the upload looked as though it had refused to be deleted.
+   *
+   * Now: the row is greyed out the moment work starts, removed from the table
+   * as soon as the server confirms, and the history is re-read either way -
+   * including after an error, because a failed call is exactly when the table
+   * on screen is most likely to be lying.
+   */
+  function askThenDelete(button) {
+    const id = button.dataset.delete;
+    const row = button.closest('tr');
+
+    const fileName = row ? String(row.dataset.files || '').trim() : '';
+    const type     = row ? String(row.dataset.types || '').trim().toUpperCase() : '';
+    const rows     = row ? String(row.dataset.rows || '').trim() : '';
+    const range    = row ? String(row.dataset.range || '').trim() : '';
+    const isFeedback = type.indexOf('FEEDBACK') !== -1;
+    const noun     = isFeedback ? 'training responses' : 'tickets';
+
+    // One upload can carry forty-three files. Listing every name as the
+    // headline buried the question and pushed the buttons off the screen, so
+    // the count leads and the names go in a scroller underneath.
+    const names = fileName.split('|').map(function (n) { return n.trim(); }).filter(Boolean);
+    const heading = names.length > 1
+      ? names.length + ' files'
+      : (names[0] || id);
+
+    confirmDialog({
+      title: 'Delete this upload?',
+      subtitle: id,
+      target:
+        '<span class="modal-target"><b>' + escapeHtml(heading) + '</b>' +
+        '<span>' + escapeHtml(type.split('|')[0].trim() || '\u2014') + ' \u00b7 ' +
+        escapeHtml(rows || '0') + ' stored \u00b7 ' +
+        escapeHtml(range || 'no date range') + '</span>' +
+        (names.length > 1
+          ? '<span class="modal-files">' +
+            names.map(function (n) { return '<div>' + escapeHtml(n) + '</div>'; }).join('') +
+            '</span>'
+          : '') +
+        '</span>',
+      body:
+        '<p>The <strong>' + noun + '</strong> that came only from this upload are ' +
+        'removed, and it disappears from the history.</p>' +
+        (isFeedback
+          ? '<p>KPI 2 is scored live from the stored responses, so its figures ' +
+            'change as soon as this finishes.</p>'
+          : '<p>Tickets another upload also supplied are <strong>kept</strong> \u2014 ' +
+            'only this upload\'s claim on them is dropped. KPI 1 is scored live ' +
+            'from the stored tickets, so its figures change with them.</p>') +
+        '<p>This cannot be undone.</p>',
+      confirmLabel: 'Delete upload'
+    }).then(function (yes) {
+      if (!yes) return;
+
+      if (row) row.classList.add('row-busy');
+      button.disabled = true;
+      setStatus('Deleting ' + heading + '\u2026');
+
+      return withTimeout(post('/api/uploads/delete', { uploadId: id }),
+                         120000, 'The delete')
+        .then(function (result) {
+          // Drop the row immediately rather than waiting on the reload. The
+          // answer to "did that work?" should not depend on a second round
+          // trip that might itself be slow.
+          if (row && row.parentNode) row.parentNode.removeChild(row);
+          setStatus(describeDeletion(heading, result), 'ok');
+          return refreshAfterChange();
+        })
+        .catch(function (err) {
+          if (row) row.classList.remove('row-busy');
+          button.disabled = false;
+          setStatus(err.message, 'error');
+          // Re-read regardless: the delete may well have landed even though
+          // the reply did not, and a stale table is worse than a slow one.
+          return refreshAfterChange().catch(function () {});
+        });
+    });
+  }
+
+
+  function describeDeletion(name, result) {
+    const parts = [];
+    if (result.removed)         parts.push(count(result.removed) + ' tickets removed');
+    if (result.pruned)          parts.push(count(result.pruned) + ' kept, with this ' +
+                                           'upload\'s name taken off them');
+    if (result.feedbackRemoved) parts.push(count(result.feedbackRemoved) +
+                                           ' responses removed');
+    if (!parts.length)          parts.push('no stored rows belonged to it');
+    return 'Deleted ' + name + ' \u2014 ' + parts.join(', ') + '.';
+  }
+
+
+  // =======================================================================
+  // THE CONFIRMATION DIALOG
+  // =======================================================================
+  /**
+   * Asks the question and resolves true or false.
+   *
+   * window.confirm() headed its box with the sandbox hostname, could not
+   * name the file being deleted, and gave Delete and Cancel identical
+   * weight. This one names the target, spells out the consequence, rests
+   * focus on Cancel, and takes Esc as no.
+   */
+  function confirmDialog(opts) {
+    const backdrop = document.getElementById('modalBackdrop');
+    const box = document.getElementById('modal');
+    if (!backdrop || !box) return Promise.resolve(window.confirm(opts.title));
+
+    const danger = opts.tone !== 'info';
+
+    box.className = 'modal' + (danger ? '' : ' is-info');
+    document.getElementById('modalIcon').innerHTML = danger
+      ? '<svg viewBox="0 0 24 24"><path d="M4 7h16M10 7V4h4v3M6 7l1 13h10l1-13"/>' +
+        '<path d="M10 11v5M14 11v5"/></svg>'
+      : '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/>' +
+        '<path d="M12 11v5M12 8h.01"/></svg>';
+
+    document.getElementById('modalTitle').textContent = opts.title || 'Are you sure?';
+    document.getElementById('modalSub').textContent = opts.subtitle || '';
+    document.getElementById('modalBody').innerHTML =
+      (opts.target || '') + (opts.body || '');
+
+    const confirm = document.getElementById('modalConfirm');
+    const cancel = document.getElementById('modalCancel');
+    confirm.textContent = opts.confirmLabel || 'Delete';
+    confirm.className = 'btn ' + (danger ? 'btn-danger' : 'btn-primary');
+    confirm.disabled = false;
+    cancel.hidden = Boolean(opts.oneButton);
+
+    backdrop.hidden = false;
+    // Cancel takes focus, not Delete - Enter should not destroy anything.
+    // Unless there is no Cancel, which is the one-button form.
+    (cancel.hidden ? confirm : cancel).focus();
+
+    return new Promise(function (resolve) {
+      function close(answer) {
+        backdrop.hidden = true;
+        confirm.removeEventListener('click', onYes);
+        cancel.removeEventListener('click', onNo);
+        backdrop.removeEventListener('mousedown', onOutside);
+        document.removeEventListener('keydown', onKey);
+        resolve(answer);
+      }
+      function onYes() { close(true); }
+      function onNo() { close(false); }
+      function onOutside(e) { if (e.target === backdrop) close(false); }
+      function onKey(e) {
+        if (e.key === 'Escape') { e.preventDefault(); close(false); }
+      }
+      confirm.addEventListener('click', onYes);
+      cancel.addEventListener('click', onNo);
+      backdrop.addEventListener('mousedown', onOutside);
+      document.addEventListener('keydown', onKey);
+    });
+  }
+
+
+  // =======================================================================
+  // SMALL THINGS
+  // =======================================================================
+
+  /**
+   * Escapes text before it goes into innerHTML.
+   *
+   * Ticket titles and requestor names come from the ITSM, which means they
+   * can contain < and & and quotes. Without this a stray character breaks
+   * the layout, and untrusted text in innerHTML is how script injection
+   * happens. Filenames come from whoever named the file, which is the same
+   * problem wearing a different hat.
+   */
+  function escapeHtml(value) {
+    return String(value == null ? '' : value)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+
+  function count(value) {
+    const n = Number(value);
+    return isFinite(n) ? n.toLocaleString('en-US') : String(value);
+  }
+
+
+  /**
+   * 'Quarter 1 (2026)' out of '2026-Q1', 'June 2026' out of '2026-06'.
+   *
+   * The same words quarterLabel() in Kpi.gs produces, written out rather
+   * than looked up. The old page looked the label up in the bootstrap
+   * because the server sent one; this server sends the bare keys, and a
+   * lookup that can never match is worse than no lookup - it reads as
+   * though the labels come from somewhere authoritative.
+   */
+  function formatPeriod(key) {
+    const text = String(key || '');
+    const q = text.match(/^(\d{4})-Q([1-4])$/);
+    if (q) return 'Quarter ' + q[2] + ' (' + q[1] + ')';
+
+    const m = text.match(/^(\d{4})-(\d{2})$/);
+    if (!m) return text;
+    const names = ['January', 'February', 'March', 'April', 'May', 'June',
+                   'July', 'August', 'September', 'October', 'November', 'December'];
+    return (names[Number(m[2]) - 1] || text) + ' ' + m[1];
+  }
+
+
+  /**
+   * Every quarter named in a piece of text, as '2026-Q1'.
+   *
+   * Both orders occur in real filenames - 'Q1-2026' and '2026-Q1' - and a
+   * two-digit year as well. The year is sanity-checked rather than trusted,
+   * so 'FAQ1-2026' does not become a quarter.
+   */
+  function quartersInText(text) {
+    const seen = {};
+    const out = [];
+
+    function push(year, q) {
+      let y = Number(year);
+      if (!isFinite(y) || !y) return;
+      if (y < 100) y += 2000;
+      if (y < 2000 || y > 2099) return;
+      const key = y + '-Q' + Number(q);
+      if (!seen[key]) { seen[key] = true; out.push(key); }
+    }
+
+    String(text || '').replace(
+      /(?:^|[^a-z0-9])q\s*([1-4])\s*[-_. \/]\s*(\d{4}|\d{2})(?!\d)/gi,
+      function (whole, q, year) { push(year, q); return whole; });
+
+    String(text || '').replace(
+      /(?:^|[^0-9])(\d{4}|\d{2})\s*[-_. \/]?\s*q\s*([1-4])(?!\d)/gi,
+      function (whole, year, q) { push(year, q); return whole; });
+
+    return out.sort();
+  }
+
+
+  // =======================================================================
+  // STARTUP
+  // =======================================================================
+
+  document.addEventListener('DOMContentLoaded', function () {
+    wireUploads();
+
+    document.getElementById('signinGo')
+      .addEventListener('click', function () { signIn(); });
+    document.getElementById('password')
+      .addEventListener('keydown', function (e) { if (e.key === 'Enter') signIn(); });
+    document.getElementById('employeeId')
+      .addEventListener('keydown', function (e) { if (e.key === 'Enter') signIn(); });
+    document.getElementById('signOut')
+      .addEventListener('click', function () { signedOut(''); });
+
+    try { state.token = sessionStorage.getItem(TOKEN_STORE) || ''; }
+    catch (e) { state.token = ''; }
+
+    if (!state.token) { signedOut(''); return; }
+
+    /*
+      A FAILED START IS NOT THE SAME AS AN EXPIRED SESSION.
+
+      This used to be `.catch(function () { signedOut(''); })`, which got
+      both of its two cases wrong.
+
+      On a 401, api() has already called signedOut('Your session has
+      ended.') - and then this wiped that message, leaving a blank sign-in
+      card where a sentence had just been written.
+
+      On anything else - the database down, the API restarting - the person
+      was shown a bare sign-in form. Their password is fine. They would try
+      it, fail, try it again, and conclude their account had been
+      disabled. Say what actually happened instead.
+    */
+    start().catch(function (err) {
+      if (String(err && err.message) === 'signed out') return;
+      signedOut('Could not open the screen \u2014 ' +
+                (err && err.message ? err.message : String(err)));
+    });
+  });
+
+  /*
+    FOR THE BROWSER TEST, which drives this page against the real server.
+
+    `busy` is the one that earns its place rather than being a convenience.
+    An upload writes "Done." and THEN re-reads the history, so a test that
+    waits for the words and looks at the table has not waited long enough -
+    it passes or fails on how fast PostgreSQL answered. busy goes false
+    after the re-read, which is the moment the screen is actually settled.
+  */
+  window.__uploadsScreen = { busy: function () { return state.busy; },
+                             dashboardFor: dashboardFor,
+                             quartersInText: quartersInText,
+                             formatPeriod: formatPeriod,
+                             summariseRepeats: summariseRepeats,
+                             splitList: splitList,
+                             describeDeletion: describeDeletion };
+})();
+</script>
+</body>
+</html>

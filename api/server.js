@@ -39,6 +39,12 @@ const kpiRead = require('./kpi-read');
 const backup = require('./backup');
 const uploads = require('./uploads');
 const kpi2Read = require('./kpi2-read');
+// For /api/uploads/boot, which hands the browser the column lists and the
+// patterns it parses a dropped .xlsx with. Taken from the modules the insert
+// statements are built from, so client and server cannot disagree.
+const merge = require('./ticket-merge');
+const kpi2 = require('./kpi2');
+const roster = require('./roster');
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
@@ -1650,6 +1656,80 @@ app.get('/api/kpi2/periods', requireAuth, async function (req, res) {
 // ---------------------------------------------------------------------------
 /* The 8MB body for /api/uploads/tickets is set up near the top of this
    file, before the general 100KB parser - see the note there. */
+
+// ---------------------------------------------------------------------------
+// GET /api/uploads/boot - everything the screen needs before it can parse
+// ---------------------------------------------------------------------------
+/*
+  Ported from the upload half of getBootstrap [Code.gs:191]. The old screen
+  got this inside one big bootstrap that also carried the org chart, the
+  month picker, the KPI standards and both comparison pickers; the Uploads
+  screen reads seven fields out of all that, and this sends those seven and
+  nothing else.
+
+  WHY THE BROWSER IS SENT THE COLUMN LISTS AT ALL, rather than carrying its
+  own copy. Code.gs is explicit about it: "Sending the list rather than
+  duplicating it in App.html keeps one source of truth - add a column to
+  Config.gs and the client follows." The same holds with more force here,
+  because the lists now come from the very modules the INSERT statements are
+  built from - ticket-merge.js and kpi2.js. A page that built its rows in a
+  different order would file every value one column to the left, and no
+  error would be raised: every cell is text.
+
+  The patterns are a different kind of thing and worth being clear about.
+  The module patterns decide what the upload log SAYS a file was; the
+  section patterns the same. Neither decides a figure. Attribution is done
+  on the server, from who handled the ticket and from Config, which is why a
+  module the filename could not place is left blank rather than guessed at.
+*/
+app.get('/api/uploads/boot', requireAuth, async function (req, res) {
+  try {
+    const [trainers, audit] = await Promise.all([
+      kpi2Read.trainerList(),
+      /*
+        THE COUNT GOES TO EVERYBODY, as it did in getBootstrap.
+
+        It was admin-only here for one revision, on the reasoning that the
+        button it feeds is admin-only. That was wrong, and App.html says why
+        in as many words: "The warning is worth showing everybody - the
+        button that acts on it is not, because removing responses changes
+        KPI 2 for everyone." A viewer looking at a KPI 2 figure inflated by
+        responses nobody can account for should be told, whether or not they
+        are the person who can fix it.
+
+        Only the count. The per-file breakdown stays behind
+        GET /api/uploads/orphans with requireAdmin, because a feedback
+        export's filename can carry the trainer's name.
+      */
+      uploads.auditFeedback()
+    ]);
+
+    const stats = (await db.query(
+      'SELECT count(*)::int AS tickets FROM ticket'))[0];
+
+    res.json({
+      ok: true,
+      configured: true,
+      role: req.user.role,
+      canAdmin: rankOf(req.user.role) >= ROLE_RANK.ADMIN,
+
+      ticketColumns: merge.HEADERS,
+      trainingColumns: kpi2.TRAINING_HEADERS,
+
+      departments: roster.SECTIONS,
+      trainingModules: kpi2.TRAINING_MODULES,
+      trainerModules: trainers,
+
+      // Drives the "logged but not stored" warning: a history that claims
+      // tickets while the table is empty means a run was killed part way.
+      stats: { tickets: stats.tickets },
+      orphanedFeedback: audit.orphans
+    });
+  } catch (err) {
+    fail(res, err, 'could not open the uploads screen');
+  }
+});
+
 
 /** Opens an upload. Admin only, as beginUpload in Ingest.gs is. */
 app.post('/api/uploads/begin', requireAuth, requireAdmin,

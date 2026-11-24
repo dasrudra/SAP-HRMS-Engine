@@ -55,6 +55,35 @@ const PRE_SPLIT_SECTION = {
 };
 
 
+/*
+  Config.gs:82 DEPARTMENTS. The sections, and the text to look for in an
+  export's FILENAME to recognise one.
+
+  NOT how a ticket is attributed. Every section on the dashboard comes from
+  who handled the ticket, through sectionFor() below. These patterns are
+  used for one thing: when somebody drops '7-26_Sales Applications_ITSM.xlsx'
+  on the Uploads screen, the upload log should say which section's export it
+  was. They are a label on a row of history, and a wrong one changes no
+  figure anywhere.
+
+  `match` is not always the name. The Supply Chain exports are still called
+  SCM and must keep being recognised, whatever the team is called now.
+
+  Section names are not personal data - six names and six patterns - so they
+  stay in the code, where the original keeps them.
+*/
+const SECTIONS = [
+  { key: 'MFG', name: 'Manufacturing Applications', match: 'manufacturing', era: 'current' },
+  { key: 'SLS', name: 'Sales Applications',         match: 'sales',         era: 'current' },
+  { key: 'SCM', name: 'Supply Chain Applications',  match: 'scm',           era: 'current',
+    short: 'SCA' },
+  { key: 'FIN', name: 'Financial Applications',     match: 'financial',     era: 'both' },
+  { key: 'EAS', name: 'EAS',                        match: 'eas',           era: 'both' },
+  // January to July 2026: everyone outside Financial sat in one section.
+  { key: 'FNC', name: 'Functional Applications',    match: 'functional',    era: 'legacy' }
+];
+
+
 /**
  * A name squashed to something matchable.   [Config.gs:2009]
  *
@@ -241,7 +270,7 @@ async function loadSections() {
 
 
 module.exports = {
-  SECTION_ERA_START, PRE_SPLIT_SECTION,
+  SECTION_ERA_START, PRE_SPLIT_SECTION, SECTIONS,
   matchPerson, buildIndex, loadIndex, sectionFor,
   rosterOrderFor, loadSections
 };
