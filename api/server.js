@@ -1557,6 +1557,43 @@ app.get('/api/kpi1', requireAuth, async function (req, res) {
   different bands - which happened on the live system when the target
   moved and only one of the two recomputed.
 */
+// ---------------------------------------------------------------------------
+// GET /api/kpi1/affiliates - which affiliates have tickets in this period
+// ---------------------------------------------------------------------------
+/*
+  listAffiliates [Kpi.gs:485]. Fills one dropdown, so it returns names and
+  counts and nothing else - no person is named by it.
+*/
+app.get('/api/kpi1/affiliates', requireAuth, async function (req, res) {
+  try {
+    const month = String(req.query.month || 'ALL').trim() || 'ALL';
+    res.json({ ok: true, affiliates: await kpiRead.affiliateList(month) });
+  } catch (err) {
+    fail(res, err, 'could not list the affiliates');
+  }
+});
+
+
+// ---------------------------------------------------------------------------
+// GET /api/kpi1/by-affiliate - one affiliate's people, scored from its tickets
+// ---------------------------------------------------------------------------
+/*
+  getPeopleByAffiliate [Kpi.gs:518]. The standard is passed through because
+  these rows sit in the same table as rows scored by /api/kpi1 - band them
+  against a different target and the table contradicts itself halfway down.
+*/
+app.get('/api/kpi1/by-affiliate', requireAuth, async function (req, res) {
+  try {
+    const month = String(req.query.month || 'ALL').trim() || 'ALL';
+    const out = await kpiRead.peopleByAffiliate(month, req.query.affiliate,
+                                                req.query.standard);
+    res.json(Object.assign({ ok: true }, out));
+  } catch (err) {
+    fail(res, err, 'could not read the affiliate figures');
+  }
+});
+
+
 app.get('/api/kpi1/compare', requireAuth, async function (req, res) {
   try {
     const months = String(req.query.months || '')

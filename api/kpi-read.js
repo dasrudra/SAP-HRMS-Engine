@@ -445,4 +445,133 @@ async function monthsAvailable() {
 }
 
 
-module.exports = { readKpi1, kpiComparison, monthsAvailable, scoredRows };
+// ---------------------------------------------------------------------------
+// By affiliate   [Kpi.gs:492 readAffiliateList, Kpi.gs:524 readPeopleByAffiliate]
+// ---------------------------------------------------------------------------
+/*
+  AN AFFILIATE IS A FACT ABOUT A TICKET, NOT ABOUT A PERSON.
+
+  Nobody belongs to KSL; tickets do. That is why this is the one filter on
+  the KPI 1 screen that RECOMPUTES rather than hides rows: there is no other
+  thing "show me KSL" could honestly mean. Every other filter there narrows
+  a list that has already been scored.
+
+  It also explains why these two functions exist at all instead of the
+  affiliate being another grouping inside readKpi1. The original kept a
+  monthly cache with no affiliate column in it, so the filter had to go back
+  to the tickets; this port has no cache, but the reason to keep it separate
+  survives - the figures a person has under one affiliate are not a slice of
+  their overall figures that anything else on the screen shows.
+
+  A blank affiliate is a real answer and is counted as '(none given)'.
+  Hiding those rows would make the filtered totals disagree with the
+  unfiltered ones for no reason anybody could see.
+*/
+
+/** Every affiliate in scope, busiest first. */
+async function affiliateList(month) {
+  const wanted = kpi.monthsInScope(month);
+  /*
+    THE TIMEZONE GOES IN ONLY IF THE QUERY ASKS FOR IT.
+
+    This started as `const args = [TZ]` with the month clause appended, the
+    way scoredRows does it - but scoredRows always names $1 in its SELECT
+    list and this one names it only inside the WHERE. On 'ALL months' there
+    is no WHERE, so $1 appeared nowhere and PostgreSQL refused the whole
+    statement: "bind message supplies 1 parameters, but prepared statement
+    requires 0". A parameter list has to match what the SQL actually
+    references, not what it might have.
+  */
+  const args = [];
+  let where = '';
+
+  if (wanted) {
+    const months = Object.keys(wanted);
+    if (!months.length) return [];
+    args.push(TZ, months);
+    where = " AND to_char(request_date AT TIME ZONE $1, 'YYYY-MM') = ANY($2)";
+  }
+
+  const rows = await db.query(
+    `SELECT coalesce(nullif(btrim(affiliate), ''), '(none given)') AS name,
+            count(*)::int AS tickets
+       FROM ticket
+      WHERE request_date IS NOT NULL` + where + `
+      GROUP BY 1
+      ORDER BY tickets DESC, name`, args);
+
+  return rows.map(function (r) { return { name: r.name, tickets: r.tickets }; });
+}
+
+
+/**
+ * One affiliate's people, scored from that affiliate's tickets alone.
+ *
+ * @param month     'YYYY-MM', 'YYYY-Qn', a comma list, or 'ALL'
+ * @param affiliate the affiliate to score, or '' for everybody
+ * @param standard  the same standard the rest of the table is read under -
+ *                  otherwise these rows are banded against one target while
+ *                  the rows above them are banded against the other
+ */
+async function peopleByAffiliate(month, affiliate, standard) {
+  const standardUsed = kpi.resolutionStandard(standard);
+  const want = String(affiliate || '').trim();
+  const wanted = kpi.monthsInScope(month);
+
+  const out = { affiliate: want, affiliates: [], people: [], hasData: false,
+                standard: standardUsed.standard };
+
+  const args = [TZ];
+  let where = '';
+  if (wanted) {
+    const months = Object.keys(wanted);
+    if (!months.length) return out;
+    args.push(months);
+    where = " AND to_char(request_date AT TIME ZONE $1, 'YYYY-MM') = ANY($2)";
+  }
+
+  const rows = await db.query(
+    `SELECT to_char(request_date AT TIME ZONE $1, 'YYYY-MM') AS month,
+            in_charge, department,
+            coalesce(nullif(btrim(affiliate), ''), '(none given)') AS affiliate,
+            completion_date, delay_days
+       FROM ticket
+      WHERE request_date IS NOT NULL` + where, args);
+
+  const index = await roster.loadIndex();
+  const seen = {};
+  const byPerson = {};
+  const sections = {};
+
+  rows.forEach(function (r) {
+    seen[r.affiliate] = (seen[r.affiliate] || 0) + 1;
+    if (want && r.affiliate !== want) return;
+
+    const who = String(r.in_charge || '').trim();
+    if (!who) return;
+
+    (byPerson[who] || (byPerson[who] = [])).push(r);
+    // The last month seen wins, so somebody who moved mid-year is shown
+    // under the section they are in now - the rule the main table follows.
+    const section = roster.sectionFor(index, who, r.month, r.department);
+    if (section) sections[who] = section;
+  });
+
+  out.affiliates = Object.keys(seen)
+    .sort(function (a, b) { return seen[b] - seen[a] || (a < b ? -1 : 1); })
+    .map(function (name) { return { name: name, tickets: seen[name] }; });
+
+  out.people = Object.keys(byPerson).map(function (name) {
+    const entry = kpi.finaliseEntry(
+      tally(name, byPerson[name], standardUsed), standardUsed);
+    entry.department = sections[name] || '';
+    return entry;
+  }).sort(kpi.byReceived);
+
+  out.hasData = out.people.length > 0;
+  return out;
+}
+
+
+module.exports = { readKpi1, kpiComparison, monthsAvailable, scoredRows,
+                   affiliateList, peopleByAffiliate };

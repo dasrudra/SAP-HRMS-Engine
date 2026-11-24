@@ -589,6 +589,147 @@ async function main() {
   check('the figures need a sign-in',
         (await call('/api/kpi1?month=ALL', null)).code === 401);
 
+
+  // =======================================================================
+  console.log('');
+  console.log('  By affiliate');
+  // =======================================================================
+  /*
+    AN AFFILIATE IS A FACT ABOUT A TICKET, NOT ABOUT A PERSON, which is why
+    this is the one filter on the screen that recomputes instead of hiding
+    rows. Nobody belongs to KSL; tickets do. So one person's figures under
+    one affiliate are not a slice of their overall figures - they are a
+    different sum, and these checks are about that sum being right.
+  */
+  await db.query("DELETE FROM ticket WHERE ticket_id LIKE 'TEST-K-%'");
+
+  let an = 0;
+  async function affTicket(month, who, affiliate, opts) {
+    const o = opts || {};
+    an++;
+    await db.query(
+      `INSERT INTO ticket (ticket_id, in_charge, service, part, department,
+                           affiliate, request_date, completion_date,
+                           delay_days, in_dept, in_overall, last_updated)
+       VALUES ($1,$2,'SAP','MM','Claimed Dept',$3,
+               ($4 || '-05 09:00+06')::timestamptz, $5,$6,true,true, now())`,
+      ['TEST-K-A' + an, who, affiliate, month,
+       o.open ? null : (month + '-06 17:00+06'),
+       o.delay === undefined ? 0 : o.delay]);
+  }
+
+  // Two affiliates, two people, and a blank affiliate that must not vanish.
+  await affTicket(POST + '-03', 'Test Person One', 'KSL');
+  await affTicket(POST + '-03', 'Test Person One', 'KSL', { delay: 3 });
+  await affTicket(POST + '-03', 'Test Person One', 'YOUNGONE');
+  await affTicket(POST + '-03', 'Test Person Two', 'KSL');
+  await affTicket(POST + '-03', 'Test Person Two', '');
+  await affTicket(POST + '-04', 'Test Person One', 'KSL');
+
+  const affAll = (await call('/api/kpi1/affiliates?month=ALL', token)).body;
+  const affNames = (affAll.affiliates || []).map(function (a) { return a.name; });
+  check('every affiliate in scope is listed',
+        affNames.indexOf('KSL') !== -1 && affNames.indexOf('YOUNGONE') !== -1,
+        JSON.stringify(affNames));
+  check('A BLANK AFFILIATE IS LISTED AS (none given), not dropped',
+        affNames.indexOf('(none given)') !== -1, JSON.stringify(affNames));
+  const ksl = (affAll.affiliates || []).filter(function (a) {
+    return a.name === 'KSL';
+  })[0];
+  check('and each carries its ticket count', ksl && ksl.tickets === 4,
+        ksl && String(ksl.tickets));
+  /*
+    BUSIEST FIRST, and the tie broken by name. Without the tie-break the
+    order of two equally busy affiliates is whatever the database felt like,
+    and a dropdown that reshuffles between page loads looks broken.
+  */
+  const counts = (affAll.affiliates || []).map(function (a) { return a.tickets; });
+  check('listed busiest first',
+        counts.every(function (c, i) { return i === 0 || counts[i - 1] >= c; }),
+        JSON.stringify(counts));
+
+  const affMonth = (await call('/api/kpi1/affiliates?month=' + POST + '-04',
+                               token)).body;
+  const kslApr = (affMonth.affiliates || []).filter(function (a) {
+    return a.name === 'KSL';
+  })[0];
+  check('ONE MONTH COUNTS ONLY THAT MONTH', kslApr && kslApr.tickets === 1,
+        kslApr && String(kslApr.tickets));
+  check('and an affiliate with nothing that month is not offered',
+        (affMonth.affiliates || []).every(function (a) {
+          return a.name !== 'YOUNGONE';
+        }), JSON.stringify(affMonth.affiliates));
+  /*
+    'ALL' AND A NAMED MONTH TAKE DIFFERENT CODE PATHS, and the first one
+    written only worked on the second. With no month there is no WHERE
+    clause, so the timezone parameter was referenced nowhere and PostgreSQL
+    refused the statement outright - "bind message supplies 1 parameters,
+    but prepared statement requires 0". Both are asked for here.
+  */
+  check('and the all-months call answers at all, which it did not at first',
+        (await call('/api/kpi1/affiliates?month=ALL', token)).code === 200);
+
+  const byKsl = (await call('/api/kpi1/by-affiliate?month=ALL&affiliate=KSL',
+                            token)).body;
+  check('one affiliate scores only its own tickets',
+        byKsl.hasData === true && byKsl.people.length === 2,
+        JSON.stringify((byKsl.people || []).map(function (p) { return p.name; })));
+  const kslOne = (byKsl.people || []).filter(function (p) {
+    return p.name === 'Test Person One';
+  })[0];
+  check('THE FIGURES ARE THAT AFFILIATE\'S ALONE, not a slice of the total',
+        kslOne && kslOne.received === 3, kslOne && String(kslOne.received));
+  check('and they are scored, not just counted',
+        kslOne && kslOne.delayed === 1 && kslOne.successful === 2 &&
+        typeof kslOne.rate === 'number' && typeof kslOne.band === 'string',
+        kslOne && JSON.stringify({ d: kslOne.delayed, s: kslOne.successful,
+                                r: kslOne.rate, b: kslOne.band }));
+  check('each person keeps the section the roster puts them in',
+        kslOne && typeof kslOne.department === 'string');
+  check('the full affiliate list comes back with it, for the dropdown',
+        (byKsl.affiliates || []).length >= 3,
+        String((byKsl.affiliates || []).length));
+
+  const byBlank = (await call('/api/kpi1/by-affiliate?month=ALL&affiliate=',
+                              token)).body;
+  check('no affiliate chosen scores everybody',
+        byBlank.people.length === 2 &&
+        byBlank.people.reduce(function (n, p) { return n + p.received; }, 0) === 6,
+        JSON.stringify(byBlank.people.map(function (p) {
+          return p.name + ':' + p.received;
+        })));
+
+  const byNone = (await call('/api/kpi1/by-affiliate?month=ALL&affiliate=' +
+                             encodeURIComponent('(none given)'), token)).body;
+  check('and the blank affiliate can be scored like any other',
+        byNone.hasData === true && byNone.people.length === 1 &&
+        byNone.people[0].received === 1,
+        JSON.stringify(byNone.people));
+
+  const byMissing = (await call('/api/kpi1/by-affiliate?month=ALL&affiliate=NOBODY',
+                                token)).body;
+  check('an affiliate nobody handled is empty rather than an error',
+        byMissing.hasData === false && byMissing.people.length === 0);
+
+  /*
+    THE STANDARD HAS TO TRAVEL WITH IT. These rows sit in the same table as
+    rows scored by /api/kpi1, so banding them against the other target would
+    make the table contradict itself halfway down.
+  */
+  const kslEas = (await call('/api/kpi1/by-affiliate?month=ALL&affiliate=KSL' +
+                             '&standard=EAS', token)).body;
+  const oneEas = (kslEas.people || []).filter(function (p) {
+    return p.name === 'Test Person One';
+  })[0];
+  check('the standard is honoured, so the band can differ from the company one',
+        kslEas.standard === 'EAS' && kslOne && oneEas &&
+        kslOne.received === oneEas.received,
+        JSON.stringify({ company: kslOne && kslOne.band, eas: oneEas && oneEas.band }));
+
+  check('both affiliate endpoints need a sign-in',
+        (await call('/api/kpi1/affiliates?month=ALL', null)).code === 401 &&
+        (await call('/api/kpi1/by-affiliate?month=ALL', null)).code === 401);
+
   // =======================================================================
   await wipe();
   await db.end();

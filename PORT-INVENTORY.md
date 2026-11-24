@@ -125,7 +125,7 @@ one is switched off.
 | `getPresence` | DONE | `GET /api/presence` |
 | `presenceTick` | DONE | `POST /api/presence/tick` |
 | `presenceClear` | DONE | `POST /api/presence/clear` |
-| `getPeopleByAffiliate` / `listAffiliates` | TODO | |
+| `getPeopleByAffiliate` / `listAffiliates` | DONE | `GET /api/kpi1/by-affiliate`, `GET /api/kpi1/affiliates` - they are KPI questions, not team ones |
 
 ### KPI
 | Piece | Status |
@@ -135,7 +135,7 @@ one is switched off.
 | `getKpi1`, `readKpi1` | DONE - `GET /api/kpi1`, `api/kpi-read.js` |
 | `moduleForTicket`, `moduleFromPart`, `moduleForPerson`, `ticketModulePatterns`, `personModuleIndex`, `whyModule` | DONE - `api/modules.js`, exceptions on `roster.module` |
 | `getKpiComparison` | DONE - `GET /api/kpi1/compare` |
-| `getPeopleByAffiliate`, `listAffiliates` | TODO |
+| `getPeopleByAffiliate`, `listAffiliates` | DONE - `GET /api/kpi1/by-affiliate`, `GET /api/kpi1/affiliates` |
 | `recomputeKpiCache`, `recomputeAfterUpload` | NOT PORTED, deliberately - see below |
 | the ticket merge (`mergeRows`, `stampOf`, `isBlank`, `truthy`) | DONE - `api/ticket-merge.js`, shared by the CSV importer and the Uploads screen |
 | the KPI 2 arithmetic - `normaliseAnswer`, `answerTier`, `answerTiers`, `moduleFor`, `scoreFeedback`, `byRespondents`, `FEEDBACK_ANSWERS`, `TRAINING_MODULES`, `QUESTION_LABELS` | DONE - `api/kpi2.js`, table `training` |
@@ -981,6 +981,47 @@ the ticket - and only the ticket row carries both columns".
 writes in a Part cell on purpose; a word is a guess at what a prose Part
 might mean, and a guess must never beat a deliberate label. The word
 boundary in each pattern is what stops `co` firing inside `Accounting`.
+
+### By affiliate, and one thing a mutation run taught us about mutation runs
+
+`listAffiliates` and `getPeopleByAffiliate` [Kpi.gs:485, 518] are ported as
+`GET /api/kpi1/affiliates` and `GET /api/kpi1/by-affiliate`, in
+`api/kpi-read.js`. 17 checks in `api/kpi-read-test.js`.
+
+**An affiliate is a fact about a ticket, not about a person**, and that is
+why it is the only filter on the KPI 1 screen that RECOMPUTES rather than
+hiding rows. Nobody belongs to KSL; tickets do. One person's figures under
+one affiliate are not a slice of their overall figures - they are a
+different sum - so there is no honest way to implement "show me KSL" by
+filtering a list that has already been scored.
+
+A blank affiliate is a real answer and is counted as `(none given)`. Hiding
+those rows would make the filtered totals disagree with the unfiltered ones
+for no reason anybody could see.
+
+**The all-months path and the one-month path are different code**, and the
+first version only worked on the second: with no month filter there is no
+WHERE clause, so the timezone parameter was referenced nowhere and
+PostgreSQL refused the statement outright - *"bind message supplies 1
+parameters, but prepared statement requires 0"*. A parameter list has to
+match what the SQL actually references, not what it might have. Both paths
+are now asked for by name.
+
+**And the methodology note.** The first mutation run over these two
+functions reported fourteen survivors out of fourteen. That is not what a
+weak test suite looks like - it is what a harness that mutated nothing
+looks like. `kpi-read-test.js` is one of the three suites that drive the
+HTTP server rather than requiring the module directly, and `kpi-read.js`
+was already loaded and cached in the running Node process: editing the file
+on disk changed nothing until the process was replaced. The harness now
+restarts the API between mutations.
+
+The three suites this applies to are `kpi-read-test.js`, `content-test.js`
+and `messenger-write-test.js`. Every mutation script that drives one of
+them already restarted the server - `mutate-content.sh`,
+`mutate-messenger.sh`, `mutate-write.sh` - so no earlier figure in this
+document is affected. The new script simply did not copy that step, and a
+run where nothing at all is caught is the only reason it was noticed.
 
 ### Two things that cannot be tested against the real data
 
