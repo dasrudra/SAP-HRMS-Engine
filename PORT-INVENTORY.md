@@ -139,7 +139,9 @@ one is switched off.
 | `recomputeKpiCache`, `recomputeAfterUpload` | NOT PORTED, deliberately - see below |
 | the ticket merge (`mergeRows`, `stampOf`, `isBlank`, `truthy`) | DONE - `api/ticket-merge.js`, shared by the CSV importer and the Uploads screen |
 | the KPI 2 arithmetic - `normaliseAnswer`, `answerTier`, `answerTiers`, `moduleFor`, `scoreFeedback`, `byRespondents`, `FEEDBACK_ANSWERS`, `TRAINING_MODULES`, `QUESTION_LABELS` | DONE - `api/kpi2.js`, table `training` |
-| `getKpi2`, `getKpi2Comparison`, `listFeedbackMonths`, `listFeedbackQuarters`, `comparisonEntry`, `byQuarterKey` | TODO - the read side |
+| `getKpi2`, `comparisonEntry`, `byQuarterKey` | DONE - `GET /api/kpi2`, `api/kpi2-read.js` |
+| `getKpi2Comparison` | DONE - `GET /api/kpi2/compare` |
+| `listFeedbackMonths`, `listFeedbackQuarters` | DONE - `GET /api/kpi2/periods` |
 | `runKpi2SelfTest` | NOT PORTED - `api/kpi2-equivalence-test.js` does more than it did |
 
 `api/kpi.js` is pure arithmetic and is proved identical to `src/Kpi.gs` and
@@ -616,8 +618,11 @@ decided for a reason.
    ported for tickets**, download included, which is what removes the
    export-a-CSV-and-run-a-command step. **KPI 2's arithmetic is ported and
    proved identical over 27,041 comparisons**, and the `training` table
-   exists. Left in this stage: KPI 2's read side (`getKpi2`,
-   `getKpi2Comparison`) and the feedback half of Uploads.
+   exists, **and KPI 2's read side is ported** - three endpoints, 67 checks,
+   26 mutations and all 26 caught. Left in this stage: the feedback half of
+   Uploads (`appendFeedbackBatch`, `finishFeedbackUpload`,
+   `purgeOrphanedFeedback`, `removeFeedbackOf`), which is what will put real
+   rows in the `training` table.
 9. ~~Backups~~ DONE as code. **NOT done as a working arrangement** until
    `BACKUP_DIR` points off this machine, the nightly task exists, and one
    restore has actually been done. See the Backups section above. This has

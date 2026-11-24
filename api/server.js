@@ -38,6 +38,7 @@ const content = require('./content');
 const kpiRead = require('./kpi-read');
 const backup = require('./backup');
 const uploads = require('./uploads');
+const kpi2Read = require('./kpi2-read');
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
@@ -1585,6 +1586,59 @@ app.get('/api/accounts', requireAuth, requireAdmin, async function (req, res) {
     res.json({ ok: true, count: rows.length, accounts: rows });
   } catch (err) {
     fail(res, err, 'could not list accounts');
+  }
+});
+
+
+// ---------------------------------------------------------------------------
+// KPI 2 - SAP User Training Satisfaction & Feedback.
+// ---------------------------------------------------------------------------
+/*
+  Any signed-in person, as getKpi2 is. It is the department's own training
+  feedback, not a personnel record, and hiding it from the people who gave
+  it would be an odd way to ask them for more.
+
+  IT IS NOT A POLICY KPI, and the response says so in every reply. Config.gs:
+  TVL-KPI-001 section 5.3 gives EAS three KPIs and this is not one of them,
+  so it "must never be presented as though it were". `policy: false` travels
+  with the figures rather than being something the page has to remember.
+*/
+app.get('/api/kpi2', requireAuth, async function (req, res) {
+  try {
+    const out = await kpi2Read.readKpi2(req.query.scope);
+    res.json(Object.assign({ ok: true, policy: false }, out));
+  } catch (err) {
+    fail(res, err, 'could not read the training feedback');
+  }
+});
+
+
+/** Quarter by quarter, shaped exactly like /api/kpi1/compare. */
+app.get('/api/kpi2/compare', requireAuth, async function (req, res) {
+  try {
+    const periods = String(req.query.periods || '')
+      .split(',')
+      .map(function (s) { return s.trim(); })
+      .filter(Boolean);
+
+    const out = await kpi2Read.kpi2Comparison(periods);
+    res.json(Object.assign({ ok: true, policy: false }, out));
+  } catch (err) {
+    fail(res, err, 'could not compare the training feedback');
+  }
+});
+
+
+/** Which periods have feedback at all, for the pickers. */
+app.get('/api/kpi2/periods', requireAuth, async function (req, res) {
+  try {
+    const [months, quarters] = await Promise.all([
+      kpi2Read.feedbackMonths(),
+      kpi2Read.feedbackQuarters()
+    ]);
+    res.json({ ok: true, months: months, quarters: quarters });
+  } catch (err) {
+    fail(res, err, 'could not list the feedback periods');
   }
 });
 
