@@ -207,6 +207,61 @@ const PLANT_ZONES = {};
 const NO_TRAINERS = [];
 
 
+/**
+ * The TRAINING tab, column by column, in its own order.
+ *
+ * [ the spreadsheet heading, the database column ]
+ *
+ * THE ORDER MATTERS, because feedback rows arrive from the browser as plain
+ * arrays in exactly this order - the same arrangement, and for the same
+ * reason, as the ticket columns in ticket-merge.js.
+ *
+ * 'Zone' is last because it was added last. Config.gs had to put it there:
+ * "Existing rows were written at the old width and are addressed by
+ * position, so a column inserted anywhere else would shift every value
+ * already stored." A database column is addressed by name, so that
+ * constraint is gone here - but the ORDER of this list still has to match
+ * the sheet's, because the browser is still sending arrays.
+ */
+const TRAINING_COLUMNS = [
+  ['Response ID',          'response_id'],
+  ['Session Date',         'session_date'],
+  ['Month',                'month'],
+  ['Module',               'module'],
+  ['Session Title',        'session_title'],
+  ['Trainer',              'trainer'],
+  ['Plant',                'plant'],
+  ['Employee ID',          'employee_id'],
+  ['Employee Name',        'employee_name'],
+  ['Q1 Overall',           'q1_overall'],
+  ['Q2 Relevance',         'q2_relevance'],
+  ['Q3 Trainer Knowledge', 'q3_knowledge'],
+  ['Q4 Explanation',       'q4_explanation'],
+  ['Q5 Materials',         'q5_materials'],
+  ['Q6 Confidence',        'q6_confidence'],
+  ['Q7 Duration',          'q7_duration'],
+  ['Source File',          'source_file'],
+  ['Uploaded At',          'uploaded_at'],
+  ['Zone',                 'zone']
+];
+
+/** The spreadsheet headings, in order. CONFIG.TRAINING_COLUMNS. */
+const TRAINING_HEADERS = TRAINING_COLUMNS.map(function (c) { return c[0]; });
+
+/** The database column names, in order. */
+const TRAINING_NAMES = TRAINING_COLUMNS.map(function (c) { return c[1]; });
+
+/** Where each column sits, so a caller can address one by name. */
+const TRAINING_AT = (function () {
+  const index = {};
+  TRAINING_COLUMNS.forEach(function (c, i) { index[c[1]] = i; });
+  return index;
+})();
+
+/** The two columns that hold a timestamp rather than text. */
+const TRAINING_DATES = ['session_date', 'uploaded_at'];
+
+
 /** The seven scored questions, in the order the form asks them. */
 const QUESTION_LABELS = [
   'Overall training session',
@@ -565,6 +620,7 @@ function byRespondents(a, b) {
 module.exports = {
   KPI_FEEDBACK, COUNT_NON_RESPONSES, FEEDBACK_ANSWERS, TIER_ORDER,
   TRAINING_MODULES, QUESTION_LABELS,
+  TRAINING_COLUMNS, TRAINING_HEADERS, TRAINING_NAMES, TRAINING_AT, TRAINING_DATES,
   ZONES, ZONE_UNSPECIFIED, PLANT_ZONES, NO_TRAINERS,
   normaliseAnswer, answerTiers, answerTier, moduleFor, moduleForResponse,
   matchZone, zoneFor,

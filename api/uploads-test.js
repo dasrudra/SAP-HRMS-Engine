@@ -258,8 +258,9 @@ async function main() {
   // =======================================================================
   async function sweep() {
     await db.query("DELETE FROM ticket WHERE ticket_id LIKE 'TEST-UPL-%'");
-    await db.query("DELETE FROM upload_run WHERE file_names LIKE '%TEST-UPL-%'" +
+    await db.query("DELETE FROM upload_run WHERE file_names LIKE '%TEST-UPL%'" +
                    " OR uploaded_by LIKE 'TEST-UPL%'");
+    await db.query("DELETE FROM training WHERE response_id LIKE 'TEST-UPL%'");
   }
   await sweep();
 
@@ -599,6 +600,235 @@ async function main() {
         await threwSaying(function () {
           return uploads.uploadCsvChunk('UPL-nope', 1);
         }, /not found/));
+
+
+  // =======================================================================
+  console.log('');
+  console.log('  Training feedback - the other half of an upload');
+  // =======================================================================
+  const kpi2 = require('./kpi2');
+
+  /** A 19-cell feedback row from an object keyed by heading. */
+  function fcells(o) {
+    return kpi2.TRAINING_HEADERS.map(function (h) {
+      return o[h] === undefined ? '' : o[h];
+    });
+  }
+  async function response(id) {
+    return (await db.query('SELECT * FROM training WHERE response_id = $1',
+                           [id]))[0];
+  }
+
+  await db.query("DELETE FROM training WHERE response_id LIKE 'TEST-UPL-%'");
+
+  check('the feedback merge is an upsert on the response id',
+        /ON CONFLICT \(response_id\) DO UPDATE/.test(uploads.FEEDBACK_SQL));
+  /*
+    A RESPONSE IS REPLACED WHOLE, where a ticket merges field by field. Two
+    ticket exports describe the same ticket from different angles; a
+    re-uploaded feedback file means the file was CORRECTED, and half the old
+    answers mixed with half the new ones is not a thing anybody asked for.
+  */
+  check('and every column is replaced, not merged field by field',
+        /q1_overall = EXCLUDED\.q1_overall/.test(uploads.FEEDBACK_SQL) &&
+        /CASE/.test(uploads.FEEDBACK_SQL) === false);
+  check('the response id is not in the SET list',
+        /response_id = EXCLUDED/.test(uploads.FEEDBACK_SQL) === false);
+
+  const fb1 = await uploads.appendFeedbackBatch(second, [
+    fcells({ 'Response ID': 'TEST-UPL-fb.xlsx#1', 'Month': '2099-01',
+             'Session Title': 'MM Basics', 'Trainer': 'T One', 'Zone': 'KEPZ',
+             'Source File': 'TEST-UPL-fb.xlsx', 'Session Date': '2099-01-15 10:00',
+             'Q1 Overall': 'Excellent', 'Q2 Relevance': 'Relevant and useful',
+             'Q3 Trainer Knowledge': 'Good', 'Q4 Explanation': 'Good',
+             'Q5 Materials': 'Helpful', 'Q6 Confidence': 'More confident',
+             'Q7 Duration': 'Appropriate' }),
+    fcells({ 'Response ID': 'TEST-UPL-fb.xlsx#2', 'Month': '2099-01',
+             'Source File': 'TEST-UPL-fb.xlsx', 'Q1 Overall': 'Average' })
+  ]);
+
+  check('both responses were new', fb1.inserted === 2 && fb1.updated === 0);
+  const r1 = await response('TEST-UPL-fb.xlsx#1');
+  check('the answers are stored as the text people chose',
+        r1.q1_overall === 'Excellent' && r1.q6_confidence === 'More confident');
+  check('the month is stored as given', r1.month === '2099-01');
+  /*
+    THE SESSION DATE HAS NO TIMEZONE ON IT, so it means Dhaka - the same
+    rule as a ticket date, through the same readDate. 10:00 in Dhaka is
+    04:00 UTC, and this test runs on a machine set to UTC.
+  */
+  check('A NAIVE SESSION DATE IS READ AS DHAKA, NOT AS THE SERVER',
+        new Date(r1.session_date).toISOString() === '2099-01-15T04:00:00.000Z',
+        String(r1.session_date));
+  check('uploaded_at is the upload\'s own time, not this moment',
+        new Date(r1.uploaded_at).toISOString() === '2099-01-02T00:00:00.000Z',
+        String(r1.uploaded_at));
+
+  // The same file again, corrected.
+  const fb2 = await uploads.appendFeedbackBatch(second, [
+    fcells({ 'Response ID': 'TEST-UPL-fb.xlsx#1', 'Month': '2099-01',
+             'Source File': 'TEST-UPL-fb.xlsx', 'Q1 Overall': 'Good' })
+  ]);
+  check('re-uploading the same response updates it rather than doubling it',
+        fb2.inserted === 0 && fb2.updated === 1);
+  const r1b = await response('TEST-UPL-fb.xlsx#1');
+  check('THE CORRECTED ANSWER WINS', r1b.q1_overall === 'Good');
+  check('and a field the corrected row left blank is blank, not stale',
+        r1b.session_title === '', JSON.stringify(r1b.session_title));
+  check('only two responses exist, not three',
+        (await db.query("SELECT count(*)::int AS n FROM training" +
+                        " WHERE response_id LIKE 'TEST-UPL-fb%'"))[0].n === 2);
+
+  const fbNoId = await uploads.appendFeedbackBatch(second, [
+    fcells({ 'Response ID': '  ', 'Q1 Overall': 'Good' })
+  ]);
+  check('a response with no Response ID is skipped and reported',
+        fbNoId.appended === 0 && /no Response ID/.test(fbNoId.problems[0]));
+  check('feedback cannot be appended to an upload nobody opened',
+        await threwSaying(function () {
+          return uploads.appendFeedbackBatch('UPL-20990101-000000-zzzzzzzz',
+            [fcells({ 'Response ID': 'TEST-UPL-ghost#1' })]);
+        }, /was never opened/));
+
+
+  // =======================================================================
+  console.log('');
+  console.log('  sourceOf - which file a response came in');
+  // =======================================================================
+  check('the Source File when it is filled in',
+        uploads.sourceOf('other.xlsx#3', 'a.xlsx') === 'a.xlsx');
+  /*
+    Rows written before Source File was populated still identify their file,
+    because the Response ID is 'filename#rownumber'.
+  */
+  check('otherwise the part of the id before the hash',
+        uploads.sourceOf('a.xlsx#3', '') === 'a.xlsx');
+  check('the LAST hash, because a filename may contain one',
+        uploads.sourceOf('Q1#2026.xlsx#3', '') === 'Q1#2026.xlsx');
+  check('a hash at the start is not a filename',
+        uploads.sourceOf('#3', '') === '');
+  check('an id with no hash at all gives nothing',
+        uploads.sourceOf('abc', '') === '');
+  check('and nothing at all gives nothing',
+        uploads.sourceOf('', '') === '' &&
+        uploads.sourceOf(null, null) === '');
+
+
+  // =======================================================================
+  console.log('');
+  console.log('  Deleting an upload takes its responses with it');
+  // =======================================================================
+  /*
+    "This used to touch TICKETS only, so deleting a training-feedback upload
+     took the row out of the history and left every response of it on the
+     TRAINING tab - KPI 2 went on reporting data the user believed they had
+     deleted."
+  */
+  const fbUpload = await openUpload(['TEST-UPL-fb.xlsx'], '2099-01-04T00:00:00Z');
+  check('two responses are countable from that file',
+        await uploads.countFeedbackOf(['TEST-UPL-fb.xlsx']) === 2,
+        String(await uploads.countFeedbackOf(['TEST-UPL-fb.xlsx'])));
+
+  const fbDone = await uploads.finishFeedbackUpload(fbUpload);
+  check('finishing reports this upload\'s OWN stored rows',
+        fbDone.stored === 2, String(fbDone.stored));
+  check('and closes the log row', fbDone.notes === uploads.COMPLETE);
+
+  const fbGone = await uploads.deleteUpload(fbUpload);
+  check('DELETING THE UPLOAD REMOVED ITS RESPONSES',
+        fbGone.feedbackRemoved === 2, String(fbGone.feedbackRemoved));
+  check('and they are really gone',
+        (await response('TEST-UPL-fb.xlsx#1')) === undefined);
+  check('a file name with an underscore is not read as a SQL wildcard',
+        true);
+
+  /*
+    LIKE WOULD READ _ AND % AS WILDCARDS. An export called
+    'TEST-UPL_2026.xlsx' must not match 'TEST-UPLx2026.xlsx', which is
+    exactly what LIKE 'TEST-UPL_2026.xlsx#%' would do.
+  */
+  const wild = await openUpload(['TEST-UPL_wild.xlsx'], '2099-01-05T00:00:00Z');
+  await uploads.appendFeedbackBatch(wild, [
+    fcells({ 'Response ID': 'TEST-UPL_wild.xlsx#1', 'Month': '2099-01',
+             'Source File': 'TEST-UPL_wild.xlsx', 'Q1 Overall': 'Good' }),
+    // Same shape, one character different where the underscore is.
+    fcells({ 'Response ID': 'TEST-UPLxwild.xlsx#1', 'Month': '2099-01',
+             'Source File': 'TEST-UPLxwild.xlsx', 'Q1 Overall': 'Good' })
+  ]);
+  const wildGone = await uploads.deleteUpload(wild);
+  check('AN UNDERSCORE IN A FILENAME MATCHES ONLY ITSELF',
+        wildGone.feedbackRemoved === 1, String(wildGone.feedbackRemoved));
+  check('so the lookalike response survived',
+        Boolean(await response('TEST-UPLxwild.xlsx#1')));
+
+
+  // =======================================================================
+  console.log('');
+  console.log('  Responses whose upload is no longer in the history');
+  // =======================================================================
+  /*
+    A SURVIVING UPLOAD WITH A ROW THAT HAS NO SOURCE FILE.
+
+    Two things rest on this one row, and mutation testing found both gaps.
+
+    First, it is the case the Response ID fallback exists for - "rows
+    written before Source File was populated". Every other feedback row in
+    this suite has its Source File filled in, so deleting the fallback
+    changed nothing and the test said it was fine.
+
+    Second, it is a response that MUST SURVIVE the purge. Without it the
+    only row left at purge time was the orphan, so a purge that deleted the
+    whole table passed.
+  */
+  const liveUpload = await openUpload(['TEST-UPL-legacy.xlsx'],
+                                      '2099-01-06T00:00:00Z');
+  await uploads.appendFeedbackBatch(liveUpload, [
+    fcells({ 'Response ID': 'TEST-UPL-legacy.xlsx#1', 'Month': '2099-01',
+             'Q1 Overall': 'Good' })          // Source File deliberately blank
+  ]);
+  const legacy = await response('TEST-UPL-legacy.xlsx#1');
+  check('a row with no Source File is stored all the same',
+        Boolean(legacy) && legacy.source_file === '');
+  check('and its file is still known, from the id',
+        uploads.sourceOf(legacy.response_id, legacy.source_file) ===
+        'TEST-UPL-legacy.xlsx');
+  check('so it belongs to the upload that named that file',
+        uploads.feedbackBelongsTo('TEST-UPL-legacy.xlsx#1', '',
+                                  ['TEST-UPL-legacy.xlsx']) === true);
+
+  // TEST-UPLxwild.xlsx#1 is now an orphan: its upload has been deleted.
+  const audit = await uploads.auditFeedback();
+  check('A ROW IDENTIFIED ONLY BY ITS ID IS NOT AN ORPHAN',
+        audit.files.every(function (f) {
+          return f.fileName !== 'TEST-UPL-legacy.xlsx';
+        }), JSON.stringify(audit.files));
+  check('the orphan is found',
+        audit.files.some(function (f) {
+          return f.fileName === 'TEST-UPLxwild.xlsx';
+        }), JSON.stringify(audit.files));
+  check('and counted', audit.orphans >= 1);
+  check('the audit changes nothing by itself',
+        Boolean(await response('TEST-UPLxwild.xlsx#1')));
+
+  const purged = await uploads.purgeOrphanedFeedback();
+  check('purging removes it', purged.removed >= 1, String(purged.removed));
+  check('and it is gone', (await response('TEST-UPLxwild.xlsx#1')) === undefined);
+  /*
+    THE WHOLE POINT OF A PURGE IS THAT IT IS NARROW. "Remove the responses
+    nobody can account for" and "empty the training tab" differ by one
+    WHERE clause, and only a row that must survive can tell them apart.
+  */
+  check('A RESPONSE WHOSE UPLOAD IS STILL IN THE HISTORY SURVIVES',
+        Boolean(await response('TEST-UPL-legacy.xlsx#1')));
+  check('and so does one from a file still named in an open upload',
+        (await db.query("SELECT count(*)::int AS n FROM training" +
+                        " WHERE response_id LIKE 'TEST-UPL%'"))[0].n === 1,
+        JSON.stringify(await db.query("SELECT response_id FROM training" +
+                                      " WHERE response_id LIKE 'TEST-UPL%'")));
+
+  const again2 = await uploads.purgeOrphanedFeedback();
+  check('purging twice removes nothing the second time',
+        again2.removed === 0);
 
 
   // =======================================================================

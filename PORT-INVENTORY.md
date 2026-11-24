@@ -149,11 +149,19 @@ one is switched off.
 in `npm test`, needing nothing switched on. 21 deliberate breaks were made
 and all 21 were caught.
 
-`api/kpi2.js` is the same arrangement: **27,041 comparisons** against the
-real `normaliseAnswer`, `answerTier`, `moduleFor` and `scoreFeedback`,
-lifted out of `src/Config.gs`, `src/Kpi.gs` and `src/Kpi2.gs` at run time.
-31 mutations, 29 caught; the two survivors are equivalent and each now has
-an assertion pinning the reason.
+`api/kpi2.js` is the same arrangement: **27,991 comparisons** across 42
+checks, against the real `normaliseAnswer`, `answerTier`, `moduleFor`,
+`scoreFeedback` and `CONFIG.TRAINING_COLUMNS`, lifted out of
+`src/Config.gs`, `src/Kpi.gs` and `src/Kpi2.gs` at run time. 31 mutations,
+29 caught; the two survivors are equivalent and each now has an assertion
+pinning the reason.
+
+The nineteen-column feedback layout is compared heading by heading, in
+order, because it is the one piece of KPI 2 that the Uploads screen also
+depends on: `kpi2.TRAINING_COLUMNS` is what turns a row of an `.xlsx` into
+a row of the `training` table, and a column list that drifts from
+`CONFIG.TRAINING_COLUMNS` would file every answer under the wrong question
+without failing anything.
 
 **KPI 2 is NOT a policy KPI and that survives the port.** Config.gs is
 blunt: TVL-KPI-001 section 5.3 gives EAS three KPIs and this is not one of
@@ -382,9 +390,12 @@ a library over 100KB is silently refused by the cache anyway.
 
 ### Uploads
 
-`src/Ingest.gs` ported to `api/uploads.js`, `api/ticket-merge.js` and
-`db/15-uploads.sql`. 98 checks in `api/uploads-test.js`; 34 mutations run,
-32 caught. **This is what removes the export-a-CSV-and-run-a-command step.**
+`src/Ingest.gs` ported to `api/uploads.js`, `api/ticket-merge.js`,
+`db/15-uploads.sql` and `db/16-training.sql`. 183 checks in
+`api/uploads-test.js`; 51 mutations run, 47 caught and the four survivors
+are equivalent. **This is what removes the export-a-CSV-and-run-a-command
+step**, and with the feedback half it is now the whole ingest chain:
+tickets and training responses both arrive through it.
 
 | Apps Script | New route | Status |
 |---|---|---|
@@ -394,11 +405,58 @@ a library over 100KB is silently refused by the cache anyway.
 | `getUploadHistory` | `GET /api/uploads` | DONE |
 | `deleteUpload` | `POST /api/uploads/delete` | DONE |
 | `getUploadCsvChunk`, `uploadCsvName`, `csvCell` | `GET /api/uploads/csv` | DONE |
-| `appendFeedbackBatch`, `finishFeedbackUpload`, `purgeOrphanedFeedback`, `compactFeedback`, `auditFeedback` | - | TODO - the `training` table exists; `removeFeedbackOf` is the piece `deleteUpload` still lacks |
+| `appendFeedbackBatch` | `POST /api/uploads/feedback` | DONE |
+| `finishFeedbackUpload` | `POST /api/uploads/feedback/finish` | DONE |
+| `auditFeedback` | `GET /api/uploads/orphans` | DONE |
+| `purgeOrphanedFeedback` | `POST /api/uploads/orphans/purge` | DONE |
+| `removeFeedbackOf` | inside `POST /api/uploads/delete` | DONE |
+| `compactFeedback` | - | **dropped**, like `compactTickets` - see below |
 | `compactTickets`, `rewrite`, `mergeRows`, `stampOf` | `ticket-merge.js`, as one SQL statement | DONE, differently - see below |
 | `recomputeAfterUpload` | - | **dropped**, with the KPI cache |
 | `uploadStamp` | one lookup of `upload_run.uploaded_at` | DONE, differently |
 | `clearAllTickets` | - | TODO, if it is wanted at all |
+
+**A feedback response is replaced whole; a ticket is merged field by
+field.** That difference is deliberate and it is the one thing in this file
+that is not a mechanical port. Two ticket exports describe the same ticket
+from different angles, so merging them column by column is how the record
+gets completed - which is why `ticket-merge.js` has twenty-four CASE
+expressions in it. A re-uploaded feedback file means the file was
+**corrected**, and half the old answers mixed with half the new ones is not
+a state anybody asked for, so `FEEDBACK_SQL` sets every column from the
+incoming row and the response id is never in the SET list.
+
+**Deleting an upload now takes its responses with it.** It did not, in the
+original: `deleteUpload` touched tickets only, so deleting a
+training-feedback upload took the row out of the history and left every
+response of it on the `TRAINING` tab - KPI 2 went on reporting data the
+user believed they had deleted. `removeFeedbackOf` runs in the same
+transaction as the ticket prune and the history row, and the result now
+reports `feedbackRemoved` alongside the ticket counts.
+
+**Which file a response came from is asked twice.** `source_file` when it
+is filled in, and otherwise the part of the `Response ID` before its last
+hash, because the id is `filename#rownumber` and rows written before
+`Source File` was populated still identify themselves. The last hash, not
+the first: a quarterly export is called `Q1#2026.xlsx`.
+
+That guard reads `hash > 0`, and **`hash >= 0` is an equivalent mutation**.
+The two differ only when the hash is the first character, and there
+`id.slice(0, 0)` is the empty string the other branch returns anyway. The
+test for `'#3'` is kept because it pins the answer, but no test can fail on
+the change. `> 0` stays because it says the intent - a filename has at
+least one character in it.
+
+**Matching is never done with LIKE.** `_` and `%` are wildcards in a LIKE
+pattern, and an export called `TEST-UPL_2026.xlsx` would match
+`TEST-UPLx2026.xlsx` - a delete that removed somebody else's rows. Both the
+count and the delete use `left(response_id, length(f) + 1) = f || '#'`
+instead, and a mutation that puts LIKE back is caught.
+
+**The purge deletes by the ids the audit listed**, not by re-deriving the
+condition in SQL, so the two cannot disagree about a `'#'` inside a text
+field. `GET /api/uploads/orphans` reports what it found and changes
+nothing; the purge is a second, separate call.
 
 **Three functions have no port, and each is an improvement rather than a
 gap:**
@@ -612,17 +670,18 @@ decided for a reason.
 7. ~~Knowledge, Learn, FAQ, By-Weekly~~ DONE except the two that need a
    file store: Knowledge attachments and the Learnings folder scan.
    ("Links" was `getByWeeklyLinks`, so it is four screens, not five.)
-8. **KPI 1, KPI 2, Compare, Uploads** - in progress. KPI 1 and Compare are
-   ported and proved identical to the original arithmetic (16,239
-   comparisons); the ticket import and the roster both work; **Uploads is
-   ported for tickets**, download included, which is what removes the
-   export-a-CSV-and-run-a-command step. **KPI 2's arithmetic is ported and
-   proved identical over 27,041 comparisons**, and the `training` table
-   exists, **and KPI 2's read side is ported** - three endpoints, 67 checks,
-   26 mutations and all 26 caught. Left in this stage: the feedback half of
-   Uploads (`appendFeedbackBatch`, `finishFeedbackUpload`,
-   `purgeOrphanedFeedback`, `removeFeedbackOf`), which is what will put real
-   rows in the `training` table.
+8. **KPI 1, KPI 2, Compare, Uploads** - server side DONE. KPI 1 and Compare
+   are ported and proved identical to the original arithmetic (16,239
+   comparisons); the ticket import and the roster both work. **KPI 2's
+   arithmetic is ported and proved identical over 27,991 comparisons**, and
+   **KPI 2's read side is ported** - three endpoints, 67 checks, 26
+   mutations and all 26 caught. **Uploads is ported whole** - tickets and
+   training feedback, download, history, delete, orphan audit and purge:
+   183 checks, 51 mutations, 47 caught and four equivalent. The ingest
+   chain is complete and the `training` table takes real rows.
+   Left in this stage: **the Uploads screen itself**, which is where the
+   `.xlsx` gets parsed in the browser and fed to these endpoints. Until it
+   exists the Saturday routine is unchanged.
 9. ~~Backups~~ DONE as code. **NOT done as a working arrangement** until
    `BACKUP_DIR` points off this machine, the nightly task exists, and one
    restore has actually been done. See the Backups section above. This has

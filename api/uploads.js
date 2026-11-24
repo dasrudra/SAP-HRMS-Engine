@@ -72,6 +72,7 @@
 const crypto = require('crypto');
 const db = require('./db');
 const merge = require('./ticket-merge');
+const kpi2 = require('./kpi2');
 
 const TZ = 'Asia/Dhaka';                       // appsscript.json
 
@@ -352,6 +353,363 @@ async function appendTicketBatch(uploadId, rows) {
 
 
 // ---------------------------------------------------------------------------
+// 2b. The same three calls, for training feedback
+// ---------------------------------------------------------------------------
+/*
+  KPI 2's half of the upload. Ingest.gs keeps it as a separate function from
+  appendTicketBatch rather than parameterising one, and says why:
+
+    "Kept separate rather than parameterised because the two write different
+     sheets with different widths and different merge keys, and a single
+     function juggling both would be the kind of code where a KPI 1 change
+     quietly breaks KPI 2."
+
+  That reasoning survives the move. The merge keys are genuinely different
+  ideas, not two settings of one idea:
+
+    a TICKET merges FIELD BY FIELD, because two exports describe the same
+    ticket from different angles and each fills in what the other left
+    blank.
+
+    a RESPONSE is REPLACED WHOLE, because re-uploading a feedback file means
+    the file was corrected, and half of the old answers mixed with half of
+    the new ones is not a thing anybody asked for. compactFeedback does the
+    same: "a later upload of the same response wins".
+*/
+
+/** The merge for one response. Built once, like the ticket one. */
+const FEEDBACK_SQL = (function () {
+  const names = kpi2.TRAINING_NAMES;
+  const placeholders = names.map(function (_, i) { return '$' + (i + 1); });
+
+  const sets = names
+    .filter(function (n) { return n !== 'response_id'; })
+    .map(function (n) { return '  ' + n + ' = EXCLUDED.' + n; });
+
+  return 'INSERT INTO training (' + names.join(', ') + ')\n' +
+         'VALUES (' + placeholders.join(', ') + ')\n' +
+         'ON CONFLICT (response_id) DO UPDATE SET\n' +
+         sets.join(',\n') + '\n' +
+         'RETURNING (xmax = 0) AS inserted';
+})();
+
+
+/**
+ * One row of cells, in TRAINING_COLUMNS order, as values for FEEDBACK_SQL.
+ *
+ * The two date columns go through readDate, so a session date with no
+ * timezone on it means Dhaka - the same rule, and the same reason, as the
+ * ticket side. The rest is text, trimmed, with NUL bytes removed.
+ */
+function feedbackValues(cells, uploadedAt) {
+  const row = cells || [];
+
+  return kpi2.TRAINING_COLUMNS.map(function (c, i) {
+    const col = c[1];
+    const cell = row[i];
+
+    if (col === 'uploaded_at') return uploadedAt;
+    if (kpi2.TRAINING_DATES.indexOf(col) !== -1) {
+      return merge.readDate(cell, null, col);
+    }
+    return merge.isBlank(cell) ? '' : merge.stripNul(String(cell).trim());
+  });
+}
+
+
+/**
+ * Merges one chunk of training responses. Ingest.gs appendFeedbackBatch.
+ *
+ * ensureTrainingHeaders HAS NO PORT. It existed because the sheet's header
+ * row could fall behind TRAINING_COLUMNS when a column was added, and a
+ * human reading the tab would see the wrong label. A table has no header
+ * row to fall behind; a new column is a migration file.
+ */
+async function appendFeedbackBatch(uploadId, rows) {
+  const batch = rows || [];
+  const id = String(uploadId || '').trim();
+  if (!id) throw new Error('No upload ID.');
+
+  const client = await db.pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const open = (await client.query(
+      'SELECT uploaded_at FROM upload_run WHERE upload_id = $1 FOR UPDATE',
+      [id])).rows[0];
+    if (!open) throw new Error('Upload ' + id + ' was never opened.');
+
+    if (!batch.length) {
+      await client.query('COMMIT');
+      const total = (await db.query('SELECT count(*)::int AS n FROM training'))[0].n;
+      return { appended: 0, inserted: 0, updated: 0, totalRows: total,
+               nulCells: 0, problems: [] };
+    }
+
+    const uploadedAt = new Date(open.uploaded_at).toISOString();
+    const nulBefore = merge.nulCount();
+    const problems = [];
+    let inserted = 0;
+    let updated = 0;
+
+    for (let i = 0; i < batch.length; i++) {
+      const values = feedbackValues(batch[i], uploadedAt);
+
+      // 'filename#rownumber' is the merge key, so a row without one has
+      // nothing to merge on and nothing to identify it by later.
+      if (merge.isBlank(values[kpi2.TRAINING_AT.response_id])) {
+        problems.push('row ' + (i + 1) + ': no Response ID, skipped');
+        continue;
+      }
+
+      const got = await client.query(FEEDBACK_SQL, values);
+      if (got.rows[0] && got.rows[0].inserted) inserted++;
+      else updated++;
+    }
+
+    await client.query(
+      `UPDATE upload_run
+          SET rows_added   = rows_added   + $2,
+              rows_updated = rows_updated + $3
+        WHERE upload_id = $1`,
+      [id, inserted, updated]);
+
+    const total = (await client.query('SELECT count(*)::int AS n FROM training'))
+      .rows[0].n;
+
+    await client.query('COMMIT');
+
+    const nulCells = merge.nulCount() - nulBefore;
+    if (nulCells) {
+      problems.push(nulCells + ' cell(s) contained a NUL byte, which ' +
+                    'PostgreSQL cannot store - removed');
+    }
+
+    return { appended: inserted + updated, inserted: inserted, updated: updated,
+             totalRows: total, nulCells: nulCells, problems: problems };
+  } catch (err) {
+    try { await client.query('ROLLBACK'); } catch (e) { /* connection is gone */ }
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+
+/**
+ * Which file did this response arrive in? Ingest.gs sourceOf.
+ *
+ * Source File when it is filled in; otherwise the Response ID, which is
+ * 'filename#rownumber' and so still identifies the file for rows written
+ * before Source File was populated.
+ *
+ * The LAST '#' is the separator, not the first - a filename may contain one.
+ * And a hash at position 0 means there is no filename in front of it, which
+ * is not a source.
+ */
+function sourceOf(responseId, sourceFile) {
+  const source = String(sourceFile === null || sourceFile === undefined
+                        ? '' : sourceFile).trim();
+  if (source) return source;
+
+  const id = String(responseId === null || responseId === undefined
+                    ? '' : responseId).trim();
+  const hash = id.lastIndexOf('#');
+  return hash > 0 ? id.slice(0, hash) : '';
+}
+
+
+/** Does this response belong to one of these files? */
+function feedbackBelongsTo(responseId, sourceFile, files) {
+  const list = files || [];
+  const source = String(sourceFile || '').trim();
+  if (source && list.indexOf(source) !== -1) return true;
+
+  const id = String(responseId || '').trim();
+  for (let i = 0; i < list.length; i++) {
+    if (id.indexOf(list[i] + '#') === 0) return true;
+  }
+  return false;
+}
+
+
+/** How many stored responses came from these files? Ingest.gs countFeedbackOf. */
+async function countFeedbackOf(files, client) {
+  const list = files || [];
+  if (!list.length) return 0;
+
+  const run = client ? client.query.bind(client) : db.query;
+  const sql =
+    `SELECT count(*)::int AS n FROM training
+      WHERE btrim(source_file) = ANY($1::text[])
+         OR EXISTS (SELECT 1 FROM unnest($1::text[]) AS f
+                     WHERE left(response_id, length(f) + 1) = f || '#')`;
+
+  const got = await run(sql, [list]);
+  return client ? got.rows[0].n : got[0].n;
+}
+
+
+/**
+ * Drops the training responses that arrived in these files.
+ *
+ * Ingest.gs removeFeedbackOf, and it notes why this is the easy twin of
+ * removeTicketsOf: "a response belongs to exactly one file, so there is no
+ * partial ownership to reason about". No pruning, no survivors to rewrite -
+ * a response is this upload's or it is not.
+ *
+ * left(response_id, length(f) + 1) RATHER THAN LIKE f || '#%', because a
+ * filename can contain % or _ and LIKE would read them as wildcards. An
+ * export called 'Q1_2026.xlsx' would then match files it has nothing to do
+ * with, and the delete would take rows that belong to somebody else.
+ */
+async function removeFeedbackOf(files, client) {
+  const list = files || [];
+  if (!list.length) return { removed: 0, changed: false };
+
+  const gone = await client.query(
+    `DELETE FROM training
+      WHERE btrim(source_file) = ANY($1::text[])
+         OR EXISTS (SELECT 1 FROM unnest($1::text[]) AS f
+                     WHERE left(response_id, length(f) + 1) = f || '#')`,
+    [list]);
+
+  return { removed: gone.rowCount, changed: gone.rowCount > 0 };
+}
+
+
+/**
+ * Closes a training feedback upload. Ingest.gs finishFeedbackUpload.
+ *
+ * Separate from finishUpload because there is no KPI cache to rebuild -
+ * KPI 2 scores live off the table. compactFeedback has no port either: the
+ * primary key deduplicated on the way in.
+ *
+ * `stored` is this upload's OWN rows, not the whole table's, and Ingest.gs
+ * records why that distinction was worth a bug fix: "Writing
+ * compactFeedback().kept here made a 15-response file report 30 stored as
+ * soon as a second file existed."
+ */
+async function finishFeedbackUpload(uploadId) {
+  const id = String(uploadId || '').trim();
+  if (!id) throw new Error('No upload ID.');
+
+  const rows = await db.query(
+    `UPDATE upload_run SET notes = $2 WHERE upload_id = $1
+     RETURNING upload_id, file_names, rows_in_file, rows_added, rows_updated, notes`,
+    [id, COMPLETE]);
+
+  if (!rows.length) throw new Error('Upload ' + id + ' not found.');
+
+  const files = splitList(rows[0].file_names);
+  const stored = await countFeedbackOf(files);
+  const total = (await db.query('SELECT count(*)::int AS n FROM training'))[0].n;
+
+  return {
+    uploadId:   rows[0].upload_id,
+    rowsInFile: rows[0].rows_in_file,
+    added:      rows[0].rows_added,
+    updated:    rows[0].rows_updated,
+    stored:     stored,
+    total:      total,
+    notes:      rows[0].notes
+  };
+}
+
+
+// ---------------------------------------------------------------------------
+// Responses whose upload is no longer in the history
+// ---------------------------------------------------------------------------
+
+/**
+ * Training responses with no surviving upload. Ingest.gs auditFeedback.
+ *
+ * THESE EXIST BECAUSE OF A BUG THAT IS ALREADY FIXED, and the comment in
+ * Ingest.gs is worth carrying over because it explains why a sweep is still
+ * needed for a bug nobody can cause any more:
+ *
+ *   "deleteUpload used to remove the log row and the tickets and leave the
+ *    TRAINING tab untouched, so every feedback upload deleted before that
+ *    was fixed left its responses behind - invisible in the upload history
+ *    and still counted by KPI 2. That cannot happen again, but the rows
+ *    already orphaned are still there and only a sweep like this will find
+ *    them."
+ *
+ * READ-ONLY. Nothing is removed until purgeOrphanedFeedback is called.
+ */
+async function auditFeedback() {
+  const known = (await db.query(
+    `SELECT DISTINCT btrim(s) AS f
+       FROM upload_run, unnest(string_to_array(file_names, ' | ')) AS s
+      WHERE btrim(s) <> ''`)).map(function (r) { return r.f; });
+
+  const rows = await db.query(
+    'SELECT response_id, source_file FROM training ORDER BY response_id');
+
+  const byFile = {};
+  const order = [];
+  const orphanIds = [];
+  let kept = 0;
+
+  rows.forEach(function (r) {
+    if (!String(r.response_id || '').trim()) return;
+
+    if (feedbackBelongsTo(r.response_id, r.source_file, known)) { kept++; return; }
+
+    orphanIds.push(r.response_id);
+    const name = sourceOf(r.response_id, r.source_file) ||
+                 '(no source file recorded)';
+    if (!byFile[name]) { byFile[name] = 0; order.push(name); }
+    byFile[name]++;
+  });
+
+  return {
+    orphans: orphanIds.length,
+    kept: kept,
+    orphanIds: orphanIds,
+    files: order.map(function (name) {
+      return { fileName: name, rows: byFile[name] };
+    }).sort(function (a, b) { return b.rows - a.rows; })
+  };
+}
+
+
+/**
+ * Removes the responses auditFeedback found.
+ *
+ * DELETES BY THE IDS THE AUDIT LISTED, not by re-deriving the condition in
+ * SQL. The audit and the delete then cannot disagree - which matters here,
+ * because the condition involves a '#' inside a text field and there are
+ * two ways to write it, and a delete that removed slightly more than the
+ * audit reported would be the worst kind of bug in a file like this.
+ */
+async function purgeOrphanedFeedback() {
+  const audit = await auditFeedback();
+  if (!audit.orphans) {
+    return { removed: 0, kept: audit.kept, files: [] };
+  }
+
+  const client = await db.pool.connect();
+  try {
+    await client.query('BEGIN');
+    const gone = await client.query(
+      'DELETE FROM training WHERE response_id = ANY($1::text[])',
+      [audit.orphanIds]);
+    const kept = (await client.query('SELECT count(*)::int AS n FROM training'))
+      .rows[0].n;
+    await client.query('COMMIT');
+
+    return { removed: gone.rowCount, kept: kept, files: audit.files };
+  } catch (err) {
+    try { await client.query('ROLLBACK'); } catch (e) { /* connection is gone */ }
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+
+// ---------------------------------------------------------------------------
 // 3. Closing it
 // ---------------------------------------------------------------------------
 
@@ -484,6 +842,7 @@ async function deleteUpload(uploadId) {
 
     let removed = 0;
     let pruned = 0;
+    let feedback = { removed: 0, changed: false };
 
     if (files.length) {
       const gone = await client.query(
@@ -514,6 +873,19 @@ async function deleteUpload(uploadId) {
       pruned = trimmed.rowCount;
     }
 
+    /*
+      AND THE TRAINING RESPONSES. Ingest.gs had to fix this one twice over:
+
+        "This used to touch TICKETS only, so deleting a training-feedback
+         upload took the row out of the history and left every response of
+         it on the TRAINING tab - KPI 2 went on reporting data the user
+         believed they had deleted."
+
+      Same transaction as the tickets and the log row, so an upload can
+      never be half deleted.
+    */
+    feedback = await removeFeedbackOf(files, client);
+
     // The log row goes outright. Ingest.gs: "Leaving a 'deleted' marker
     // behind just accumulates dead rows in the history the user has to read
     // past."
@@ -525,7 +897,7 @@ async function deleteUpload(uploadId) {
     await client.query('COMMIT');
 
     return { uploadId: id, removed: removed, pruned: pruned, kept: kept,
-             files: files };
+             feedbackRemoved: feedback.removed, files: files };
   } catch (err) {
     try { await client.query('ROLLBACK'); } catch (e) { /* connection is gone */ }
     throw err;
@@ -716,5 +1088,8 @@ module.exports = {
   UPLOAD_CSV_CHUNK, IN_PROGRESS, COMPLETE,
   stamp, newUploadId, joinList, splitList, readDay,
   uploadCsvName, csvCell, csvSelectList, uploadCsvChunk,
-  beginUpload, appendTicketBatch, finishUpload, uploadHistory, deleteUpload
+  beginUpload, appendTicketBatch, finishUpload, uploadHistory, deleteUpload,
+  FEEDBACK_SQL, feedbackValues, sourceOf, feedbackBelongsTo,
+  appendFeedbackBatch, finishFeedbackUpload, countFeedbackOf,
+  removeFeedbackOf, auditFeedback, purgeOrphanedFeedback
 };

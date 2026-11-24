@@ -99,10 +99,12 @@ app.use(cors({
   the point of batching is progress on screen, not filling a request - so
   this is headroom, not a target.
 */
-app.use('/api/uploads/tickets',
-        function (req, res, next) { requireAuth(req, res, next); },
-        function (req, res, next) { requireAdmin(req, res, next); },
-        express.json({ limit: '8mb' }));
+['/api/uploads/tickets', '/api/uploads/feedback'].forEach(function (path) {
+  app.use(path,
+          function (req, res, next) { requireAuth(req, res, next); },
+          function (req, res, next) { requireAdmin(req, res, next); },
+          express.json({ limit: '8mb' }));
+});
 
 app.use(express.json());
 
@@ -1698,6 +1700,74 @@ app.post('/api/uploads/tickets', requireAuth, requireAdmin,
         return res.status(400).json({ ok: false, error: err.message });
       }
       fail(res, err, 'could not store the rows');
+    }
+  });
+
+
+/** One chunk of training feedback responses. Admin only. */
+app.post('/api/uploads/feedback', requireAuth, requireAdmin,
+  async function (req, res) {
+    const b = req.body || {};
+
+    if (!Array.isArray(b.rows)) {
+      return res.status(400).json({ ok: false, error: 'rows must be an array' });
+    }
+
+    try {
+      const out = await uploads.appendFeedbackBatch(b.uploadId, b.rows);
+      res.json(Object.assign({ ok: true }, out));
+    } catch (err) {
+      if (/never opened|No upload ID/.test(err.message)) {
+        return res.status(400).json({ ok: false, error: err.message });
+      }
+      fail(res, err, 'could not store the responses');
+    }
+  });
+
+
+/** Closes a feedback upload. Admin only. Safe to call twice. */
+app.post('/api/uploads/feedback/finish', requireAuth, requireAdmin,
+  async function (req, res) {
+    try {
+      const out = await uploads.finishFeedbackUpload((req.body || {}).uploadId);
+      res.json(Object.assign({ ok: true }, out));
+    } catch (err) {
+      if (/not found|No upload ID/.test(err.message)) {
+        return res.status(404).json({ ok: false, error: err.message });
+      }
+      fail(res, err, 'could not close the upload');
+    }
+  });
+
+
+/**
+ * Training responses whose upload is no longer in the history.
+ *
+ * READ-ONLY, and separate from the purge on purpose. Ingest.gs keeps the
+ * same split: you look at what would go before anything goes.
+ */
+app.get('/api/uploads/orphans', requireAuth, requireAdmin,
+  async function (req, res) {
+    try {
+      const out = await uploads.auditFeedback();
+      // orphanIds is for the purge, not for a screen - a list of thousands
+      // of ids is not something a page should be asked to render.
+      res.json({ ok: true, orphans: out.orphans, kept: out.kept,
+                 files: out.files });
+    } catch (err) {
+      fail(res, err, 'could not audit the training responses');
+    }
+  });
+
+
+/** Removes them. Admin only, as purgeOrphanedFeedback is. */
+app.post('/api/uploads/orphans/purge', requireAuth, requireAdmin,
+  async function (req, res) {
+    try {
+      const out = await uploads.purgeOrphanedFeedback();
+      res.json(Object.assign({ ok: true }, out));
+    } catch (err) {
+      fail(res, err, 'could not remove the orphaned responses');
     }
   });
 

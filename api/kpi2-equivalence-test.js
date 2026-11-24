@@ -220,6 +220,23 @@ function main() {
         port.KPI_FEEDBACK.yellowFloor, String(port.KPI_FEEDBACK.yellowFloor));
   check('KPI 2 is still marked as NOT a policy KPI',
         /policy:\s*false/.test(feedbackBlock) && port.KPI_FEEDBACK.policy === false);
+  /*
+    THE TRAINING COLUMN ORDER, which matters because feedback rows still
+    arrive from the browser as plain arrays. One column out of place and
+    every value after it lands in the wrong field - silently, because they
+    are nearly all text.
+  */
+  const TRAINING_COLUMNS = liftLiteral('TRAINING_COLUMNS', '[', ']');
+  check('the training columns are the ones in Config.gs, in order',
+        JSON.stringify(port.TRAINING_HEADERS) === JSON.stringify(TRAINING_COLUMNS),
+        'port has ' + port.TRAINING_HEADERS.length + ', Config.gs has ' +
+        (TRAINING_COLUMNS || []).length);
+  check('each heading has a database column of its own',
+        port.TRAINING_NAMES.length === port.TRAINING_HEADERS.length &&
+        new Set(port.TRAINING_NAMES).size === port.TRAINING_NAMES.length);
+  check('Zone is still last, as the sheet has it',
+        port.TRAINING_HEADERS[port.TRAINING_HEADERS.length - 1] === 'Zone');
+
   check('the seven questions are the seven questions',
         port.QUESTION_LABELS.length === 7 &&
         kpi2Src.indexOf(port.QUESTION_LABELS[0]) !== -1 &&
