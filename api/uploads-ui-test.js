@@ -42,10 +42,27 @@ const PAGE = BASE + '/uploads.html';
 let passed = 0;
 let failed = 0;
 
+/*
+  EVERY FAILURE IS PRINTED TWICE: once where it happens, and again at the
+  end. These suites run to several hundred lines and a terminal keeps a
+  few hundred, so the one line that mattered is the one that has scrolled
+  off by the time the summary appears. Reporting them again at the bottom
+  costs nothing and removes a whole round of "which one failed?".
+*/
+const failures = [];
 function check(name, ok, detail) {
   if (ok) { passed++; console.log('  ok   ' + name); return; }
   failed++;
-  console.log('  FAIL ' + name + (detail === undefined ? '' : '   ' + detail));
+  const line = name + (detail === undefined ? '' : '   ' + detail);
+  failures.push(line);
+  console.log('  FAIL ' + line);
+}
+
+function recap() {
+  if (!failures.length) return;
+  console.log('');
+  console.log('  ' + failures.length + ' failed:');
+  failures.forEach(function (line) { console.log('    - ' + line); });
 }
 
 
@@ -256,7 +273,19 @@ async function main() {
   check('it reported the merge: four rows in, three tickets out',
         /3 new tickets stored/.test(ticketStatus), ticketStatus);
   check('and said how many tickets exist altogether',
-        /3 tickets in the database/.test(ticketStatus), ticketStatus);
+        /[\d,]+ tickets in the database/.test(ticketStatus), ticketStatus);
+  /*
+    AND THAT FIGURE IS THE WHOLE TABLE, so it cannot be asserted as a
+    constant. This check read `/3 tickets in the database/` and passed on
+    an empty sandbox and failed on a real machine with 26,414 tickets
+    already in it, which is the test being wrong rather than the screen.
+    What is true on both is that the number is at least this upload's own
+    three.
+  */
+  const inDb = Number(String((ticketStatus.match(/([\d,]+) tickets in the database/)
+                              || [])[1] || '0').replace(/,/g, ''));
+  check('and it is the whole table, not just this upload', inDb >= 3,
+        String(inDb));
   check('the per-file summary named both files and what each was',
         /OVERALL/.test(ticketStatus) && /INDIVIDUAL/.test(ticketStatus),
         ticketStatus);
@@ -833,9 +862,9 @@ async function main() {
   // is why the check above is about an id.
   check('the earlier upload of the same file is untouched',
         (await db.query("SELECT count(*)::int AS n FROM upload_run" +
-                        " WHERE file_names LIKE '%Trainee Feedback%'"))[0].n === 1,
+                        " WHERE file_names LIKE '%TEST-UI Trainee Feedback%'"))[0].n === 1,
         String((await db.query("SELECT count(*)::int AS n FROM upload_run" +
-                               " WHERE file_names LIKE '%Trainee Feedback%'"))[0].n));
+                               " WHERE file_names LIKE '%TEST-UI Trainee Feedback%'"))[0].n));
 
 
   // =======================================================================
@@ -916,12 +945,29 @@ async function main() {
              buttons: box.querySelectorAll('[data-purge]').length };
   });
   check('THE ORPHAN IS NOTICED, and the screen says so', notice.shown);
-  check('it says how many and that KPI 2 is still counting them',
-        /1 training response left over from a deleted upload/.test(notice.text) &&
+  /*
+    HOW MANY IS WHATEVER THE DATABASE HAS, not always one.
+
+    The orphan written above is one; a real database may already hold
+    others from before deleting an upload took its responses with it. The
+    notice has to say the true number, and asserting a constant here would
+    fail on exactly the machines where the warning matters most.
+  */
+  const orphanCount = (await db.query(
+    "SELECT count(*)::int AS n FROM training t WHERE NOT EXISTS (" +
+    " SELECT 1 FROM upload_run u," +
+    "        unnest(string_to_array(u.file_names, ' | ')) AS f" +
+    "  WHERE btrim(f) = btrim(t.source_file)" +
+    "     OR left(t.response_id, length(btrim(f)) + 1) = btrim(f) || '#')"))[0].n;
+  check('the orphan I wrote is among them', orphanCount >= 1, String(orphanCount));
+  check('it says how many, and that KPI 2 is still counting them',
+        new RegExp(orphanCount.toLocaleString('en-US') + ' training response' +
+                   (orphanCount === 1 ? '' : 's') +
+                   ' left over from a deleted upload').test(notice.text) &&
         /still being counted in KPI 2/.test(notice.text),
-        notice.text.slice(0, 140));
-  check('and that there is no way to see where it came from',
-        /no way to see where it came from/.test(notice.text),
+        orphanCount + ' | ' + notice.text.slice(0, 140));
+  check('and that there is no way to see where they came from',
+        /no way to see where (it|they) came from/.test(notice.text),
         notice.text.slice(0, 200));
   check('and that this is old wreckage, not something still happening',
         /that is fixed, but what was already orphaned is still here/
@@ -995,8 +1041,9 @@ async function main() {
   await p.click('#modalConfirm');
   const purged = await waitForStatus(p, /Removed /, 60000);
   check('the purge reported what it removed and what it kept',
-        /Removed 1 orphaned response/.test(purged) && /1 kept/.test(purged),
-        purged);
+        new RegExp('Removed ' + orphanCount.toLocaleString('en-US') +
+                   ' orphaned response').test(purged) && /\d+ kept/.test(purged),
+        orphanCount + ' | ' + purged);
   check('THE ORPHAN IS GONE',
         (await db.query("SELECT 1 FROM training" +
                         " WHERE response_id = 'TEST-UI-orphan.xlsx#1'")).length === 0);
@@ -1241,6 +1288,7 @@ async function main() {
 
   console.log('');
   console.log('  ' + passed + ' passed, ' + failed + ' failed');
+  recap();
   console.log('');
   process.exit(failed ? 1 : 0);
 }
@@ -1490,6 +1538,7 @@ async function historyRows(p) {
 main().catch(function (err) {
   console.error('');
   console.error('  The suite itself broke: ' + (err && err.stack || err));
+  recap();
   console.error('');
   process.exit(1);
 });

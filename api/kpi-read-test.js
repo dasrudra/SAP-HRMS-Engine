@@ -55,10 +55,28 @@ const RUN = String(Math.floor(Math.random() * 90) + 10);
 const PRE = '2019';    // before SECTION_ERA_START '2026-08'
 const POST = '2099';   // after it
 
+/*
+  EVERY FAILURE IS PRINTED TWICE: once where it happens, and again at the
+  end. These suites run to several hundred lines and a terminal keeps a
+  few hundred, so the one line that mattered is the one that has scrolled
+  off by the time the summary appears. Reporting them again at the bottom
+  costs nothing and removes a whole round of "which one failed?".
+*/
 let pass = 0, fail = 0;
+const failures = [];
 function check(name, ok, detail) {
-  if (ok) { pass++; console.log('  ok   ' + name); }
-  else { fail++; console.log('  FAIL ' + name + (detail ? '   ' + detail : '')); }
+  if (ok) { pass++; console.log('  ok   ' + name); return; }
+  fail++;
+  const line = name + (detail ? '   ' + detail : '');
+  failures.push(line);
+  console.log('  FAIL ' + line);
+}
+
+function recap() {
+  if (!failures.length) return;
+  console.log('');
+  console.log('  ' + failures.length + ' failed:');
+  failures.forEach(function (line) { console.log('    - ' + line); });
 }
 
 function call(path, token) {
@@ -671,35 +689,105 @@ async function main() {
       each and '(' sorts before 'Z', so the alphabetical tie-break cannot
       be satisfied by insertion order either.
   */
-  // KSL: 5 across two months, plus one with nobody on it. YOUNGONE: 3.
-  // ZEPHYR and (none given): one each, tied.
-  await affTicket(POST + '-03', P2, 'KSL');
-  await affTicket(POST + '-03', P2, 'KSL');
-  await affTicket(POST + '-03', P1, 'KSL');
-  await affTicket(POST + '-03', P1, 'KSL', { delay: 3 });
-  await affTicket(POST + '-04', P1, 'KSL');
+  /*
+    AND THE NAMES AND THE MONTH ARE THE SUITE'S OWN.
 
-  await affTicket(POST + '-03', P1, 'YOUNGONE');
-  await affTicket(POST + '-03', P1, 'YOUNGONE');
-  await affTicket(POST + '-03', P2, 'YOUNGONE');
+    This ran against an empty sandbox and passed, and against a machine
+    with 26,414 real tickets on it and failed seven checks - because every
+    exact count here was really a count of the WHOLE ticket table. The
+    affiliates are TEST- prefixed now so they cannot collide with a real
+    one, and every assertion that names a number asks for month 2099-03,
+    where nothing but this fixture can exist.
 
-  await affTicket(POST + '-03', P1, 'ZEPHYR');
-  await affTicket(POST + '-03', P2, '');
+    The '(none given)' bucket is the exception: it cannot be renamed,
+    because it is what a BLANK affiliate is called. Scoping to 2099 is
+    what keeps it honest.
+  */
+  const MONTH = POST + '-03';          // nothing real is ever in 2099
+  const NEXT = POST + '-04';
+
+  // In 2099-03: TEST-KSL 6, TEST-YOUNGONE 3, (none given) 1, TEST-ZEPHYR 1.
+  // One more TEST-KSL ticket sits in 2099-04, for the month filter.
+  await affTicket(MONTH, P2, 'TEST-KSL');
+  await affTicket(MONTH, P2, 'TEST-KSL');
+  await affTicket(MONTH, P1, 'TEST-KSL');
+  await affTicket(MONTH, P1, 'TEST-KSL');
+  await affTicket(MONTH, P1, 'TEST-KSL', { delay: 3 });
+  await affTicket(NEXT,  P1, 'TEST-KSL');
+
+  await affTicket(MONTH, P1, 'TEST-YOUNGONE');
+  await affTicket(MONTH, P1, 'TEST-YOUNGONE');
+  await affTicket(MONTH, P2, 'TEST-YOUNGONE');
+
+  await affTicket(MONTH, P1, 'TEST-ZEPHYR');
+  await affTicket(MONTH, P2, '');
 
   // A ticket nobody is recorded against. It still counts towards the
   // affiliate, because the affiliate is on the ticket - but it cannot
   // become a person, because there is no person on it.
-  await affTicket(POST + '-03', '', 'KSL');
+  await affTicket(MONTH, '', 'TEST-KSL');
 
-  const affAll = (await call('/api/kpi1/affiliates?month=ALL', token)).body;
+  /*
+    THE FIRST CALL IS CHECKED FOR ANSWERING AT ALL, and its error is
+    printed.
+
+    When this endpoint 500s, every check below it reads an undefined list,
+    reports `[]` and tells you nothing - which is exactly what a real run
+    did. Eleven failures that all say `[]` are one failure wearing eleven
+    hats, and the one fact that would have explained them - what the server
+    said - was in none of them.
+  */
+  const affAllRes = await call('/api/kpi1/affiliates?month=ALL', token);
+  const affAll = affAllRes.body || {};
+  check('THE AFFILIATE ENDPOINT ANSWERS AT ALL',
+        affAllRes.code === 200 && Array.isArray(affAll.affiliates),
+        affAllRes.code + ' ' + (affAll.error ||
+          JSON.stringify(affAll).slice(0, 160)));
+  if (affAllRes.code !== 200) {
+    console.log('');
+    console.log('  Everything below needs that call to work, so the failures');
+    console.log('  under it are all this one failure. Two things cause it:');
+    console.log('');
+    console.log('    api/kpi-read.js is not the version that has');
+    console.log('    affiliateList in it - check it is the file you were');
+    console.log('    sent, not the older one; or');
+    console.log('');
+    console.log('    the API has not been restarted since it was replaced.');
+    console.log('    Node loads a file once and keeps it: Terminal 3,');
+    console.log('    Ctrl+C, npm start.');
+    console.log('');
+    console.log('  The server terminal prints the real error beside a 500.');
+    console.log('');
+  }
   const affNames = (affAll.affiliates || []).map(function (a) { return a.name; });
+  /*
+    THE ALL-MONTHS CALL IS ASKED ABOUT MEMBERSHIP, NOT COUNTS. It sees
+    every ticket in the database, including whatever is really there, so
+    the only honest thing to assert about it is that this fixture's
+    affiliates are among what it returned - and that it answered at all,
+    which is the code path that was broken.
+  */
   check('every affiliate in scope is listed',
-        affNames.indexOf('KSL') !== -1 && affNames.indexOf('YOUNGONE') !== -1,
-        JSON.stringify(affNames));
+        affNames.indexOf('TEST-KSL') !== -1 &&
+        affNames.indexOf('TEST-YOUNGONE') !== -1,
+        JSON.stringify(affNames.slice(0, 8)));
   check('A BLANK AFFILIATE IS LISTED AS (none given), not dropped',
-        affNames.indexOf('(none given)') !== -1, JSON.stringify(affNames));
-  const ksl = (affAll.affiliates || []).filter(function (a) {
-    return a.name === 'KSL';
+        affNames.indexOf('(none given)') !== -1,
+        JSON.stringify(affNames.slice(0, 8)));
+
+  /*
+    EVERYTHING WITH A NUMBER IN IT ASKS FOR 2099-03, where nothing but
+    this fixture can exist. Asserted against All months, these were really
+    assertions about the whole ticket table: they passed on an empty
+    sandbox and failed on a real machine.
+  */
+  const affPeriod = (await call('/api/kpi1/affiliates?month=' + MONTH,
+                                token)).body;
+  const periodNames = (affPeriod.affiliates || []).map(function (a) {
+    return a.name;
+  });
+  const ksl = (affPeriod.affiliates || []).filter(function (a) {
+    return a.name === 'TEST-KSL';
   })[0];
   check('and each carries its ticket count', ksl && ksl.tickets === 6,
         ksl && String(ksl.tickets));
@@ -710,14 +798,18 @@ async function main() {
     order of two equally busy affiliates is whatever the database felt like,
     and a dropdown that reshuffles between page loads looks broken.
   */
-  const counts = (affAll.affiliates || []).map(function (a) { return a.tickets; });
+  const counts = (affPeriod.affiliates || []).map(function (a) {
+    return a.tickets;
+  });
   check('listed busiest first',
+        counts.length > 1 &&
         counts.every(function (c, i) { return i === 0 || counts[i - 1] >= c; }),
         JSON.stringify(counts));
   check('and busiest first means exactly this order',
-        JSON.stringify(affNames.slice(0, 4)) ===
-        JSON.stringify(['KSL', 'YOUNGONE', '(none given)', 'ZEPHYR']),
-        JSON.stringify(affNames));
+        JSON.stringify(periodNames) ===
+        JSON.stringify(['TEST-KSL', 'TEST-YOUNGONE', '(none given)',
+                        'TEST-ZEPHYR']),
+        JSON.stringify(periodNames));
   /*
     A TIE IS BROKEN BY NAME, not left to the database. Without it, the
     order of two equally busy affiliates is whatever the plan felt like
@@ -737,23 +829,23 @@ async function main() {
     reordering them - which is exactly when the guarantee matters and
     exactly when nobody would be looking.
   */
-  const tied = affNames.filter(function (n) {
-    return n === '(none given)' || n === 'ZEPHYR';
+  const tied = periodNames.filter(function (n) {
+    return n === '(none given)' || n === 'TEST-ZEPHYR';
   });
   check('and two equally busy affiliates are ordered by name',
-        JSON.stringify(tied) === JSON.stringify(['(none given)', 'ZEPHYR']),
+        JSON.stringify(tied) === JSON.stringify(['(none given)', 'TEST-ZEPHYR']),
         JSON.stringify(tied));
 
-  const affMonth = (await call('/api/kpi1/affiliates?month=' + POST + '-04',
+  const affMonth = (await call('/api/kpi1/affiliates?month=' + NEXT,
                                token)).body;
   const kslApr = (affMonth.affiliates || []).filter(function (a) {
-    return a.name === 'KSL';
+    return a.name === 'TEST-KSL';
   })[0];
   check('ONE MONTH COUNTS ONLY THAT MONTH', kslApr && kslApr.tickets === 1,
         kslApr && String(kslApr.tickets));
   check('and an affiliate with nothing that month is not offered',
         (affMonth.affiliates || []).every(function (a) {
-          return a.name !== 'YOUNGONE';
+          return a.name !== 'TEST-YOUNGONE';
         }), JSON.stringify(affMonth.affiliates));
   /*
     'ALL' AND A NAMED MONTH TAKE DIFFERENT CODE PATHS, and the first one
@@ -765,10 +857,15 @@ async function main() {
   check('and the all-months call answers at all, which it did not at first',
         (await call('/api/kpi1/affiliates?month=ALL', token)).code === 200);
 
-  const byKsl = (await call('/api/kpi1/by-affiliate?month=ALL&affiliate=KSL',
-                            token)).body;
+  /*
+    AND SO DOES EVERY by-affiliate CHECK. 'All months' here would sum this
+    fixture together with every real ticket that happens to carry the same
+    affiliate, and the people list would be the whole team.
+  */
+  const byKsl = (await call('/api/kpi1/by-affiliate?month=' + MONTH +
+                            '&affiliate=TEST-KSL', token)).body;
   check('one affiliate scores only its own tickets',
-        byKsl.hasData === true && byKsl.people.length === 2,
+        byKsl.hasData === true && (byKsl.people || []).length === 2,
         JSON.stringify((byKsl.people || []).map(function (p) { return p.name; })));
   const kslOne = (byKsl.people || []).filter(function (p) {
     return p.name === P1;
@@ -784,17 +881,21 @@ async function main() {
         (byKsl.people || []).every(function (p) {
           return String(p.name || '').trim() !== '';
         }), JSON.stringify((byKsl.people || []).map(function (p) { return p.name; })));
-  check('so KSL has six tickets but only two people',
-        byKsl.people.reduce(function (n, p) { return n + p.received; }, 0) === 5,
-        String(byKsl.people.reduce(function (n, p) { return n + p.received; }, 0)));
+  const kslTickets = (byKsl.people || []).reduce(function (n, p) {
+    return n + p.received;
+  }, 0);
+  check('so KSL has six tickets but only two people', kslTickets === 5,
+        String(kslTickets));
   /*
     BUSIEST FIRST. One handled three KSL tickets, Two handled two - so the
     order is a fact here rather than a coincidence, and sorting it wrongly
     puts the quietest person at the top of a table people read top-down.
   */
   check('the busiest person is first',
-        byKsl.people[0] && byKsl.people[0].name === P1,
-        byKsl.people.map(function (p) { return p.name + ':' + p.received; }).join(', '));
+        (byKsl.people || [])[0] && byKsl.people[0].name === P1,
+        (byKsl.people || []).map(function (p) {
+          return p.name + ':' + p.received;
+        }).join(', '));
   check('and they are scored, not just counted',
         kslOne && kslOne.delayed === 1 && kslOne.successful === 2 &&
         typeof kslOne.rate === 'number' && typeof kslOne.band === 'string',
@@ -818,10 +919,10 @@ async function main() {
     passed. KSL has five tickets across two months and one of them is in
     April.
   */
-  const kslApril = (await call('/api/kpi1/by-affiliate?month=' + POST +
-                               '-04&affiliate=KSL', token)).body;
+  const kslApril = (await call('/api/kpi1/by-affiliate?month=' + NEXT +
+                               '&affiliate=TEST-KSL', token)).body;
   check('A BY-AFFILIATE CALL FOR ONE MONTH SCORES ONLY THAT MONTH',
-        kslApril.hasData === true && kslApril.people.length === 1 &&
+        kslApril.hasData === true && (kslApril.people || []).length === 1 &&
         kslApril.people[0].received === 1,
         JSON.stringify((kslApril.people || []).map(function (p) {
           return p.name + ':' + p.received;
@@ -831,34 +932,38 @@ async function main() {
           return p.name !== P2;
         }), JSON.stringify(kslApril.people));
 
-  const byBlank = (await call('/api/kpi1/by-affiliate?month=ALL&affiliate=',
-                              token)).body;
+  const byBlank = (await call('/api/kpi1/by-affiliate?month=' + MONTH +
+                              '&affiliate=', token)).body;
   check('no affiliate chosen scores everybody',
-        byBlank.people.length === 2 &&
-        byBlank.people.reduce(function (n, p) { return n + p.received; }, 0) === 10,
-        JSON.stringify(byBlank.people.map(function (p) {
+        (byBlank.people || []).length === 2 &&
+        (byBlank.people || []).reduce(function (n, p) {
+          return n + p.received;
+        }, 0) === 10,
+        JSON.stringify((byBlank.people || []).map(function (p) {
           return p.name + ':' + p.received;
         })));
 
-  const byNone = (await call('/api/kpi1/by-affiliate?month=ALL&affiliate=' +
+  const byNone = (await call('/api/kpi1/by-affiliate?month=' + MONTH +
+                             '&affiliate=' +
                              encodeURIComponent('(none given)'), token)).body;
   check('and the blank affiliate can be scored like any other',
-        byNone.hasData === true && byNone.people.length === 1 &&
+        byNone.hasData === true && (byNone.people || []).length === 1 &&
         byNone.people[0].received === 1,
         JSON.stringify(byNone.people));
 
-  const byMissing = (await call('/api/kpi1/by-affiliate?month=ALL&affiliate=NOBODY',
-                                token)).body;
+  const byMissing = (await call('/api/kpi1/by-affiliate?month=' + MONTH +
+                                '&affiliate=TEST-NOBODY', token)).body;
   check('an affiliate nobody handled is empty rather than an error',
-        byMissing.hasData === false && byMissing.people.length === 0);
+        byMissing.hasData === false && (byMissing.people || []).length === 0,
+        JSON.stringify(byMissing).slice(0, 120));
 
   /*
     THE STANDARD HAS TO TRAVEL WITH IT. These rows sit in the same table as
     rows scored by /api/kpi1, so banding them against the other target would
     make the table contradict itself halfway down.
   */
-  const kslEas = (await call('/api/kpi1/by-affiliate?month=ALL&affiliate=KSL' +
-                             '&standard=EAS', token)).body;
+  const kslEas = (await call('/api/kpi1/by-affiliate?month=' + MONTH +
+                             '&affiliate=TEST-KSL&standard=EAS', token)).body;
   const oneEas = (kslEas.people || []).filter(function (p) {
     return p.name === P1;
   })[0];
@@ -877,10 +982,14 @@ async function main() {
 
   console.log('');
   console.log('  ' + pass + ' passed, ' + fail + ' failed');
+  recap();
+  console.log('');
   process.exit(fail ? 1 : 0);
 }
 
 main().catch(function (err) {
   console.error('\n  Failed: ' + err.message + '\n' + err.stack + '\n');
+  recap();
+  console.error('');
   process.exit(1);
 });
