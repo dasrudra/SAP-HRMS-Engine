@@ -508,7 +508,7 @@ blank-fill has already done it. Both are kept - they state the intent - and
 both have an assertion pinning the reason they cannot be caught.
 
 **The screen is tested in a real browser**, against the real server and a
-real database: `api/uploads-ui-test.js`, 123 checks. Three things in the
+real database: `api/uploads-ui-test.js`, 129 checks. Three things in the
 chain exist nowhere else - `FileReader`, SheetJS reading the zip an `.xlsx`
 is, and the drop itself - and the option that matters most in the whole
 screen lives exactly there. `cellDates: true` is one word; without it every
@@ -538,6 +538,23 @@ of these was a check that passed and could not be made to fail:
 - **A trailing blank row**, which real exports carry, and **a feedback file
   whose name places no module**, which has to be reported rather than
   quietly filed under `(unassigned)`.
+
+**47 mutations of the screen, 45 caught.** The two survivors are both cases
+this suite genuinely cannot reach, and each says so where it sits:
+
+- **`blankrows: false` cannot be caught.** A blank row is dropped twice
+  over - once by that option and again by the no-Ticket-ID rule for tickets
+  or the answered-nothing rule for feedback - so removing the option
+  changes no stored row and no number on screen. It is kept because a real
+  `.xlsx` can carry tens of thousands of phantom trailing rows, and parsing
+  them all to throw them away is a cost rather than a bug.
+- **Removing the row from the table before the refresh cannot be caught.**
+  The page takes the row out itself and then re-reads the history, and by
+  the time the status box can be read the re-read may already have
+  finished - so the outcome is identical either way. It is kept for the
+  reason `App.html` gives: "the answer to did that work should not depend
+  on a second round trip that might itself be slow", and a delete can take
+  minutes. The outcome is what is asserted.
 
 **One real regression was caught this way.** `GET /api/uploads/boot` was
 written to compute the orphan count for admins only, on the reasoning that
@@ -791,8 +808,9 @@ decided for a reason.
    mutations and all 26 caught. **Uploads is ported whole, screen included**
    - tickets and training feedback, download, history, delete, orphan audit
    and purge: 183 server checks, and the screen itself at
-   `api/public/uploads.html`, driven end to end in a real browser (123
-   checks). **This is the first of the twenty screens and the one that
+   `api/public/uploads.html`, driven end to end in a real browser (129
+   checks, 47 mutations, 45 caught). **This is the first of the twenty
+   screens and the one that
    changes the Saturday routine** - the `.xlsx` is parsed in the browser
    and fed straight to the endpoints, so there is no CSV and no terminal.
    Left in this stage: **the KPI 1 and KPI 2 screens**, which the Uploads
