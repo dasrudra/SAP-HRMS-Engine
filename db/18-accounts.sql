@@ -2,6 +2,18 @@
 -- 18-accounts.sql - the four columns the Accounts screen needs, and the log.
 -- ===========================================================================
 --
+-- HOW TO RUN: all of it, in one go. Press F5. Safe to run again.
+--
+-- IN pgAdmin, SIGNED IN AS postgres, like every other file in this folder -
+-- not as tvl_api. ALTER TABLE and CREATE TABLE need the owner of the table,
+-- and tvl_api deliberately is not it: 04-api-user.sql gives that role
+-- SELECT, INSERT, UPDATE and DELETE and nothing else, so a mistake in the
+-- API can change rows and can never change the shape of the database.
+--
+-- THIS DOES NOT TOUCH YOUR DATA. It adds four columns to a table that is
+-- already there and creates one new table. Nothing is dropped and nothing
+-- is rewritten.
+--
 -- The ACCOUNTS tab in the spreadsheet has twelve columns and `account` has
 -- carried seven of them. The missing four were left out on purpose, and
 -- PORT-INVENTORY.md says why: "a column nothing reads is a column nobody
