@@ -1417,6 +1417,25 @@ getting fewer than a thousand back proves nothing when the table holds a
 hundred, so dropping the limit survived. The fixture now writes 1,100 rows
 and the answer has to be exactly 1,000.
 
+**And the fourth time a suite has asserted something about real data.** The
+last-master guard says "that is the only master account", which is a
+statement about the WHOLE database - rightly, because what it prevents is
+the system ending up with nobody who can manage the accounts. It therefore
+cannot be exercised on a machine that has real master accounts of its own:
+there, a fixture master is never the last one, and refusing to remove it
+would be the bug. The suite asserted the refusal unconditionally and failed
+on exactly that machine.
+
+It now counts the masters outside its own fixture and asserts the behaviour
+that actually applies: the refusal where the fixture master IS the last one,
+and the guard correctly staying quiet where it is not. Where it cannot be
+exercised it says so in four lines rather than passing silently, because a
+skipped check that prints nothing is indistinguishable from one that passed.
+
+That makes four: uploads-ui, kpi-read, kpi1-ui and now accounts. The pattern
+is always the same - a count or a guard that reads the whole table, asserted
+against a fixture that is only part of it.
+
 **And one equivalent mutation, kept because the reason is reassuring.**
 Adding `password_hash` to the SELECT in `listAccounts` changes nothing: the
 function builds its answer from named fields, so the column arrives and is

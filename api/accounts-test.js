@@ -52,6 +52,21 @@ function check(name, ok, detail) {
   console.log('  FAIL ' + line);
 }
 
+let notes = 0;
+
+/**
+ * Something this database cannot be asked, said out loud rather than
+ * skipped quietly.
+ *
+ * A skipped check that prints nothing is indistinguishable from a check
+ * that passed, and the whole point of the ones below is that they depend on
+ * what else is in the database.
+ */
+function note(text) {
+  notes++;
+  console.log('  note ' + text);
+}
+
 function recap() {
   if (!failures.length) return;
   console.log('');
@@ -354,62 +369,83 @@ async function main() {
         JSON.stringify(got.body));
 
   /*
-    THE LAST MASTER. Demoting the OTHER master is fine while there are two;
-    once there is one, nobody can demote or remove them - including
-    themselves, which the two checks above already cover from the other
-    side. Tested by actually getting down to one, because a guard that
-    counts is a guard that can count wrongly.
+    THE LAST MASTER, AND THE ONE THING THIS SUITE CANNOT DECIDE FOR ITSELF.
+
+    "That is the only master account" is a statement about the WHOLE
+    database, not about this fixture - which is exactly right, because the
+    thing it prevents is the system ending up with nobody who can manage
+    the accounts. It also means the guard can only be exercised on a
+    database whose only masters are the two this suite made.
+
+    On a developer's machine that is false: there are real master accounts,
+    so a fixture master is never the last one, and refusing to remove it
+    would be the bug. An earlier version of this asserted the refusal
+    unconditionally and failed on exactly that machine - the fourth time in
+    this port that a suite has quietly asserted something about somebody's
+    real data. Counted, rather than assumed.
   */
+  const outside = (await db.query(
+    `SELECT count(*)::int AS n FROM account
+      WHERE role = 'MASTER' AND NOT (employee_id = ANY($1))`, [MINE]))[0].n;
+
   got = await call('POST', '/api/master/role', master,
                    { employee_id: MASTER2, role: 'USER' });
   check('the second master can be stood down while there are two',
         got.code === 200, JSON.stringify(got.body));
 
-  const masters = await db.query(
-    "SELECT count(*)::int AS n FROM account WHERE role = 'MASTER'");
-  got = await call('POST', '/api/master/role', master,
-                   { employee_id: MASTER, role: 'USER' });
-  check('and then the last one cannot be stood down at all',
-        got.code >= 400, JSON.stringify(got.body) + ' (masters: ' + masters[0].n + ')');
-
-  // Put it back, so the rest of the suite has two again.
-  await call('POST', '/api/master/role', master,
-             { employee_id: MASTER2, role: 'MASTER' });
-
   /*
-    AND THE OTHER WAY ROUND: the last master cannot be REMOVED either, which
-    is a different code path from being demoted.
-
-    REACHING IT TAKES A STALE TOKEN, and that is worth saying out loud
-    rather than working around. The caller has to be a master (requireMaster)
-    and must not be the account being removed (the guard above), so with one
-    master left there is normally nobody who can even ask the question. The
-    one person who can is somebody whose token still says MASTER because it
-    was issued before they were stood down - a token is a snapshot, signed
-    for eight hours, and nothing re-reads the database to see whether it is
-    still true.
+    REACHING THE GUARD AT ALL TAKES A STALE TOKEN, and that is worth saying
+    out loud rather than working around. The caller has to be a master
+    (requireMaster) and must not be the account being acted on (the guard
+    above), so with one master left there is normally nobody who can even
+    ask the question. The one person who can is somebody whose token still
+    says MASTER because it was issued before they were stood down - a token
+    is a snapshot, signed for eight hours, and nothing re-reads the database
+    to see whether it is still true.
 
     So this is not a contrived fixture. It is the actual window in which the
     guard has to hold, and it holds for up to JWT_TTL after any demotion.
   */
   const staleMasterToken = signToken(MASTER2, 'MASTER');
-  await call('POST', '/api/master/role', master,
-             { employee_id: MASTER2, role: 'USER' });
-
   check('a token issued before a demotion still opens the master routes',
         (await call('GET', '/api/master/accounts', staleMasterToken)).code === 200);
 
-  got = await call('POST', '/api/master/remove', staleMasterToken,
-                   { employee_id: MASTER });
-  check('BUT IT STILL CANNOT REMOVE THE LAST MASTER',
-        got.code >= 400 && /only master account/.test(got.body.error || ''),
-        JSON.stringify(got.body));
+  if (outside === 0) {
+    got = await call('POST', '/api/master/remove', staleMasterToken,
+                     { employee_id: MASTER });
+    check('BUT IT STILL CANNOT REMOVE THE LAST MASTER',
+          got.code >= 400 && /only master account/.test(got.body.error || ''),
+          JSON.stringify(got.body));
 
-  got = await call('POST', '/api/master/role', staleMasterToken,
-                   { employee_id: MASTER, role: 'USER' });
-  check('nor stand them down',
-        got.code >= 400 && /only master account/.test(got.body.error || ''),
-        JSON.stringify(got.body));
+    got = await call('POST', '/api/master/role', staleMasterToken,
+                     { employee_id: MASTER, role: 'USER' });
+    check('nor stand them down',
+          got.code >= 400 && /only master account/.test(got.body.error || ''),
+          JSON.stringify(got.body));
+  } else {
+    note('the last-master guard is not exercised here: this database has ' +
+         outside + ' master account' + (outside === 1 ? '' : 's') +
+         ' of its own, so a');
+    note('     fixture master is never the last one. That is the guard being');
+    note('     right, not a gap - it is a fact about the whole system. It is');
+    note('     exercised on a database with no masters but these.');
+
+    /*
+      AND THE OPPOSITE IS ASSERTED INSTEAD, which is the behaviour that
+      actually applies here: with other masters present the guard must stay
+      quiet and let the change through. Done with the role route rather than
+      the remove route, so nothing is deleted and the fixture survives.
+    */
+    got = await call('POST', '/api/master/role', staleMasterToken,
+                     { employee_id: MASTER, role: 'USER' });
+    check('WITH OTHER MASTERS IN THE DATABASE THE GUARD CORRECTLY STAYS QUIET',
+          got.code === 200, JSON.stringify(got.body));
+
+    got = await call('POST', '/api/master/role', staleMasterToken,
+                     { employee_id: MASTER, role: 'MASTER' });
+    check('and the fixture master can be put back',
+          got.code === 200, JSON.stringify(got.body));
+  }
 
   await call('POST', '/api/master/role', master,
              { employee_id: MASTER2, role: 'MASTER' });
@@ -567,10 +603,11 @@ async function main() {
                     { employee_id: NOBODY, password: invited }))
           .body.user.role === 'ADMIN');
 
-  const note = (await db.query(
+  const whyItExists = (await db.query(
     'SELECT note FROM account WHERE employee_id = $1', [NOBODY]))[0].note;
   check('and the account says why it exists',
-        note === 'added by ' + MASTER + ' before they signed in', note);
+        whyItExists === 'added by ' + MASTER + ' before they signed in',
+        whyItExists);
 
   got = await call('POST', '/api/master/grant', master,
                    { employee_id: NOBODY, role: 'USER' });
@@ -787,7 +824,8 @@ async function main() {
           [MINE]))[0].n === 0);
 
   console.log('');
-  console.log('  ' + pass + ' passed, ' + fail + ' failed');
+  console.log('  ' + pass + ' passed, ' + fail + ' failed' +
+              (notes ? ', ' + notes + ' note' + (notes === 1 ? '' : 's') : ''));
   recap();
   console.log('');
   await db.pool.end();
