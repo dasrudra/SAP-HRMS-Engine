@@ -399,7 +399,7 @@ async function main() {
   }
 
   await clean();
-  await db.pool.end();
+  await db.end();
 
   console.log('');
   console.log('  ' + pass + ' passed, ' + fail + ' failed');

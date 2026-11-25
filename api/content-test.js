@@ -578,7 +578,7 @@ async function main() {
        ON CONFLICT (section) DO UPDATE SET link = EXCLUDED.link`,
       [row.section, row.link]);
   }
-  await db.pool.end();
+  await db.end();
 
   console.log('');
   console.log('  ' + pass + ' passed, ' + fail + ' failed');

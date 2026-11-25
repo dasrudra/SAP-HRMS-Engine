@@ -46,6 +46,7 @@ const merge = require('./ticket-merge');
 const kpi = require('./kpi');
 const kpi2 = require('./kpi2');
 const roster = require('./roster');
+const accounts = require('./accounts');
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
@@ -257,7 +258,8 @@ app.post('/api/login', async function (req, res) {
     }
 
     const rows = await db.query(
-      `SELECT a.employee_id, a.password_hash, a.role, t.full_name
+      `SELECT a.employee_id, a.password_hash, a.role, a.must_change,
+              COALESCE(NULLIF(a.full_name, ''), t.full_name, '') AS full_name
          FROM account a JOIN team t ON t.employee_id = a.employee_id
         WHERE a.employee_id = $1`, [employeeId]);
 
@@ -303,13 +305,31 @@ app.post('/api/login', async function (req, res) {
       }
     }
 
-    await db.query('UPDATE account SET last_login_at = now() WHERE employee_id = $1',
-                   [employeeId]);
+    /*
+      THE CLOCK, THE COUNTER AND THE LOG ROW, in one place.
+
+      This used to be a bare UPDATE of last_login_at. last_login_at alone
+      says WHEN somebody signed in and never HOW OFTEN, so an account used
+      once out of curiosity in March looked exactly like one used daily -
+      and the Accounts screen is where somebody decides whether a login is
+      still needed. The log row is the other half: without it the sign-in
+      log has nothing in it but the events a master causes.
+    */
+    await accounts.noteSignIn(acct.employee_id, acct.role);
 
     res.json({
       ok: true,
       token: signToken(acct.employee_id, acct.role),
-      user: { employee_id: acct.employee_id, full_name: acct.full_name, role: acct.role }
+      /*
+        must_change TRAVELS WITH THE SIGN-IN, because the screen has to know
+        before it shows anything else. It is set by a reset and by an
+        invitation, and it means the password they just used is one somebody
+        else chose and handed to them. Auth.gs takes them straight to the
+        card that sets their own; so does this.
+      */
+      mustChange: Boolean(acct.must_change),
+      user: { employee_id: acct.employee_id, full_name: acct.full_name,
+              role: acct.role, must_change: Boolean(acct.must_change) }
     });
 
   } catch (err) {
@@ -1749,6 +1769,194 @@ app.get('/api/accounts', requireAuth, requireAdmin, async function (req, res) {
 });
 
 
+// ===========================================================================
+// THE ACCOUNTS SCREEN - master only, every one of them
+// ===========================================================================
+/*
+  Ported from the MASTER section of src/Auth.gs. Its opening note applies
+  here with more force than it did there:
+
+      "Every one of these is master-only, checked on the server. The master
+       screen is hidden from everyone else in the interface, but hiding is a
+       courtesy: google.script.run.masterSetRole(...) can be typed into any
+       visitor's console, so the guard is what actually holds."
+
+  There it was a console. Here it is a URL on the network, so requireMaster
+  is on every single route below, and the actor is taken from req.user -
+  which requireAuth put there after verifying a signature - and never from
+  the body. Every row the log gains says who did it, and the body cannot
+  lie about that.
+*/
+
+/** What the Accounts screen needs before it can draw. */
+app.get('/api/master/boot', requireAuth, requireMaster,
+  async function (req, res) {
+    try {
+      const team = (await db.query(
+        'SELECT count(*)::int AS n FROM team'))[0].n;
+
+      res.json({
+        ok: true,
+        configured: true,
+        role: req.user.role,
+        canAdmin: true,
+        username: req.user.employeeId,
+        appName: APP_NAME,
+        appVersion: APP_VERSION,
+
+        /*
+          HOW MANY PEOPLE THERE ARE TO HAVE LOGINS, which is the count the
+          screen prints beside the accounts total. Informational only - see
+          the note on the sign-ups box in Index.html: it closes when the
+          master says so, never on reaching a number.
+        */
+        teamSize: team,
+
+        /*
+          THE SIGN-UPS SWITCH IS NOT PORTED, and the screen says so rather
+          than drawing a control that does nothing. In Apps Script the
+          switch governs registerAccount(), which lets anybody who reaches
+          the URL claim an employee ID that has no account yet. There is no
+          such door here: the only way an account comes into being is a
+          master writing an employee ID down on this screen. A switch over
+          a door that does not exist is worse than no switch, because it
+          looks like a security control and is not one.
+        */
+        signups: { ported: false, open: false }
+      });
+    } catch (err) {
+      fail(res, err, 'could not open the accounts screen');
+    }
+  });
+
+
+/** Everyone, with enough about each to manage them. Never a hash. */
+app.get('/api/master/accounts', requireAuth, requireMaster,
+  async function (req, res) {
+    try {
+      res.json({ ok: true, accounts: await accounts.listAccounts() });
+    } catch (err) {
+      fail(res, err, 'could not list the accounts');
+    }
+  });
+
+
+/** The sign-in log, newest first. Pruned on the way out. */
+app.get('/api/master/log', requireAuth, requireMaster,
+  async function (req, res) {
+    try {
+      res.json({ ok: true, log: await accounts.auditLog(req.query.limit) });
+    } catch (err) {
+      fail(res, err, 'could not read the sign-in log');
+    }
+  });
+
+
+/** An employee ID gets a role, whether or not it has an account yet. */
+app.post('/api/master/grant', requireAuth, requireMaster,
+  async function (req, res) {
+    try {
+      const b = req.body || {};
+      const out = await accounts.grantToEmployeeId(
+        req.user.employeeId, b.employee_id, b.role);
+      res.json(Object.assign({ ok: true }, out));
+    } catch (err) {
+      fail(res, err, 'could not give that access');
+    }
+  });
+
+
+/** Gives or takes away admin. */
+app.post('/api/master/role', requireAuth, requireMaster,
+  async function (req, res) {
+    try {
+      const b = req.body || {};
+      const out = await accounts.setRole(
+        req.user.employeeId, b.employee_id, b.role);
+      res.json(Object.assign({ ok: true }, out));
+    } catch (err) {
+      fail(res, err, 'could not change that role');
+    }
+  });
+
+
+/** A name, or where somebody's alerts go. */
+app.post('/api/master/details', requireAuth, requireMaster,
+  async function (req, res) {
+    try {
+      const b = req.body || {};
+      /*
+        undefined MEANS "LEAVE IT ALONE" AND null DOES NOT SURVIVE JSON AS
+        undefined - it arrives as null, which setDetails also reads as
+        leave-alone. Both spellings have to mean the same thing here,
+        because the screen sends one field and null for the other.
+      */
+      const out = await accounts.setDetails(
+        req.user.employeeId, b.employee_id, b.full_name, b.email);
+      res.json(Object.assign({ ok: true }, out));
+    } catch (err) {
+      fail(res, err, 'could not save that');
+    }
+  });
+
+
+/**
+ * A new password for somebody locked out. The password comes back ONCE.
+ *
+ * It is in the response body and nowhere else: not in the log row, which
+ * records only that a reset happened and who did it, and not in any column
+ * it could be read back from.
+ */
+app.post('/api/master/reset', requireAuth, requireMaster,
+  async function (req, res) {
+    try {
+      const out = await accounts.resetPassword(
+        req.user.employeeId, (req.body || {}).employee_id);
+      res.json(Object.assign({ ok: true }, out));
+    } catch (err) {
+      fail(res, err, 'could not reset that password');
+    }
+  });
+
+
+/** Takes a login away altogether. */
+app.post('/api/master/remove', requireAuth, requireMaster,
+  async function (req, res) {
+    try {
+      const out = await accounts.removeAccount(
+        req.user.employeeId, (req.body || {}).employee_id);
+      res.json(Object.assign({ ok: true }, out));
+    } catch (err) {
+      fail(res, err, 'could not remove that login');
+    }
+  });
+
+
+// ---------------------------------------------------------------------------
+// POST /api/password - somebody changing their own
+// ---------------------------------------------------------------------------
+/*
+  requireAuth AND NOT requireMaster: this is the one thing on this page
+  everybody may do. The employee ID comes from the token, never from the
+  body, so it cannot be pointed at a colleague - changeMyPassword takes no
+  ID argument at all for that reason.
+
+  It is also the other half of a reset. Without it, must_change would be a
+  flag nothing could ever clear, and resetting somebody's password would
+  leave them permanently holding a password a master chose for them.
+*/
+app.post('/api/password', requireAuth, async function (req, res) {
+  try {
+    const b = req.body || {};
+    const out = await accounts.changeMyPassword(
+      req.user.employeeId, b.current, b.next, b.confirm);
+    res.json({ ok: true, username: out.username });
+  } catch (err) {
+    fail(res, err, 'could not change your password');
+  }
+});
+
+
 // ---------------------------------------------------------------------------
 // KPI 2 - SAP User Training Satisfaction & Feedback.
 // ---------------------------------------------------------------------------
@@ -2208,8 +2416,27 @@ app.use(function (req, res) {
  * A PostgreSQL error names tables, columns and constraints, and handing that
  * to a stranger is free reconnaissance for them. The detail goes to your
  * console, where you need it; the caller gets a sentence.
+ *
+ * ONE EXCEPTION, AND IT IS A DIFFERENT KIND OF ERROR ENTIRELY.
+ *
+ * "That is the only master account" is not a failure - it is the server
+ * declining, in a sentence written here, on purpose, for a person to read.
+ * Flattening it to "could not change that role" would leave the Accounts
+ * screen saying something went wrong when nothing did, and hide the one
+ * piece of information the master needs to decide what to do instead.
+ *
+ * The marker is set by whoever threw it (`err.said = true`), never inferred
+ * from the text - because inferring it would mean a PostgreSQL message that
+ * happened to match a pattern getting shown to a stranger. A module that
+ * does not set it keeps today's behaviour exactly.
+ *
+ * 400 and not 500: it is the caller's request that cannot be honoured, and
+ * the server is working perfectly.
  */
 function fail(res, err, sentence) {
+  if (err && err.said) {
+    return res.status(400).json({ ok: false, error: err.message });
+  }
   console.error('[api] ' + sentence + ':', err.message);
   res.status(500).json({ ok: false, error: sentence });
 }

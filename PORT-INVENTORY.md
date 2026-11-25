@@ -1241,14 +1241,21 @@ page was told they were signed in as MASTER. `getBootstrap` sends
 `username` [Code.gs:199] and the three `/boot` endpoints did not; they do
 now, read off the verified token and never off the body.
 
-**Five test suites were calling a function that does not exist.**
-`content-test.js`, `kpi-read-test.js`, `messenger-test.js`,
-`messenger-write-test.js` and `tick-test.js` all ended with `await db.end()`,
-and `db.js` exports `{ pool, query, ping }`. The call sits *before* the
-summary line, so those suites could never print their result: they threw
-into `main().catch`, printed "Failed: db.end is not a function" and exited 1.
-`import-tickets-test.js` had it right - `db.pool.end()` - and all six say
-that now.
+**A second "bug" that was not one, recorded because getting it wrong is the
+instructive part.** `shell-test.js` threw `db.end is not a function`, and
+`db.js` does export `{ pool, query, ping }` with no `end`. Five other suites
+end with `await db.end()`, so the conclusion looked obvious and was wrong:
+those five do not use `db.js` at all. Each opens its own `pg.Client`, which
+has an `end()` of its own, and `const db = new Client({...})` inside `main()`
+shadows nothing because they never require the module. Changing them to
+`db.pool.end()` broke all five - `Cannot read properties of undefined` - and
+running them is what said so.
+
+The lesson is about the evidence, not the typo. `grep db.end` found five call
+sites and the module's exports explained them, and that was two facts short
+of an answer: what `db` is bound to at each call site, and what happens when
+the suite is actually run. `shell-test.js` uses the pooled module, so
+`db.pool.end()` is right there and nowhere else.
 
 #### What the mutation run found in the shell
 

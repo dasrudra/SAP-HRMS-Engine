@@ -778,12 +778,30 @@ async function backupNow(opts) {
   // still holds. Pruning first would throw away the oldest copy and then
   // find out the new one could not be written.
   //
-  // THE SIGN-IN LOG IS NOT PRUNED HERE YET. Backup.gs called pruneAuthLog()
-  // at this point, deliberately after the copy, so that the copy still held
-  // the rows about to be dropped. There is no auth_log table in this
-  // database yet - it is part of Accounts, which is outstanding in
-  // PORT-INVENTORY.md. When it arrives, the call goes HERE, between the
-  // dump and the prune, and for that reason.
+  /*
+    THE SIGN-IN LOG, PRUNED HERE AND NOWHERE ELSE IN THIS FUNCTION, for the
+    reason Backup.gs gives at the same point:
+
+        "AFTER the copy, never before. The backups are the only archive of
+         old sign-in history there is, so today's copy has to be taken while
+         the rows that are about to be dropped are still in it. Pruning
+         first would have thrown them away and then photographed what was
+         left."
+
+    The dump above has been written AND read back by now, so the rows being
+    dropped are known to exist in a file that known to be readable - which
+    is a slightly stronger promise than the original could make.
+
+    Wrapped, because a backup that worked must not be reported as failed
+    over some tidying afterwards. Required lazily: accounts.js requires
+    auth.js, which refuses to load without a JWT_SECRET, and a backup run
+    from a cron job has no business needing one until it gets here.
+  */
+  try {
+    await require('./accounts').pruneAuthLog();
+  } catch (e) {
+    console.error('[backup] sign-in log not pruned: ' + e.message);
+  }
 
   let kept = 0;
   try {
