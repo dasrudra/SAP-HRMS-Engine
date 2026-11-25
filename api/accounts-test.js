@@ -213,12 +213,24 @@ async function main() {
         JSON.stringify(MINE.slice(0, 4).filter(function (id) {
           return !rowFor(list, id); })));
 
+  /*
+    NO HASH TRAVELS TO THE BROWSER, on any row.
+
+    Adding password_hash to the SELECT is an EQUIVALENT mutation and that is
+    the reassuring part: listAccounts builds its answer from named fields,
+    so a column can arrive and simply not be copied. This asserts the
+    allow-list itself - the set of keys on a row is exactly the set the
+    screen needs - so returning the raw rows, which is the change that WOULD
+    leak, cannot pass.
+  */
+  const KEYS = ['username', 'role', 'created', 'passwordSet', 'lastSignIn',
+                'signIns', 'mustChange', 'note', 'fullName', 'email',
+                'alerted'].sort();
   check('NO HASH TRAVELS TO THE BROWSER, on any row',
         list.every(function (a) {
-          return !('password_hash' in a) && !('hash' in a) &&
-                 !JSON.stringify(a).match(/scrypt|\$2[aby]\$/);
+          return JSON.stringify(Object.keys(a).sort()) === JSON.stringify(KEYS);
         }),
-        JSON.stringify(Object.keys(list[0] || {})));
+        JSON.stringify(Object.keys(list[0] || {}).sort()));
 
   const viewerRow = rowFor(list, VIEWER);
   check('a row carries what the screen needs to manage it',
@@ -504,15 +516,37 @@ async function main() {
     later: a body claiming to be somebody else changes the caller's own
     password, not theirs.
   */
+  /*
+    AND THE SPOOF HAS TO BE ONE THAT WOULD OTHERWISE WORK.
+
+    The first version of this sent the colleague's ID with the CALLER's
+    current password, so the spoof failed on the password rather than on
+    the ID - and a mutation that read `b.employee_id || req.user.employeeId`
+    survived the whole run, because it was refused for the wrong reason.
+
+    This sends ADMIN's own current password, which this suite knows because
+    it set it. Under the mutation that is a complete, valid request to
+    change a colleague's password. Honoured, it changes ADMIN's. Refused -
+    because the ID comes from the token and the body is not consulted - it
+    is read as the caller trying to change their own with the wrong current
+    password, which is exactly what it is.
+  */
   const adminBefore = (await db.query(
     'SELECT password_hash FROM account WHERE employee_id = $1', [ADMIN]))[0];
-  await call('POST', '/api/password', viewerNow,
-             { employee_id: ADMIN, current: 'brand-new-one',
-               next: 'another-new-one', confirm: 'another-new-one' });
+  got = await call('POST', '/api/password', viewerNow,
+                   { employee_id: ADMIN, current: 'fixture-' + ADMIN,
+                     next: 'taken-over-one', confirm: 'taken-over-one' });
   const adminAfter = (await db.query(
     'SELECT password_hash FROM account WHERE employee_id = $1', [ADMIN]))[0];
   check('A BODY CANNOT POINT THE CHANGE AT A COLLEAGUE',
-        adminBefore.password_hash === adminAfter.password_hash);
+        adminBefore.password_hash === adminAfter.password_hash,
+        JSON.stringify(got.body));
+  check('and the colleague\'s own password still works',
+        (await call('POST', '/api/login', null,
+                    { employee_id: ADMIN, password: 'fixture-' + ADMIN })).code === 200);
+  check('while the one the body tried to set does not',
+        (await call('POST', '/api/login', null,
+                    { employee_id: ADMIN, password: 'taken-over-one' })).code === 401);
 
 
   // =======================================================================
@@ -594,8 +628,18 @@ async function main() {
   check('and the name beside it survived',
         got.body.fullName === 'Test Person', JSON.stringify(got.body));
 
-  check('A VIEWER WITH AN ADDRESS IS NOT ALERTED, and the row says so',
+  check('A VIEWER WITH AN ADDRESS IS NOT ALERTED, and the reply says so',
         got.body.alerted === false, JSON.stringify(got.body));
+  /*
+    AND THE ACCOUNTS LIST SAYS THE SAME, which is the one the screen draws
+    from. setDetails works `alerted` out for the row it just saved and
+    listAccounts works it out again for every row; they are two separate
+    expressions of one rule, and a mutation to the second survived because
+    nothing here had ever read it.
+  */
+  check('and so does the list the screen is drawn from',
+        rowFor((await call('GET', '/api/master/accounts', master)).body.accounts,
+               VIEWER).alerted === false);
 
   await call('POST', '/api/master/role', master,
              { employee_id: VIEWER, role: 'ADMIN' });
@@ -646,9 +690,27 @@ async function main() {
   check('the limit is honoured',
         ((await call('GET', '/api/master/log?limit=3', master)).body.log || [])
           .length <= 3);
+
+  /*
+    THE CLAMP NEEDS MORE ROWS THAN THE CLAMP, or it cannot be seen.
+
+    Asking for 999999 and getting fewer than a thousand back proves nothing
+    when the table holds a hundred - which is why dropping the clamp
+    survived a whole run. So the table is given 1,100 rows inside the
+    window, and the answer has to be exactly 1,000.
+  */
+  await db.query(
+    `INSERT INTO auth_log (at, employee_id, event, role, detail)
+     SELECT now() - (g || ' minutes')::interval, $1, 'SIGNIN', 'USER', 'bulk'
+       FROM generate_series(1, 1100) AS g`, [VIEWER]);
+
+  const huge = (await call('GET', '/api/master/log?limit=999999', master))
+                 .body.log || [];
   check('AND A SILLY LIMIT IS CLAMPED rather than obeyed',
-        ((await call('GET', '/api/master/log?limit=999999', master)).body.log || [])
-          .length <= 1000);
+        huge.length === 1000, String(huge.length));
+
+  await db.query("DELETE FROM auth_log WHERE detail = 'bulk' AND employee_id = $1",
+                 [VIEWER]);
 
 
   // =======================================================================

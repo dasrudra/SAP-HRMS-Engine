@@ -824,8 +824,14 @@ decided for a reason.
    restore has actually been done. See the Backups section above. This has
    to be true before cutover, not after - the moment the new system is the
    one people type into, a message or a Knowledge post exists nowhere else.
-10. Accounts and audit log - and `pruneAuthLog()` goes back into
-    `backupNow()` when `auth_log` arrives.
+10. **Accounts and the audit log** - the server side is DONE.
+    `db/18-accounts.sql` adds the four columns the ACCOUNTS tab had and
+    `account` did not, plus `auth_log`; `api/accounts.js` is the MASTER
+    section of `Auth.gs`; eight endpoints behind `requireMaster`, 77 checks
+    in `api/accounts-test.js`, 37 mutations and 36 caught.
+    `pruneAuthLog()` is back in `backupNow()`, at the point Backup.gs calls
+    it and for the reason it gives. **The screen itself is next.** See
+    "Accounts" below.
 11. **Deployment.** `clasp push` is lost at cutover: today VS Code to live
     is one command, afterwards something has to put the code on the server
     and restart Node. Not built, and not optional.
@@ -1312,3 +1318,109 @@ reverted - and the results for everything after it are against a tree that no
 longer matches the suite. This is the second thing a mutation run has taught
 us about mutation runs; the first is to restart the API between mutations
 when the suite drives the HTTP server.
+
+### Accounts
+
+`api/accounts.js` and `db/18-accounts.sql`: the MASTER section of
+`src/Auth.gs` over PostgreSQL. Eight endpoints, every one behind
+`requireMaster`, **77 checks and 37 mutations with 36 caught.** Auth.gs's
+own opening note applies here with more force than it did there - "hiding is
+a courtesy" - because there the alternative was a browser console and here
+it is `curl`.
+
+**The four columns arrive because something now reads them.** `password_set`,
+`sign_ins`, `note` and `email` were left out on purpose, and the reason
+given at the time was "a column nothing reads is a column nobody
+maintains". `sign_ins` is the one worth naming: `last_login_at` says WHEN
+somebody signed in and never HOW OFTEN, so an account used once out of
+curiosity in March looks exactly like one used daily - and this screen is
+where somebody decides whether a login is still needed.
+
+**`auth_log` has no foreign key to `account`, and that is the whole point.**
+A `REMOVED` row is written about an account that no longer exists, so a
+foreign key would refuse the one row most worth keeping. The log is
+evidence; evidence that disappears when its subject does is not evidence.
+
+#### Two deviations from the original, both deliberate
+
+**The reset password is random, not the constant `easuser`.** Auth.gs resets
+everybody to `RESET_PASSWORD`, and that is safe there because signing in
+with it is caught by `mustChange` and leads straight to the card that sets a
+password of their own - so the constant is only ever good for the one step
+between the reset and the choosing. That enforcement is ported too, but a
+shared constant is still a worse answer than it was: the API is a URL on the
+network rather than a script behind a Google sign-in, and a known string
+that opens any freshly-reset account is a door anybody can try. A random one
+costs nothing, the workflow is identical, and it is good for one account
+only. No `I`, `l`, `1`, `O` or `0`, because it gets read aloud.
+
+**`pruneAuthLog` deletes by date rather than by prefix.** Auth.gs explains at
+length why it removes only a PREFIX of the sheet: `deleteRows` is
+positional, so if a clock skews or somebody pastes a row in by hand, a rule
+that deleted by age alone would reach past fresh rows to get at an old one.
+That defect cannot happen against a `DELETE ... WHERE at < cutoff`, which
+judges each row on its own date. The careful rule was a workaround for the
+sheet, not for the policy, and carrying it over would leave genuinely
+expired rows behind to no purpose. There is a test that writes an old row
+AFTER a new one and checks only the old one goes - behaviour the sheet could
+not have had.
+
+#### `must_change` is enforced, or the reset would be theatre
+
+`POST /api/password` exists, the sign-in reports the flag, and changing a
+password clears it. Without that last piece the flag would have had nothing
+to clear it, and "Reset password" would have set somebody a password chosen
+by a colleague that they could then keep for ever.
+
+#### One change to `fail()`
+
+It refuses to send `err.message` to a browser, rightly: a PostgreSQL error
+names tables, columns and constraints. But "That is the only master account"
+is not a failure - it is the server declining, in a sentence written on
+purpose, for a person to read. Flattening it to "could not change that role"
+would leave the screen saying something went wrong when nothing did, and
+hide the one thing the master needs in order to decide what to do instead.
+
+Errors thrown deliberately carry `err.said` and come back as a 400 with
+their own text. The marker is a property on the error and is never inferred
+from the text, so a database message cannot be mistaken for one, and a
+module that does not set it keeps exactly today's behaviour.
+
+#### What the mutation run found
+
+**The last-master guard is only reachable with a stale token.** The caller
+must be a master and must not be the account being removed, so with one
+master left there is normally nobody who can even ask the question. The one
+person who can is somebody whose token still says MASTER because it was
+issued before they were stood down - a JWT is a snapshot, signed for eight
+hours, and nothing re-reads the database to see whether it is still true.
+That is not a contrived fixture: it is the actual window in which the guard
+has to hold, and it holds.
+
+**The actor could have been claimed by the request body.** Reading
+`b.actor || req.user.employeeId` survived a whole run, because every check
+looked at WHAT changed rather than at WHOSE NAME went into the log row
+beside it - which is the entire reason the log is worth keeping. The suite
+now sends `actor`, `employeeId` and `user` in the body and proves none of
+them reach the row.
+
+**A spoof has to be one that would otherwise work.** The first version of
+the "cannot change a colleague's password" check sent the colleague's ID
+with the CALLER's current password, so it was refused on the password
+rather than on the ID - and a mutation reading `b.employee_id ||
+req.user.employeeId` survived, refused for the wrong reason. It now sends
+the colleague's real current password, which is a complete and valid
+request under the mutation.
+
+**A clamp needs more rows than the clamp.** Asking for 999,999 rows and
+getting fewer than a thousand back proves nothing when the table holds a
+hundred, so dropping the limit survived. The fixture now writes 1,100 rows
+and the answer has to be exactly 1,000.
+
+**And one equivalent mutation, kept because the reason is reassuring.**
+Adding `password_hash` to the SELECT in `listAccounts` changes nothing: the
+function builds its answer from named fields, so the column arrives and is
+simply not copied. Rather than leave that as an assumption, the check now
+asserts the allow-list itself - the keys on a row are exactly the eleven the
+screen needs - and a separate pass-through mutation, which is the change
+that WOULD leak, dies against it.
