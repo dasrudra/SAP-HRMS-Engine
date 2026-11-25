@@ -482,7 +482,7 @@ and they are in PostgreSQL, with no CSV written and no command typed.
 | `renderMissingData`, `uploaderText`, `rowActions` | in the page | DONE |
 | `downloadUpload`, `downloadText` | in the page | DONE |
 | `askThenDelete`, `confirmDialog`, `describeDeletion` | in the page | DONE |
-| `openUpload` | `dashboardFor`, which says the answer | the KPI screens it would open are not ported yet |
+| `openUpload` | `dashboardFor` + `easShell.goTo` | DONE - it opens KPI 1 or KPI 2 on the period, see "The shell" |
 | `recomputeAfterUpload` | - | **dropped**, with the KPI cache |
 
 **The parsing is a file of its own, and that is the only structural change.**
@@ -829,13 +829,15 @@ decided for a reason.
 11. **Deployment.** `clasp push` is lost at cutover: today VS Code to live
     is one command, afterwards something has to put the code on the server
     and restart Node. Not built, and not optional.
-12. The shell: home, nav, the remaining static screens. Uploads and KPI 1
-    are pages of their own until it exists, and Open Dashboard says where
-    an upload belongs rather than going there. `api/public/app.css`
-    is already there - the whole of `src/Styles.html`, copied - so each
-    screen as it arrives looks like the finished thing rather than like a
-    test page. Uploads is a page of its own until the nav exists to put it
-    behind.
+12. **The shell** - DONE for the three screens that exist.
+    `api/public/shell.js` puts the sidebar and the top bar on every page and
+    owns the table of where each screen lives, so Uploads, KPI 1 and KPI 2
+    are one system rather than three URLs, and **Open Dashboard opens the
+    dashboard** instead of describing where it would have gone. 86 checks
+    in a real browser, 31 mutations. The remaining screens - the portal
+    (Home, Team, Links, About, By-weekly, Learnings, Knowledge), Comparison,
+    Summary, Help & FAQ and Accounts - are **shown in the nav and disabled**,
+    each saying on hover that it is not ported yet. See "The shell" below.
 
 Apps Script keeps running untouched throughout. Nothing is switched off
 until its row says DONE.
@@ -1159,3 +1161,134 @@ and cannot name just one. Replacing the month with `null` is an equivalent
 mutation - no test can catch it because there is no behaviour to catch. It
 is kept because `Config.gs` takes it, and a port that quietly drops an
 argument is a port that has decided something.
+
+### The shell
+
+`api/public/shell.js`, included by every screen, and the first piece of this
+port that is about the system rather than about a screen. It is the `#appRoot`
+half of `src/Index.html` - the sidebar, the brand block, the collapse button,
+the top bar - plus `applyRole`, the `labels` table inside `showView`, and
+`setLive`. Same groups in the same order, same labels, same icons path for
+path, same ids, so `app.css` dresses it without a rule being added.
+**86 checks in a real browser.**
+
+**One difference, and it is the whole design.** The original is one HTML
+document holding every screen as a hidden `<section class="view">`, and
+`showView()` unhides one. Nobody chose that: HtmlService serves a single page
+and there is no second URL to navigate to. This serves real files, so each
+screen is its own page and a nav item is a link. Which means the browser's
+Back button works, a bookmark works, a screen's state lives in its own URL -
+and opening KPI 1 no longer parses, lays out and wires KPI 2, Comparison,
+Summary, Accounts, Help and the entire portal first.
+
+**What that retires, stated rather than dropped quietly.** `state.trail` and
+the in-app Back button existed because the browser's own Back would have left
+the app entirely; here it does not, so the browser's is the trail - and it is
+a better one, because it survives a reload and the trail never did.
+`rememberView()` goes for the same reason: the address bar remembers, and it
+remembers out loud.
+
+**A screen that is not ported yet is shown and disabled, not left out.** The
+nav is the map of the system; dropping Comparison would say it does not
+exist, when what is true is that it is coming. Each one says which on hover
+and says it again if you click it. **Home is one of them**, and worth being
+precise about: Home is the portal, which is a *second* shell - `Portal.html`,
+included into the same served page, with its own tabs and its own pages. In
+the original this button has no handler either; `showView` works out that
+home lives in the other shell and swaps `#appRoot` for `#portalRoot`. None of
+that is ported, so the button says so rather than landing somewhere nobody
+asked for.
+
+**`aria-disabled` was on those buttons for one revision, and taking it off is
+the more interesting half.** The reasoning for it was that a screen with no
+page is disabled. But the button works: it is listened to, it answers, and it
+says something useful. `aria-disabled` told a screen-reader user the opposite
+of what everybody else gets - and it told Playwright the same thing, so the
+test could not click what a person can. That is how it was found.
+
+**The top bar is missing two things on purpose.** The in-app Back button, for
+the reason above. The presence dot and the Away button, because presence -
+`Presence.gs`, `paintPresenceSelf`, the portal's own bar - is not ported yet,
+and half a presence indicator is worse than none: a dot reading OFFLINE
+because nothing updates it is a lie about a colleague.
+
+**Open Dashboard opens the dashboard.** `dashboardFor` always worked out the
+right answer and then only printed it, because there was no page to open. It
+now returns the answer in two forms, and they are not interchangeable: `key`
+is what a screen wants (`2099-02`, `2099-Q1`, or `''` for every period) and
+goes in the URL; `period` is what a person wants (`February 2099`,
+`All months`) and goes in a sentence. The first version had only the second,
+and a human label in a query string matches no month in any picker.
+
+**On the receiving end the URL wins, and it wins last.** `?period=` beats the
+month or quarter somebody was last looking at, because it is somebody asking
+for that period - from Open Dashboard, or from a link a colleague sent. On
+KPI 2 it wins only on the first fill, so pressing Refresh cannot overrule a
+choice made on the screen in front of you. Neither screen validates it: the
+pickers already keep only the periods there is data for, so a stale or
+mistyped one falls back to All months rather than showing an empty screen -
+which is what a stale *remembered* period has always done.
+
+#### Two bugs the shell found, both outside itself
+
+**"Signed in as MASTER."** The pages only knew who you were from what
+`/api/login` handed back, which lives in `state` for as long as the tab does.
+After a reload - with a perfectly good token in `sessionStorage` and nobody
+to ask - "Signed in as" fell through to the role. Everybody who refreshed the
+page was told they were signed in as MASTER. `getBootstrap` sends
+`username` [Code.gs:199] and the three `/boot` endpoints did not; they do
+now, read off the verified token and never off the body.
+
+**Five test suites were calling a function that does not exist.**
+`content-test.js`, `kpi-read-test.js`, `messenger-test.js`,
+`messenger-write-test.js` and `tick-test.js` all ended with `await db.end()`,
+and `db.js` exports `{ pool, query, ping }`. The call sits *before* the
+summary line, so those suites could never print their result: they threw
+into `main().catch`, printed "Failed: db.end is not a function" and exited 1.
+`import-tickets-test.js` had it right - `db.pool.end()` - and all six say
+that now.
+
+#### What the mutation run found in the shell
+
+Four assertions passed and could not be made to fail. Each one was a real
+gap, and three of them were the same mistake in different clothes: a check
+that looked at the *answer* a function returned and never at what the screen
+did with it.
+
+**The shell was revealed before boot answered, and nothing noticed.**
+Flipping `app.hidden = true` to `false` in `mount()` survived, because on the
+no-token path `signedOut()` hides it a moment later and covered the mutation
+up. The uncovered case is the common one: a token in `sessionStorage`, a boot
+request in flight, and - under the mutation - a sidebar with the admin items
+missing, a badge reading VIEWER and a name reading `-`, for however long the
+request takes, after which it all rearranges itself. Catching it needed the
+boot request held open for a second and a half so the assertion had something
+to look at.
+
+**Open Dashboard could have sent every upload to KPI 1.** `dashboardFor` was
+checked purely and knew perfectly well that a feedback upload belongs to
+KPI 2 - but the only button being *clicked* was the ticket row's, and the
+ticket row's answer is KPI 1. The suite now clicks both.
+
+**The URL did not have to beat the remembered month.** Making it lose
+whenever a saved filter existed survived, because nothing had ever put one
+there: the saved month is written when somebody changes the picker, and the
+suite never had. One is planted on purpose now.
+
+**The sidebar's own role gating was dead code.** Showing the admin-only items
+to everybody changed nothing on screen - because `applyRole` in
+`uploads.html` was `document.querySelectorAll('[data-admin-only]')`,
+document-wide, and it runs *after* the shell's and silently won. A loop only
+ever meant to be about the dropzone was re-hiding the sidebar. It is scoped
+to `#page` now: the shell owns what is in the sidebar, the page owns what is
+in the page, and both are tested. Putting it back document-wide is the one
+mutation that still survives, and it is equivalent - the two loops agree on
+every role - but the scoping is what made the shell's own gate visible.
+
+**And one process lesson, which cost a run.** Do not edit a source file while
+a mutation run is in flight. The script copies the originals at the start and
+restores them after every mutation, so an edit made in the middle is quietly
+reverted - and the results for everything after it are against a tree that no
+longer matches the suite. This is the second thing a mutation run has taught
+us about mutation runs; the first is to restart the API between mutations
+when the suite drives the HTTP server.

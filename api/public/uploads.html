@@ -37,14 +37,27 @@
 -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="upload-parse.js"></script>
+<!--
+  THE SHELL: the sidebar, the top bar, and the table of where each screen
+  lives. It wraps this page's #page at DOM ready, so everything below is
+  written as if it were already inside .content - which, a moment later, it
+  is. See shell.js.
+-->
+<script src="shell.js"></script>
 <style>
   /*
-    The handful of rules the standalone page needs and the shell will
-    provide later: a page wrapper, and the sign-in card that is its own
-    screen in the finished system.
+    The handful of rules this page needs on top of the design system: the
+    sign-in card, which is its own screen in the finished system.
   */
   body { background: var(--bg); }
-  .page { max-width: 1180px; margin: 0 auto; padding: 28px 20px 60px; }
+  /*
+    ONLY WHILE THE SHELL IS NOT AROUND IT. Once shell.js has mounted, #page
+    sits inside .content - which is the padded, width-capped wrapper from
+    Styles.html, and the one the original uses - so this rule stops matching
+    and gets out of its way. It is the fallback for the sign-in screen,
+    where no shell has been revealed yet.
+  */
+  body > .page { max-width: 1180px; margin: 0 auto; padding: 28px 20px 60px; }
   .signin { max-width: 400px; margin: 60px auto; }
   .signin label { display: block; font-size: 12px; color: var(--text-dim);
                   margin: 14px 0 4px; }
@@ -53,9 +66,6 @@
                   color: var(--text); }
   .signin .btn { margin-top: 18px; width: 100%; }
   .signin .why { color: var(--red); font-size: 13px; margin: 12px 0 0; min-height: 18px; }
-  .whoami { display: flex; align-items: center; justify-content: space-between;
-            gap: 12px; margin-bottom: 18px; font-size: 13px;
-            color: var(--text-dim); }
 </style>
 </head>
 <body>
@@ -73,12 +83,13 @@
 
 
 <!-- ============ VIEW: UPLOADS ============ -->
+<!--
+  Who is signed in, and Sign out, used to be a little bar at the top of this
+  page. They are in the shell's top bar now, where Index.html has them, so
+  that one answer about a session is not given in two places - which is
+  exactly how two places come to disagree.
+-->
 <div class="page" id="page" hidden>
-
-  <div class="whoami">
-    <span id="whoami"></span>
-    <button class="btn btn-ghost" id="signOut">Sign out</button>
-  </div>
 
   <section class="view" id="view-uploads">
     <div class="page-head">
@@ -187,7 +198,30 @@
    * A 401 is not an error to report. It is a sign-in to ask for - the same
    * rule the old version applied to "session has ended".
    */
+  /**
+   * Every call to the API, with the dot in the top bar told about it.
+   *
+   * Ported from onError in App.html, which ends with setLive(false) - and
+   * from its one exception: "A session that ran out is not an error to
+   * report, it is a sign-in to ask for." The dot is the difference between
+   * figures that are old and figures that are wrong, so it has to be told
+   * when a call did not come back.
+   *
+   * It only ever goes one way, as the original's does: nothing calls
+   * setLive(true). Once something has failed the screen keeps saying so
+   * until it is reloaded, because what is on it is from before the failure
+   * and a dot flicking back to Live would claim otherwise.
+   */
   async function api(method, path, body) {
+    try {
+      return await request(method, path, body);
+    } catch (err) {
+      if (String(err && err.message) !== 'signed out') easShell.setLive(false);
+      throw err;
+    }
+  }
+
+  async function request(method, path, body) {
     const opts = { method: method, headers: {} };
     if (state.token) opts.headers.Authorization = 'Bearer ' + state.token;
     if (body !== undefined) {
@@ -246,6 +280,7 @@
     state.boot = null;
     try { sessionStorage.removeItem(TOKEN_STORE); } catch (e) { /* fine */ }
     document.getElementById('page').hidden = true;
+    easShell.signedOut();
     document.getElementById('signinCard').hidden = false;
     document.getElementById('signinWhy').textContent = why || '';
   }
@@ -283,10 +318,26 @@
     state.boot = boot;
 
     document.getElementById('signinCard').hidden = true;
+    /*
+      THE SHELL FIRST, THEN THE PAGE. signedIn() reveals #appRoot, which
+      #page now lives inside: unhiding #page while its ancestor is still
+      hidden puts nothing on screen, and a test waiting for the screen to
+      appear would sit there until it timed out.
+    */
+    easShell.signedIn({
+      role: boot.role,
+      /*
+        FROM THE BOOT PAYLOAD FIRST. state.user is only set by a sign-in
+        that happened in THIS tab; after a reload the token is still good
+        and state.user is null, and this used to fall through to the role -
+        so a refresh told you that you were signed in as MASTER.
+      */
+      username: boot.username ||
+                (state.user ? state.user.employee_id : boot.role),
+      appName: boot.appName,
+      appVersion: boot.appVersion
+    });
     document.getElementById('page').hidden = false;
-    document.getElementById('whoami').textContent =
-      'Signed in as ' + (state.user ? state.user.employee_id : boot.role) +
-      ' \u00b7 ' + boot.role;
 
     applyRole(boot);
     await loadUploads();
@@ -303,9 +354,23 @@
    */
   function applyRole(boot) {
     const admin = Boolean(boot.canAdmin);
-    document.querySelectorAll('[data-admin-only]').forEach(function (el) {
-      el.hidden = !admin;
-    });
+    /*
+      SCOPED TO THIS PAGE, NOT TO THE DOCUMENT.
+
+      It used to be document-wide, which reached into the shell's sidebar
+      and re-answered a question the shell had already answered - and the
+      shell's answer runs first, so the page's silently won. A mutation
+      that made the shell show its admin-only items to everybody survived
+      a whole run because of it: the sidebar was being re-hidden here, by
+      a loop that was only ever meant to be about the dropzone.
+
+      Two owners, two scopes. The shell hides what is in the sidebar; this
+      hides what is in the page.
+    */
+    document.getElementById('page')
+      .querySelectorAll('[data-admin-only]').forEach(function (el) {
+        el.hidden = !admin;
+      });
     document.getElementById('uploadReadOnly').hidden = admin;
   }
 
@@ -1167,37 +1232,44 @@
    * opens on All months, which is the only period that shows what was
    * actually uploaded.
    *
-   * THE TWO SCREENS IT OPENS ARE NOT PORTED YET. KPI 1 and KPI 2 have their
+   * IT OPENS THEM NOW. For several revisions this button worked the answer
+   * out correctly and then only SAID it, because KPI 1 and KPI 2 had their
    * endpoints and their arithmetic - 16,239 and 27,991 comparisons against
-   * the original - but no page in this front end. So the button stays, the
-   * answer is worked out exactly as before, and it is SAID rather than acted
-   * on. One line changes when those screens arrive.
+   * the original - but no page to open. They have pages now, so the sentence
+   * the dialog used to print is a navigation instead, and the period rides
+   * along in the URL.
    */
   function openUpload(row) {
     const target = dashboardFor(row);
-    confirmDialog({
-      title: target.view === 'kpi2' ? 'KPI 2, ' + target.period
-                                    : 'KPI 1, ' + target.period,
-      subtitle: 'The dashboard screens are not ported yet',
-      tone: 'info',
-      body:
-        '<p>This upload belongs to <strong>' +
-        (target.view === 'kpi2' ? 'KPI 2' : 'KPI 1') +
-        '</strong>, opened on <strong>' + escapeHtml(target.period) +
-        '</strong>.</p>' +
-        '<p>Both are ported on the server and proved identical to the ' +
-        'original arithmetic. Their screens are still to come - this button ' +
-        'will open them without anything else changing.</p>',
-      confirmLabel: 'Close',
-      oneButton: true
-    });
+
+    /*
+      goTo returns false only for a screen with no page yet - which neither
+      of these is. Kept as a guarded call rather than a bare assignment to
+      window.location so that it stays true if the table ever points at a
+      third screen before that screen exists.
+    */
+    if (easShell.goTo(target.view, target.key)) return;
+    easShell.say('That upload belongs to ' + target.period +
+                 ', on a screen that is not ported yet.');
   }
 
 
-  /** Which screen and period a history row points at. Pure, so it is testable. */
+  /**
+   * Which screen and period a history row points at. Pure, so it is testable.
+   *
+   * TWO FORMS OF THE SAME ANSWER, and they are not interchangeable:
+   *
+   *   key    what the screen wants - '2026-07', '2026-Q3', or '' for every
+   *          period. It goes in the URL.
+   *   period what a person wants - 'July 2026', 'Quarter 3 (2026)',
+   *          'All months'. It goes in a sentence.
+   *
+   * The first version had only the second, and a human label in a query
+   * string matches no month in any picker.
+   */
   function dashboardFor(row) {
     const ALL_MONTHS = 'All months';
-    if (!row) return { view: 'kpi1', period: ALL_MONTHS };
+    if (!row) return { view: 'kpi1', key: '', period: ALL_MONTHS };
 
     const types = String(row.dataset.types || '').toUpperCase().split('|');
     let feedback = 0;
@@ -1220,14 +1292,17 @@
       const named = quartersInText(row.dataset.files);
       const fromQ = named.length ? named[0] : quarterForMonth(from);
       const toQ   = named.length ? named[named.length - 1] : quarterForMonth(to);
+      const oneQ = Boolean(fromQ) && fromQ === toQ;
       return { view: 'kpi2',
-               period: (fromQ && fromQ === toQ) ? formatPeriod(fromQ)
-                                                : 'All quarters' };
+               key: oneQ ? fromQ : '',
+               period: oneQ ? formatPeriod(fromQ) : 'All quarters' };
     }
 
     // One month covered: open on it. More than one: open on all of them.
+    const oneMonth = Boolean(from) && from === to;
     return { view: 'kpi1',
-             period: (from && from === to) ? formatPeriod(from) : ALL_MONTHS };
+             key: oneMonth ? from : '',
+             period: oneMonth ? formatPeriod(from) : ALL_MONTHS };
   }
 
 
@@ -1492,6 +1567,13 @@
   // =======================================================================
 
   document.addEventListener('DOMContentLoaded', function () {
+    /*
+      THE SHELL GOES ON FIRST, before anything is bound. Sign out lives in
+      its top bar, so the button has to exist before the line below can
+      listen to it.
+    */
+    easShell.mount({ view: 'uploads' });
+
     wireUploads();
 
     document.getElementById('signinGo')

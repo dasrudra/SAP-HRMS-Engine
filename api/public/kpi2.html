@@ -27,9 +27,14 @@
      boxes with their headings still on them. -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script src="kpi-charts.js"></script>
+<!-- The sidebar, the top bar, and the table of where each screen lives.
+     It wraps this page's #page at DOM ready. See shell.js. -->
+<script src="shell.js"></script>
 <style>
   body { background: var(--bg); }
-  .page { max-width: 1320px; margin: 0 auto; padding: 28px 20px 60px; }
+  /* Only while the shell is not around it - see the same rule, and the
+     reason for it, in uploads.html. */
+  body > .page { max-width: 1320px; margin: 0 auto; padding: 28px 20px 60px; }
   .signin { max-width: 400px; margin: 60px auto; }
   .signin label { display: block; font-size: 12px; color: var(--text-dim);
                   margin: 14px 0 4px; }
@@ -39,9 +44,6 @@
   .signin .btn { margin-top: 18px; width: 100%; }
   .signin .why { color: var(--red); font-size: 13px; margin: 12px 0 0;
                  min-height: 18px; }
-  .whoami { display: flex; align-items: center; justify-content: space-between;
-            gap: 12px; margin-bottom: 18px; font-size: 13px;
-            color: var(--text-dim); }
   .not-policy { font-size: 12px; color: var(--text-dim); margin: 8px 0 0;
                 max-width: 760px; }
 </style>
@@ -59,12 +61,9 @@
 </section>
 
 
+<!-- Who is signed in, and Sign out, are in the shell's top bar now, where
+     Index.html has them. -->
 <div class="page" id="page" hidden>
-
-  <div class="whoami">
-    <span id="whoami"></span>
-    <button class="btn btn-ghost" id="signOut">Sign out</button>
-  </div>
 
   <section class="view" id="view-kpi2">
     <div class="page-head">
@@ -265,7 +264,30 @@
   const state = { token: '', user: null, boot: null, kpi2: null };
 
 
+  /**
+   * Every call to the API, with the dot in the top bar told about it.
+   *
+   * Ported from onError in App.html, which ends with setLive(false) - and
+   * from its one exception: "A session that ran out is not an error to
+   * report, it is a sign-in to ask for." The dot is the difference between
+   * figures that are old and figures that are wrong, so it has to be told
+   * when a call did not come back.
+   *
+   * It only ever goes one way, as the original's does: nothing calls
+   * setLive(true). Once something has failed the screen keeps saying so
+   * until it is reloaded, because what is on it is from before the failure
+   * and a dot flicking back to Live would claim otherwise.
+   */
   async function api(method, path, body) {
+    try {
+      return await request(method, path, body);
+    } catch (err) {
+      if (String(err && err.message) !== 'signed out') easShell.setLive(false);
+      throw err;
+    }
+  }
+
+  async function request(method, path, body) {
     const opts = { method: method, headers: {} };
     if (state.token) opts.headers.Authorization = 'Bearer ' + state.token;
     if (body !== undefined) {
@@ -298,6 +320,7 @@
     state.boot = null;
     try { sessionStorage.removeItem(TOKEN_STORE); } catch (e) { /* fine */ }
     document.getElementById('page').hidden = true;
+    easShell.signedOut();
     document.getElementById('signinCard').hidden = false;
     document.getElementById('signinWhy').textContent = why || '';
   }
@@ -330,10 +353,22 @@
     state.boot = boot;
 
     document.getElementById('signinCard').hidden = true;
+    // The shell first: #page lives inside #appRoot now, so unhiding #page
+    // while its ancestor is still hidden shows nothing at all.
+    easShell.signedIn({
+      role: boot.role,
+      /*
+        FROM THE BOOT PAYLOAD FIRST. state.user is only set by a sign-in
+        that happened in THIS tab; after a reload the token is still good
+        and state.user is null, and this used to fall through to the role -
+        so a refresh told you that you were signed in as MASTER.
+      */
+      username: boot.username ||
+                (state.user ? state.user.employee_id : boot.role),
+      appName: boot.appName,
+      appVersion: boot.appVersion
+    });
     document.getElementById('page').hidden = false;
-    document.getElementById('whoami').textContent =
-      'Signed in as ' + (state.user ? state.user.employee_id : boot.role) +
-      ' \u00b7 ' + boot.role;
 
     /*
       THE SENTENCE THAT KEEPS THIS FIGURE IN ITS PLACE.
@@ -382,7 +417,22 @@
       option.textContent = quarterLabel(key);
       select.appendChild(option);
     });
-    select.value = previous || ALL;
+    /*
+      THE URL WINS, BUT ONLY ON THE FIRST FILL.
+
+      ?period=2026-Q2 is somebody asking for that quarter: the Uploads
+      screen's Open Dashboard sends it after a feedback upload, and it is
+      what a link to one quarter looks like when somebody sends one to a
+      colleague. On a later fill - the Refresh button - `previous` holds
+      what they have since chosen, including 'ALL', so the URL cannot
+      overrule a choice they made on the screen in front of them.
+
+      Setting a value the <select> has no option for leaves it empty, and
+      the line below falls back to All quarters. That is what already
+      happened to a stale remembered period, and it is the right answer: a
+      quarter with no feedback in it has nothing to show.
+    */
+    select.value = previous || easShell.periodFromUrl() || ALL;
     if (!select.value) select.value = ALL;
   }
 
@@ -1067,6 +1117,10 @@
 
 
   document.addEventListener('DOMContentLoaded', function () {
+    // The shell goes on first: Sign out lives in its top bar, so the button
+    // has to exist before the line below can listen to it.
+    easShell.mount({ view: 'kpi2' });
+
     bind('kpi2Month', 'change', function () { loadKpi2(); });
     bind('refreshKpi2', 'click', function () { start().catch(function () {}); });
     bind('fModule', 'change', applyModuleFilter);

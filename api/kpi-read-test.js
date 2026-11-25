@@ -998,7 +998,7 @@ async function main() {
 
   // =======================================================================
   await wipe();
-  await db.end();
+  await db.pool.end();
 
   console.log('');
   console.log('  ' + pass + ' passed, ' + fail + ' failed');

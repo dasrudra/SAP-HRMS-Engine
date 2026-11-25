@@ -50,6 +50,20 @@ const roster = require('./roster');
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
 
+/*
+  WHAT THE SHELL'S BRAND BLOCK SAYS, from CONFIG.APP_NAME and
+  CONFIG.APP_VERSION in Config.gs, where the comment reads "Bump
+  APP_VERSION when you deploy something meaningful."
+
+  In .env rather than in a file here, because that is the Node equivalent of
+  the same instruction: the deployment sets it, so bumping it is part of
+  deploying rather than part of editing the source. The defaults are the
+  values Config.gs carries today, so forgetting to set them says something
+  true rather than nothing.
+*/
+const APP_NAME = process.env.APP_NAME || 'TVL-EAS Database';
+const APP_VERSION = process.env.APP_VERSION || 'v0.1';
+
 
 // ---------------------------------------------------------------------------
 // CORS - the thing that will confuse you later if it is not set up now.
@@ -114,6 +128,23 @@ app.use(cors({
 });
 
 app.use(express.json());
+
+/*
+  WHERE THE ROOT GOES.
+
+  Every screen is a file of its own now, which leaves the question the
+  single-page original never had to answer: what is at `/`? App.html answers
+  it already, in homeView():
+
+      return document.getElementById('view-home') ? 'home' : 'kpi1';
+
+  The portal is where Home lives, and the portal is not ported yet - so the
+  dashboard is where you land, which is exactly what that line says to do
+  when there is no portal. 302 rather than serving the file at `/`, so the
+  address bar tells the truth about which screen is open and a reload or a
+  bookmark comes back to it.
+*/
+app.get('/', function (req, res) { res.redirect(302, '/kpi1.html'); });
 
 /*
   Serves api/public as plain files, so http://localhost:3000/demo.html works.
@@ -1603,6 +1634,27 @@ app.get('/api/kpi1/boot', requireAuth, async function (req, res) {
       role: req.user.role,
       canAdmin: rankOf(req.user.role) >= ROLE_RANK.ADMIN,
 
+      /*
+        WHO, for the shell's top bar, as getBootstrap sends it [Code.gs:199].
+
+        THIS WAS MISSING AND IT SHOWED. The pages had only what /api/login
+        handed back, which they hold for as long as the tab lives - so after
+        a reload, with a perfectly good token in sessionStorage and nobody
+        to ask, "Signed in as" printed the ROLE. Everybody who refreshed the
+        page was told they were signed in as MASTER.
+
+        From the TOKEN, never from the body: req.user is what requireAuth
+        verified a signature over.
+      */
+      username: req.user.employeeId,
+
+      // For the shell's brand block, as getBootstrap sends them for the same
+      // block [Code.gs:205]. From the server, not the page: the version is a
+      // statement about what is deployed, and a copy inside a .html file that
+      // the browser has cached can outlive the deployment it describes.
+      appName: APP_NAME,
+      appVersion: APP_VERSION,
+
       standards: [kpi.KPI_RESOLUTION, kpi.KPI_RESOLUTION_EAS],
       // For the chart labels: 'Supply Chain Applications' does not fit on an
       // axis, and dropping the word 'Applications' leaves it two words where
@@ -1738,6 +1790,27 @@ app.get('/api/kpi2/boot', requireAuth, async function (req, res) {
       configured: true,
       role: req.user.role,
       canAdmin: rankOf(req.user.role) >= ROLE_RANK.ADMIN,
+
+      /*
+        WHO, for the shell's top bar, as getBootstrap sends it [Code.gs:199].
+
+        THIS WAS MISSING AND IT SHOWED. The pages had only what /api/login
+        handed back, which they hold for as long as the tab lives - so after
+        a reload, with a perfectly good token in sessionStorage and nobody
+        to ask, "Signed in as" printed the ROLE. Everybody who refreshed the
+        page was told they were signed in as MASTER.
+
+        From the TOKEN, never from the body: req.user is what requireAuth
+        verified a signature over.
+      */
+      username: req.user.employeeId,
+
+      // For the shell's brand block, as getBootstrap sends them for the same
+      // block [Code.gs:205]. From the server, not the page: the version is a
+      // statement about what is deployed, and a copy inside a .html file that
+      // the browser has cached can outlive the deployment it describes.
+      appName: APP_NAME,
+      appVersion: APP_VERSION,
       kpi: kpi2.KPI_FEEDBACK,
       // Whether a skipped question counts against the rate. The screen
       // says so under the mix chart, because it is the one choice that
@@ -1853,6 +1926,27 @@ app.get('/api/uploads/boot', requireAuth, async function (req, res) {
       configured: true,
       role: req.user.role,
       canAdmin: rankOf(req.user.role) >= ROLE_RANK.ADMIN,
+
+      /*
+        WHO, for the shell's top bar, as getBootstrap sends it [Code.gs:199].
+
+        THIS WAS MISSING AND IT SHOWED. The pages had only what /api/login
+        handed back, which they hold for as long as the tab lives - so after
+        a reload, with a perfectly good token in sessionStorage and nobody
+        to ask, "Signed in as" printed the ROLE. Everybody who refreshed the
+        page was told they were signed in as MASTER.
+
+        From the TOKEN, never from the body: req.user is what requireAuth
+        verified a signature over.
+      */
+      username: req.user.employeeId,
+
+      // For the shell's brand block, as getBootstrap sends them for the same
+      // block [Code.gs:205]. From the server, not the page: the version is a
+      // statement about what is deployed, and a copy inside a .html file that
+      // the browser has cached can outlive the deployment it describes.
+      appName: APP_NAME,
+      appVersion: APP_VERSION,
 
       ticketColumns: merge.HEADERS,
       trainingColumns: kpi2.TRAINING_HEADERS,
