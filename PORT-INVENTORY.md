@@ -830,8 +830,9 @@ decided for a reason.
     section of `Auth.gs`; eight endpoints behind `requireMaster`, 77 checks
     in `api/accounts-test.js`, 37 mutations and 36 caught.
     `pruneAuthLog()` is back in `backupNow()`, at the point Backup.gs calls
-    it and for the reason it gives. **The screen itself is next.** See
-    "Accounts" below.
+    it and for the reason it gives. **The screen is DONE too** -
+    `api/public/master.html`, 67 checks - and with it the card that makes a
+    reset temporary. See "Accounts" below.
 11. **Deployment.** `clasp push` is lost at cutover: today VS Code to live
     is one command, afterwards something has to put the code on the server
     and restart Node. Not built, and not optional.
@@ -843,7 +844,8 @@ decided for a reason.
     in a real browser, 36 mutations and 35 caught. The remaining screens - the portal
     (Home, Team, Links, About, By-weekly, Learnings, Knowledge), Comparison,
     Summary, Help & FAQ and Accounts - are **shown in the nav and disabled**,
-    each saying on hover that it is not ported yet. `/` redirects to
+    each saying on hover that it is not ported yet - except Accounts,
+    which arrived with item 10. `/` redirects to
     `kpi1.html`, which is what `homeView()` says to do when there is no
     portal. See "The shell" below.
 
@@ -1443,3 +1445,64 @@ simply not copied. Rather than leave that as an assumption, the check now
 asserts the allow-list itself - the keys on a row are exactly the eleven the
 screen needs - and a separate pass-through mutation, which is the change
 that WOULD leak, dies against it.
+
+### The Accounts screen
+
+`api/public/master.html`, the view-master section of `src/Index.html` with
+`loadMaster`, `renderMasterAccounts`, `renderMasterLog`, `wireGrant`,
+`wireMasterActions`, `wireMasterDetails` and `resetPassword` behind it.
+Same cards in the same order, same columns, same words. **67 checks in a
+real browser.**
+
+**This is the screen where a mistake is not a wrong number.** Everywhere
+else a bug shows the wrong figure on a dashboard. Here it is somebody
+holding admin who should not, or a master who has locked the team out of
+their own accounts. So every button asks first, only the destructive one
+wears a bin and a red button, and nothing on the page is trusted to be the
+guard - all eight routes check `requireMaster`, because a URL is reachable
+whether or not a button for it exists. The suite proves an admin and a
+viewer are both turned away by the server, and told why rather than shown a
+blank sign-in card.
+
+**The sign-ups box is shown and turned off.** In Apps Script the switch
+closes `registerAccount()` - anybody who reaches the URL creating a login
+for an employee ID that has none. There is no such door here: the only way
+an account comes into being is a master writing an employee ID down. So the
+switch has nothing to govern, and a switch that looks like a security
+control and is not one is worse than no switch at all. Left in place
+because the question it asks is still the right question, and it is
+answered.
+
+**The card that makes a reset temporary**, in `shell.js` rather than on any
+one screen, because somebody who has just been given a password lands
+wherever they last were. Not dismissible - no Escape, no backdrop, no
+Cancel - because there is nothing to go back to; the only ways out are
+setting a password or signing out. It is not a security boundary and does
+not pretend to be: the token is already valid. It is the step that makes a
+password a colleague chose stop working, and without it "Reset password"
+hands somebody a password a colleague knows and they keep it.
+
+`mustChange` is read from the database on every boot and never from the
+token, which is the whole reason it is a function call. A token is a
+snapshot signed for eight hours; the flag is cleared the moment they choose
+their own password, and a token issued before that would go on saying they
+had not - so the card would keep reappearing on a password they had already
+set. There is a test that reloads and checks it does not.
+
+#### The dialog moved out
+
+`api/public/dialog.js`. Two screens now ask people things, and both ask in
+ways that matter - "Remove the login for 20990025?" and "Delete this
+upload?" are the two most destructive buttons in the system. A dialog that
+behaved slightly differently on one of them - Escape not working, Enter
+landing on Delete, the backdrop not closing - is a difference nobody would
+notice until it mattered. The Uploads screen's copy was deleted and bound
+to the module under its old name, so every call site there reads exactly as
+it did; its 142 checks are what proved the extraction.
+
+**And the move found something.** Two dialogs show a password exactly once
+and both say "it is shown here and nowhere else". That was very nearly
+true: hiding the backdrop leaves the markup in the page, so the password
+sat in the DOM until the next dialog happened to overwrite it, readable by
+anything that could read the page. The dialog now empties itself on the way
+out. A test asked whether the sentence was true, and it was not.

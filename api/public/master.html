@@ -1,0 +1,872 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Accounts - TVL-EAS</title>
+<!--
+  THE ACCOUNTS SCREEN.
+
+  Ported from the view-master section of src/Index.html (the markup) and
+  loadMaster / renderMasterAccounts / renderMasterLog / wireGrant /
+  wireMasterActions / wireMasterDetails / resetPassword in src/App.html.
+  Same cards in the same order, same columns, same words.
+
+  THIS IS THE SCREEN WHERE A MISTAKE IS NOT A WRONG NUMBER. Everywhere else
+  in this system a bug shows the wrong figure on a dashboard. Here it is
+  somebody holding admin who should not, or a master who has locked the
+  whole team out of their own accounts. So every button asks first, every
+  destructive one wears a bin and a red button, and nothing on this page is
+  trusted to be the guard - the server checks requireMaster on all eight
+  routes, because a URL is reachable whether or not a button for it exists.
+-->
+<link rel="stylesheet" href="app.css">
+<script src="dialog.js"></script>
+<script src="shell.js"></script>
+<style>
+  body { background: var(--bg); }
+  /* Only while the shell is not around it - see uploads.html. */
+  body > .page { max-width: 1320px; margin: 0 auto; padding: 28px 20px 60px; }
+  .signin { max-width: 400px; margin: 60px auto; }
+  .signin label { display: block; font-size: 12px; color: var(--text-dim);
+                  margin: 14px 0 4px; }
+  .signin input { width: 100%; padding: 9px 11px; border: 1px solid var(--line);
+                  border-radius: 8px; font: inherit; background: var(--card);
+                  color: var(--text); }
+  .signin .btn { margin-top: 18px; width: 100%; }
+  .signin .why { color: var(--red); font-size: 13px; margin: 12px 0 0;
+                 min-height: 18px; }
+</style>
+</head>
+<body>
+
+<section class="card signin" id="signinCard" hidden>
+  <div class="card-head">Sign in</div>
+  <label for="employeeId">Employee ID</label>
+  <input id="employeeId" autocomplete="username" inputmode="numeric">
+  <label for="password">Password</label>
+  <input id="password" type="password" autocomplete="current-password">
+  <p class="why" id="signinWhy"></p>
+  <button class="btn btn-primary" id="signinGo">Sign in</button>
+</section>
+
+
+<div class="page" id="page" hidden>
+
+  <section class="view" id="view-master">
+    <div class="page-head">
+      <div>
+        <h1>Accounts</h1>
+        <p class="sub">
+          Who can open the dashboard, what each of them may do, and
+          everything that has happened to the logins.
+        </p>
+      </div>
+    </div>
+
+    <!--
+      Granting takes an employee ID, not an account - which is the shape
+      the request actually arrives in. If that ID has signed up its role
+      changes; if it has not, the ID is written down with the role and a
+      starting password, so its owner arrives already an admin.
+    -->
+    <div class="card">
+      <div class="card-head">Give someone access</div>
+      <div class="grant-row">
+        <label class="grant-field">
+          <span>Employee ID</span>
+          <input id="grantId" class="select" type="text" inputmode="numeric"
+                 placeholder="Emp_ID" autocapitalize="off" spellcheck="false">
+        </label>
+        <label class="grant-field">
+          <span>Role</span>
+          <select id="grantRole" class="select">
+            <option value="ADMIN">Admin &#x2014; can upload, delete, rebuild</option>
+            <option value="USER">Viewer &#x2014; can read everything</option>
+            <option value="MASTER">Master &#x2014; can also manage accounts</option>
+          </select>
+        </label>
+        <button class="btn btn-primary" id="grantGo">Give access</button>
+        <span class="filter-count" id="grantNote"></span>
+
+        <!--
+          THE SIGN-UPS SWITCH, SHOWN AND TURNED OFF, because the door it
+          governs is not ported.
+
+          In Apps Script this closes registerAccount() - anybody who reaches
+          the URL creating a login for an employee ID that has none. There
+          is no such door here: the only way an account comes into being is
+          somebody being written down in the box to the left of this. So the
+          switch has nothing to govern, and a switch that looks like a
+          security control and is not one is worse than no switch at all.
+
+          Left in place rather than deleted, because the question it asks -
+          who is allowed to exist on this dashboard - is still the right
+          question, and it is answered.
+        -->
+        <div class="signup-box">
+          <div class="signup-what">
+            <span class="signup-label">New logins</span>
+            <span class="signup-state is-shut" id="signupState">Closed</span>
+          </div>
+          <span class="signup-note" id="signupNote">Only an employee ID you add above</span>
+          <button class="btn btn-sm" id="signupToggle" disabled
+                  title="Signing up for yourself is not ported. The only way in is an employee ID added here.">Not ported</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head" data-report="masterTable">
+        People
+        <span class="head-note" id="masterCount"></span>
+      </div>
+      <div class="table-filter">
+        <select id="fMasterRole" class="select" title="Role">
+          <option value="">All roles</option>
+          <option value="MASTER">Master</option>
+          <option value="ADMIN">Admin</option>
+          <option value="USER">Viewer</option>
+        </select>
+        <input id="fMasterId" class="select" type="search"
+               placeholder="Search employee ID&#x2026;">
+        <button class="btn btn-ghost" id="fMasterReset">&#x2715; Reset</button>
+        <span class="filter-count" id="cMaster"></span>
+      </div>
+      <div class="table-wrap">
+        <table id="masterTable">
+          <thead>
+            <tr>
+              <th>Employee ID</th>
+              <th>Name</th>
+              <th>Role</th>
+              <th>Status</th>
+              <!--
+                Where a new query is emailed. Only admins and masters are
+                told, so an address on a viewer is stored and quietly
+                unused - the cell says which, rather than leaving somebody
+                wondering why they hear nothing.
+              -->
+              <th>Email for alerts</th>
+              <th>Last signed in</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td colspan="7" class="empty">Loading&#x2026;</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head" data-report="masterLog">
+        Sign-in log
+        <span class="head-note">Newest first &#183; kept for 30 days</span>
+      </div>
+      <!--
+        Capped and scrolled rather than allowed to run down the page. The
+        log gains a row on every sign-in, so left alone it becomes the
+        longest thing on this screen within a fortnight and pushes
+        everything else out of reach.
+      -->
+      <div class="table-wrap is-capped">
+        <table id="masterLog">
+          <thead>
+            <tr>
+              <th>When</th>
+              <th>Employee ID</th>
+              <!--
+                The name is NOT in the log. Every row records the login,
+                which is an employee ID, and nothing else - so this column
+                is filled in at render time from the accounts table above
+                it. That is on purpose: a name copied into the log at the
+                time would be whatever it was that day, and would go on
+                saying it after somebody corrected their spelling.
+              -->
+              <th>Name</th>
+              <th>What happened</th>
+              <th>Role</th>
+              <th>Detail</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td colspan="6" class="empty">Loading&#x2026;</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+
+<script>
+(function () {
+  'use strict';
+
+  const TOKEN_STORE = 'easToken';
+
+  const state = { token: '', user: null, boot: null,
+                  accounts: [], log: [] };
+
+
+  /**
+   * Every call to the API, with the dot in the top bar told about it.
+   *
+   * The same wrapper the other screens carry - see uploads.html for why it
+   * only ever goes one way.
+   */
+  async function api(method, path, body) {
+    try {
+      return await request(method, path, body);
+    } catch (err) {
+      if (String(err && err.message) !== 'signed out') easShell.setLive(false);
+      throw err;
+    }
+  }
+
+  async function request(method, path, body) {
+    const opts = { method: method, headers: {} };
+    if (state.token) opts.headers.Authorization = 'Bearer ' + state.token;
+    if (body !== undefined) {
+      opts.headers['Content-Type'] = 'application/json';
+      opts.body = JSON.stringify(body);
+    }
+
+    const res = await fetch(path, opts);
+    if (res.status === 401) {
+      signedOut('Your session has ended.');
+      throw new Error('signed out');
+    }
+
+    let data = null;
+    try { data = await res.json(); } catch (e) { /* not JSON */ }
+
+    if (!res.ok || !data || data.ok === false) {
+      throw new Error((data && data.error) ||
+                      ('the server answered ' + res.status));
+    }
+    return data;
+  }
+
+  const get = function (path) { return api('GET', path); };
+  const post = function (path, body) { return api('POST', path, body || {}); };
+
+
+  // =======================================================================
+  // SIGNING IN
+  // =======================================================================
+
+  function signedOut(why) {
+    state.token = '';
+    state.user = null;
+    state.boot = null;
+    try { sessionStorage.removeItem(TOKEN_STORE); } catch (e) { /* fine */ }
+    document.getElementById('page').hidden = true;
+    easShell.signedOut();
+    document.getElementById('signinCard').hidden = false;
+    document.getElementById('signinWhy').textContent = why || '';
+  }
+
+  async function signIn() {
+    const button = document.getElementById('signinGo');
+    const why = document.getElementById('signinWhy');
+    why.textContent = '';
+    button.disabled = true;
+    try {
+      const out = await api('POST', '/api/login', {
+        employee_id: document.getElementById('employeeId').value.trim(),
+        password: document.getElementById('password').value
+      });
+      state.token = out.token;
+      state.user = out.user;
+      try { sessionStorage.setItem(TOKEN_STORE, out.token); } catch (e) { /* fine */ }
+      document.getElementById('password').value = '';
+      await start();
+    } catch (err) {
+      why.textContent = err.message;
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+
+  async function start() {
+    const boot = await get('/api/master/boot');
+    state.boot = boot;
+
+    document.getElementById('signinCard').hidden = true;
+    easShell.signedIn({
+      role: boot.role,
+      username: boot.username ||
+                (state.user ? state.user.employee_id : boot.role),
+      appName: boot.appName,
+      appVersion: boot.appVersion,
+      mustChange: boot.mustChange
+    });
+    document.getElementById('page').hidden = false;
+
+    await loadMaster();
+  }
+
+
+  // =======================================================================
+  // READING IT ALL
+  // =======================================================================
+
+  /**
+   * The accounts and the log.
+   *
+   * TWO CALLS, AND THE ACCOUNTS ONE REPAINTS BOTH. App.html had three
+   * calls leaving at once and a note about what went wrong:
+   *
+   *     "The counter said '0 of 37' over a table of thirteen; the log said
+   *      'not given' against every row."
+   *
+   * The Name column in the log is filled in from the accounts list, so
+   * whichever call lands last has to repaint. Awaited together here rather
+   * than raced, which makes the question not arise - two calls is few
+   * enough that waiting for both costs nothing a person can feel.
+   */
+  async function loadMaster() {
+    const [accounts, log] = await Promise.all([
+      get('/api/master/accounts'),
+      get('/api/master/log?limit=300')
+    ]);
+    state.accounts = accounts.accounts || [];
+    state.log = log.log || [];
+
+    renderMasterAccounts();
+    renderMasterLog();
+    renderSignupBox();
+  }
+
+
+  /**
+   * The New logins box.
+   *
+   * The count beside it is informational only, as it is in App.html - the
+   * door closes when the master says so, never on reaching a number. Here
+   * it is closed because the door is not ported, so the count is the only
+   * part of this that still says anything.
+   */
+  function renderSignupBox() {
+    const real = state.accounts.length;
+    const target = (state.boot && state.boot.teamSize) || 0;
+    setText('signupNote', target
+      ? real + ' of ' + target + ' have a login'
+      : real + ' have a login');
+  }
+
+
+  // =======================================================================
+  // THE PEOPLE TABLE
+  // =======================================================================
+
+  function rolePill(role) {
+    const cls = role === 'MASTER' ? 'pill-master'
+              : role === 'ADMIN' ? 'pill-admin' : 'pill-user';
+    const word = role === 'MASTER' ? 'Master'
+               : role === 'ADMIN' ? 'Admin' : 'Viewer';
+    return '<span class="pill ' + cls + '">' + word + '</span>';
+  }
+
+
+  /** An ISO timestamp as something a person reads, or a dash. */
+  function whenText(iso) {
+    if (!iso) return '\u2014';
+    const at = new Date(iso);
+    if (isNaN(at.getTime())) return String(iso);
+    const pad = function (n) { return (n < 10 ? '0' : '') + n; };
+    return at.getFullYear() + '-' + pad(at.getMonth() + 1) + '-' +
+           pad(at.getDate()) + ' ' + pad(at.getHours()) + ':' +
+           pad(at.getMinutes());
+  }
+
+
+  function renderMasterAccounts() {
+    const all = state.accounts || [];
+    const wantRole = getValue('fMasterRole');
+    const wantId = getValue('fMasterId').trim().toLowerCase();
+
+    const rows = all.filter(function (a) {
+      if (wantRole && a.role !== wantRole) return false;
+      if (wantId && a.username.toLowerCase().indexOf(wantId) === -1) return false;
+      return true;
+    });
+
+    /*
+      NEWEST SIGN-IN AT THE TOP. Who was here this morning is the question
+      this table gets asked; the alphabetical order of employee IDs answers
+      nothing. Sorted on a copy, because `rows` is a filtered view of
+      state.accounts and sorting in place would quietly reorder the stored
+      list as a side effect of drawing it.
+
+      Descending on an ISO date string, which also puts anybody who has
+      never signed in at the bottom for free: '' sorts before every real
+      date, so reversed it sorts after all of them.
+    */
+    const ordered = rows.slice().sort(function (a, b) {
+      return (b.lastSignIn || '').localeCompare(a.lastSignIn || '');
+    });
+
+    setText('masterCount', all.length + ' account' + (all.length === 1 ? '' : 's'));
+    setText('cMaster', rows.length === all.length
+      ? all.length + ' accounts'
+      : rows.length + ' of ' + all.length + ' accounts');
+
+    if (!ordered.length) {
+      return emptyTable('#masterTable tbody', 7, 'No accounts match.');
+    }
+
+    fillRows('#masterTable tbody', ordered, function (a) {
+      const id = escapeHtml(a.username);
+      const make = function (action, label, cls) {
+        return '<button class="btn btn-sm ' + (cls || 'btn-ghost') +
+               '" data-master="' + action + '" data-id="' + id + '">' +
+               label + '</button>';
+      };
+
+      /*
+        THREE STATES WORTH TELLING APART: somebody using a password of
+        their own, somebody still on a starting one, and an ID written
+        down before its owner has ever signed in.
+      */
+      const status = !a.lastSignIn && a.mustChange
+        ? '<span class="pill pill-wait">Not signed in yet</span>'
+        : a.mustChange
+          ? '<span class="pill pill-wait">Must set a password</span>'
+          : '<span class="pill pill-ok">Active</span>';
+
+      /*
+        TYPED STRAIGHT INTO THE CELL, because both of these are things you
+        come to this screen to correct rather than to read. They save when
+        the box is left, not on every keystroke - a half-typed address is
+        not an address, and the server would rightly refuse it.
+      */
+      const cell = function (field, value, placeholder, type) {
+        return '<input class="cell-edit" type="' + (type || 'text') +
+               '" data-detail="' + field + '" data-id="' + id +
+               '" maxlength="' + (field === 'name' ? '60' : '120') +
+               '" placeholder="' + placeholder + '" value="' +
+               escapeHtml(value || '') + '">';
+      };
+
+      /*
+        An address only does anything on an account that answers queries.
+        Saying so in the cell is kinder than letting somebody fill it in
+        for a viewer and wait for emails that were never going to come.
+      */
+      const alerted = a.role === 'ADMIN' || a.role === 'MASTER';
+      const mailNote = !alerted && a.email
+        ? '<span class="cell-note">stored - viewers are not emailed</span>'
+        : '';
+
+      return '<td class="name">' + id + '</td>' +
+             '<td>' + cell('name', a.fullName, 'not given') + '</td>' +
+             '<td>' + rolePill(a.role) + '</td>' +
+             '<td>' + status + '</td>' +
+             '<td>' + cell('email', a.email,
+                           alerted ? 'add one to be emailed'
+                                   : 'not used for a viewer', 'email') +
+                      mailNote + '</td>' +
+             '<td>' + escapeHtml(whenText(a.lastSignIn)) + '</td>' +
+             '<td class="master-actions">' +
+               (a.role !== 'ADMIN' && a.role !== 'MASTER'
+                 ? make('admin', 'Make admin') : '') +
+               (a.role === 'ADMIN' ? make('viewer', 'Remove admin') : '') +
+               make('reset', 'Reset password') +
+               make('remove', 'Remove', 'btn-danger-ghost') +
+             '</td>';
+    });
+
+    wireMasterActions();
+    wireMasterDetails();
+  }
+
+
+  // =======================================================================
+  // THE LOG
+  // =======================================================================
+
+  function renderMasterLog() {
+    const rows = state.log || [];
+    if (!rows.length) {
+      return emptyTable('#masterLog tbody', 6, 'Nothing logged yet.');
+    }
+
+    /*
+      WHO 20990025 IS, from the accounts table rather than from the log.
+      The log stores the login and nothing else, which is right: a name
+      written into it at the time would still say that after somebody fixed
+      their spelling, and a row for a removed account would carry a name
+      the Accounts list no longer shows anywhere.
+
+      The cost is that a removed account's rows lose their name, which is
+      the honest answer - the system genuinely no longer knows.
+    */
+    const named = {};
+    (state.accounts || []).forEach(function (a) {
+      if (a && a.username && a.fullName) named[String(a.username)] = a.fullName;
+    });
+
+    const said = {
+      SIGNUP:   'Created their login',
+      SIGNIN:   'Signed in',
+      ROLE:     'Role changed',
+      RESET:    'Password reset',
+      PASSWORD: 'Changed their password',
+      REMOVED:  'Account removed',
+      INVITED:  'Written down before signing in',
+      DETAILS:  'Name or email changed'
+    };
+
+    fillRows('#masterLog tbody', rows, function (l) {
+      const who = named[String(l.username)] || '';
+      return '<td>' + escapeHtml(whenText(l.when)) + '</td>' +
+             '<td class="name">' + escapeHtml(l.username) + '</td>' +
+             '<td class="name">' +
+               (who ? escapeHtml(who)
+                    : '<span class="muted">not given</span>') + '</td>' +
+             '<td>' + escapeHtml(said[l.event] || l.event) + '</td>' +
+             '<td>' + (l.role ? rolePill(l.role) : '') + '</td>' +
+             '<td class="muted">' + escapeHtml(l.detail || '') + '</td>';
+    });
+  }
+
+
+  // =======================================================================
+  // DOING THINGS TO AN ACCOUNT
+  // =======================================================================
+
+  function wireMasterActions() {
+    document.querySelectorAll('[data-master]').forEach(function (button) {
+      button.addEventListener('click', function () {
+        const id = button.dataset.id;
+        const what = button.dataset.master;
+
+        if (what === 'admin') return masterDo(
+          '/api/master/role', { employee_id: id, role: 'ADMIN' },
+          'Give ' + id + ' admin access?',
+          'They will be able to upload, delete and rebuild. They will not ' +
+          'be able to manage accounts - only you can do that.',
+          'Give admin access', 'info');
+
+        if (what === 'viewer') return masterDo(
+          '/api/master/role', { employee_id: id, role: 'USER' },
+          'Take admin access away from ' + id + '?',
+          'They keep their login and can still read every screen.',
+          'Take it away', 'info');
+
+        if (what === 'remove') return masterDo(
+          '/api/master/remove', { employee_id: id },
+          'Remove the login for ' + id + '?',
+          'They will not be able to sign in. The sign-in log keeps every ' +
+          'row about them, including this one.',
+          'Remove the login', 'danger');
+
+        if (what === 'reset') return resetPassword(id);
+      });
+    });
+  }
+
+
+  /**
+   * Asks, then does it.
+   *
+   * `tone` is not decoration. The dialog paints a red button and a bin icon
+   * unless it is told otherwise, and "Make admin" wearing a bin is a
+   * sentence the screen did not mean to say. Only removing a login is
+   * destructive, so only removing a login looks it.
+   */
+  function masterDo(path, body, title, text, label, tone) {
+    return easDialog.confirm({
+      title: title,
+      body: '<p>' + escapeHtml(text) + '</p>',
+      confirmLabel: label || 'Yes, do it',
+      tone: tone === 'danger' ? 'danger' : 'info'
+    }).then(function (yes) {
+      if (!yes) return;
+      return post(path, body)
+        .then(function () { return loadMaster(); })
+        .catch(function (err) {
+          if (err.message === 'signed out') return;
+          return easDialog.tell({
+            title: 'That could not be done',
+            body: '<p>' + escapeHtml(err.message) + '</p>'
+          });
+        });
+    });
+  }
+
+
+  /**
+   * Resets somebody's password and shows the new one ONCE.
+   *
+   * Once is not a limitation to apologise for - it is the only honest thing
+   * the screen can do, because the server keeps a scrambled form and
+   * nothing it could be read back from. Said plainly in the dialog, so
+   * nobody closes it expecting to find the password again later.
+   */
+  function resetPassword(id) {
+    return easDialog.confirm({
+      title: 'Reset the password for ' + id + '?',
+      body: '<p>They get a new password, shown once, here. The next time ' +
+            'they sign in with it they are taken straight to the card that ' +
+            'sets a password of their own.</p>',
+      confirmLabel: 'Reset the password',
+      tone: 'info'
+    }).then(function (yes) {
+      if (!yes) return;
+      return post('/api/master/reset', { employee_id: id })
+        .then(function (result) {
+          return loadMaster().then(function () {
+            return easDialog.tell({
+              title: 'Password reset for ' + id,
+              body: '<p>Tell them to sign in with their employee ID and ' +
+                    'this password:</p>' +
+                    '<p class="new-password">' +
+                    escapeHtml(result.password) + '</p>' +
+                    '<p><strong>It is shown here and nowhere else.</strong> ' +
+                    'Reloading this screen will not show it again, because ' +
+                    'the server keeps only a scrambled form of it. They ' +
+                    'will be asked to choose their own straight away, so ' +
+                    'this one stops working as soon as they do.</p>'
+            });
+          });
+        })
+        .catch(function (err) {
+          if (err.message === 'signed out') return;
+          return easDialog.tell({
+            title: 'That could not be done',
+            body: '<p>' + escapeHtml(err.message) + '</p>'
+          });
+        });
+    });
+  }
+
+
+  /**
+   * The Name and Email boxes on the Accounts table.
+   *
+   * Saved on `change`, which fires when the box is left after being edited
+   * - not on every keystroke, which would send a half-typed address the
+   * server would rightly refuse, and not on a button, which is one more
+   * click on the one screen where you are already typing.
+   *
+   * ONE FIELD AT A TIME. The other is sent as null, which the server reads
+   * as "leave it alone" - otherwise correcting a name would blank the
+   * address beside it with whatever happened to be on screen.
+   */
+  function wireMasterDetails() {
+    document.querySelectorAll('[data-detail]').forEach(function (box) {
+      box.addEventListener('change', function () {
+        const id = box.dataset.id;
+        const field = box.dataset.detail;
+        const said = box.value.trim();
+
+        box.classList.remove('is-bad');
+        box.disabled = true;
+
+        const body = field === 'name'
+          ? { employee_id: id, full_name: said, email: null }
+          : { employee_id: id, full_name: null, email: said };
+
+        post('/api/master/details', body)
+          .then(function (result) {
+            box.disabled = false;
+            /*
+              FROM THE SERVER, NOT FROM THE BOX: it tidies a name on the way
+              in, and a screen still showing "Rudra   Das" after storing
+              "Rudra Das" is a screen telling a small lie.
+            */
+            box.value = (field === 'name' ? result.fullName : result.email) || '';
+            // The row's own note depends on what was just saved, and the
+            // alert list has changed under it.
+            return loadMaster();
+          })
+          .catch(function (err) {
+            box.disabled = false;
+            if (err.message === 'signed out') return;
+            box.classList.add('is-bad');
+            box.focus();
+            easDialog.tell({
+              title: 'That could not be saved',
+              body: '<p>' + escapeHtml(err.message) + '</p>'
+            });
+          });
+      });
+    });
+  }
+
+
+  /**
+   * Gives an employee ID a role, whether or not it has signed in yet.
+   *
+   * The ID is what the master is given when somebody's manager asks for
+   * them to have access - not an account, which may not exist for days. So
+   * this takes the ID and the two cases are the server's problem, not the
+   * screen's.
+   */
+  function wireGrant() {
+    const go = document.getElementById('grantGo');
+    if (!go) return;
+
+    const say = function (text, bad) {
+      const note = document.getElementById('grantNote');
+      if (!note) return;
+      note.textContent = text || '';
+      note.classList.toggle('is-bad', Boolean(bad));
+    };
+
+    go.addEventListener('click', function () {
+      const id = getValue('grantId').trim();
+      const role = getValue('grantRole');
+
+      if (!/^[0-9]+$/.test(id)) {
+        return say('An employee ID is digits only.', true);
+      }
+
+      go.disabled = true;
+      say('Saving\u2026');
+
+      post('/api/master/grant', { employee_id: id, role: role })
+        .then(function (result) {
+          go.disabled = false;
+          setValue('grantId', '');
+          return loadMaster().then(function () {
+            if (!result.invited) {
+              say(id + ' is now ' + (role === 'USER' ? 'a viewer' :
+                                     role === 'ADMIN' ? 'an admin' : 'a master') + '.');
+              return;
+            }
+            say('');
+            return easDialog.tell({
+              title: id + ' can now sign in',
+              body: '<p>They have no account yet, so the ID is written down ' +
+                    'with that access waiting on it. Tell them to sign in ' +
+                    'with their employee ID and this password:</p>' +
+                    '<p class="new-password">' +
+                    escapeHtml(result.password) + '</p>' +
+                    '<p><strong>It is shown here and nowhere else.</strong> ' +
+                    'They will choose their own straight away, and they ' +
+                    'arrive already holding the access you just gave them.</p>'
+            });
+          });
+        })
+        .catch(function (err) {
+          go.disabled = false;
+          if (err.message === 'signed out') return;
+          say(err.message || 'That could not be saved.', true);
+        });
+    });
+  }
+
+
+  // =======================================================================
+  // SMALL THINGS
+  // =======================================================================
+
+  function escapeHtml(value) {
+    return String(value == null ? '' : value)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  function getValue(id) {
+    const el = document.getElementById(id);
+    return el ? el.value : '';
+  }
+
+  function setValue(id, value) {
+    const el = document.getElementById(id);
+    if (el) el.value = value;
+  }
+
+  function setText(id, text) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = text;
+  }
+
+  function fillRows(selector, rows, toHtml) {
+    const body = document.querySelector(selector);
+    if (!body) return;
+    body.innerHTML = '';
+    rows.forEach(function (row) {
+      const tr = document.createElement('tr');
+      tr.innerHTML = toHtml(row);
+      body.appendChild(tr);
+    });
+  }
+
+  function emptyTable(selector, columns, text) {
+    const body = document.querySelector(selector);
+    if (!body) return;
+    body.innerHTML = '<tr><td colspan="' + columns + '" class="empty">' +
+                     escapeHtml(text) + '</td></tr>';
+  }
+
+  function bind(id, event, handler) {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener(event, handler);
+  }
+
+
+  // =======================================================================
+  // STARTUP
+  // =======================================================================
+
+  document.addEventListener('DOMContentLoaded', function () {
+    // The shell goes on first: Sign out lives in its top bar.
+    easShell.mount({ view: 'master' });
+
+    wireGrant();
+
+    // The filters redraw from what is already loaded - no server call.
+    bind('fMasterRole', 'change', renderMasterAccounts);
+    bind('fMasterId', 'input', renderMasterAccounts);
+    bind('fMasterReset', 'click', function () {
+      setValue('fMasterRole', '');
+      setValue('fMasterId', '');
+      renderMasterAccounts();
+    });
+
+    bind('signinGo', 'click', function () { signIn(); });
+    bind('password', 'keydown', function (e) { if (e.key === 'Enter') signIn(); });
+    bind('employeeId', 'keydown', function (e) { if (e.key === 'Enter') signIn(); });
+    bind('signOut', 'click', function () { signedOut(''); });
+
+    try { state.token = sessionStorage.getItem(TOKEN_STORE) || ''; }
+    catch (e) { state.token = ''; }
+
+    if (!state.token) { signedOut(''); return; }
+
+    start().catch(function (err) {
+      if (String(err && err.message) === 'signed out') return;
+      /*
+        A VIEWER OR AN ADMIN WHO REACHES THIS URL gets a 403, which is the
+        server doing its job - this screen is master-only. Say which,
+        rather than showing them a sign-in card for an account they are
+        already signed into.
+      */
+      signedOut('Could not open the screen \u2014 ' +
+                (err && err.message ? err.message : String(err)));
+    });
+  });
+
+
+  // For the browser suite, which drives this page against the real server.
+  window.__masterScreen = {
+    rolePill: rolePill,
+    whenText: whenText,
+    renderMasterAccounts: renderMasterAccounts,
+    state: state
+  };
+}());
+</script>
+</body>
+</html>

@@ -515,6 +515,31 @@ async function setDetails(actor, employeeId, fullName, email) {
 // ===========================================================================
 
 /**
+ * Whether this person is still on a password somebody else chose.
+ *
+ * READ FROM THE DATABASE, NEVER FROM THE TOKEN, and that is the whole
+ * reason it is a function rather than a claim. A token is a snapshot signed
+ * for eight hours; must_change is cleared the moment they choose their own
+ * password, and a token issued before that would go on saying they had not
+ * for the rest of the day. The card would keep reappearing on a password
+ * they had already set.
+ *
+ * Unknown reads as false: an account that has gone is not an account that
+ * must change its password, and a boot call is not worth failing over this.
+ */
+async function mustChangeFor(employeeId) {
+  try {
+    const rows = await db.query(
+      'SELECT must_change FROM account WHERE employee_id = $1', [employeeId]);
+    return rows.length ? Boolean(rows[0].must_change) : false;
+  } catch (e) {
+    console.error('[accounts] could not read must_change: ' + e.message);
+    return false;
+  }
+}
+
+
+/**
  * Records a successful sign-in: the clock, the counter and the log row.
  *
  * ONE STATEMENT FOR THE TWO COLUMNS. last_login_at and sign_ins answer
@@ -583,7 +608,7 @@ module.exports = {
   logAuth, pruneAuthLog, auditLog,
   listAccounts, alertEmails, countMasters,
   setRole, removeAccount, resetPassword, grantToEmployeeId, setDetails,
-  noteSignIn, changeMyPassword,
+  noteSignIn, changeMyPassword, mustChangeFor,
   oneTimePassword, cleanName, isRealRole, said,
   AUTH_LOG_DAYS, EMP_ID_MIN, EMP_ID_MAX, MIN_PASSWORD
 };

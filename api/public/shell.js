@@ -116,7 +116,7 @@
       badge: 'helpBadge' },
 
     { group: 'Administration', needs: 'MASTER' },
-    { view: 'master', label: 'Accounts', href: null, needs: 'MASTER' }
+    { view: 'master', label: 'Accounts', href: 'master.html', needs: 'MASTER' }
   ];
 
   /* Straight from ROLE_RANK in api/auth.js, which is Auth.gs's. */
@@ -389,6 +389,148 @@
     });
 
     app.hidden = false;
+
+    /*
+      AND IF THE PASSWORD THEY JUST USED IS NOT THEIRS, that is the only
+      thing on this screen until it is. See mustChangeCard below.
+    */
+    if (b.mustChange) mustChangeCard(b);
+  }
+
+
+  // =========================================================================
+  // THE PASSWORD SOMEBODY ELSE CHOSE
+  // =========================================================================
+
+  /**
+   * Shown when must_change is set, over whatever screen they landed on.
+   *
+   * THE RESET IS NOT FINISHED UNTIL THIS HAPPENS. A master resets somebody's
+   * password, reads the new one off the screen and passes it on; that
+   * password is temporary by design, and the only thing that makes it
+   * temporary is this card. Without it, "Reset password" hands somebody a
+   * password a colleague chose and knows, and they keep it.
+   *
+   * Over the screen rather than instead of it, which is what showView does
+   * in the original: the app is up, and this is in front of it. Not
+   * dismissible - no Escape, no backdrop click, no Cancel - because there
+   * is nothing to go back to. The only ways out are setting a password or
+   * signing out, and Sign out is still reachable behind it.
+   *
+   * It is not a security boundary and does not pretend to be: the token is
+   * already valid and the API would answer it. It is the step that makes
+   * the temporary password temporary, and the server is what refuses
+   * anything that matters.
+   */
+  function mustChangeCard(boot) {
+    if (byId('shellMustChange')) return;
+
+    const wrap = document.createElement('div');
+    wrap.className = 'modal-backdrop';
+    wrap.id = 'shellMustChange';
+    wrap.innerHTML =
+      '<div class="modal is-info" role="dialog" aria-modal="true" ' +
+           'aria-labelledby="mcTitle">' +
+        '<div class="modal-head">' +
+          '<span class="modal-icon" aria-hidden="true">' +
+            '<svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" ' +
+                 'height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>' +
+            '</svg>' +
+          '</span>' +
+          '<div>' +
+            '<h2 id="mcTitle">Choose a password</h2>' +
+            '<p class="modal-sub">The one you just used was set for you.</p>' +
+          '</div>' +
+        '</div>' +
+        '<div class="modal-body">' +
+          '<p>It was chosen by somebody else and they still know it, so it ' +
+             'is only good for getting you this far. Pick one of your own ' +
+             'and it stops working.</p>' +
+          '<label class="mc-label" for="mcCurrent">The password you just used</label>' +
+          '<input class="mc-input" id="mcCurrent" type="password" ' +
+                 'autocomplete="current-password">' +
+          '<label class="mc-label" for="mcNext">A new password</label>' +
+          '<input class="mc-input" id="mcNext" type="password" ' +
+                 'autocomplete="new-password">' +
+          '<label class="mc-label" for="mcConfirm">The same one again</label>' +
+          '<input class="mc-input" id="mcConfirm" type="password" ' +
+                 'autocomplete="new-password">' +
+          '<p class="mc-why" id="mcWhy"></p>' +
+        '</div>' +
+        '<div class="modal-foot">' +
+          '<button class="btn btn-primary" id="mcGo">Set my password</button>' +
+        '</div>' +
+      '</div>';
+
+    document.body.appendChild(wrap);
+
+    /*
+      THE HANDFUL OF RULES THIS CARD NEEDS. Styles.html has no card like it
+      - it is new, because the original's version is a whole view rather
+      than a dialog - so the rules come with it rather than being added to
+      a stylesheet that is a copy of somebody else's file.
+    */
+    if (!byId('shellMustChangeCss')) {
+      const css = document.createElement('style');
+      css.id = 'shellMustChangeCss';
+      css.textContent =
+        '#shellMustChange .mc-label { display: block; font-size: 12px;' +
+        ' color: var(--text-dim); margin: 14px 0 4px; }' +
+        '#shellMustChange .mc-input { width: 100%; padding: 9px 11px;' +
+        ' border: 1px solid var(--line); border-radius: 8px; font: inherit;' +
+        ' background: var(--card); color: var(--text); box-sizing: border-box; }' +
+        '#shellMustChange .mc-why { color: var(--red); font-size: 13px;' +
+        ' margin: 12px 0 0; min-height: 18px; }';
+      document.head.appendChild(css);
+    }
+
+    const why = byId('mcWhy');
+    const go = byId('mcGo');
+    byId('mcCurrent').focus();
+
+    async function save() {
+      const current = byId('mcCurrent').value;
+      const next = byId('mcNext').value;
+      const confirm = byId('mcConfirm').value;
+
+      why.textContent = '';
+      go.disabled = true;
+      try {
+        const res = await fetch('/api/password', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: 'Bearer ' + (boot.token || tokenFromStore())
+          },
+          body: JSON.stringify({ current: current, next: next,
+                                 confirm: confirm })
+        });
+        const data = await res.json().catch(function () { return null; });
+        if (!res.ok || !data || data.ok === false) {
+          throw new Error((data && data.error) ||
+                          ('the server answered ' + res.status));
+        }
+        wrap.remove();
+        say('Your password is set. The old one has stopped working.');
+      } catch (err) {
+        why.textContent = err.message;
+        go.disabled = false;
+      }
+    }
+
+    go.addEventListener('click', save);
+    ['mcCurrent', 'mcNext', 'mcConfirm'].forEach(function (id) {
+      byId(id).addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') { e.preventDefault(); save(); }
+      });
+    });
+  }
+
+
+  /** The token the pages keep, for the one call the shell makes itself. */
+  function tokenFromStore() {
+    try { return sessionStorage.getItem('easToken') || ''; }
+    catch (e) { return ''; }
   }
 
 
@@ -480,6 +622,7 @@
   return {
     mount: mount,
     signedIn: signedIn,
+    mustChangeCard: mustChangeCard,
     signedOut: signedOut,
     setLive: setLive,
     say: say,

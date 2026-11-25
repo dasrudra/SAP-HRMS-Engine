@@ -427,7 +427,10 @@
       username: boot.username ||
                 (state.user ? state.user.employee_id : boot.role),
       appName: boot.appName,
-      appVersion: boot.appVersion
+      appVersion: boot.appVersion,
+      // If the password they signed in with was set for them, the shell
+      // puts the card that replaces it in front of this screen.
+      mustChange: boot.mustChange
     });
     document.getElementById('page').hidden = false;
 

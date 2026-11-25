@@ -377,7 +377,9 @@ async function main() {
         JSON.stringify(shell.labelOf('help')) + ' in the nav');
 
   check('a screen with no page yet has no URL to offer',
-        shell.urlFor('compare') === '' && shell.urlFor('master') === '');
+        shell.urlFor('compare') === '' && shell.urlFor('settings') === '');
+  check('AND ACCOUNTS NOW HAS ONE - it was the first of the four to arrive',
+        shell.urlFor('master') === 'master.html', shell.urlFor('master'));
   check('and one that has a page carries the period into the query',
         shell.urlFor('kpi1', '2026-05') === 'kpi1.html?period=2026-05' &&
         shell.urlFor('kpi2', '2026-Q2') === 'kpi2.html?period=2026-Q2');

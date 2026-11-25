@@ -1668,6 +1668,18 @@ app.get('/api/kpi1/boot', requireAuth, async function (req, res) {
       */
       username: req.user.employeeId,
 
+      /*
+        WHETHER THEY ARE STILL ON A PASSWORD SOMEBODY ELSE CHOSE.
+
+        The sign-in reply carries this too, but that is only read by the
+        tab that did the signing in. After a reload the token is still good
+        and nothing has asked - so without it here, somebody could sign in
+        with a one-time password, press F5, and never see the card that
+        makes them choose their own. The whole point of a reset is that the
+        password a master handed over is temporary.
+      */
+      mustChange: await accounts.mustChangeFor(req.user.employeeId),
+
       // For the shell's brand block, as getBootstrap sends them for the same
       // block [Code.gs:205]. From the server, not the page: the version is a
       // statement about what is deployed, and a copy inside a .html file that
@@ -1801,6 +1813,18 @@ app.get('/api/master/boot', requireAuth, requireMaster,
         role: req.user.role,
         canAdmin: true,
         username: req.user.employeeId,
+
+      /*
+        WHETHER THEY ARE STILL ON A PASSWORD SOMEBODY ELSE CHOSE.
+
+        The sign-in reply carries this too, but that is only read by the
+        tab that did the signing in. After a reload the token is still good
+        and nothing has asked - so without it here, somebody could sign in
+        with a one-time password, press F5, and never see the card that
+        makes them choose their own. The whole point of a reset is that the
+        password a master handed over is temporary.
+      */
+      mustChange: await accounts.mustChangeFor(req.user.employeeId),
         appName: APP_NAME,
         appVersion: APP_VERSION,
 
@@ -2013,6 +2037,18 @@ app.get('/api/kpi2/boot', requireAuth, async function (req, res) {
       */
       username: req.user.employeeId,
 
+      /*
+        WHETHER THEY ARE STILL ON A PASSWORD SOMEBODY ELSE CHOSE.
+
+        The sign-in reply carries this too, but that is only read by the
+        tab that did the signing in. After a reload the token is still good
+        and nothing has asked - so without it here, somebody could sign in
+        with a one-time password, press F5, and never see the card that
+        makes them choose their own. The whole point of a reset is that the
+        password a master handed over is temporary.
+      */
+      mustChange: await accounts.mustChangeFor(req.user.employeeId),
+
       // For the shell's brand block, as getBootstrap sends them for the same
       // block [Code.gs:205]. From the server, not the page: the version is a
       // statement about what is deployed, and a copy inside a .html file that
@@ -2148,6 +2184,18 @@ app.get('/api/uploads/boot', requireAuth, async function (req, res) {
         verified a signature over.
       */
       username: req.user.employeeId,
+
+      /*
+        WHETHER THEY ARE STILL ON A PASSWORD SOMEBODY ELSE CHOSE.
+
+        The sign-in reply carries this too, but that is only read by the
+        tab that did the signing in. After a reload the token is still good
+        and nothing has asked - so without it here, somebody could sign in
+        with a one-time password, press F5, and never see the card that
+        makes them choose their own. The whole point of a reset is that the
+        password a master handed over is temporary.
+      */
+      mustChange: await accounts.mustChangeFor(req.user.employeeId),
 
       // For the shell's brand block, as getBootstrap sends them for the same
       // block [Code.gs:205]. From the server, not the page: the version is a
