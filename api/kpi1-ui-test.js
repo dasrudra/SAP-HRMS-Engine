@@ -165,7 +165,12 @@ async function main() {
     if (r.status() >= 400) badRequests.push(r.status() + ' ' + r.url());
   });
   p.on('requestfailed', function (r) {
-    badRequests.push('could not be reached: ' + r.url());
+    // ERR_ABORTED is a request the page itself gave up on - a reload or a
+    // close landing mid-flight. That is the suite's doing, not a file the
+    // server failed to serve.
+    const why = (r.failure() || {}).errorText || '';
+    if (/ERR_ABORTED/.test(why)) return;
+    badRequests.push('could not be reached: ' + r.url() + ' (' + why + ')');
   });
 
   await p.goto(BASE + '/kpi1.html');
@@ -196,6 +201,20 @@ async function main() {
   check('the heading is the one the old screen had',
         (await p.textContent('.page-head h1')).indexOf(
           'KPI 1: Error/Issue Resolution Time') === 0);
+  /*
+    THE CDN PATH IS CASE-SENSITIVE, and cdnjs calls the library 'Chart.js'.
+    Written 'chart.js' it 404s, no Chart is defined, and both chart cards
+    render as empty white boxes with their headings still on them - which
+    looks like a screen with no data rather than a screen with no library.
+    Checked against the URL App.html uses, so the two cannot drift.
+  */
+  check('THE CHART LIBRARY IS ASKED FOR BY THE NAME THE CDN USES',
+        await p.evaluate(function () {
+          return Array.prototype.slice.call(document.querySelectorAll('script'))
+            .some(function (s) {
+              return /cdnjs\.cloudflare\.com\/ajax\/libs\/Chart\.js\//.test(s.src);
+            });
+        }));
   check('the design system loaded',
         await p.evaluate(function () {
           return getComputedStyle(document.documentElement)
@@ -221,6 +240,21 @@ async function main() {
   console.log('');
   console.log('  The six figures');
   // =======================================================================
+  /*
+    NARROWED TO THIS SUITE'S OWN TWO MONTHS FIRST.
+
+    The screen opens on All months, which on a real machine is every
+    ticket there is - 26,414 of them when this was written. Asserting
+    exact figures against that was asserting about somebody's whole
+    database: it passed on an empty sandbox and failed thirty-three times
+    on a real one. 2099-05 and 2099-06 hold nothing but the fixture.
+  */
+  check('it opens on All months', 
+        /All months/.test(await p.textContent('#monthPickerLabel')),
+        await p.textContent('#monthPickerLabel'));
+
+  await pickMonths(p, [MAY, JUN]);
+
   const tiles = await readTiles(p);
   check('five tiles are drawn', tiles.length === 5,
         String(tiles.length) + ': ' + tiles.map(function (t) { return t.label; }).join(', '));
@@ -238,7 +272,7 @@ async function main() {
   check('Received counts every ticket in scope', received && received.value === '18',
         received && received.value);
   check('and says so without claiming a month it is not showing',
-        received && /across all months/.test(received.note),
+        received && /across 2 months/.test(received.note),
         received && received.note);
 
   const completed = tiles.filter(function (t) { return t.label === 'Completed'; })[0];
@@ -435,17 +469,16 @@ async function main() {
   console.log('');
   console.log('  The month picker');
   // =======================================================================
-  check('both months are offered, and All months',
-        await p.evaluate(function () {
-          return document.querySelectorAll('#monthPickerMenu .picker-option').length === 3;
-        }));
-  check('it opens on All months',
-        /All months/.test(await p.textContent('#monthPickerLabel')),
-        await p.textContent('#monthPickerLabel'));
+  check('every month with data is offered, and All months',
+        await p.evaluate(function (months) {
+          const have = Array.prototype.slice.call(
+            document.querySelectorAll('#monthPickerMenu .picker-option'))
+            .map(function (o) { return o.dataset.month; });
+          return have.indexOf('ALL') !== -1 &&
+                 months.every(function (m) { return have.indexOf(m) !== -1; });
+        }, [MAY, JUN]));
 
-  await p.click('#monthPicker');
-  await p.click('#monthPickerMenu .picker-option[data-month="' + MAY + '"]');
-  await settled(p);
+  await pickMonths(p, [MAY]);
   check('CHOOSING ONE MONTH SCORES ONLY THAT MONTH',
         await p.evaluate(function () {
           const tile = Array.prototype.slice.call(
@@ -468,6 +501,7 @@ async function main() {
           return /tickets this month/.test(tile.querySelector('.tile-note').textContent);
         }));
 
+  await openPicker(p);
   await p.click('#monthPickerMenu .picker-option[data-month="' + JUN + '"]');
   await settled(p);
   check('TWO MONTHS AT ONCE IS A THING THE PICKER CAN SAY',
@@ -483,12 +517,15 @@ async function main() {
           return tile.querySelector('.tile-value').textContent === '18';
         }));
 
+  await openPicker(p);
   await p.click('#monthPickerMenu .picker-option[data-month="ALL"]');
   await settled(p);
   check('All months is exclusive - choosing it clears the rest',
         (await p.evaluate(function () {
           return document.querySelectorAll('#monthPickerMenu .picker-option.is-on').length;
         })) === 1);
+  // Back to this suite's own months for what follows.
+  await pickMonths(p, [MAY, JUN]);
 
 
   // =======================================================================
@@ -586,6 +623,43 @@ async function main() {
 // ---------------------------------------------------------------------------
 // driving the page
 // ---------------------------------------------------------------------------
+
+/**
+ * Chooses exactly these months in the picker.
+ *
+ * Clicking All months first makes the state known whatever it was, then
+ * each wanted month toggles on. All months is exclusive, so the first
+ * click after it leaves only that one selected.
+ */
+async function pickMonths(p, months) {
+  await openPicker(p);
+  await p.click('#monthPickerMenu .picker-option[data-month="ALL"]');
+  await settled(p);
+  for (let i = 0; i < months.length; i++) {
+    await openPicker(p);
+    await p.click('#monthPickerMenu .picker-option[data-month="' + months[i] + '"]');
+    await settled(p);
+  }
+  await p.keyboard.press('Escape');
+}
+
+
+/**
+ * Makes sure the menu is open, whatever it was.
+ *
+ * The button TOGGLES, so clicking it to "open" the menu closes one that
+ * was already open - and the next click then waits thirty seconds for an
+ * option that is not on screen.
+ */
+async function openPicker(p) {
+  const shut = await p.evaluate(function () {
+    const menu = document.getElementById('monthPickerMenu');
+    return !menu || menu.hidden;
+  });
+  if (shut) await p.click('#monthPicker');
+  await p.waitForSelector('#monthPickerMenu:not([hidden])', { timeout: 10000 });
+}
+
 
 /** Waits for the screen to stop moving: no pending fetch, tiles drawn. */
 async function settled(p) {
