@@ -834,7 +834,41 @@ async function main() {
           return document.getElementById('liveDot').classList.contains('is-busy');
         })));
 
+  /*
+    AND AN EXPIRED SESSION IS NOT A DEAD SERVER.
+
+    onError in App.html opens with the exception before it does anything
+    else: "A session that ran out is not an error to report, it is a
+    sign-in to ask for." It matters because the two look identical from
+    inside the page - both are a call that did not give you what you asked
+    for - and they call for opposite things. One wants the password typed
+    again. The other wants nobody to trust the figures on screen.
+
+    Making the dot red for both survived a mutation run, so it is asserted
+    now: the session ends, the sign-in card comes back, and the dot has
+    nothing to say about it.
+  */
   breakingOnPurpose = true;
+  await p.route('**/api/uploads', function (route) {
+    route.fulfill({
+      status: 401,
+      contentType: 'application/json',
+      body: JSON.stringify({ ok: false, error: 'Your session has ended.' })
+    });
+  });
+  await p.goto(BASE + '/uploads.html');
+  await p.evaluate(function (t) { sessionStorage.setItem('easToken', t); },
+                   signToken('TEST-SHELL-master', 'MASTER'));
+  await p.goto(BASE + '/uploads.html');
+  await p.waitForSelector('#signinCard:not([hidden])', { timeout: 20000 });
+  check('AN EXPIRED SESSION ASKS FOR THE PASSWORD, it does not blame the server',
+        (await p.textContent('#liveText')) === 'Live' &&
+        !(await p.evaluate(function () {
+          return document.getElementById('liveDot').classList.contains('is-busy');
+        })),
+        await p.textContent('#liveText'));
+  await p.unroute('**/api/uploads');
+
   await p.route('**/api/uploads', function (route) {
     route.abort('connectionrefused');
   });

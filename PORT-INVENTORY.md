@@ -833,11 +833,13 @@ decided for a reason.
     `api/public/shell.js` puts the sidebar and the top bar on every page and
     owns the table of where each screen lives, so Uploads, KPI 1 and KPI 2
     are one system rather than three URLs, and **Open Dashboard opens the
-    dashboard** instead of describing where it would have gone. 86 checks
-    in a real browser, 31 mutations. The remaining screens - the portal
+    dashboard** instead of describing where it would have gone. 97 checks
+    in a real browser, 36 mutations and 35 caught. The remaining screens - the portal
     (Home, Team, Links, About, By-weekly, Learnings, Knowledge), Comparison,
     Summary, Help & FAQ and Accounts - are **shown in the nav and disabled**,
-    each saying on hover that it is not ported yet. See "The shell" below.
+    each saying on hover that it is not ported yet. `/` redirects to
+    `kpi1.html`, which is what `homeView()` says to do when there is no
+    portal. See "The shell" below.
 
 Apps Script keeps running untouched throughout. Nothing is switched off
 until its row says DONE.
@@ -1170,7 +1172,7 @@ half of `src/Index.html` - the sidebar, the brand block, the collapse button,
 the top bar - plus `applyRole`, the `labels` table inside `showView`, and
 `setLive`. Same groups in the same order, same labels, same icons path for
 path, same ids, so `app.css` dresses it without a rule being added.
-**86 checks in a real browser.**
+**97 checks in a real browser.**
 
 **One difference, and it is the whole design.** The original is one HTML
 document holding every screen as a hidden `<section class="view">`, and
@@ -1284,6 +1286,17 @@ to `#page` now: the shell owns what is in the sidebar, the page owns what is
 in the page, and both are tested. Putting it back document-wide is the one
 mutation that still survives, and it is equivalent - the two loops agree on
 every role - but the scoping is what made the shell's own gate visible.
+
+**And a fifth, from the second run: an expired session was being reported as
+a dead server.** Making the dot red for every failure, the timed-out session
+included, changed nothing any test could see. It matters because the two
+look identical from inside the page - a call that did not give you what you
+asked for - and they call for opposite things. One wants the password typed
+again; the other wants nobody to trust the figures on screen. onError in
+App.html opens with that exception before it does anything else: "A session
+that ran out is not an error to report, it is a sign-in to ask for."
+
+**36 mutations, 35 caught**, the one survivor being the equivalent one above.
 
 **And one process lesson, which cost a run.** Do not edit a source file while
 a mutation run is in flight. The script copies the originals at the start and
