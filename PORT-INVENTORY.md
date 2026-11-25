@@ -816,8 +816,9 @@ decided for a reason.
    **The KPI 1 screen is ported** - `api/public/kpi1.html`, with the chart
    layer in `api/public/kpi-charts.js`: six tiles, two charts, three tables
    with their filters, the multi-month picker and the company/EAS standard
-   toggle. 72 checks in a real browser. Left in this stage: **the KPI 2
-   screen**.
+   toggle. 73 checks in a real browser. **The KPI 2 screen is ported too** -
+   `api/public/kpi2.html`, five tiles, two charts, three tables and the
+   four notices, 45 checks. **This stage is done.**
 9. ~~Backups~~ DONE as code. **NOT done as a working arrangement** until
    `BACKUP_DIR` points off this machine, the nightly task exists, and one
    restore has actually been done. See the Backups section above. This has
@@ -1106,6 +1107,39 @@ the rate axis does not start at zero while the delay axis does. Whether
 Chart.js can then paint them is Chart.js's problem and no test here would
 improve it. Where the CDN is unreachable a stand-in records the config it
 was handed, so those assertions hold either way.
+
+### The KPI 2 screen
+
+`api/public/kpi2.html`, on the same `kpi-charts.js` and a new
+`GET /api/kpi2/boot`. Five tiles, satisfaction by module (by quarter when
+every quarter is on screen), the response-mix doughnut, By module / By
+question / By zone, and the four notices. **45 checks in a real browser.**
+
+**The screen says this is not a policy KPI, and that is the point of it.**
+Config.gs is blunt: TVL-KPI-001 section 5.3 names three indicators for EAS
+and this is not one of them, so it "must never be presented as though it
+were". Without that sentence the screen looks exactly like KPI 1's, and a
+figure taken off it lands in a pack beside one that carries real standing.
+It is printed from the indicator's own `policy: false` rather than typed
+into the page, so the day it does become one, the sentence goes by itself.
+
+**A zone with no training shows a dash, not 0.00%.** The zones are seeded,
+so an empty one is a real row with nothing in it - and a rate of zero
+against a 90% target would band it RED and read as a zone that did badly,
+when what happened is that nothing happened there.
+
+**The fixture scores 89.80%, just under target, on purpose.** A fixture
+that came out GREEN would never exercise the band, and on this KPI
+"nearly there" is the interesting case. It also carries one of every tier
+- an Average, a Poor, a blank answer and a wording nobody put on the form
+- because a fixture where all the answers are good leaves half the screen
+untested: three of the four notices and three slices of the doughnut.
+
+**Every answer wording in it is one the form actually offers.** The first
+version invented two ('Very clear', 'Just right'), which the classifier
+correctly read as unrecognised - and a fixture meant to score 89.80%
+scored 61.22%, with every tile assertion failing for a reason that had
+nothing to do with the screen.
 
 ### Two things that cannot be tested against the real data
 

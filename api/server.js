@@ -1710,6 +1710,48 @@ app.get('/api/accounts', requireAuth, requireAdmin, async function (req, res) {
   so it "must never be presented as though it were". `policy: false` travels
   with the figures rather than being something the page has to remember.
 */
+// ---------------------------------------------------------------------------
+// GET /api/kpi2/boot - what the KPI 2 screen needs before it can draw
+// ---------------------------------------------------------------------------
+/*
+  The KPI 2 half of getBootstrap [Code.gs:191]: the indicator's own
+  definition, the quarters there is feedback for, and the orphan count.
+
+  KPI 2 IS NOT A POLICY KPI AND THAT TRAVELS WITH IT. Config.gs is blunt
+  about it - TVL-KPI-001 section 5.3 gives EAS three KPIs and this is not
+  one of them, so it "must never be presented as though it were". The
+  screen prints that, which means the screen has to be told.
+
+  The orphan count goes to everybody, as it does on the Uploads screen and
+  for the same reason: a viewer reading a figure inflated by responses
+  nobody can account for should be told, whether or not they can fix it.
+*/
+app.get('/api/kpi2/boot', requireAuth, async function (req, res) {
+  try {
+    const [quarters, audit] = await Promise.all([
+      kpi2Read.feedbackQuarters(),
+      uploads.auditFeedback()
+    ]);
+
+    res.json({
+      ok: true,
+      configured: true,
+      role: req.user.role,
+      canAdmin: rankOf(req.user.role) >= ROLE_RANK.ADMIN,
+      kpi: kpi2.KPI_FEEDBACK,
+      // Whether a skipped question counts against the rate. The screen
+      // says so under the mix chart, because it is the one choice that
+      // moves the figure without appearing in any count on screen.
+      countsNonResponses: kpi2.COUNT_NON_RESPONSES,
+      quarters: quarters,
+      orphanedFeedback: audit.orphans
+    });
+  } catch (err) {
+    fail(res, err, 'could not open the KPI 2 screen');
+  }
+});
+
+
 app.get('/api/kpi2', requireAuth, async function (req, res) {
   try {
     const out = await kpi2Read.readKpi2(req.query.scope);

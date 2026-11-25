@@ -1,0 +1,1108 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>KPI 2 - TVL-EAS</title>
+<!--
+  KPI 2: SAP USER TRAINING SATISFACTION & FEEDBACK.
+
+  Ported from the KPI 2 half of src/Index.html and src/App.html. Same five
+  tiles, same two charts, same three tables, same four notices, same words.
+
+  KPI 2 IS NOT A POLICY KPI, AND THE SCREEN SAYS SO. Config.gs is blunt
+  about it: TVL-KPI-001 section 5.3 gives EAS three KPIs and this is not
+  one of them, so it "must never be presented as though it were". The line
+  under the heading is not decoration - it is the thing that stops this
+  figure being put in a pack beside KPI 1 as though the two had the same
+  standing.
+
+  REPORTED BY QUARTER, not by month. Kpi2.gs: "a module is trained once or
+  twice a quarter, so a month-by-month reading is mostly empty columns and
+  the rest is noise."
+-->
+<link rel="stylesheet" href="app.css">
+<!-- Capital C and j: cdnjs calls the library 'Chart.js'. Lower-cased it
+     404s, no Chart is defined, and both chart cards render as empty white
+     boxes with their headings still on them. -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="kpi-charts.js"></script>
+<style>
+  body { background: var(--bg); }
+  .page { max-width: 1320px; margin: 0 auto; padding: 28px 20px 60px; }
+  .signin { max-width: 400px; margin: 60px auto; }
+  .signin label { display: block; font-size: 12px; color: var(--text-dim);
+                  margin: 14px 0 4px; }
+  .signin input { width: 100%; padding: 9px 11px; border: 1px solid var(--line);
+                  border-radius: 8px; font: inherit; background: var(--card);
+                  color: var(--text); }
+  .signin .btn { margin-top: 18px; width: 100%; }
+  .signin .why { color: var(--red); font-size: 13px; margin: 12px 0 0;
+                 min-height: 18px; }
+  .whoami { display: flex; align-items: center; justify-content: space-between;
+            gap: 12px; margin-bottom: 18px; font-size: 13px;
+            color: var(--text-dim); }
+  .not-policy { font-size: 12px; color: var(--text-dim); margin: 8px 0 0;
+                max-width: 760px; }
+</style>
+</head>
+<body>
+
+<section class="card signin" id="signinCard" hidden>
+  <div class="card-head">Sign in</div>
+  <label for="employeeId">Employee ID</label>
+  <input id="employeeId" autocomplete="username" inputmode="numeric">
+  <label for="password">Password</label>
+  <input id="password" type="password" autocomplete="current-password">
+  <p class="why" id="signinWhy"></p>
+  <button class="btn btn-primary" id="signinGo">Sign in</button>
+</section>
+
+
+<div class="page" id="page" hidden>
+
+  <div class="whoami">
+    <span id="whoami"></span>
+    <button class="btn btn-ghost" id="signOut">Sign out</button>
+  </div>
+
+  <section class="view" id="view-kpi2">
+    <div class="page-head">
+      <div>
+        <h1>KPI 2: SAP User Training Satisfaction &amp; Feedback
+          <span class="track-pill" id="kpi2Track" hidden></span></h1>
+        <p class="sub" id="kpi2Sub">
+          Actual Success Rate (%) =
+          (Total Positive Responses &#xF7; Total Applicable Responses) &#xD7; 100
+        </p>
+        <p class="period-note" id="kpi2Period" hidden></p>
+        <p class="not-policy" id="kpi2NotPolicy"></p>
+      </div>
+      <div class="page-actions">
+        <select id="kpi2Month" class="select"></select>
+        <button class="btn btn-ghost" id="refreshKpi2">&#x21BB; Refresh</button>
+      </div>
+    </div>
+
+    <!--
+      Responses whose upload no longer exists. Shown here as well as on
+      Data Uploads because this is the screen where the wrong number is
+      actually visible.
+    -->
+    <div id="kpi2Orphans" class="notice notice-warn" hidden></div>
+
+    <!-- Files whose module the filename did not name. -->
+    <div id="kpi2Unassigned" class="notice notice-warn" hidden></div>
+
+    <!-- Files whose quarter the filename did not name. -->
+    <div id="kpi2Undated" class="notice notice-warn" hidden></div>
+
+    <!-- Shown only when a form wording is not in the classification. -->
+    <div id="kpi2Unknown" class="notice notice-warn" hidden></div>
+
+    <div id="kpi2Empty" class="notice notice-info" hidden>
+      <h3>No training feedback loaded yet</h3>
+      <p>
+        Drop a training feedback export on the Data Uploads screen and it
+        is scored here automatically. Ticket exports go to KPI 1 and
+        feedback forms come here &#x2014; the file's own columns decide, so there
+        is nothing to choose.
+      </p>
+    </div>
+
+    <div class="tiles" id="kpi2Tiles">
+      <div class="tile tile-empty"><span>No data loaded yet</span></div>
+    </div>
+
+    <!-- Wider left: bars on one side, a doughnut on the other, so an even
+         split would starve the chart that carries the detail. -->
+    <div class="chart-row chart-row-wide-left">
+      <div class="card chart-card">
+        <div class="chart-head">
+          <div>
+            <h2 id="kpi2ModuleTitle">Satisfaction by module</h2>
+            <p id="kpi2ModuleNote">Against the 90.00% target.</p>
+          </div>
+        </div>
+        <div class="chart-box">
+          <canvas id="chartFeedbackModule"></canvas>
+          <div class="chart-empty" id="chartFeedbackModuleEmpty" hidden></div>
+        </div>
+      </div>
+
+      <div class="card chart-card">
+        <div class="chart-head">
+          <div>
+            <h2>Response mix</h2>
+            <p id="kpi2MixNote">Every answer across the seven questions, by tier.</p>
+          </div>
+        </div>
+        <div class="chart-box">
+          <canvas id="chartFeedbackMix"></canvas>
+          <div class="chart-empty" id="chartFeedbackMixEmpty" hidden></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head" data-report="kpi2Modules">By module</div>
+      <div class="table-filter">
+        <select id="fModule" class="select" title="Module">
+          <option value="">All modules</option>
+        </select>
+        <button class="btn btn-ghost" id="fModuleReset">&#x2715; Reset</button>
+        <span class="filter-count" id="cModule"></span>
+      </div>
+      <div class="table-wrap">
+        <table id="kpi2Modules">
+          <thead>
+            <tr>
+              <th>Module</th>
+              <th class="r">Attendees</th>
+              <th class="r">Responses</th>
+              <th class="r">Positive</th>
+              <!--
+                The tiers the rate is made of. Positive alone says how high
+                the number is; Average and Poor say what is underneath it -
+                a module at 95% carrying three Poor answers is a different
+                conversation from one carrying none.
+              -->
+              <th class="r">Average</th>
+              <th class="r">Poor</th>
+              <th class="r">Success Rate</th>
+              <th class="r">Achievement</th>
+              <th>Band</th>
+              <th class="r">Headroom</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td colspan="10" class="empty">Nothing to show yet.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head" data-report="kpi2Questions">By question</div>
+      <div class="table-wrap">
+        <table id="kpi2Questions">
+          <thead>
+            <tr>
+              <th>Question</th>
+              <th class="r">Responses</th>
+              <th class="r">Positive</th>
+              <th class="r">Average</th>
+              <th class="r">Poor</th>
+              <th class="r">Success Rate</th>
+              <th>Band</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td colspan="7" class="empty">Nothing to show yet.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head" data-report="kpi2Zones">By zone</div>
+      <div class="table-filter">
+        <select id="fZone" class="select" title="Zone">
+          <option value="">All zones</option>
+        </select>
+        <button class="btn btn-ghost" id="fZoneReset">&#x2715; Reset</button>
+        <span class="filter-count" id="cZone"></span>
+      </div>
+      <div class="table-wrap">
+        <table id="kpi2Zones">
+          <thead>
+            <tr>
+              <th>Zone</th>
+              <th class="r">Sessions</th>
+              <th class="r">Attendees</th>
+              <th class="r">Responses</th>
+              <th class="r">Positive</th>
+              <th class="r">Average</th>
+              <th class="r">Poor</th>
+              <th class="r">Success Rate</th>
+              <th class="r">Achievement</th>
+              <th>Band</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td colspan="10" class="empty">Nothing to show yet.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+</div>
+
+
+<div class="modal-backdrop" id="modalBackdrop" hidden>
+  <div class="modal" id="modal" role="alertdialog" aria-modal="true">
+    <div class="modal-head">
+      <span class="modal-icon" id="modalIcon" aria-hidden="true"></span>
+      <div><h2 id="modalTitle"></h2><p class="modal-sub" id="modalSub"></p></div>
+    </div>
+    <div class="modal-body" id="modalBody"></div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" id="modalCancel">Cancel</button>
+      <button class="btn btn-danger" id="modalConfirm">Remove them</button>
+    </div>
+  </div>
+</div>
+
+
+<script>
+(function () {
+  'use strict';
+
+  const C = window.kpiCharts;
+  const ALL = 'ALL';
+  const TOKEN_STORE = 'easToken';
+
+  const state = { token: '', user: null, boot: null, kpi2: null };
+
+
+  async function api(method, path, body) {
+    const opts = { method: method, headers: {} };
+    if (state.token) opts.headers.Authorization = 'Bearer ' + state.token;
+    if (body !== undefined) {
+      opts.headers['Content-Type'] = 'application/json';
+      opts.body = JSON.stringify(body);
+    }
+    const res = await fetch(path, opts);
+    if (res.status === 401) {
+      signedOut('Your session has ended.');
+      throw new Error('signed out');
+    }
+    let data = null;
+    try { data = await res.json(); } catch (e) { /* not JSON */ }
+    if (!res.ok || !data || data.ok === false) {
+      throw new Error((data && data.error) || ('the server answered ' + res.status));
+    }
+    return data;
+  }
+
+  const get = function (path) { return api('GET', path); };
+  const post = function (path, body) { return api('POST', path, body || {}); };
+
+
+  // =======================================================================
+  // SIGNING IN
+  // =======================================================================
+  function signedOut(why) {
+    state.token = '';
+    state.user = null;
+    state.boot = null;
+    try { sessionStorage.removeItem(TOKEN_STORE); } catch (e) { /* fine */ }
+    document.getElementById('page').hidden = true;
+    document.getElementById('signinCard').hidden = false;
+    document.getElementById('signinWhy').textContent = why || '';
+  }
+
+  async function signIn() {
+    const button = document.getElementById('signinGo');
+    const why = document.getElementById('signinWhy');
+    why.textContent = '';
+    button.disabled = true;
+    try {
+      const out = await api('POST', '/api/login', {
+        employee_id: document.getElementById('employeeId').value.trim(),
+        password: document.getElementById('password').value
+      });
+      state.token = out.token;
+      state.user = out.user;
+      try { sessionStorage.setItem(TOKEN_STORE, out.token); } catch (e) { /* fine */ }
+      document.getElementById('password').value = '';
+      await start();
+    } catch (err) {
+      why.textContent = err.message;
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+
+  async function start() {
+    const boot = await get('/api/kpi2/boot');
+    state.boot = boot;
+
+    document.getElementById('signinCard').hidden = true;
+    document.getElementById('page').hidden = false;
+    document.getElementById('whoami').textContent =
+      'Signed in as ' + (state.user ? state.user.employee_id : boot.role) +
+      ' \u00b7 ' + boot.role;
+
+    /*
+      THE SENTENCE THAT KEEPS THIS FIGURE IN ITS PLACE.
+
+      Config.gs: TVL-KPI-001 section 5.3 gives EAS three KPIs and this is
+      not one of them, so it "must never be presented as though it were".
+      Printed from the indicator's own `policy` flag rather than typed
+      here, so the day it does become one, the sentence goes by itself.
+    */
+    setText('kpi2NotPolicy', boot.kpi && boot.kpi.policy === false
+      ? 'Not a policy KPI. TVL-KPI-001 v1.0 section 5.3 names three ' +
+        'indicators for EAS and this is not one of them - it is the team\'s ' +
+        'own measure of the training it runs, and must not be reported as ' +
+        'though it carried the same standing.'
+      : '');
+    if (boot.kpi && boot.kpi.measure && boot.kpi.formula) {
+      setText('kpi2Sub', boot.kpi.measure + ' = ' + boot.kpi.formula);
+    }
+    setText('kpi2MixNote', 'Every answer across the seven questions, by tier.' +
+      (boot.countsNonResponses
+        ? ' A question left blank counts as applicable and not positive, so ' +
+          'it lowers the rate.'
+        : ' A question left blank is left out of the rate entirely.'));
+
+    fillPeriods(boot.quarters || []);
+    renderOrphans();
+    await loadKpi2();
+  }
+
+
+  /**
+   * The period picker: every quarter there is feedback for, newest first.
+   *
+   * QUARTERS, NOT MONTHS. A module is trained once or twice a quarter, so
+   * a month-by-month reading is mostly empty columns and the rest is noise.
+   */
+  function fillPeriods(quarters) {
+    const select = document.getElementById('kpi2Month');
+    if (!select) return;
+
+    const previous = select.value;
+    select.innerHTML = '<option value="' + ALL + '">All quarters</option>';
+    quarters.forEach(function (key) {
+      const option = document.createElement('option');
+      option.value = key;
+      option.textContent = quarterLabel(key);
+      select.appendChild(option);
+    });
+    select.value = previous || ALL;
+    if (!select.value) select.value = ALL;
+  }
+
+
+  // =======================================================================
+  // READING THE FIGURES
+  // =======================================================================
+  async function loadKpi2() {
+    if (!state.boot || !state.boot.configured) return;
+
+    renderOrphans();
+
+    const quarters = (state.boot.quarters || []);
+    if (!quarters.length) {
+      show('kpi2Empty');
+      hide('kpi2Unknown');
+      hide('kpi2Unassigned');
+      hide('kpi2Undated');
+      hide('kpi2Track');
+      document.getElementById('kpi2Tiles').innerHTML =
+        '<div class="tile tile-empty"><span>No feedback uploaded yet</span></div>';
+      C.chartMessage('chartFeedbackModule', '<p>No feedback uploaded yet.</p>');
+      C.chartMessage('chartFeedbackMix', '<p>No feedback uploaded yet.</p>');
+      emptyTable('#kpi2Modules tbody', 10, 'Nothing to show yet.');
+      emptyTable('#kpi2Questions tbody', 7, 'Nothing to show yet.');
+      emptyTable('#kpi2Zones tbody', 10, 'Nothing to show yet.');
+      return;
+    }
+    hide('kpi2Empty');
+
+    try {
+      renderKpi2(await get('/api/kpi2?scope=' +
+                           encodeURIComponent(getValue('kpi2Month') || ALL)));
+    } catch (err) {
+      if (err.message === 'signed out') return;
+      emptyTable('#kpi2Modules tbody', 10, err.message);
+    }
+  }
+
+
+  function renderKpi2(k) {
+    state.kpi2 = k;
+    renderTrack(k);
+
+    const tiles = document.getElementById('kpi2Tiles');
+    if (!k || !k.hasData) {
+      tiles.innerHTML =
+        '<div class="tile tile-empty"><span>No feedback for this period</span></div>';
+      C.chartMessage('chartFeedbackModule', '<p>Nothing to plot for this period.</p>');
+      C.chartMessage('chartFeedbackMix', '<p>Nothing to plot for this period.</p>');
+      emptyTable('#kpi2Questions tbody', 7, 'Nothing to show yet.');
+      emptyTable('#kpi2Modules tbody', 10, 'Nothing to show yet.');
+      emptyTable('#kpi2Zones tbody', 10, 'Nothing to show yet.');
+      hide('kpi2Unassigned');
+      hide('kpi2Undated');
+      hide('kpi2Unknown');
+      hide('kpi2Period');
+      return;
+    }
+
+    renderKpi2Period(k);
+    renderKpi2Unassigned(k);
+    renderKpi2Undated(k);
+    renderKpi2Unknown(k);
+    renderKpi2Tiles(k, tiles);
+    drawFeedbackModuleChart(k);
+    drawFeedbackMixChart(k);
+    renderKpi2Questions(k);
+
+    fillSelect('fModule', 'All modules',
+      k.modules.map(function (m) { return m.name; }));
+    fillSelect('fZone', 'All zones',
+      (k.zones || []).map(function (z) { return z.name; }));
+    applyModuleFilter();
+    applyZoneFilter();
+  }
+
+
+  function renderTrack(k) {
+    const pill = document.getElementById('kpi2Track');
+    if (!pill) return;
+    if (!k || !k.hasData || !k.total) { pill.hidden = true; return; }
+
+    const band = k.total.band;
+    pill.hidden = false;
+    pill.className = 'track-pill ' + bandClass(band);
+    pill.textContent = band === 'GREEN' ? 'On target'
+                     : band === 'YELLOW' ? 'Below target'
+                     : 'Not met';
+    pill.title = fmt(k.total.rate) + '% against a target of ' + k.target + '%';
+  }
+
+
+  /**
+   * The chip under the heading, naming the period on screen.
+   *
+   * A quarter needs it more than the all-periods view does: 'Quarter 1
+   * (2026)' does not say which months it covers, and that is the first
+   * thing anyone reading the figure wants to know.
+   */
+  function renderKpi2Period(k) {
+    const box = document.getElementById('kpi2Period');
+    if (!box) return;
+
+    const quarters = (state.boot && state.boot.quarters) || [];
+
+    if (k.allMonths) {
+      box.hidden = false;
+      box.innerHTML =
+        '<b>All quarters</b>' +
+        '<span>' + quarters.length + ' quarter' +
+        (quarters.length === 1 ? '' : 's') + ' \u00b7 ' + k.monthsCovered +
+        ' month' + (k.monthsCovered === 1 ? '' : 's') + ' with training \u00b7 ' +
+        count(k.total.respondents) + ' attendees \u00b7 ' +
+        count(k.total.responses) + ' responses</span>';
+      return;
+    }
+
+    box.hidden = false;
+    box.innerHTML =
+      '<b>' + escapeHtml(quarterLabel(k.scope)) + '</b>' +
+      '<span>' + count(k.total.respondents) + ' attendees \u00b7 ' +
+      count(k.total.responses) + ' responses \u00b7 ' +
+      count((k.sessions || []).length) + ' session' +
+      ((k.sessions || []).length === 1 ? '' : 's') + '</span>';
+  }
+
+
+  /**
+   * Names the files behind the '(unassigned)' module.
+   *
+   * The module is read from the filename, so a file called only after its
+   * trainer has nothing to match on. They pool into one '(unassigned)'
+   * row, which tells you the size of the problem and nothing about its
+   * cause. Listing them turns it into something fixable: rename the file
+   * and re-upload, or add the wording to TRAINING_MODULES.
+   */
+  function renderKpi2Unassigned(k) {
+    const box = document.getElementById('kpi2Unassigned');
+    if (!box) return;
+
+    const files = k.unassignedFiles || [];
+    if (!files.length) { box.hidden = true; return; }
+
+    const people = files.reduce(function (a, f) { return a + f.respondents; }, 0);
+
+    box.hidden = false;
+    box.innerHTML =
+      '<h3>' + files.length + ' file' + (files.length === 1 ? '' : 's') +
+      ' could not be matched to a module</h3>' +
+      '<p>Their ' + count(people) + ' response' + (people === 1 ? '' : 's') +
+      ' are counted in the KPI, but grouped under <code>(unassigned)</code> ' +
+      'because the filename does not name a module. Rename the file and ' +
+      're-upload it, or add the wording to <code>TRAINING_MODULES</code>.</p>' +
+      '<p>' + firstFew(files, function (f) {
+        return '<code>' + escapeHtml(f.fileName) + '</code> \u00d7' + f.respondents;
+      }, '<br>') + '</p>';
+  }
+
+
+  function renderKpi2Undated(k) {
+    const box = document.getElementById('kpi2Undated');
+    if (!box) return;
+
+    const files = k.undatedFiles || [];
+    if (!files.length) { box.hidden = true; return; }
+
+    const people = files.reduce(function (a, f) { return a + f.respondents; }, 0);
+
+    box.hidden = false;
+    box.innerHTML =
+      '<h3>' + files.length + ' file' + (files.length === 1 ? '' : 's') +
+      ' name' + (files.length === 1 ? 's' : '') + ' no quarter</h3>' +
+      '<p>Their ' + count(people) + ' response' + (people === 1 ? '' : 's') +
+      ' are counted in full. The quarter came from the session date inside the ' +
+      'file rather than from its name \u2014 check it reads right, and from the next ' +
+      'session name the file <code>Zone_Q1-2026_\u2026</code> so the period is stated ' +
+      'rather than inferred.</p>' +
+      '<p>' + firstFew(files, function (f) {
+        return '<code>' + escapeHtml(f.fileName) + '</code> \u00d7' + f.respondents +
+               (f.quarterLabel ? ' \u2192 ' + escapeHtml(f.quarterLabel)
+                               : ' \u2192 no quarter');
+      }, '<br>') + '</p>';
+  }
+
+
+  /**
+   * An answer wording the classification does not know.
+   *
+   * COUNTED AS APPLICABLE BUT NOT POSITIVE, so it lowers the rate rather
+   * than inflating it - the safe direction. But an unknown wording is a
+   * form that has changed, and leaving it unknown means the next quarter
+   * reads lower for a reason nobody will find.
+   */
+  function renderKpi2Unknown(k) {
+    const box = document.getElementById('kpi2Unknown');
+    if (!box) return;
+
+    if (!k.unknownAnswers || !k.unknownAnswers.length) { box.hidden = true; return; }
+
+    box.hidden = false;
+    box.innerHTML =
+      '<h3>' + k.unknownAnswers.length + ' answer wording' +
+      (k.unknownAnswers.length === 1 ? '' : 's') + ' not recognised</h3>' +
+      '<p>These are counted as applicable but not positive, so they lower the ' +
+      'rate rather than inflating it. Add them to <code>FEEDBACK_ANSWERS</code> ' +
+      'under the right tier and reload:<br>' +
+      k.unknownAnswers.map(function (u) {
+        return '<code>' + escapeHtml(u.answer) + '</code> \u00d7' + u.count;
+      }).join(' &nbsp; ') + '</p>';
+  }
+
+
+  function renderKpi2Tiles(k, container) {
+    const t = k.total;
+    const band = bandClass(t.band);
+
+    const gap = round2(t.rate - k.target);
+    const gapText = (gap >= 0 ? '+' : '\u2212') + fmt(Math.abs(gap)) + ' pts';
+
+    container.innerHTML =
+      tile({ label: 'Success Rate', icon: 'target', tone: band,
+             value: fmt(t.rate) + '%',
+             note: '<span class="pill ' + band + '">' + escapeHtml(t.band) + '</span>' +
+                   '<span class="tile-target">target ' + k.target + '% \u00b7 ' +
+                   escapeHtml(gapText) + '</span>' }) +
+      tile({ label: 'Headroom', icon: 'shield',
+             tone: t.headroom > 0 ? 'g' : (t.headroom === 0 ? 'a' : 'r'),
+             value: (t.headroom > 0 ? '+' : '') + t.headroom,
+             note: t.headroom > 0
+               ? escapeHtml(t.headroom +
+                   ' more non-positive answers before the band drops')
+               : (t.headroom === 0 ? 'on the edge' : 'below target') }) +
+      tile({ label: 'Attendees', icon: 'inbox', tone: 'blue',
+             value: count(t.respondents),
+             note: count((k.sessions || []).length) + ' training session' +
+                   ((k.sessions || []).length === 1 ? '' : 's') }) +
+      tile({ label: 'Positive', icon: 'check', tone: 'teal',
+             value: count(t.positive),
+             note: 'of ' + count(t.applicable) + ' applicable responses' }) +
+      tile({ label: 'Not Positive', icon: 'clock',
+             tone: (t.average + t.poor) ? 'a' : 'g',
+             value: count(t.average + t.poor),
+             note: count(t.average) + ' average \u00b7 ' + count(t.poor) + ' poor' });
+  }
+
+
+  const TILE_ICONS = {
+    target: '<circle cx="8" cy="8" r="6"/><circle cx="8" cy="8" r="2.6"/>' +
+            '<path d="M8 .8v1.6M8 13.6v1.6M.8 8h1.6M13.6 8h1.6"/>',
+    shield: '<path d="M8 1.4l5 2v3.9c0 3.1-2.1 5.7-5 7.2-2.9-1.5-5-4.1-5-7.2V3.4z"/>' +
+            '<path d="M5.9 8.1l1.5 1.5 2.8-3"/>',
+    inbox:  '<path d="M2 9.4h3.1l1 1.9h3.8l1-1.9H14"/>' +
+            '<path d="M2 9.4l1.7-6a1.1 1.1 0 0 1 1-.8h6.6a1.1 1.1 0 0 1 1 .8l1.7 6v3.1a1.1 1.1 0 0 1-1.1 1.1H3.1A1.1 1.1 0 0 1 2 12.5z"/>',
+    check:  '<circle cx="8" cy="8" r="6.1"/><path d="M5.3 8.2l1.9 1.9 3.5-3.8"/>',
+    clock:  '<circle cx="8" cy="8" r="6.1"/><path d="M8 4.3V8.2l2.5 1.6"/>'
+  };
+
+  function tile(o) {
+    return '<div class="tile t-' + o.tone + '">' +
+             '<div class="tile-top">' +
+               '<span class="tile-ico" aria-hidden="true">' +
+                 '<svg viewBox="0 0 16 16">' + TILE_ICONS[o.icon] + '</svg>' +
+               '</span>' +
+               '<span class="tile-label">' + escapeHtml(o.label) + '</span>' +
+             '</div>' +
+             '<div class="tile-value">' + o.value + '</div>' +
+             '<div class="tile-note">' + o.note + '</div>' +
+           '</div>';
+  }
+
+
+  // =======================================================================
+  // THE CHARTS
+  // =======================================================================
+  /**
+   * By module for one quarter; by quarter when every quarter is on screen.
+   *
+   * Plotting modules across all quarters would average a module's good
+   * quarter with its bad one and show neither.
+   */
+  function drawFeedbackModuleChart(k) {
+    const byQuarter = !!k.allMonths;
+    const rows = byQuarter ? (k.quarters || []) : (k.modules || []);
+
+    setText('kpi2ModuleTitle', byQuarter ? 'Satisfaction by quarter'
+                                         : 'Satisfaction by module');
+
+    if (!rows.length) {
+      C.chartMessage('chartFeedbackModule',
+        '<p>No ' + (byQuarter ? 'quarters' : 'modules') + ' to plot.</p>');
+      return;
+    }
+    C.chartMessage('chartFeedbackModule', null);
+
+    const lowest = Math.min.apply(null, rows.map(function (m) { return m.rate; })
+                                            .concat([k.target]));
+    const floor = Math.max(0, Math.floor((lowest - 1) / 5) * 5);
+
+    setText('kpi2ModuleNote', (byQuarter ? 'Every quarter loaded, in order. ' : '') +
+      'Against the ' + k.target + '% target. Axis starts at ' + floor + '%.');
+
+    C.drawChart('chartFeedbackModule', {
+      type: 'bar',
+      data: {
+        labels: rows.map(function (m) { return m.name; }),
+        datasets: [Object.assign({
+          label: 'Satisfaction',
+          data: rows.map(function (m) { return round2(m.rate); }),
+          backgroundColor: rows.map(function (m) { return C.bandColour(m.band); })
+        }, C.BAR)]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        layout: { padding: { top: 24, right: 92 } },
+        scales: {
+          y: Object.assign({ min: floor, max: 100.6 }, C.gridStyle()),
+          x: C.categoryAxis()
+        },
+        plugins: {
+          legend: { display: false },
+          tooltip: C.tooltipStyle({
+            label: function (item) {
+              const m = rows[item.dataIndex];
+              const lines = [fmt(m.rate) + '% \u00b7 ' + m.band,
+                             m.positive + ' positive of ' + m.applicable +
+                             ' applicable',
+                             m.respondents + ' attendees'];
+              if (byQuarter && m.sessions) {
+                lines.push(m.sessions + ' session' + (m.sessions === 1 ? '' : 's'));
+              }
+              return lines;
+            }
+          }),
+          targetLine: { value: k.target, label: 'Target ' + k.target + '%' },
+          valueLabels: { enabled: true, decimals: 2, suffix: '%' }
+        }
+      },
+      plugins: [C.targetLinePlugin, C.valueLabelPlugin]
+    });
+  }
+
+
+  /**
+   * Every answer, by tier.
+   *
+   * An empty slice is dropped rather than drawn at zero: a legend entry
+   * for a tier nobody chose reads as a tier that exists in this data.
+   */
+  function drawFeedbackMixChart(k) {
+    const t = k.total;
+    const slices = [
+      { label: 'Positive',     value: t.positive,   colour: C.bandColour('GREEN') },
+      { label: 'Average',      value: t.average,    colour: C.bandColour('YELLOW') },
+      { label: 'Poor',         value: t.poor,       colour: C.bandColour('RED') },
+      { label: 'No response',  value: t.noResponse, colour: '#8496a8' },
+      { label: 'Unrecognised', value: t.unknown,    colour: '#4a3aa7' }
+    ].filter(function (s) { return s.value > 0; });
+
+    if (!slices.length) {
+      C.chartMessage('chartFeedbackMix', '<p>No responses to plot.</p>');
+      return;
+    }
+    C.chartMessage('chartFeedbackMix', null);
+
+    C.drawChart('chartFeedbackMix', {
+      type: 'doughnut',
+      data: {
+        labels: slices.map(function (s) { return s.label; }),
+        datasets: [{
+          data: slices.map(function (s) { return s.value; }),
+          backgroundColor: slices.map(function (s) { return s.colour; }),
+          borderColor: '#ffffff',
+          borderWidth: 2          // 2px surface gap between segments
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        cutout: '58%',
+        plugins: {
+          legend: {
+            position: 'right',
+            labels: { boxWidth: 9, boxHeight: 9, usePointStyle: true, padding: 12,
+                      pointStyle: 'circle', color: '#5a6b7d', font: C.AXIS_FONT }
+          },
+          tooltip: C.tooltipStyle({
+            label: function (item) {
+              const share = t.responses ? (item.raw / t.responses) * 100 : 0;
+              return item.label + ': ' + count(item.raw) + ' (' + fmt(share) + '%)';
+            }
+          })
+        }
+      }
+    });
+  }
+
+
+  // =======================================================================
+  // THE TABLES
+  // =======================================================================
+  function renderKpi2Questions(k) {
+    fillRows('#kpi2Questions tbody', k.questions, function (q) {
+      return '<td class="name">' + escapeHtml(q.name) + '</td>' +
+             num(q.responses) + num(q.positive) + num(q.average) + num(q.poor) +
+             '<td class="r">' + fmt(q.rate) + '%</td>' +
+             '<td>' + pill(q.band) + '</td>';
+    });
+  }
+
+  function applyModuleFilter() {
+    const k = state.kpi2;
+    if (!k || !k.hasData) return;
+
+    const wanted = getValue('fModule');
+    const rows = wanted
+      ? k.modules.filter(function (m) { return m.name === wanted; })
+      : k.modules;
+
+    setCount('cModule', rows.length, k.modules.length, 'modules');
+    if (!rows.length) return emptyTable('#kpi2Modules tbody', 10, 'No modules match.');
+
+    fillRows('#kpi2Modules tbody', rows, function (m) {
+      return '<td class="name">' + escapeHtml(m.name) + '</td>' +
+             num(m.respondents) + num(m.responses) + num(m.positive) +
+             // The two tiers underneath the rate. num() greys a zero, so a
+             // module with no Poor answers recedes and the ones with some
+             // stand out - which is the whole reason for the column.
+             num(m.average) + num(m.poor) +
+             '<td class="r">' + fmt(m.rate) + '%</td>' +
+             '<td class="r">' + fmt(m.achievement) + '%</td>' +
+             '<td>' + pill(m.band) + '</td>' +
+             '<td class="r">' + (m.headroom > 0 ? '+' : '') + m.headroom + '</td>';
+    });
+  }
+
+  function applyZoneFilter() {
+    const k = state.kpi2;
+    if (!k || !k.hasData) return;
+
+    const all = k.zones || [];
+    const wanted = getValue('fZone');
+    const rows = wanted ? all.filter(function (z) { return z.name === wanted; }) : all;
+
+    setCount('cZone', rows.length, all.length, 'zones');
+    if (!rows.length) return emptyTable('#kpi2Zones tbody', 10, 'No zones match.');
+
+    fillRows('#kpi2Zones tbody', rows, function (z) {
+      /*
+        A ZONE WITH NO ATTENDEES SHOWS A DASH, NOT 0.00%.
+
+        The zones are seeded, so one with no training in the period is a
+        real row with nothing in it. A rate of 0.00% against a 90% target
+        would band it RED and read as a zone that did badly, when what
+        happened is that nothing happened there.
+      */
+      const dead = !z.respondents;
+      return '<td class="name">' + escapeHtml(z.name) + '</td>' +
+             num(z.sessions) + num(z.respondents) + num(z.responses) +
+             num(z.positive) + num(z.average) + num(z.poor) +
+             '<td class="r">' + (dead ? '\u2014' : fmt(z.rate) + '%') + '</td>' +
+             '<td class="r">' + (dead ? '\u2014' : fmt(z.achievement) + '%') + '</td>' +
+             '<td>' + pill(z.band) + '</td>';
+    });
+  }
+
+
+  // =======================================================================
+  // ORPHANED RESPONSES
+  // =======================================================================
+  function renderOrphans() {
+    const n = (state.boot && state.boot.orphanedFeedback) || 0;
+    const box = document.getElementById('kpi2Orphans');
+    if (!box) return;
+
+    if (!n) { box.hidden = true; return; }
+
+    box.hidden = false;
+    box.innerHTML =
+      '<h3>' + count(n) + ' training response' + (n === 1 ? '' : 's') +
+      ' left over from a deleted upload</h3>' +
+      '<p>' + (n === 1 ? 'It belongs' : 'They belong') + ' to a feedback file ' +
+      'that is no longer in the upload history, so ' +
+      (n === 1 ? 'it is' : 'they are') + ' still being counted in the figures ' +
+      'above with no way to see where ' + (n === 1 ? 'it' : 'they') +
+      ' came from.</p>' +
+      (canAdmin()
+        ? '<p><button class="btn btn-danger" data-purge="1">' +
+          'Remove ' + count(n) + ' orphaned response' + (n === 1 ? '' : 's') +
+          '</button></p>'
+        : '<p class="muted">Signed in as a viewer \u2014 clearing these needs the ' +
+          'admin login.</p>');
+
+    box.querySelectorAll('[data-purge]').forEach(function (button) {
+      button.addEventListener('click', function () { askThenPurge(button); });
+    });
+  }
+
+  function askThenPurge(button) {
+    const n = (state.boot && state.boot.orphanedFeedback) || 0;
+
+    confirmDialog({
+      title: 'Remove the orphaned responses?',
+      subtitle: count(n) + ' response' + (n === 1 ? '' : 's'),
+      body:
+        '<p>Only responses whose upload is <strong>no longer in the ' +
+        'history</strong> are removed. Everything belonging to an upload you ' +
+        'can still see is kept, untouched.</p>' +
+        '<p>This KPI is scored live, so the figures above correct themselves ' +
+        'as soon as it finishes.</p>' +
+        '<p>This cannot be undone. If you want the data back, re-upload the ' +
+        'file it came from.</p>',
+      confirmLabel: 'Remove them'
+    }).then(function (yes) {
+      if (!yes) return;
+      button.disabled = true;
+      return post('/api/uploads/orphans/purge')
+        .then(function () { return start(); })
+        .catch(function (err) {
+          button.disabled = false;
+          if (err.message !== 'signed out') {
+            emptyTable('#kpi2Modules tbody', 10, err.message);
+          }
+        });
+    });
+  }
+
+
+  function confirmDialog(opts) {
+    const backdrop = document.getElementById('modalBackdrop');
+    if (!backdrop) return Promise.resolve(window.confirm(opts.title));
+
+    document.getElementById('modalIcon').innerHTML =
+      '<svg viewBox="0 0 24 24"><path d="M4 7h16M10 7V4h4v3M6 7l1 13h10l1-13"/>' +
+      '<path d="M10 11v5M14 11v5"/></svg>';
+    setText('modalTitle', opts.title || 'Are you sure?');
+    setText('modalSub', opts.subtitle || '');
+    document.getElementById('modalBody').innerHTML = opts.body || '';
+
+    const confirm = document.getElementById('modalConfirm');
+    const cancel = document.getElementById('modalCancel');
+    confirm.textContent = opts.confirmLabel || 'Remove them';
+    confirm.disabled = false;
+
+    backdrop.hidden = false;
+    // Cancel takes focus, not the destructive button.
+    cancel.focus();
+
+    return new Promise(function (resolve) {
+      function close(answer) {
+        backdrop.hidden = true;
+        confirm.removeEventListener('click', onYes);
+        cancel.removeEventListener('click', onNo);
+        backdrop.removeEventListener('mousedown', onOutside);
+        document.removeEventListener('keydown', onKey);
+        resolve(answer);
+      }
+      function onYes() { close(true); }
+      function onNo() { close(false); }
+      function onOutside(e) { if (e.target === backdrop) close(false); }
+      function onKey(e) { if (e.key === 'Escape') { e.preventDefault(); close(false); } }
+      confirm.addEventListener('click', onYes);
+      cancel.addEventListener('click', onNo);
+      backdrop.addEventListener('mousedown', onOutside);
+      document.addEventListener('keydown', onKey);
+    });
+  }
+
+
+  // =======================================================================
+  // SMALL THINGS
+  // =======================================================================
+  function canAdmin() { return Boolean(state.boot && state.boot.canAdmin); }
+
+  function escapeHtml(value) {
+    return String(value == null ? '' : value)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  function count(value) {
+    const n = Number(value);
+    return isFinite(n) ? n.toLocaleString('en-US') : String(value);
+  }
+
+  function fmt(n) { return (Math.round((Number(n) || 0) * 100) / 100).toFixed(2); }
+  function round2(n) { return Math.round((Number(n) || 0) * 100) / 100; }
+
+  function bandClass(band) {
+    if (band === 'GREEN') return 'g';
+    if (band === 'YELLOW') return 'a';
+    if (band === 'RED') return 'r';
+    return '';
+  }
+
+  function pill(band) {
+    return '<span class="pill ' + bandClass(band) + '">' + escapeHtml(band) + '</span>';
+  }
+
+  function num(value) {
+    return '<td class="r' + (Number(value) === 0 ? ' zero' : '') + '">' +
+           count(value) + '</td>';
+  }
+
+  function fillRows(selector, rows, toHtml) {
+    const body = document.querySelector(selector);
+    if (!body) return;
+    body.innerHTML = '';
+    (rows || []).forEach(function (row) {
+      const tr = document.createElement('tr');
+      tr.innerHTML = toHtml(row);
+      body.appendChild(tr);
+    });
+  }
+
+  function emptyTable(selector, columns, message) {
+    const body = document.querySelector(selector);
+    if (body) {
+      body.innerHTML = '<tr><td colspan="' + columns + '" class="empty">' +
+                       escapeHtml(message) + '</td></tr>';
+    }
+  }
+
+  function setCount(id, shown, total, noun) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = shown === total ? total + ' ' + noun
+                                     : shown + ' of ' + total + ' ' + noun;
+  }
+
+  function fillSelect(id, allLabel, values) {
+    const select = document.getElementById(id);
+    if (!select) return;
+    const previous = select.value;
+    select.innerHTML = '<option value="">' + escapeHtml(allLabel) + '</option>';
+    values.forEach(function (value) {
+      const option = document.createElement('option');
+      option.value = value;
+      option.textContent = value;
+      select.appendChild(option);
+    });
+    select.value = previous;
+    if (select.value !== previous) select.value = '';
+  }
+
+  /** The first few of a list, with a count of what is not shown. */
+  function firstFew(list, render, joiner) {
+    const LIMIT = 8;
+    const shown = list.slice(0, LIMIT).map(render).join(joiner);
+    const rest = list.length - LIMIT;
+    return rest > 0
+      ? shown + joiner + '<span class="muted">\u2026and ' + rest + ' more</span>'
+      : shown;
+  }
+
+  function quarterLabel(key) {
+    const parts = String(key || '').match(/^(\d{4})-Q([1-4])$/);
+    if (!parts) return String(key || '');
+    const spans = ['Jan\u2013Mar', 'Apr\u2013Jun', 'Jul\u2013Sep', 'Oct\u2013Dec'];
+    return 'Quarter ' + parts[2] + ' (' + parts[1] + ') \u00b7 ' +
+           spans[Number(parts[2]) - 1];
+  }
+
+  function getValue(id) {
+    const el = document.getElementById(id);
+    return el ? (el.value || '') : '';
+  }
+
+  function setText(id, text) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = text;
+  }
+
+  function show(id) { const el = document.getElementById(id); if (el) el.hidden = false; }
+  function hide(id) { const el = document.getElementById(id); if (el) el.hidden = true; }
+
+  function bind(id, event, handler) {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener(event, handler);
+  }
+
+
+  document.addEventListener('DOMContentLoaded', function () {
+    bind('kpi2Month', 'change', function () { loadKpi2(); });
+    bind('refreshKpi2', 'click', function () { start().catch(function () {}); });
+    bind('fModule', 'change', applyModuleFilter);
+    bind('fModuleReset', 'click', function () {
+      document.getElementById('fModule').value = '';
+      applyModuleFilter();
+    });
+    bind('fZone', 'change', applyZoneFilter);
+    bind('fZoneReset', 'click', function () {
+      document.getElementById('fZone').value = '';
+      applyZoneFilter();
+    });
+
+    bind('signinGo', 'click', function () { signIn(); });
+    bind('password', 'keydown', function (e) { if (e.key === 'Enter') signIn(); });
+    bind('employeeId', 'keydown', function (e) { if (e.key === 'Enter') signIn(); });
+    bind('signOut', 'click', function () { signedOut(''); });
+
+    try { state.token = sessionStorage.getItem(TOKEN_STORE) || ''; }
+    catch (e) { state.token = ''; }
+
+    if (!state.token) { signedOut(''); return; }
+
+    start().catch(function (err) {
+      if (String(err && err.message) === 'signed out') return;
+      signedOut('Could not open the screen \u2014 ' +
+                (err && err.message ? err.message : String(err)));
+    });
+  });
+
+  window.__kpi2Screen = {
+    reading: function () { return state.kpi2; },
+    quarterLabel: quarterLabel, bandClass: bandClass, firstFew: firstFew,
+    chartOn: function (id) { return C.chartOn(id); }
+  };
+})();
+</script>
+</body>
+</html>
