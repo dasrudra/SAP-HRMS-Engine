@@ -63,20 +63,20 @@ Judge the demo page on whether the data is right. Judge nothing else by it.
 
 | Screen | What it is | Status |
 |---|---|---|
-| `home` | landing page, cards into everything else | TODO |
-| `kpi1` | KPI 1 - ITSM ticket dashboard | TODO |
-| `kpi2` | KPI 2 - Training dashboard | TODO |
-| `compare` | comparison between periods | TODO |
+| `home` | landing page, cards into everything else | TODO - portal |
+| `kpi1` | KPI 1 - ITSM ticket dashboard | **DONE** `kpi1.html` |
+| `kpi2` | KPI 2 - Training dashboard | **DONE** `kpi2.html` |
+| `compare` | comparison between periods | **DONE** `compare.html` |
 | `objective` | SMART objectives and Unique Roles | TODO |
 | `team` | EAS Team directory with presence | **PART** |
-| `knowledge` | Knowledge Share posts | TODO |
-| `learnings` | LEARN entries | TODO |
-| `byweekly` | By-Weekly meeting links | TODO |
-| `links` | portal links, incl. TVL Knowledge Base | TODO |
-| `uploads` | CSV upload and history | TODO |
-| `master` | Accounts (MASTER only) | TODO |
-| `help` | Help / FAQ - the team inbox (ADMIN+) | TODO |
-| `settings` | shown as "Summary" | TODO |
+| `knowledge` | Knowledge Share posts | TODO - portal |
+| `learnings` | LEARN entries | TODO - portal |
+| `byweekly` | By-Weekly meeting links | TODO - portal |
+| `links` | portal links, incl. TVL Knowledge Base | TODO - portal |
+| `uploads` | CSV upload and history | **DONE** `uploads.html` |
+| `master` | Accounts (MASTER only) | **DONE** `master.html` |
+| `help` | Help / FAQ - the team inbox (ADMIN+) | TODO - next |
+| `settings` | shown as "Summary" | **DONE** `summary.html` |
 | `about` | about page | TODO |
 | `contact` | contact page | TODO |
 | `partners` | partners page | TODO |
@@ -1600,3 +1600,92 @@ and that is right rather than a quirk - the Change column reads each row
 against the one above it, so a table in picking order would compute change
 against whichever month somebody happened to choose second. `Kpi.gs` sorts
 for the same reason.
+
+### The Summary screen
+
+`api/public/summary.html`, with `api/kpi-config.js` behind it and
+`GET /api/summary/boot`. The `view-settings` section of `src/Index.html`
+with `fillSettings`, `renderKpiTable`, `kpiRowBody`, `bandBar`,
+`achievementCell`, `policyLink`, `docTarget`, `renderKpiPolicyDoc`,
+`updateKpiTable`, `internalNote` and `backupRows`. **75 checks in a real
+browser, 43 mutations.**
+
+**The internal name is still `settings`.** Only the label says Summary, and
+`shell-test.js` asserts that `urlFor('summary')` is empty while
+`urlFor('settings')` is `summary.html` - so a tidy-up that renames the view
+and breaks every saved `?view=settings` bookmark fails a test rather than
+getting shipped.
+
+**Three cards, and each is checked for a different kind of lie.** The
+thresholds table has to print the targets and bands the server actually
+scored against. The Database card has to print what is stored beside what
+the upload log claims. The Rebuild card has to explain where its button
+went.
+
+#### Reading now had to fetch, because the screens are separate pages now
+
+In the original this table shares a page with both dashboards, so
+`currentValueFor` reads `state.kpi` and `state.kpi2` out of memory - "read
+from whatever that KPI's own screen is showing rather than fetched, so this
+table and that screen can never quote different numbers". There is no
+shared `state` across separate pages, so this screen calls `/api/kpi1` and
+`/api/kpi2` itself, for every period. Neither call may take the screen
+down: an indicator whose figures cannot be read shows a dash in two
+columns, because the targets, the bands and the Database card are all still
+worth having.
+
+**It asks for KPI 1 in the standard the toggle is on.** This is the one
+line that matters. Without `&standard=` the figure comes back scored
+against the policy's 90% while the row beside it prints the EAS target of
+99.50%, and App.html names that exact failure - "97.50% shown in red
+against a target of 90%". The mutation that drops the parameter is caught
+by the achievement column, not the rate: the rate is the same count either
+way, so only achievement - rate against *target* - has to move.
+
+#### What the counts can and cannot be asserted against
+
+The Database card counts every row in the schema, and Reading now is over
+every period there is. On the live machine that is 25,808 tickets across
+eleven months; here it is forty across two. **So every such check compares
+the screen against the server's own answer for the same question**, never
+against a number written in the suite. That holds whatever is stored.
+
+A check that two numbers agree proves nothing if every number is the same,
+so the fixture makes the four counts four *different* numbers - 40 tickets,
+3 responses, 2 ticket uploads, 1 feedback upload - and asserts that they
+are distinct before relying on them. The first version had one upload of
+each kind, which made the two "uploads logged" rows interchangeable; the
+mutation that swaps them went straight through.
+
+**This is the sixth time** a suite on this port asserted against the whole
+database instead of its own fixture. The others: uploads-ui, kpi-read,
+kpi1-ui, accounts, compare-ui.
+
+#### The Rebuild card stays, and says the button is unnecessary
+
+`recomputeKpiCache` has nothing to recompute here - see *The KPI_MONTHLY
+cache* above. The card is kept, admin-only exactly as the original gated
+it, saying so plainly: somebody who used the old screen will come looking
+for the button, and finding a gap teaches them the port lost something.
+It prints how many tickets are scored on every read, from the same count
+the card above it shows.
+
+#### Three things the suite found
+
+**`var(--red)` is not `rgb(...)`.** The marked rows are read off the inline
+style, and `style.color` returns the literal `var(--red)` rather than a
+resolved colour. The first version of the check looked for `rgb(` and
+reported a plainly-red row as unmarked - a false failure on working code,
+which is the expensive kind.
+
+**A test that empties a table has to put it back before the next check.**
+The "uploads logged with nothing stored" check deletes the fixture's
+tickets on purpose. The Rebuild card two sections later prints the ticket
+count, read the emptied state, and was reported as broken. The re-seed now
+reloads the page.
+
+**Zero stored and zero uploaded must not be marked.** It is a fresh
+install, not a failed import, and a red zero on day one teaches people that
+the red does not mean anything - after which it does not. `nothingStored`
+is a named predicate for exactly this, and both mutations against it (mark
+everything, mark nothing) are caught.

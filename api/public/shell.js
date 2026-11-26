@@ -105,7 +105,7 @@
       with ?view=settings keeps working. Only what people read changes.
       showView in App.html says the same thing in the same words.
     */
-    { view: 'settings', label: 'Summary', href: null },
+    { view: 'settings', label: 'Summary', href: 'summary.html' },
     /*
       Help & FAQ is the team's inbox now rather than a help page, which is
       why it is ADMIN and above. Viewers are not losing anything: the FAQ

@@ -1742,6 +1742,92 @@ app.get('/api/kpi1/by-affiliate', requireAuth, async function (req, res) {
 
 
 // ---------------------------------------------------------------------------
+// GET /api/summary/boot - the indicators, the database, and the backups
+// ---------------------------------------------------------------------------
+/*
+  The Summary half of getBootstrap [Code.gs:191]. Three cards: every
+  indicator's target, bands and achievement; what is actually in the
+  database; and whether the backups are happening.
+
+  THE SECOND CARD IS THE POINT OF THIS SCREEN. App.html: "What is actually
+  in the database, per KPI, beside what the history claims. When the two
+  disagree this is the screen that says so plainly instead of leaving it to
+  be inferred from an empty dashboard." So the counts are read from the
+  tables themselves and the upload totals from the log, and the screen puts
+  them next to each other.
+
+  Any signed-in person. It names no individual and carries no figure that
+  is not already on a dashboard they can open.
+*/
+app.get('/api/summary/boot', requireAuth, async function (req, res) {
+  try {
+    const [counts, months, quarters, feedbackMonths, audit, health] =
+      await Promise.all([
+        db.query(`
+          SELECT
+            (SELECT count(*)::int FROM ticket)   AS tickets,
+            (SELECT count(*)::int FROM training) AS feedback,
+            (SELECT count(*)::int FROM upload_run
+              WHERE report_types NOT LIKE '%FEEDBACK%'
+                AND notes NOT LIKE 'deleted%')   AS ticket_uploads,
+            (SELECT count(*)::int FROM upload_run
+              WHERE report_types LIKE '%FEEDBACK%'
+                AND notes NOT LIKE 'deleted%')   AS feedback_uploads`),
+        kpiRead.monthsAvailable(),
+        kpi2Read.feedbackQuarters(),
+        kpi2Read.feedbackMonths(),
+        uploads.auditFeedback(),
+        /*
+          The backups, which have their own endpoint and are deliberately
+          unguarded there. Folded in here so the screen is one call rather
+          than two, and wrapped because a backup folder that cannot be read
+          must not take the whole screen down with it - not being able to
+          say how the backups are is itself worth showing.
+        */
+        backup.backupHealth().catch(function (err) {
+          console.error('[api] backup health unreadable: ' + err.message);
+          return null;
+        })
+      ]);
+
+    const n = counts[0];
+
+    res.json({
+      ok: true,
+      configured: true,
+      role: req.user.role,
+      canAdmin: rankOf(req.user.role) >= ROLE_RANK.ADMIN,
+      username: req.user.employeeId,
+      appName: APP_NAME,
+      appVersion: APP_VERSION,
+      mustChange: await accounts.mustChangeFor(req.user.employeeId),
+
+      kpiList: kpiConfig.KPI_LIST,
+      kpiPolicy: kpiConfig.POLICY,
+      kpi1Standards: kpiConfig.KPI1_STANDARDS,
+
+      sections: roster.SECTIONS,
+      availableMonths: months,
+      feedbackQuarters: quarters,
+      feedbackMonths: feedbackMonths,
+
+      stats: {
+        tickets: n.tickets,
+        feedback: n.feedback,
+        ticketUploads: n.ticket_uploads,
+        feedbackUploads: n.feedback_uploads
+      },
+      orphanedFeedback: audit.orphans,
+
+      backup: health
+    });
+  } catch (err) {
+    fail(res, err, 'could not open the summary screen');
+  }
+});
+
+
+// ---------------------------------------------------------------------------
 // GET /api/compare/boot - what the Comparison screen needs before it can draw
 // ---------------------------------------------------------------------------
 /*

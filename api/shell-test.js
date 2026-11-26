@@ -383,16 +383,18 @@ async function main() {
     so.
   */
   check('a screen with no page yet has no URL to offer',
-        shell.urlFor('settings') === '' && shell.urlFor('help') === '' &&
-        shell.urlFor('home') === '',
-        JSON.stringify(['settings', 'help', 'home'].map(shell.urlFor)));
+        shell.urlFor('help') === '' && shell.urlFor('home') === '',
+        JSON.stringify(['help', 'home'].map(shell.urlFor)));
   check('AND THE ONES THAT HAVE ARRIVED DO',
         shell.urlFor('master') === 'master.html' &&
         shell.urlFor('compare') === 'compare.html' &&
+        shell.urlFor('summary') === '' &&
+        shell.urlFor('settings') === 'summary.html' &&
         shell.urlFor('kpi1') === 'kpi1.html' &&
         shell.urlFor('kpi2') === 'kpi2.html' &&
         shell.urlFor('uploads') === 'uploads.html',
-        JSON.stringify(['master', 'compare', 'kpi1', 'kpi2', 'uploads']
+        JSON.stringify(['master', 'compare', 'settings', 'kpi1', 'kpi2',
+                        'uploads']
           .map(shell.urlFor)));
   check('and one that has a page carries the period into the query',
         shell.urlFor('kpi1', '2026-05') === 'kpi1.html?period=2026-05' &&
@@ -626,14 +628,29 @@ async function main() {
   check('Comparison opens Comparison',
         /\/compare\.html$/.test(p.url().split('?')[0]), p.url());
 
+  await p.click('.nav-item[data-view="settings"]');
+  await p.waitForSelector('#page:not([hidden])', { timeout: 20000 });
+  check('Summary opens Summary',
+        /\/summary\.html$/.test(p.url().split('?')[0]), p.url());
   /*
-    AND A SCREEN THAT IS STILL TO COME SAYS SO. Summary is the one used
-    here because it is visible to every role; Help is admin-only and Home
-    belongs to the portal, so neither is a safe stand-in as this list
-    shrinks.
+    THE INTERNAL NAME IS STILL `settings`, which is the point of keeping it:
+    a bookmark saved from the spreadsheet version carries ?view=settings,
+    and this is the assertion that catches anybody tidying it to `summary`
+    and breaking every one of them.
+  */
+  check('and the nav item is still called settings underneath',
+        await p.evaluate(function () {
+          const lit = document.querySelector('.nav-item.is-active');
+          return lit && lit.getAttribute('data-view') === 'settings';
+        }));
+
+  /*
+    AND A SCREEN THAT IS STILL TO COME SAYS SO. Home is the one used here
+    now that Summary has landed: it is visible to every role, where Help is
+    admin-only and would need a second sign-in to reach.
   */
   const before = p.url();
-  await p.click('.nav-item[data-view="settings"]');
+  await p.click('.nav-item[data-view="home"]');
   await p.waitForSelector('#shellSays:not([hidden])', { timeout: 5000 });
   check('a screen with no page says so instead of doing nothing',
         /not ported yet/.test(await p.textContent('#shellSays')),
