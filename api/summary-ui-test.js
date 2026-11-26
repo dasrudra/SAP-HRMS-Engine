@@ -805,9 +805,8 @@ async function main() {
         JSON.stringify(card.order));
   /*
     EVERY COUNT AGAINST THE SERVER'S OWN, never against a number written
-    here. These are counts over the whole schema: sixty on this machine and
-    twenty-six thousand on the live one. The fixture makes all four
-    different so that a row wired to the wrong field cannot pass.
+    here. These are counts over the whole schema: forty on this machine and
+    twenty-six thousand on the live one.
   */
   const want = {
     'KPI 1 \u00b7 tickets stored': says.boot.stats.tickets,
@@ -823,11 +822,82 @@ async function main() {
         wrong.length === 0,
         JSON.stringify(wrong.map(function (row) {
           return row + ': ' + card.value[row] + ' vs ' + want[row]; })));
-  check('and the four counts are four different numbers in this fixture, so ' +
-        'that check could not pass by coincidence',
-        new Set(Object.keys(want).map(function (k) { return want[k]; })).size
-          === 4,
-        JSON.stringify(want));
+  /*
+    WHICH ROW READS WHICH FIELD, proved on numbers the database cannot
+    reach.
+
+    THIS CHECK USED TO ASSERT THAT THE LIVE COUNTS WERE FOUR DIFFERENT
+    NUMBERS, so that the check above could not pass by coincidence - and
+    that was the sixth-time mistake all over again, committed inside the
+    guard against it. The live counts are the database's, not the
+    fixture's: the fixture adds two ticket uploads to however many are
+    already there, so on a machine with one real upload that row reads 3,
+    which is also how many responses the fixture seeds. Two rows collide,
+    and a correct screen is reported as broken. It was, on the live
+    machine, on the first run.
+
+    The card is drawn from a made-up bootstrap instead, with four numbers
+    that cannot collide and are nothing like any real count. That is
+    strictly stronger than the check it replaces: it proves which field
+    each row reads, rather than arguing that a pass could not have been
+    luck. The months and the quarters go in too, since they are two more
+    numbers that could be crossed.
+  */
+  await p.evaluate(function () {
+    window.__summaryScreen.renderDatabase({
+      appVersion: 'v-made-up',
+      sections: ['a', 'b', 'c'],
+      availableMonths: ['m1', 'm2', 'm3', 'm4', 'm5'],
+      feedbackQuarters: ['q1', 'q2', 'q3', 'q4', 'q5', 'q6', 'q7'],
+      feedbackMonths: ['f1', 'f2', 'f3', 'f4', 'f5', 'f6', 'f7', 'f8', 'f9'],
+      stats: { tickets: 1111, feedback: 2222,
+               ticketUploads: 3333, feedbackUploads: 4444 },
+      orphanedFeedback: 0,
+      backup: { on: true, count: 5, last: null, stale: false }
+    });
+  });
+  const wired = await dbCard(p);
+  await p.evaluate(function () {
+    const s = window.__summaryScreen;
+    s.renderDatabase(s.state.boot);
+  });
+  check('EACH ROW READS ITS OWN FIELD, on four numbers that cannot collide',
+        wired.value['KPI 1 \u00b7 tickets stored'] === '1,111' &&
+        wired.value['KPI 2 \u00b7 responses stored'] === '2,222' &&
+        wired.value['KPI 1 \u00b7 uploads logged'] === '3,333' &&
+        wired.value['KPI 2 \u00b7 uploads logged'] === '4,444',
+        JSON.stringify([wired.value['KPI 1 \u00b7 tickets stored'],
+                        wired.value['KPI 2 \u00b7 responses stored'],
+                        wired.value['KPI 1 \u00b7 uploads logged'],
+                        wired.value['KPI 2 \u00b7 uploads logged']]));
+  check('and so do the months, the quarters, the version and the sections',
+        wired.value['KPI 1 \u00b7 months'] === '5' &&
+        wired.value['KPI 2 \u00b7 quarters'] === '7 (9 months)' &&
+        wired.value.Version === 'v-made-up' &&
+        wired.value.Sections === '3',
+        JSON.stringify([wired.value['KPI 1 \u00b7 months'],
+                        wired.value['KPI 2 \u00b7 quarters'],
+                        wired.value.Version, wired.value.Sections]));
+  await p.evaluate(function () {
+    window.__summaryScreen.renderDatabase({
+      appVersion: 'v-made-up', sections: [],
+      availableMonths: [], feedbackQuarters: ['q1'], feedbackMonths: ['f1'],
+      stats: { tickets: 0, feedback: 1, ticketUploads: 0, feedbackUploads: 0 },
+      orphanedFeedback: 0, backup: null
+    });
+  });
+  const singular = (await dbCard(p)).value['KPI 2 \u00b7 quarters'];
+  await p.evaluate(function () {
+    const s = window.__summaryScreen;
+    s.renderDatabase(s.state.boot);
+  });
+  check('one month is "1 month", not "1 months"',
+        singular === '1 (1 month)', JSON.stringify(singular));
+
+  check('the card went back to the real figures afterwards',
+        (await dbCard(p)).value['KPI 1 \u00b7 tickets stored'] ===
+        Number(says.boot.stats.tickets).toLocaleString('en-US'),
+        JSON.stringify((await dbCard(p)).value['KPI 1 \u00b7 tickets stored']));
   check('the fixture\'s own rows are in those totals',
         says.boot.stats.tickets >= ticketsSeeded &&
         says.boot.stats.feedback >= responsesSeeded,

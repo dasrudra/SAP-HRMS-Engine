@@ -1651,15 +1651,38 @@ the screen against the server's own answer for the same question**, never
 against a number written in the suite. That holds whatever is stored.
 
 A check that two numbers agree proves nothing if every number is the same,
-so the fixture makes the four counts four *different* numbers - 40 tickets,
-3 responses, 2 ticket uploads, 1 feedback upload - and asserts that they
-are distinct before relying on them. The first version had one upload of
-each kind, which made the two "uploads logged" rows interchangeable; the
-mutation that swaps them went straight through.
+so the four rows also have to be shown reading four *different* fields.
+**The card is drawn from a made-up bootstrap for that** - 1,111 tickets,
+2,222 responses, 3,333 ticket uploads, 4,444 feedback uploads, five months,
+seven quarters - and each row is read back. Numbers the database cannot
+reach, four of them that cannot collide.
 
-**This is the sixth time** a suite on this port asserted against the whole
-database instead of its own fixture. The others: uploads-ui, kpi-read,
-kpi1-ui, accounts, compare-ui.
+#### The sixth time, and then the seventh, inside the guard against it
+
+The first version of that check asserted that the *live* counts were four
+different numbers, so that the check above them could not pass by
+coincidence. On this machine the fixture made them 40, 3, 2 and 1 and it
+passed. On the live machine it read **40, 3, 3, 1** and failed a correct
+screen: the counts are the database's, not the fixture's, and a machine
+with one real ticket upload already in `upload_run` puts the fixture's two
+on top of it to make three - which is also how many responses the fixture
+seeds. Two rows collide and the suite reports a bug that is not there.
+
+So the mistake was made a seventh time, in the guard written to prevent the
+sixth. The lesson is sharper than "compare against the server": **a check
+about the shape of the data is as database-dependent as a check about its
+values.** Anything a suite needs to be true of the numbers has to be made
+true by the suite, which here means rendering from a bootstrap it wrote
+itself. That is also strictly stronger than what it replaced - it proves
+which field each row reads, instead of arguing that a pass could not have
+been luck.
+
+Reproduced here before it was believed, by seeding one non-fixture
+`upload_run` row to recreate the collision exactly, and the five mutations
+against the new checks were run under that same condition.
+
+**Six suites have now made the original mistake**: uploads-ui, kpi-read,
+kpi1-ui, accounts, compare-ui, summary-ui.
 
 #### The Rebuild card stays, and says the button is unnecessary
 
