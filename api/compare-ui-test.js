@@ -132,28 +132,68 @@ async function seedFeedback() {
 }
 
 
-/** Chart.js, or a stand-in that records what it was asked to draw. */
+/**
+ * Records what the screen asks Chart.js to draw, whether or not Chart.js
+ * is there.
+ *
+ * THE FIRST VERSION ONLY WORKED WHERE THE CDN WAS BLOCKED, which is to say
+ * it only worked in the sandbox. It replaced a missing `Chart` with a stub
+ * that recorded its config - so on a machine with internet, where the real
+ * library loads, nothing was recorded and every chart assertion failed
+ * reading `labels` of null. A test that passes only where a dependency is
+ * unreachable is not testing the thing it names.
+ *
+ * So the real library is WRAPPED rather than replaced. A Proxy with a
+ * `construct` trap notes the config and then builds the genuine chart, and
+ * because a Proxy forwards everything else to its target, Chart.register
+ * and the rest keep working. Where there is no library at all, the stub
+ * stands in and records the same way. Both machines now assert on the same
+ * thing: what the screen asked for.
+ */
 async function provideChartJs(p) {
   const real = await p.evaluate(function () { return typeof Chart !== 'undefined'; });
+
   await p.addInitScript(function () {
+    function remember(ctx, config) {
+      try {
+        window.__charts = window.__charts || {};
+        const canvas = ctx && (ctx.canvas || ctx);
+        if (canvas && canvas.id) window.__charts[canvas.id] = config;
+      } catch (e) { /* recording must never break the page */ }
+    }
+
     function Stub(ctx, config) {
+      remember(ctx, config);
       this.config = config;
       this.ctx = ctx;
       this.scales = {};
       this.destroy = function () {};
-      /*
-        Recorded per canvas, so the suite can ask what the screen asked for
-        rather than what a picture looks like. The canvas id is the key
-        because that is what the page names when it draws.
-      */
-      window.__charts = window.__charts || {};
-      if (ctx && ctx.canvas) window.__charts[ctx.canvas.id] = config;
     }
-    if (typeof window.Chart === 'undefined') window.Chart = Stub;
-    window.addEventListener('DOMContentLoaded', function () {
-      if (typeof window.Chart === 'undefined') window.Chart = Stub;
-    });
+
+    function install() {
+      if (window.__chartsWrapped) return;
+      if (typeof window.Chart === 'undefined') {
+        window.Chart = Stub;
+        window.__chartsWrapped = true;
+        return;
+      }
+      const Real = window.Chart;
+      window.Chart = new Proxy(Real, {
+        construct: function (target, args) {
+          remember(args[0], args[1]);
+          return new target(args[0], args[1]);
+        }
+      });
+      window.__chartsWrapped = true;
+    }
+
+    // Once as soon as this runs, in case the library is already there, and
+    // again at DOMContentLoaded for the case where its <script> has not
+    // executed yet.
+    install();
+    window.addEventListener('DOMContentLoaded', install);
   });
+
   return { real: real };
 }
 
