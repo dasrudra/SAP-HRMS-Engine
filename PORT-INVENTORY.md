@@ -844,8 +844,8 @@ decided for a reason.
     in a real browser, 36 mutations and 35 caught. The remaining screens - the portal
     (Home, Team, Links, About, By-weekly, Learnings, Knowledge), Comparison,
     Summary, Help & FAQ and Accounts - are **shown in the nav and disabled**,
-    each saying on hover that it is not ported yet - except Accounts,
-    which arrived with item 10. `/` redirects to
+    each saying on hover that it is not ported yet - except Accounts, which
+    arrived with item 10, and Comparison. `/` redirects to
     `kpi1.html`, which is what `homeView()` says to do when there is no
     portal. See "The shell" below.
 
@@ -1525,3 +1525,62 @@ true: hiding the backdrop leaves the markup in the page, so the password
 sat in the DOM until the next dialog happened to overwrite it, readable by
 anything that could read the page. The dialog now empties itself on the way
 out. A test asked whether the sentence was true, and it was not.
+
+### The Comparison screen
+
+`api/public/compare.html`, with `api/kpi-config.js` behind it and
+`GET /api/compare/boot`. The view-compare section of `src/Index.html` with
+`runComparison`, `renderComparison`, `drawCompareChart`, `drawTrendChart`,
+`fillKpiSelector`, `fillComparePeriods` and `relabelComparePickers`.
+**52 checks in a real browser.** The arithmetic was already ported and
+proved - 16,239 comparisons for KPI 1 and 27,991 for KPI 2 - so this is the
+screen and nothing else.
+
+**Nothing on it knows what a ticket is.** App.html states the contract: "The
+result object names its own count columns in `measures` and its own
+breakdown in `sectionLabel`, so KPI 1 and KPI 2 share one render path and
+KPI 3 will need no changes at all - only a comparison endpoint that fills
+the same fields in." Both endpoints already answer in that shape, so the
+screen compares either without a branch. Its columns, its row labels, its
+two card titles and its chart axis are all read from the reply.
+
+**All four indicators are in the selector, including the two with no
+ingest.** "Every KPI is selectable - a disabled option tells you nothing
+about why." Picking one prints its definition and says nothing has been
+uploaded against it, which is the true answer.
+
+**`api/kpi-config.js` does not retype the two live definitions.** KPI 1's
+target lives in `api/kpi.js` beside the code that bands against it, and
+KPI 2's in `api/kpi2.js`; this file reads them and adds the fields the
+arithmetic never needed - the policy flag, the SLA layer, the formula. The
+two with no arithmetic are written out in full. Change KPI 1's target in
+`kpi.js` and the Comparison screen's caption changes with it.
+
+**KPI 1's standard toggle is on this screen too**, which the original does
+not need because the original is one page. App.html records exactly what
+goes wrong without it: "this screen contradicted itself in plain sight: the
+caption under the selector read 'Target >= 90%' while the chart below it
+drew a line labelled 99.5%". It reads and writes the same remembered choice
+the KPI 1 screen uses, so changing it on either screen moves the other.
+
+#### Three things the suite found
+
+**`in_dept` and `in_overall` are SCOPE flags, not success flags.** The
+fixture set them false on the tickets meant to fail, which did not fail
+them - it removed them from the comparison altogether. January came back as
+16 received out of 16, scoring 100%, and all three months looked identical,
+so the Change column read "= 0.00" down the page and proved nothing. What
+decides success is `delay_days`.
+
+**The port's `feedbackQuarters()` returns plain strings; the Apps Script
+bootstrap sends `{key, label}` objects.** App.html reads `q.key`, so the
+copied line produced an array of `undefined`: switching to KPI 2 filled the
+pickers with nothing and Compare then refused two empty boxes. The screen
+accepts either shape now, because these two halves have already disagreed
+once.
+
+**The periods come back oldest first whatever order they were picked in**,
+and that is right rather than a quirk - the Change column reads each row
+against the one above it, so a table in picking order would compute change
+against whichever month somebody happened to choose second. `Kpi.gs` sorts
+for the same reason.

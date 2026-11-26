@@ -376,10 +376,24 @@ async function main() {
         JSON.stringify(helpInBar) + ' in the bar, ' +
         JSON.stringify(shell.labelOf('help')) + ' in the nav');
 
+  /*
+    THE SCREENS STILL TO COME, and the ones that have arrived. This list
+    shrinks as the port goes on, and keeping it here rather than counting
+    them is deliberate: when the last one lands, this check is what says
+    so.
+  */
   check('a screen with no page yet has no URL to offer',
-        shell.urlFor('compare') === '' && shell.urlFor('settings') === '');
-  check('AND ACCOUNTS NOW HAS ONE - it was the first of the four to arrive',
-        shell.urlFor('master') === 'master.html', shell.urlFor('master'));
+        shell.urlFor('settings') === '' && shell.urlFor('help') === '' &&
+        shell.urlFor('home') === '',
+        JSON.stringify(['settings', 'help', 'home'].map(shell.urlFor)));
+  check('AND THE ONES THAT HAVE ARRIVED DO',
+        shell.urlFor('master') === 'master.html' &&
+        shell.urlFor('compare') === 'compare.html' &&
+        shell.urlFor('kpi1') === 'kpi1.html' &&
+        shell.urlFor('kpi2') === 'kpi2.html' &&
+        shell.urlFor('uploads') === 'uploads.html',
+        JSON.stringify(['master', 'compare', 'kpi1', 'kpi2', 'uploads']
+          .map(shell.urlFor)));
   check('and one that has a page carries the period into the query',
         shell.urlFor('kpi1', '2026-05') === 'kpi1.html?period=2026-05' &&
         shell.urlFor('kpi2', '2026-Q2') === 'kpi2.html?period=2026-Q2');
@@ -607,8 +621,19 @@ async function main() {
   check('AND THE BROWSER\'S BACK BUTTON WALKS BACK THROUGH THEM',
         /\/kpi1\.html$/.test(p.url().split('?')[0]), p.url());
 
-  const before = p.url();
   await p.click('.nav-item[data-view="compare"]');
+  await p.waitForSelector('#page:not([hidden])', { timeout: 20000 });
+  check('Comparison opens Comparison',
+        /\/compare\.html$/.test(p.url().split('?')[0]), p.url());
+
+  /*
+    AND A SCREEN THAT IS STILL TO COME SAYS SO. Summary is the one used
+    here because it is visible to every role; Help is admin-only and Home
+    belongs to the portal, so neither is a safe stand-in as this list
+    shrinks.
+  */
+  const before = p.url();
+  await p.click('.nav-item[data-view="settings"]');
   await p.waitForSelector('#shellSays:not([hidden])', { timeout: 5000 });
   check('a screen with no page says so instead of doing nothing',
         /not ported yet/.test(await p.textContent('#shellSays')),

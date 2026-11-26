@@ -47,6 +47,7 @@ const kpi = require('./kpi');
 const kpi2 = require('./kpi2');
 const roster = require('./roster');
 const accounts = require('./accounts');
+const kpiConfig = require('./kpi-config');
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
@@ -1736,6 +1737,58 @@ app.get('/api/kpi1/by-affiliate', requireAuth, async function (req, res) {
     res.json(Object.assign({ ok: true }, out));
   } catch (err) {
     fail(res, err, 'could not read the affiliate figures');
+  }
+});
+
+
+// ---------------------------------------------------------------------------
+// GET /api/compare/boot - what the Comparison screen needs before it can draw
+// ---------------------------------------------------------------------------
+/*
+  The comparison half of getBootstrap [Code.gs:191]: the four indicators,
+  KPI 1's two standards, and the periods each live KPI actually has data
+  for. Two lists and not one, because they are different questions - KPI 1
+  compares months and KPI 2 compares quarters, and offering ticket months
+  for a training comparison produced four columns of "No data".
+
+  ALL FOUR INDICATORS ARE SENT, including the two with no ingest. App.html:
+  "Every KPI is selectable - a disabled option tells you nothing about why."
+  Picking one without data gets an explanation instead of an empty screen.
+*/
+app.get('/api/compare/boot', requireAuth, async function (req, res) {
+  try {
+    const [months, quarters] = await Promise.all([
+      kpiRead.monthsAvailable(),
+      kpi2Read.feedbackQuarters()
+    ]);
+
+    res.json({
+      ok: true,
+      configured: true,
+      role: req.user.role,
+      canAdmin: rankOf(req.user.role) >= ROLE_RANK.ADMIN,
+      username: req.user.employeeId,
+      appName: APP_NAME,
+      appVersion: APP_VERSION,
+      mustChange: await accounts.mustChangeFor(req.user.employeeId),
+
+      /*
+        The sections, for the chart's axis. shortLabel() turns 'Supply Chain
+        Applications' into 'SCA' - the full name does not fit under a bar,
+        and truncating it in CSS would hide which section you are looking
+        at rather than shorten it.
+      */
+      sections: roster.SECTIONS,
+
+      kpiList: kpiConfig.KPI_LIST,
+      kpiPolicy: kpiConfig.POLICY,
+      kpi1Standards: kpiConfig.KPI1_STANDARDS,
+
+      availableMonths: months,
+      feedbackQuarters: quarters
+    });
+  } catch (err) {
+    fail(res, err, 'could not open the comparison screen');
   }
 });
 

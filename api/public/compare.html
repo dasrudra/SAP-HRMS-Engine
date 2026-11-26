@@ -1,0 +1,1318 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Comparison - TVL-EAS</title>
+<!--
+  THE COMPARISON SCREEN.
+
+  Ported from the view-compare section of src/Index.html and from
+  runComparison / renderComparison / drawCompareChart / drawTrendChart /
+  fillKpiSelector / fillComparePeriods / relabelComparePickers in
+  src/App.html. Same cards in the same order, same tables, same two charts.
+
+  NOTHING HERE KNOWS WHAT A TICKET IS, and that is the design rather than an
+  accident. App.html says it: "The result object names its own count columns
+  in `measures` and its own breakdown in `sectionLabel`, so KPI 1 and KPI 2
+  share one render path and KPI 3 will need no changes at all - only a
+  comparison endpoint that fills the same fields in." The two endpoints
+  already answer in that shape, so this screen compares either one without a
+  branch.
+-->
+<link rel="stylesheet" href="app.css">
+<!-- Chart.js, pinned, for the reason App.html pins it: a dashboard that
+     redraws itself differently because a CDN shipped a new minor version
+     is not a dashboard anybody can report off. -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="kpi-charts.js"></script>
+<script src="dialog.js"></script>
+<script src="shell.js"></script>
+<style>
+  body { background: var(--bg); }
+  /* Only while the shell is not around it - see uploads.html. */
+  body > .page { max-width: 1320px; margin: 0 auto; padding: 28px 20px 60px; }
+  .signin { max-width: 400px; margin: 60px auto; }
+  .signin label { display: block; font-size: 12px; color: var(--text-dim);
+                  margin: 14px 0 4px; }
+  .signin input { width: 100%; padding: 9px 11px; border: 1px solid var(--line);
+                  border-radius: 8px; font: inherit; background: var(--card);
+                  color: var(--text); }
+  .signin .btn { margin-top: 18px; width: 100%; }
+  .signin .why { color: var(--red); font-size: 13px; margin: 12px 0 0;
+                 min-height: 18px; }
+  .standard-note { font-size: 12px; color: var(--text-dim); margin: 8px 0 0;
+                   max-width: 640px; }
+</style>
+</head>
+<body>
+
+<section class="card signin" id="signinCard" hidden>
+  <div class="card-head">Sign in</div>
+  <label for="employeeId">Employee ID</label>
+  <input id="employeeId" autocomplete="username" inputmode="numeric">
+  <label for="password">Password</label>
+  <input id="password" type="password" autocomplete="current-password">
+  <p class="why" id="signinWhy"></p>
+  <button class="btn btn-primary" id="signinGo">Sign in</button>
+</section>
+
+
+<div class="page" id="page" hidden>
+
+  <section class="view" id="view-compare">
+    <div class="page-head">
+      <div>
+        <!--
+          Month or Quarter, per KPI: relabelComparePickers rewrites both of
+          these and the four field labels below whenever the KPI selector
+          changes. KPI 1 compares months, KPI 2 quarters.
+        -->
+        <h1 id="cmpHeading">Month Comparison</h1>
+        <p class="sub" id="cmpSubhead">
+          Compare two to four months side by side. Pick the KPI first &#x2014;
+          the months, tables and charts below all follow it.
+        </p>
+      </div>
+    </div>
+
+    <!--
+      Colour that carries meaning rather than decoration: each period field
+      wears the colour that period will be drawn in on the chart below, so
+      the legend is readable before the chart exists. The swatches come from
+      SERIES in kpi-charts.js.
+    -->
+    <div class="card card-blue">
+      <div class="card-head">Select dashboards</div>
+      <div class="cmp-picker">
+        <div class="cmp-field cmp-field-kpi">
+          <label for="cmpKpi">Which KPI</label>
+          <select id="cmpKpi" class="select"></select>
+          <!-- The chosen KPI's target and layer. Set by renderCompareHint(). -->
+          <p class="cmp-hint" id="cmpKpiHint"></p>
+        </div>
+        <div class="cmp-grid">
+          <div class="cmp-field" style="--slot:0">
+            <label for="cmpM1" id="cmpM1Label">First Month</label>
+            <select id="cmpM1" class="select"></select>
+          </div>
+          <div class="cmp-field" style="--slot:1">
+            <label for="cmpM2" id="cmpM2Label">Second Month</label>
+            <select id="cmpM2" class="select"></select>
+          </div>
+          <div class="cmp-field" style="--slot:2">
+            <label for="cmpM3" id="cmpM3Label">Third Month <span class="muted">(optional)</span></label>
+            <select id="cmpM3" class="select"></select>
+          </div>
+          <div class="cmp-field" style="--slot:3">
+            <label for="cmpM4" id="cmpM4Label">Fourth Month <span class="muted">(optional)</span></label>
+            <select id="cmpM4" class="select"></select>
+          </div>
+        </div>
+        <div class="cmp-actions">
+          <button class="btn btn-primary btn-lg" id="cmpRun">Compare Dashboards</button>
+          <button class="btn btn-ghost" id="cmpClear">&#x2715; Clear</button>
+        </div>
+      </div>
+    </div>
+
+    <!--
+      WHICH OF KPI 1'S TWO TARGETS THESE FIGURES ARE SCORED AGAINST.
+
+      In the original this toggle lives on the KPI 1 screen and the whole
+      app reads it, because the whole app is one page. Here the screens are
+      separate documents, and App.html records exactly what goes wrong when
+      a comparison does not say which standard it used:
+
+          "this screen contradicted itself in plain sight: the caption
+           under the selector read 'Target >= 90%' while the chart below it
+           drew a line labelled 99.5%".
+
+      So the toggle is here as well, reading and writing the same remembered
+      choice the KPI 1 screen uses. Change it on either screen and the other
+      agrees. Shown only for KPI 1, because it is the only indicator with
+      two standards.
+    -->
+    <div class="standard-toggle" id="cmpStandardWrap" hidden>
+      <button type="button" class="standard-opt" data-standard="COMPANY"></button>
+      <button type="button" class="standard-opt" data-standard="EAS"></button>
+    </div>
+    <p class="standard-note" id="cmpStandardNote" hidden></p>
+
+    <div id="cmpEmpty" class="notice notice-info">
+      <h3>Nothing compared yet</h3>
+      <p>Choose two or more periods above and press Compare Dashboards.</p>
+    </div>
+
+    <div class="card chart-card" id="cmpChartCard" hidden>
+      <div class="chart-head">
+        <div>
+          <h2 id="cmpChartTitle">Success rate by section and month</h2>
+          <p id="cmpChartNote">Against the target.</p>
+        </div>
+      </div>
+      <div class="chart-box chart-box-tall"><canvas id="chartCompare"></canvas></div>
+    </div>
+
+    <!--
+      The trend. Deliberately NOT governed by the period pickers above - it
+      always plots every period uploaded, so the selection can narrow the
+      comparison without losing sight of the shape of the year.
+    -->
+    <div class="card chart-card" id="cmpTrendCard" hidden>
+      <div class="chart-head">
+        <div>
+          <h2 id="cmpTrendTitle">Success rate over time &#x2014; every month</h2>
+          <p id="cmpTrendNote">One line per section across the whole period.</p>
+        </div>
+      </div>
+      <div class="chart-box chart-box-tall">
+        <canvas id="chartTrend"></canvas>
+        <div class="chart-empty" id="chartTrendEmpty" hidden></div>
+      </div>
+    </div>
+
+    <!--
+      Both tables are built from whatever the selected KPI declares in its
+      `measures` and `sectionLabel`, so the headings below are only the
+      first paint - renderComparison rewrites them for the KPI in hand.
+    -->
+    <div class="card" id="cmpOverallCard" hidden>
+      <div class="card-head" id="cmpOverallTitle" data-report="cmpOverall">KPI 1 &#x2014; overall by month</div>
+      <div class="table-wrap">
+        <table id="cmpOverall">
+          <thead><tr></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card" id="cmpSectionCard" hidden>
+      <div class="card-head" id="cmpSectionTitle" data-report="cmpSections">KPI 1 &#x2014; success rate by section</div>
+      <div class="table-wrap">
+        <table id="cmpSections">
+          <thead><tr></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+
+<script>
+(function () {
+  'use strict';
+
+  const C = window.kpiCharts;
+  const TOKEN_STORE = 'easToken';
+  /* The same key the KPI 1 screen uses, so one choice serves both. */
+  const KPI1_FILTERS = 'easKpi1Filters';
+  const CMP_SELECTS = ['cmpM1', 'cmpM2', 'cmpM3', 'cmpM4'];
+  const MAX_COMPARE = 4;
+
+  const state = { token: '', user: null, boot: null,
+                  compare: null, trend: null, standard: 'COMPANY' };
+
+
+  /** Every call, with the dot in the top bar told about it. */
+  async function api(method, path, body) {
+    try {
+      return await request(method, path, body);
+    } catch (err) {
+      if (String(err && err.message) !== 'signed out') easShell.setLive(false);
+      throw err;
+    }
+  }
+
+  async function request(method, path, body) {
+    const opts = { method: method, headers: {} };
+    if (state.token) opts.headers.Authorization = 'Bearer ' + state.token;
+    if (body !== undefined) {
+      opts.headers['Content-Type'] = 'application/json';
+      opts.body = JSON.stringify(body);
+    }
+    const res = await fetch(path, opts);
+    if (res.status === 401) {
+      signedOut('Your session has ended.');
+      throw new Error('signed out');
+    }
+    let data = null;
+    try { data = await res.json(); } catch (e) { /* not JSON */ }
+    if (!res.ok || !data || data.ok === false) {
+      throw new Error((data && data.error) ||
+                      ('the server answered ' + res.status));
+    }
+    return data;
+  }
+
+  const get = function (path) { return api('GET', path); };
+
+
+  // =======================================================================
+  // SIGNING IN
+  // =======================================================================
+
+  function signedOut(why) {
+    state.token = '';
+    state.user = null;
+    state.boot = null;
+    try { sessionStorage.removeItem(TOKEN_STORE); } catch (e) { /* fine */ }
+    document.getElementById('page').hidden = true;
+    easShell.signedOut();
+    document.getElementById('signinCard').hidden = false;
+    document.getElementById('signinWhy').textContent = why || '';
+  }
+
+  async function signIn() {
+    const button = document.getElementById('signinGo');
+    const why = document.getElementById('signinWhy');
+    why.textContent = '';
+    button.disabled = true;
+    try {
+      const out = await api('POST', '/api/login', {
+        employee_id: document.getElementById('employeeId').value.trim(),
+        password: document.getElementById('password').value
+      });
+      state.token = out.token;
+      state.user = out.user;
+      try { sessionStorage.setItem(TOKEN_STORE, out.token); } catch (e) { /* fine */ }
+      document.getElementById('password').value = '';
+      await start();
+    } catch (err) {
+      why.textContent = err.message;
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+
+  async function start() {
+    const boot = await get('/api/compare/boot');
+    state.boot = boot;
+
+    document.getElementById('signinCard').hidden = true;
+    easShell.signedIn({
+      role: boot.role,
+      username: boot.username ||
+                (state.user ? state.user.employee_id : boot.role),
+      appName: boot.appName,
+      appVersion: boot.appVersion,
+      mustChange: boot.mustChange
+    });
+    document.getElementById('page').hidden = false;
+
+    restoreStandard();
+    fillKpiSelector(boot);
+    fillStandardToggle();
+    fillComparePeriods(comparePeriodList());
+    loadTrend();
+  }
+
+
+  // =======================================================================
+  // WHICH KPI, AND WHAT A PERIOD IS FOR IT
+  // =======================================================================
+
+  /**
+   * The KPI this screen is comparing, AS IT IS BEING SCORED RIGHT NOW.
+   *
+   * Through activeDefinition, because KPI 1 has two standards and the
+   * boot's list only ever carries the policy's. Without it the screen
+   * contradicts itself in plain sight - see the note on the toggle above.
+   */
+  function selectedKpi() {
+    const id = getValue('cmpKpi');
+    const list = (state.boot && state.boot.kpiList) || [];
+    for (let i = 0; i < list.length; i++) {
+      if (list[i].id === id) return activeDefinition(list[i]);
+    }
+    return list.length ? activeDefinition(list[0]) : null;
+  }
+
+  function activeDefinition(kpi) {
+    if (!kpi || kpi.id !== 'KPI1') return kpi;
+    const list = (state.boot && state.boot.kpi1Standards) || [];
+    return list.filter(function (k) {
+      return k.standard === state.standard;
+    })[0] || kpi;
+  }
+
+  /**
+   * The periods this screen may offer, for the KPI in hand.
+   *
+   * They are different lists, and offering ticket months for a training
+   * comparison produced four columns of "No data".
+   */
+  function comparePeriodList() {
+    const boot = state.boot || {};
+    if (comparePeriodKind() === 'QUARTER') {
+      /*
+        PLAIN STRINGS, NOT {key, label} OBJECTS.
+
+        getBootstrap in the Apps Script version sends labelled objects and
+        App.html reads `q.key` off them. This port's feedbackQuarters()
+        returns the keys themselves, which is what the KPI 2 screen's own
+        picker already expects - so reading `.key` here produced an array
+        of undefined, the pickers filled with nothing, and switching to
+        KPI 2 left two empty boxes that Compare then refused.
+
+        Both shapes are accepted rather than one assumed, because the two
+        halves of this disagreed once already and a screen that breaks
+        quietly on a payload change is the thing worth preventing.
+      */
+      return (boot.feedbackQuarters || []).map(function (q) {
+        return (q && typeof q === 'object') ? q.key : q;
+      }).filter(Boolean);
+    }
+    return boot.availableMonths || [];
+  }
+
+  /**
+   * Read from the SELECTOR rather than from the last result, because the
+   * pickers and their labels have to be right BEFORE anything is compared -
+   * and after a KPI switch the result on screen belongs to the old one.
+   */
+  function comparePeriodKind() {
+    const kpi = selectedKpi();
+    return (kpi && kpi.id === 'KPI2') ? 'QUARTER' : 'MONTH';
+  }
+
+  function comparePeriodWord(plural) {
+    const quarter = comparePeriodKind() === 'QUARTER';
+    return quarter ? (plural ? 'quarters' : 'quarter')
+                   : (plural ? 'months' : 'month');
+  }
+
+  /** Which endpoint answers for this KPI. */
+  function comparisonUrl(kpiId, periods) {
+    return kpiId === 'KPI2'
+      ? '/api/kpi2/compare?periods=' + encodeURIComponent(periods.join(','))
+      : '/api/kpi1/compare?months=' + encodeURIComponent(periods.join(',')) +
+        '&standard=' + encodeURIComponent(state.standard);
+  }
+
+
+  /**
+   * '2026-Q1' -> 'Quarter 1 (2026)', '2026-08' -> 'August 2026'.
+   *
+   * One formatter for both, so every heading, header cell, legend and
+   * tooltip reads correctly whichever KPI produced it.
+   */
+  function formatPeriod(key) {
+    const text = String(key || '');
+    if (!/^\d{4}-Q[1-4]$/.test(text)) return formatMonth(text);
+    /*
+      THE SAME WORDS THE KPI 2 SCREEN USES, from quarterLabel in kpi2.html.
+      Two screens naming the same quarter differently is the sort of thing
+      nobody reports and everybody notices.
+    */
+    const spans = ['Jan\u2013Mar', 'Apr\u2013Jun', 'Jul\u2013Sep', 'Oct\u2013Dec'];
+    const n = Number(text.slice(6));
+    return 'Quarter ' + n + ' (' + text.slice(0, 4) + ') \u00b7 ' + spans[n - 1];
+  }
+
+  /** The same, short enough for a chart axis: 'Q1 2026' or 'Aug 2026'. */
+  function shortPeriod(key) {
+    const text = String(key || '');
+    return /^\d{4}-Q[1-4]$/.test(text)
+      ? 'Q' + text.slice(6) + ' ' + text.slice(0, 4)
+      : shortMonth(text);
+  }
+
+  const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June',
+                       'July', 'August', 'September', 'October', 'November',
+                       'December'];
+
+  function formatMonth(key) {
+    const m = String(key || '').match(/^(\d{4})-(\d{2})$/);
+    if (!m) return String(key || '');
+    return (MONTH_NAMES[Number(m[2]) - 1] || key) + ' ' + m[1];
+  }
+
+  function shortMonth(key) {
+    const m = String(key || '').match(/^(\d{4})-(\d{2})$/);
+    if (!m) return String(key || '');
+    return (MONTH_NAMES[Number(m[2]) - 1] || '').slice(0, 3) + ' ' + m[1];
+  }
+
+  /** 'Supply Chain Applications' -> 'SCA', for a chart axis. */
+  function shortLabel(name) {
+    const sections = (state.boot && state.boot.sections) || [];
+    for (let i = 0; i < sections.length; i++) {
+      if (sections[i].name === name && sections[i].short) return sections[i].short;
+    }
+    return String(name).replace(/\s+Applications$/, '');
+  }
+
+
+  // =======================================================================
+  // THE PICKERS
+  // =======================================================================
+
+  function fillKpiSelector(boot) {
+    const select = document.getElementById('cmpKpi');
+    if (!select) return;
+
+    const previous = select.value;
+    select.innerHTML = '';
+
+    (boot.kpiList || []).forEach(function (kpi) {
+      const option = document.createElement('option');
+      option.value = kpi.id;
+      option.textContent = kpi.name + (kpi.active ? '' : '  \u2014 awaiting data');
+      select.appendChild(option);
+    });
+
+    const active = (boot.kpiList || []).filter(function (k) { return k.active; });
+    select.value = previous || (active[0] ? active[0].id : '');
+    if (!select.value && active[0]) select.value = active[0].id;
+  }
+
+
+  function defaultPeriodFor(index) {
+    return comparePeriodList()[index] || '';
+  }
+
+
+  function fillComparePeriods(periods) {
+    const list = periods || [];
+    const word = comparePeriodWord(false);
+
+    // The labels above the boxes have to move with them. Leaving them
+    // reading "First Month" over a list of quarters is the same class of
+    // mistake as the screen showing KPI 1's figures under KPI 2's name.
+    relabelComparePickers();
+
+    /*
+      NO TWO BOXES MAY END UP ON THE SAME PERIOD. Switching KPI used to do
+      exactly that: the first box lost its month (not in the new list) and
+      fell back to the newest, which the second box was already holding -
+      so both read August, the two collapsed to one, and Compare refused to
+      run while the tables sat there still showing the previous KPI.
+    */
+    const taken = {};
+
+    CMP_SELECTS.forEach(function (id, index) {
+      const select = document.getElementById(id);
+      if (!select) return;
+
+      const previous = select.value;
+      const optional = index >= 2;
+
+      select.innerHTML = optional
+        ? '<option value="">\u2014 none \u2014</option>'
+        : '<option value="">\u2014 select a ' + word + ' \u2014</option>';
+
+      list.forEach(function (period) {
+        const option = document.createElement('option');
+        option.value = period;
+        option.textContent = formatPeriod(period);
+        select.appendChild(option);
+      });
+
+      select.disabled = !list.length;
+
+      let value = '';
+      if (previous && list.indexOf(previous) !== -1 && !taken[previous]) {
+        value = previous;                        // keep what was chosen
+      } else if (!optional) {
+        // Newest first, skipping anything an earlier box already holds.
+        for (let i = 0; i < list.length; i++) {
+          if (!taken[list[i]]) { value = list[i]; break; }
+        }
+      }
+
+      select.value = value;
+      if (value) taken[value] = true;
+    });
+  }
+
+
+  /**
+   * Retitles the whole picker for the KPI in hand - Month or Quarter.
+   *
+   * The page heading and the four field labels are the only places the unit
+   * is spelled out before anything has been compared, so they are the only
+   * places that can mislead you into picking the wrong thing.
+   */
+  function relabelComparePickers() {
+    const one = comparePeriodWord(false);
+    const many = comparePeriodWord(true);
+    const Title = one.charAt(0).toUpperCase() + one.slice(1);
+
+    setText('cmpHeading', Title + ' Comparison');
+    setText('cmpSubhead',
+      'Compare two to four ' + many + ' side by side. Pick the KPI first ' +
+      '\u2014 the ' + many + ', tables and charts below all follow it.');
+
+    ['First', 'Second', 'Third', 'Fourth'].forEach(function (nth, index) {
+      const label = document.getElementById('cmpM' + (index + 1) + 'Label');
+      if (!label) return;
+      label.innerHTML = nth + ' ' + Title +
+        (index >= 2 ? ' <span class="muted">(optional)</span>' : '');
+    });
+
+    renderCompareHint();
+    paintStandardToggle();
+  }
+
+
+  /**
+   * The chosen KPI's target and SLA layer, under its selector.
+   *
+   * The KPI decides what the period list even contains - pick it second and
+   * the periods you just chose are thrown away - so it is worth more than a
+   * bare dropdown. This says which indicator you are on without making you
+   * read it off the results below.
+   */
+  function renderCompareHint() {
+    const kpi = selectedKpi();
+    const hint = document.getElementById('cmpKpiHint');
+    if (!hint) return;
+
+    hint.innerHTML = kpi
+      ? 'Target &ge; ' + kpi.target + kpi.unit + ' \u00b7 ' +
+        escapeHtml(kpi.slaLayer || '') +
+        /*
+          AN INTERNAL MEASURE SAYS SO HERE TOO. This line is the only thing
+          on the screen that describes what is being compared, so it is the
+          one place the distinction can be made before somebody reads a
+          chart of it as an approved KPI.
+        */
+        (kpi.policy === false
+          ? ' \u00b7 <b title="Not one of the three indicators in ' +
+            escapeHtml(policyName()) +
+            '. It is the team\u2019s own measure of the training it runs.">' +
+            'internal measure</b>'
+          : '') +
+        (kpi.active ? '' : ' \u00b7 <b>no data uploaded yet</b>')
+      : '';
+  }
+
+  function policyName() {
+    const p = (state.boot && state.boot.kpiPolicy) || {};
+    return p.name || 'TVL-KPI-001';
+  }
+
+
+  // =======================================================================
+  // WHICH OF KPI 1'S TWO TARGETS
+  // =======================================================================
+
+  function restoreStandard() {
+    let saved = null;
+    try { saved = JSON.parse(sessionStorage.getItem(KPI1_FILTERS) || 'null'); }
+    catch (e) { saved = null; }
+    if (saved && saved.fKpi1Standard) state.standard = saved.fKpi1Standard;
+  }
+
+  function rememberStandard() {
+    let saved = {};
+    try { saved = JSON.parse(sessionStorage.getItem(KPI1_FILTERS) || '{}') || {}; }
+    catch (e) { saved = {}; }
+    saved.fKpi1Standard = state.standard;
+    try { sessionStorage.setItem(KPI1_FILTERS, JSON.stringify(saved)); }
+    catch (e) { /* private mode - it just will not be remembered */ }
+  }
+
+  function fillStandardToggle() {
+    const wrap = document.getElementById('cmpStandardWrap');
+    const list = (state.boot && state.boot.kpi1Standards) || [];
+    if (!wrap || list.length < 2) return;
+
+    wrap.querySelectorAll('.standard-opt').forEach(function (button) {
+      const want = button.getAttribute('data-standard');
+      const kpi = list.filter(function (k) { return k.standard === want; })[0];
+      if (!kpi) return;
+      button.innerHTML =
+        '<span class="standard-name">' + escapeHtml(kpi.standardLabel) + '</span>' +
+        '<span class="standard-target">' + escapeHtml(String(kpi.target)) + '%</span>';
+      button.title = kpi.standardNote || '';
+      button.addEventListener('click', function () {
+        if (state.standard === want) return;
+        state.standard = want;
+        rememberStandard();
+        paintStandardToggle();
+        renderCompareHint();
+        /*
+          THE RESULTS ON SCREEN WERE SCORED AGAINST THE OTHER TARGET, so
+          they go, and the trend with them. Leaving them would be the
+          contradiction this toggle exists to prevent, one layer down.
+        */
+        state.trend = null;
+        loadTrend();
+        if (state.compare) runComparison();
+      });
+    });
+
+    paintStandardToggle();
+  }
+
+  /** Paints the toggle, and names the document the figures answer to. */
+  function paintStandardToggle() {
+    const wrap = document.getElementById('cmpStandardWrap');
+    const note = document.getElementById('cmpStandardNote');
+    if (!wrap) return;
+
+    const isKpi1 = (getValue('cmpKpi') || 'KPI1') === 'KPI1';
+    const list = (state.boot && state.boot.kpi1Standards) || [];
+    const show = isKpi1 && list.length >= 2;
+
+    wrap.hidden = !show;
+    if (note) note.hidden = !show;
+    if (!show) return;
+
+    wrap.querySelectorAll('.standard-opt').forEach(function (button) {
+      button.classList.toggle('is-on',
+        button.getAttribute('data-standard') === state.standard);
+    });
+
+    const kpi = list.filter(function (k) {
+      return k.standard === state.standard;
+    })[0];
+    if (note && kpi) note.textContent = kpi.standardNote || '';
+  }
+
+
+  // =======================================================================
+  // RUNNING IT
+  // =======================================================================
+
+  function hideComparisonResults() {
+    ['cmpChartCard', 'cmpOverallCard', 'cmpSectionCard'].forEach(function (id) {
+      const el = document.getElementById(id);
+      if (el) el.hidden = true;
+    });
+  }
+
+  /** Explains why a KPI cannot be compared yet, in place of the results. */
+  function showComparisonPending(kpi) {
+    const empty = document.getElementById('cmpEmpty');
+    hideComparisonResults();
+
+    empty.hidden = false;
+    empty.className = 'notice notice-warn';
+    empty.innerHTML =
+      '<h3>' + escapeHtml(kpi.name) + ' has no data yet</h3>' +
+      '<p>Its definition is loaded \u2014 target &ge; ' + kpi.target + kpi.unit +
+      ', ' + escapeHtml(kpi.slaLayer) + ' \u2014 but nothing has been uploaded ' +
+      'against it, so there is nothing to compare. Formula: ' +
+      escapeHtml(kpi.formula || '') + '</p>';
+  }
+
+
+  function runComparison() {
+    const picked = [];
+
+    CMP_SELECTS.forEach(function (id) {
+      const value = getValue(id);
+      // Selecting the same period twice would produce duplicate columns, so
+      // ignore repeats rather than rendering them.
+      if (value && picked.indexOf(value) === -1) picked.push(value);
+    });
+
+    const one = comparePeriodWord(false);
+    const many = comparePeriodWord(true);
+
+    if (picked.length < 2) {
+      const kpiNow = selectedKpi();
+      const have = comparePeriodList().length;
+
+      // Put the prompt back, so the screen explains itself once the dialog
+      // is dismissed rather than showing nothing at all.
+      hideComparisonResults();
+      const box = document.getElementById('cmpEmpty');
+      box.hidden = false;
+      box.className = 'notice notice-warn';
+      box.innerHTML =
+        '<h3>Not enough ' + many + ' for ' +
+        escapeHtml((kpiNow && kpiNow.name) || 'this KPI') + '</h3>' +
+        '<p>' + (have < 2
+          ? 'It has data for ' + (have === 1 ? 'one ' + one : 'no ' + many) +
+            ' so far. Upload another period and it can be compared.'
+          : 'Pick two different ' + many + ' above, then press Compare ' +
+            'Dashboards.') +
+        '</p>';
+
+      return easDialog.tell({
+        title: 'Two ' + many + ' are needed',
+        body: have < 2
+          ? '<p><strong>' + escapeHtml((kpiNow && kpiNow.name) || 'This KPI') +
+            '</strong> has data for ' +
+            (have === 1 ? 'only one ' + one : 'no ' + many) +
+            ' so far, so there is nothing to compare it against yet.</p>' +
+            '<p>Upload another period and it will appear here.</p>'
+          : '<p>Pick two different ' + many + ' in the boxes above, then ' +
+            'press Compare Dashboards.</p>'
+      });
+    }
+
+    if (picked.length > MAX_COMPARE) {
+      return easDialog.tell({
+        title: 'Too many ' + many,
+        body: '<p>Up to ' + MAX_COMPARE + ' ' + many + ' can be compared at ' +
+              'once. Clear one of the optional boxes and try again.</p>'
+      });
+    }
+
+    const kpi = selectedKpi();
+
+    // Every KPI is selectable - a disabled option tells you nothing about
+    // why. Picking one without data shows an explanation instead.
+    if (kpi && !kpi.active) return showComparisonPending(kpi);
+
+    /*
+      ROUTED BY THE KPI ACTUALLY CHOSEN. App.html records what this used to
+      do: "This used to call KPI 1's endpoint unconditionally, so selecting
+      Training Satisfaction re-rendered ticket figures under a training
+      heading."
+    */
+    return get(comparisonUrl(kpi && kpi.id, picked))
+      .then(renderComparison)
+      .catch(function (err) {
+        if (err.message === 'signed out') return;
+        easDialog.tell({
+          title: 'That could not be compared',
+          body: '<p>' + escapeHtml(err.message) + '</p>'
+        });
+      });
+  }
+
+
+  /**
+   * The trend, which is not part of the comparison.
+   *
+   * It always plots every period there is, so the selection above can
+   * narrow the comparison without losing sight of the shape of the year.
+   * Cached per KPI: one shared slot meant switching to KPI 2 redrew KPI 1's
+   * trend from the cache without ever asking the server.
+   */
+  function loadTrend() {
+    const periods = comparePeriodList();
+    const card = document.getElementById('cmpTrendCard');
+    const kpi = selectedKpi();
+    const id = (kpi && kpi.id) || 'KPI1';
+
+    if (periods.length < 2) {
+      if (card) card.hidden = true;
+      return;
+    }
+    if (state.trend && state.trend.forKpi === id) {
+      drawTrendChart(state.trend);
+      return;
+    }
+
+    // Oldest first: a trend reads left to right.
+    return get(comparisonUrl(id, periods.slice().sort()))
+      .then(function (c) {
+        c.forKpi = id;
+        state.trend = c;
+        drawTrendChart(c);
+      })
+      .catch(function (err) {
+        if (err.message === 'signed out') return;
+        if (card) card.hidden = true;
+      });
+  }
+
+
+  // =======================================================================
+  // DRAWING IT
+  // =======================================================================
+
+  /**
+   * Paints the comparison for whichever KPI produced it.
+   *
+   * Nothing here knows what a ticket is. The result object names its own
+   * count columns in `measures` and its own breakdown in `sectionLabel`.
+   */
+  function renderComparison(c) {
+    const empty = document.getElementById('cmpEmpty');
+    empty.className = 'notice notice-info';
+    empty.hidden = true;
+
+    state.compare = c;
+
+    document.getElementById('cmpChartCard').hidden = false;
+    document.getElementById('cmpOverallCard').hidden = false;
+    document.getElementById('cmpSectionCard').hidden = false;
+
+    /*
+      The fallback is only reached if the server sent no measures at all. It
+      has to match the list in kpi.js, Open included, or a stale cached page
+      would quietly drop a column.
+    */
+    const measures = c.measures || [
+      { key: 'received',   label: 'Received' },
+      { key: 'completed',  label: 'Completed' },
+      { key: 'open',       label: 'Open' },
+      { key: 'delayed',    label: 'Delayed' },
+      { key: 'successful', label: 'Successful' }
+    ];
+    const sectionLabel = c.sectionLabel || 'Section';
+    const periodLabel = c.periodLabel || 'Month';
+    const period = periodLabel.toLowerCase();
+    const shortName = c.kpi === 'KPI2' ? 'KPI 2'
+                    : (c.kpi === 'KPI1' ? 'KPI 1' : (c.kpi || ''));
+
+    setText('cmpOverallTitle', shortName + ' \u2014 overall by ' + period +
+      ' \u00b7 Change is percentage points against the ' + period + ' above');
+    setText('cmpSectionTitle', shortName + ' \u2014 success rate by ' +
+      sectionLabel.toLowerCase());
+    setText('cmpChartTitle', 'Success rate by ' + sectionLabel.toLowerCase() +
+      ' and ' + period);
+
+    drawCompareChart(c);
+
+    // ---- overall, one row per period, with period-on-period change ----
+    const overallHead = document.querySelector('#cmpOverall thead tr');
+    overallHead.innerHTML =
+      '<th>' + escapeHtml(periodLabel) + '</th>' +
+      measures.map(function (m) {
+        return '<th class="r">' + escapeHtml(m.label) + '</th>';
+      }).join('') +
+      '<th class="r">Success Rate</th><th class="r">Achievement</th>' +
+      '<th>Band</th><th class="r">Headroom</th>' +
+      /*
+        Spelled out in the header's tooltip and in the card title, because
+        an arrow and "0.38" is unreadable without knowing what it is 0.38
+        OF - it is percentage POINTS of success rate against the row above,
+        not a percentage change and not a change in volume.
+      */
+      '<th class="r" title="Success rate against the ' + period +
+        ' above, in percentage points. ' +
+        'A rate of 99.09% followed by 99.47% shows as \u25b2 0.38.">Change</th>';
+
+    const body = document.querySelector('#cmpOverall tbody');
+    body.innerHTML = '';
+
+    let previous = null;
+    c.periods.forEach(function (key) {
+      const t = c.totals[key];
+      const tr = document.createElement('tr');
+
+      if (!t) {
+        tr.innerHTML = '<td>' + escapeHtml(formatPeriod(key)) + '</td>' +
+                       '<td colspan="' + (measures.length + 5) +
+                       '" class="empty">No data</td>';
+        body.appendChild(tr);
+        return;
+      }
+
+      let change = '\u2014';
+      if (previous !== null) {
+        const delta = t.rate - previous;
+        const arrow = delta > 0 ? '\u25b2' : (delta < 0 ? '\u25bc' : '=');
+        const colour = delta > 0 ? 'var(--green)'
+                     : (delta < 0 ? 'var(--red)' : 'var(--text-mut)');
+        change = '<span style="color:' + colour + '">' + arrow + ' ' +
+                 fmt(Math.abs(delta)) + '</span>';
+      }
+      previous = t.rate;
+
+      tr.innerHTML =
+        '<td class="name">' + escapeHtml(formatPeriod(key)) + '</td>' +
+        measures.map(function (m) {
+          return num(m.key === 'open' ? openOf(t) : t[m.key]);
+        }).join('') +
+        '<td class="r">' + fmt(t.rate) + '%</td>' +
+        '<td class="r">' + fmt(t.achievement) + '%</td>' +
+        '<td>' + pill(t.band) + '</td>' +
+        '<td class="r">' + (t.headroom > 0 ? '+' : '') + t.headroom + '</td>' +
+        '<td class="r">' + change + '</td>';
+      body.appendChild(tr);
+    });
+
+    // ---- sections (or modules) down the side, periods across the top ----
+    const head = document.querySelector('#cmpSections thead tr');
+    head.innerHTML = '<th>' + escapeHtml(sectionLabel) + '</th>' +
+      c.periods.map(function (m) {
+        return '<th class="r">' + escapeHtml(formatPeriod(m)) + '</th>';
+      }).join('');
+
+    const sectionBody = document.querySelector('#cmpSections tbody');
+    sectionBody.innerHTML = '';
+
+    if (!c.sections.length) {
+      sectionBody.innerHTML = '<tr><td colspan="' + (c.periods.length + 1) +
+        '" class="empty">No ' + escapeHtml(sectionLabel.toLowerCase()) +
+        ' data in the selected ' +
+        escapeHtml(c.periodLabelPlural || 'months') + '.</td></tr>';
+      return;
+    }
+
+    c.sections.forEach(function (section) {
+      const tr = document.createElement('tr');
+      let html = '<td>' + escapeHtml(section) + '</td>';
+
+      c.periods.forEach(function (key) {
+        const entry = (c.bySection[section] || {})[key];
+        html += entry
+          ? '<td class="r">' + fmt(entry.rate) + '% ' + pill(entry.band) + '</td>'
+          : '<td class="r muted">\u2014</td>';
+      });
+
+      tr.innerHTML = html;
+      sectionBody.appendChild(tr);
+    });
+  }
+
+
+  function drawCompareChart(c) {
+    const card = document.getElementById('cmpChartCard');
+    if (!c.sections.length) {
+      if (card) card.hidden = true;
+      return;
+    }
+    if (card) card.hidden = false;
+
+    const labels = ['EAS overall'].concat(c.sections.map(shortLabel));
+
+    let lowest = c.target;
+    c.periods.forEach(function (key) {
+      const total = c.totals[key];
+      if (total) lowest = Math.min(lowest, total.rate);
+      c.sections.forEach(function (section) {
+        const entry = (c.bySection[section] || {})[key];
+        if (entry) lowest = Math.min(lowest, entry.rate);
+      });
+    });
+    const floor = Math.max(0, Math.floor(lowest) - 1);
+
+    setText('cmpChartNote', 'Against the ' + c.target +
+      '% target. Axis starts at ' + floor + '%.');
+
+    /*
+      HOW MUCH OF EACH SECTION'S SLOT THE PERIODS TAKE UP TOGETHER.
+
+      Computed rather than a constant, and App.html explains why: Chart.js
+      centres a bar inside its own sub-slot, so once maxBarThickness clamps
+      the width, every extra percent of the slot becomes a GAP between the
+      periods rather than width on them. A fixed 0.72 looked right at four
+      months and split two months into an unrelated-looking pair.
+    */
+    const groupShare = Math.min(0.78, 0.2 + 0.13 * c.periods.length);
+
+    const datasets = c.periods.map(function (key, index) {
+      const total = c.totals[key];
+      const data = [total ? round2(total.rate) : null].concat(
+        c.sections.map(function (section) {
+          const entry = (c.bySection[section] || {})[key];
+          return entry ? round2(entry.rate) : null;
+        })
+      );
+
+      // Colour follows the period, never its position in the sorted result
+      // - dropping one must not repaint the ones that remain.
+      return Object.assign({
+        label: formatPeriod(key),
+        data: data,
+        backgroundColor: C.SERIES[index % C.SERIES.length],
+        categoryPercentage: groupShare,
+        barPercentage: 0.9
+      }, C.BAR, { maxBarThickness: 36 });
+    });
+
+    C.drawChart('chartCompare', {
+      type: 'bar',
+      data: { labels: labels, datasets: datasets },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        layout: { padding: { top: 22, right: 92 } },  // gutter for the badge
+        scales: {
+          y: Object.assign({ min: floor, max: 100.4 }, C.gridStyle()),
+          x: C.categoryAxis()
+        },
+        plugins: {
+          // Two or more series, so a legend is required.
+          legend: {
+            position: 'bottom',
+            labels: { boxWidth: 8, boxHeight: 8, usePointStyle: true,
+                      padding: 16, pointStyle: 'circle', color: '#5a6b7d',
+                      font: C.AXIS_FONT }
+          },
+          tooltip: Object.assign(C.tooltipStyle({
+            label: function (item) {
+              return item.dataset.label + ': ' +
+                     (item.raw === null ? 'no data' : fmt(item.raw) + '%');
+            }
+          }), { displayColors: true, usePointStyle: true }),
+          targetLine: { value: c.target, label: 'Target ' + c.target + '%' },
+          valueLabels: { enabled: false }   // too dense with 4 periods x 5 groups
+        }
+      },
+      plugins: [C.targetLinePlugin]
+    });
+  }
+
+
+  function drawTrendChart(c) {
+    const card = document.getElementById('cmpTrendCard');
+    if (!card) return;
+
+    if (!c || !c.periods.length) { card.hidden = true; return; }
+    card.hidden = false;
+
+    const periods = c.periods.slice().sort();
+    const labels = periods.map(shortPeriod);
+    const word = c.periodLabelPlural || 'months';
+
+    // Whichever count this KPI treats as its volume - tickets completed for
+    // KPI 1, attendees for KPI 2.
+    const volumeKey = c.volumeKey || 'completed';
+    const volumeLabel = c.volumeLabel || 'Tickets completed';
+
+    const volume = periods.map(function (m) {
+      const t = c.totals[m];
+      return t ? (t[volumeKey] || 0) : 0;
+    });
+    const rates = periods.map(function (m) {
+      const t = c.totals[m];
+      return t && t[volumeKey] ? round2(t.rate) : null;
+    });
+
+    /*
+      WINDOW THE RATE AXIS. On a 0-100 scale the line would sit flat against
+      the ceiling every period and the shape would vanish - which is the
+      only thing a trend is for.
+    */
+    let lowest = c.target;
+    rates.forEach(function (r) { if (r !== null) lowest = Math.min(lowest, r); });
+    const floor = Math.max(0, Math.floor((lowest - 0.3) * 2) / 2);
+
+    setText('cmpTrendTitle', (c.name || 'Success rate') +
+      ' over time \u2014 every ' + (c.periodLabel || 'Month').toLowerCase());
+    setText('cmpTrendNote', periods.length + ' ' + word + ', ' +
+      shortPeriod(periods[0]) + ' to ' + shortPeriod(periods[periods.length - 1]) +
+      '. Bars are ' + volumeLabel.toLowerCase() + ' (left axis); the line is ' +
+      'the success rate against the ' + c.target + '% target (right axis, ' +
+      'starting at ' + floor + '%).');
+
+    C.drawChart('chartTrend', {
+      type: 'bar',
+      data: {
+        labels: labels,
+        datasets: [
+          {
+            type: 'line',
+            label: 'Success rate',
+            data: rates,
+            yAxisID: 'yRate',
+            borderColor: C.SERIES[0],
+            backgroundColor: C.SERIES[0],
+            borderWidth: 2,
+            tension: 0.25,
+            pointRadius: 3,
+            pointHoverRadius: 5,
+            spanGaps: true,
+            order: 0
+          },
+          Object.assign({
+            label: volumeLabel,
+            data: volume,
+            yAxisID: 'yVolume',
+            backgroundColor: 'rgba(42,120,214,.16)',
+            order: 1
+          }, C.BAR, { maxBarThickness: 34 })
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        layout: { padding: { top: 22, right: 92 } },
+        scales: {
+          yRate: Object.assign({ position: 'right', min: floor, max: 100.4 },
+                               C.gridStyle()),
+          yVolume: Object.assign({ position: 'left', beginAtZero: true },
+                                 C.gridStyle(), { grid: { display: false } }),
+          x: C.categoryAxis()
+        },
+        plugins: {
+          legend: {
+            position: 'bottom',
+            labels: { boxWidth: 8, boxHeight: 8, usePointStyle: true,
+                      padding: 16, pointStyle: 'circle', color: '#5a6b7d',
+                      font: C.AXIS_FONT }
+          },
+          tooltip: C.tooltipStyle({
+            label: function (item) {
+              return item.dataset.yAxisID === 'yRate'
+                ? 'Success rate: ' + (item.raw === null ? 'no data'
+                                                        : fmt(item.raw) + '%')
+                : volumeLabel + ': ' + count(item.raw);
+            }
+          }),
+          targetLine: { value: c.target, label: 'Target ' + c.target + '%',
+                        axis: 'yRate' },
+          valueLabels: { enabled: false }
+        }
+      },
+      plugins: [C.targetLinePlugin]
+    });
+  }
+
+
+  // =======================================================================
+  // SMALL THINGS
+  // =======================================================================
+
+  function escapeHtml(value) {
+    return String(value == null ? '' : value)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  function fmt(n) {
+    const v = Number(n);
+    return isNaN(v) ? '\u2014' : v.toFixed(2);
+  }
+
+  function count(n) {
+    return (Number(n) || 0).toLocaleString('en-US');
+  }
+
+  /*
+    Chart.js is given two decimals rather than a float with fifteen of
+    them, so a tooltip reads 99.47 and not 99.46999999999999. Local rather
+    than taken from kpi-charts.js, which does not export it - the chart
+    layer is about how a chart looks, and rounding a figure is about the
+    figure.
+  */
+  function round2(n) {
+    return Math.round((Number(n) || 0) * 100) / 100;
+  }
+
+  function num(n) {
+    return '<td class="r">' + count(n) + '</td>';
+  }
+
+  /**
+   * Open, from whichever field the server used.
+   *
+   * A comparison built by an older server - or read back from a cached page
+   * - still fills the Open column instead of leaving a blank cell under the
+   * header.
+   */
+  function openOf(t) {
+    if (t.open !== undefined && t.open !== null) return t.open;
+    const received = Number(t.received) || 0;
+    const completed = Number(t.completed) || 0;
+    return Math.max(0, received - completed);
+  }
+
+  function pill(band) {
+    return '<span class="pill ' + C.bandClass(band) + '">' +
+           escapeHtml(band || '') + '</span>';
+  }
+
+  function getValue(id) {
+    const el = document.getElementById(id);
+    return el ? el.value : '';
+  }
+
+  function setValue(id, value) {
+    const el = document.getElementById(id);
+    if (el) el.value = value;
+  }
+
+  function setText(id, text) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = text;
+  }
+
+  function bind(id, event, handler) {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener(event, handler);
+  }
+
+
+  // =======================================================================
+  // STARTUP
+  // =======================================================================
+
+  document.addEventListener('DOMContentLoaded', function () {
+    easShell.mount({ view: 'compare' });
+
+    bind('cmpRun', 'click', function () { runComparison(); });
+
+    /*
+      SWITCHING KPI RE-POINTS THE WHOLE SCREEN, not just the next Compare.
+      The period lists differ per KPI, the trend is per KPI, and any results
+      already on screen belong to the KPI you just navigated away from.
+    */
+    bind('cmpKpi', 'change', function () {
+      hideComparisonResults();
+      state.compare = null;
+      state.trend = null;
+
+      const empty = document.getElementById('cmpEmpty');
+      empty.hidden = false;
+      empty.className = 'notice notice-info';
+      empty.innerHTML = '<h3>Nothing compared yet</h3>' +
+        '<p>Choose two or more ' + comparePeriodWord(true) +
+        ' above and press Compare Dashboards.</p>';
+
+      fillComparePeriods(comparePeriodList());
+      loadTrend();
+    });
+
+    bind('cmpClear', 'click', function () {
+      CMP_SELECTS.forEach(function (id, index) {
+        // The first two are required, so clearing resets them to the two
+        // most recent periods rather than to nothing.
+        setValue(id, index < 2 ? defaultPeriodFor(index) : '');
+      });
+      hideComparisonResults();
+      state.compare = null;
+
+      /*
+        PUT THE PROMPT BACK. showComparisonPending rewrites this box, so
+        without this you would clear the results and be left staring at a
+        stale "no data yet" warning.
+      */
+      const empty = document.getElementById('cmpEmpty');
+      empty.hidden = false;
+      empty.className = 'notice notice-info';
+      empty.innerHTML = '<h3>Nothing compared yet</h3>' +
+        '<p>Choose two or more ' + comparePeriodWord(true) +
+        ' above and press Compare Dashboards.</p>';
+    });
+
+    bind('signinGo', 'click', function () { signIn(); });
+    bind('password', 'keydown', function (e) { if (e.key === 'Enter') signIn(); });
+    bind('employeeId', 'keydown', function (e) { if (e.key === 'Enter') signIn(); });
+    bind('signOut', 'click', function () { signedOut(''); });
+
+    try { state.token = sessionStorage.getItem(TOKEN_STORE) || ''; }
+    catch (e) { state.token = ''; }
+
+    if (!state.token) { signedOut(''); return; }
+
+    start().catch(function (err) {
+      if (String(err && err.message) === 'signed out') return;
+      signedOut('Could not open the screen \u2014 ' +
+                (err && err.message ? err.message : String(err)));
+    });
+  });
+
+
+  // For the browser suite, which drives this page against the real server.
+  window.__compareScreen = {
+    formatPeriod: formatPeriod,
+    shortPeriod: shortPeriod,
+    comparePeriodWord: comparePeriodWord,
+    comparisonUrl: comparisonUrl,
+    openOf: openOf,
+    selectedKpi: selectedKpi,
+    state: state
+  };
+}());
+</script>
+</body>
+</html>

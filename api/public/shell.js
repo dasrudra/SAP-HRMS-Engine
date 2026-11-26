@@ -96,7 +96,7 @@
     { group: 'Indicators' },
     { view: 'kpi1', label: 'KPI 1 \u00b7 ITSM',     href: 'kpi1.html' },
     { view: 'kpi2', label: 'KPI 2 \u00b7 Training', href: 'kpi2.html' },
-    { view: 'compare', label: 'Comparison', href: null },
+    { view: 'compare', label: 'Comparison', href: 'compare.html' },
 
     { group: 'Data' },
     { view: 'uploads', label: 'Data Uploads', href: 'uploads.html' },
