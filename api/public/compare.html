@@ -213,7 +213,20 @@
   const MAX_COMPARE = 4;
 
   const state = { token: '', user: null, boot: null,
-                  compare: null, trend: null, standard: 'COMPANY' };
+                  compare: null, trend: null, standard: 'COMPANY',
+                  /*
+                    WHICH REQUEST THE SCREEN IS CURRENTLY WAITING FOR.
+
+                    Switching KPI hides the results immediately, but a
+                    comparison already in flight does not know that - it
+                    comes back a moment later and paints KPI 1's figures
+                    under KPI 2's heading, which is the exact thing
+                    App.html warns about and the exact thing hiding them
+                    was meant to prevent. Every request takes a number;
+                    a reply paints only if its number is still the
+                    current one.
+                  */
+                  request: 0 };
 
 
   /** Every call, with the dot in the top bar told about it. */
@@ -769,8 +782,12 @@
       Training Satisfaction re-rendered ticket figures under a training
       heading."
     */
+    const mine = ++state.request;
     return get(comparisonUrl(kpi && kpi.id, picked))
-      .then(renderComparison)
+      .then(function (c) {
+        if (mine !== state.request) return;   // the selection moved on
+        renderComparison(c);
+      })
       .catch(function (err) {
         if (err.message === 'signed out') return;
         easDialog.tell({
@@ -805,8 +822,10 @@
     }
 
     // Oldest first: a trend reads left to right.
+    const mine = ++state.request;
     return get(comparisonUrl(id, periods.slice().sort()))
       .then(function (c) {
+        if (mine !== state.request) return;   // the selection moved on
         c.forKpi = id;
         state.trend = c;
         drawTrendChart(c);
@@ -1250,6 +1269,8 @@
       hideComparisonResults();
       state.compare = null;
       state.trend = null;
+      // Anything already on its way back belongs to the KPI just left.
+      state.request++;
 
       const empty = document.getElementById('cmpEmpty');
       empty.hidden = false;

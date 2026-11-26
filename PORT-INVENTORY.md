@@ -1579,6 +1579,22 @@ pickers with nothing and Compare then refused two empty boxes. The screen
 accepts either shape now, because these two halves have already disagreed
 once.
 
+**A comparison already in flight painted over the screen that had moved
+on.** Switching KPI hides the results at once, which is no help at all to a
+reply that has not arrived yet: it came back a moment later and drew KPI 1's
+figures under KPI 2's heading - the exact thing hiding them was meant to
+prevent, and the exact thing App.html warns about. Every request takes a
+number now and a reply paints only if its number is still current. Removing
+the guard puts the failure straight back, which is how it is known to be
+doing something.
+
+**And the trend checks counted the fixture's months, not the database's.**
+The trend plots every month there is - that is its whole purpose - so on a
+machine with a year of real uploads it drew fourteen bars where the check
+expected three. Counted against what the boot reports as available now.
+That is the fifth time in this port, and the suite was run here against a
+database seeded with eleven unrelated months before it was believed.
+
 **The periods come back oldest first whatever order they were picked in**,
 and that is right rather than a quirk - the Change column reads each row
 against the one above it, so a table in picking order would compute change

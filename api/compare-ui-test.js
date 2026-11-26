@@ -261,6 +261,17 @@ async function tableOf(p, selector) {
   }, selector);
 }
 
+/** 'Mar 2099' -> '2099-03', so an axis can be checked for order. */
+function sortableMonth(label) {
+  const names = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const m = String(label).match(/^(\w{3}) (\d{4})$/);
+  if (!m) return String(label);
+  const n = names.indexOf(m[1]) + 1;
+  return m[2] + '-' + (n < 10 ? '0' : '') + n;
+}
+
+
 async function dialogText(p) {
   return p.evaluate(function () {
     const back = document.getElementById('modalBackdrop');
@@ -440,12 +451,30 @@ async function main() {
 
   const trend = await chartFor(p, 'chartTrend');
   check('the trend is drawn too', Boolean(trend));
+  /*
+    EVERY MONTH THERE IS - which on a real database is every month of
+    uploaded tickets, not the three this fixture wrote. Counted against
+    what the boot says is available rather than against the fixture, which
+    is the fifth time in this port that a check has been written as though
+    the database held nothing but its own test rows.
+  */
+  const everyMonth = await p.evaluate(function () {
+    return (window.__compareScreen.state.boot.availableMonths || []).length;
+  });
   check('IT IGNORES THE PICKERS AND PLOTS EVERY MONTH THERE IS - the ' +
         'selection narrows the comparison without losing the shape of the year',
-        trend.labels.length === MONTHS.length,
-        JSON.stringify(trend.labels));
+        trend.labels.length === everyMonth && everyMonth >= MONTHS.length,
+        trend.labels.length + ' plotted, ' + everyMonth + ' available, ' +
+        '3 picked');
+  check('and the fixture months are among them',
+        ['Jan 2099', 'Feb 2099', 'Mar 2099'].every(function (m) {
+          return trend.labels.indexOf(m) !== -1;
+        }), JSON.stringify(trend.labels.slice(-4)));
   check('oldest first, because a trend reads left to right',
-        trend.labels[0] === 'Jan 2099', JSON.stringify(trend.labels));
+        trend.labels.every(function (label, i) {
+          return i === 0 || sortableMonth(trend.labels[i - 1]) <=
+                            sortableMonth(label);
+        }), JSON.stringify(trend.labels));
   check('a line of rates over bars of volume',
         trend.datasets.some(function (d) { return d.type === 'line'; }) &&
         trend.datasets.some(function (d) { return d.axis === 'yVolume'; }),
@@ -475,7 +504,18 @@ async function main() {
         /Target \u2265 99\.5%/.test(await p.textContent('#cmpKpiHint')),
         await p.textContent('#cmpKpiHint'));
 
-  await compareShown(p);
+  /*
+    WAIT FOR THE REDRAW, DO NOT ASSUME IT. Changing the standard starts a
+    fresh comparison; the cards are already on screen, so there is nothing
+    for compareShown to wait for and the old chart would be read back. The
+    recorded target is what actually changes, so that is what is waited on.
+  */
+  await p.waitForFunction(function () {
+    const c = (window.__charts || {}).chartCompare;
+    return c && ((c.options.plugins || {}).targetLine || {}).value === 99.5;
+  }, null, { timeout: 20000 });
+  await p.waitForTimeout(150);
+
   const strict = await chartFor(p, 'chartCompare');
   check('and the chart is redrawn against the stricter target',
         strict.target === 99.5, String(strict.target));
@@ -487,6 +527,10 @@ async function main() {
     other. March (100%) and January (80%) band the same way under both and
     would prove nothing.
   */
+  await p.waitForFunction(function () {
+    const rows = document.querySelectorAll('#cmpOverall tbody tr');
+    return rows.length > 1 && /YELLOW|RED/.test(rows[1].textContent);
+  }, null, { timeout: 20000 });
   const strictTable = await tableOf(p, '#cmpOverall');
   const febStrict = strictTable.rows[1].join(' ');
   check('AND THE BANDS ARE RESCORED - the same 90% month is GREEN against ' +
@@ -537,6 +581,14 @@ async function main() {
             .every(function (v) { return /^\d{4}-Q[1-4]$/.test(v); });
         }));
 
+  /*
+    AND THEY STAY GONE. A comparison already in flight when the KPI
+    changed used to come back and paint KPI 1's figures under KPI 2's
+    heading - hiding the cards does nothing about a reply that has not
+    arrived yet. The page drops such a reply now; this waits long enough
+    for one to have arrived if it were going to.
+  */
+  await p.waitForTimeout(1200);
   check('THE RESULTS FROM THE OTHER KPI ARE GONE, not left under the new ' +
         'name',
         await p.isHidden('#cmpOverallCard') &&
