@@ -134,21 +134,30 @@ async function seedFeedback() {
 
 /**
  * Records what the screen asks Chart.js to draw, whether or not Chart.js
- * is there.
+ * is there - and whichever order the two arrive in.
  *
- * THE FIRST VERSION ONLY WORKED WHERE THE CDN WAS BLOCKED, which is to say
- * it only worked in the sandbox. It replaced a missing `Chart` with a stub
- * that recorded its config - so on a machine with internet, where the real
- * library loads, nothing was recorded and every chart assertion failed
- * reading `labels` of null. A test that passes only where a dependency is
- * unreachable is not testing the thing it names.
+ * TWO GOES AT THIS, AND THE SECOND ONE IS THE INTERESTING MISTAKE.
  *
- * So the real library is WRAPPED rather than replaced. A Proxy with a
- * `construct` trap notes the config and then builds the genuine chart, and
- * because a Proxy forwards everything else to its target, Chart.register
- * and the rest keep working. Where there is no library at all, the stub
- * stands in and records the same way. Both machines now assert on the same
- * thing: what the screen asked for.
+ * The first version replaced a MISSING Chart with a recording stub. That
+ * only works where the CDN is unreachable, which is to say in the sandbox
+ * and nowhere else: with internet the real library loads, the stub is
+ * never installed, and every chart assertion fails reading `labels` of
+ * null.
+ *
+ * The second wrapped the real library in a Proxy - correct idea, wrong
+ * moment. An init script runs BEFORE any script on the page, so at that
+ * point `window.Chart` is still undefined even when the CDN is about to
+ * provide it. The stub went in, a guard was set, the CDN then overwrote
+ * `window.Chart` with the genuine library, and the re-run at
+ * DOMContentLoaded declined to do anything because the guard said it had
+ * already installed. Same symptom, one layer deeper.
+ *
+ * ORDER CANNOT BE THE ANSWER, so this does not depend on it. `Chart`
+ * becomes an accessor on `window`: reading it gives whatever is current,
+ * and ASSIGNING it - which is exactly what the CDN bundle does,
+ * `global.Chart = factory()` - hands the new value through the wrapper on
+ * its way in. Load order stops mattering. No library at all leaves the
+ * stub in place, and both paths record the same thing.
  */
 async function provideChartJs(p) {
   const real = await p.evaluate(function () { return typeof Chart !== 'undefined'; });
@@ -170,32 +179,32 @@ async function provideChartJs(p) {
       this.destroy = function () {};
     }
 
-    function install() {
-      if (window.__chartsWrapped) return;
-      if (typeof window.Chart === 'undefined') {
-        window.Chart = Stub;
-        window.__chartsWrapped = true;
-        return;
-      }
-      const Real = window.Chart;
-      window.Chart = new Proxy(Real, {
+    /*
+      A Proxy rather than a subclass: it forwards every static through to
+      the real library, so Chart.register, Chart.defaults and the version
+      keep working exactly as the page expects.
+    */
+    function wrap(Real) {
+      if (typeof Real !== 'function') return Real;
+      return new Proxy(Real, {
         construct: function (target, args) {
           remember(args[0], args[1]);
           return new target(args[0], args[1]);
         }
       });
-      window.__chartsWrapped = true;
     }
 
-    // Once as soon as this runs, in case the library is already there, and
-    // again at DOMContentLoaded for the case where its <script> has not
-    // executed yet.
-    install();
-    window.addEventListener('DOMContentLoaded', install);
+    let holder = Stub;
+    Object.defineProperty(window, 'Chart', {
+      configurable: true,
+      get: function () { return holder; },
+      set: function (value) { holder = wrap(value); }
+    });
   });
 
   return { real: real };
 }
+
 
 async function chartFor(p, id) {
   return p.evaluate(function (want) {
