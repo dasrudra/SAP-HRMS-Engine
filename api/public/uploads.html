@@ -848,10 +848,25 @@
 
       return withTimeout(post('/api/uploads/orphans/purge'), 120000, 'The cleanup')
         .then(function (result) {
-          setStatus('Removed ' + count(result.removed) + ' orphaned response' +
-                    (result.removed === 1 ? '' : 's') + ' \u2014 ' +
-                    count(result.kept) + ' kept.', 'ok');
-          return refreshAfterChange();
+          /*
+            THE SCREEN IS BROUGHT UP TO DATE BEFORE IT SAYS IT IS DONE.
+
+            This said "Removed 5 orphaned responses" and THEN went to fetch
+            the new figures, which left the warning above it still reading
+            "5 responses are orphaned" for as long as that call took. On a
+            fast machine nobody saw it. On a real one - 26,000 tickets, so
+            a slower boot query - the two sat on screen contradicting each
+            other, and the screen was telling somebody that a thing it had
+            just done had not worked.
+
+            The same mistake, in the same file, as the upload that wrote
+            "Done." before refreshing. Finish, then say so.
+          */
+          return refreshAfterChange().then(function () {
+            setStatus('Removed ' + count(result.removed) + ' orphaned response' +
+                      (result.removed === 1 ? '' : 's') + ' \u2014 ' +
+                      count(result.kept) + ' kept.', 'ok');
+          });
         })
         .catch(function (err) {
           button.disabled = false;

@@ -1489,6 +1489,25 @@ their own password, and a token issued before that would go on saying they
 had not - so the card would keep reappearing on a password they had already
 set. There is a test that reloads and checks it does not.
 
+#### The screen said it was done before it was
+
+The orphan purge wrote "Removed 5 orphaned responses" and THEN went to
+fetch the new figures, which left the warning above it still reading "5
+responses are orphaned" for as long as that call took. On this sandbox
+nobody ever saw it. On a real machine - 26,000 tickets, so a slower boot
+query - the two sat on screen contradicting each other, and the screen was
+telling somebody that something it had just done had not worked.
+
+It is the same mistake as the upload that wrote "Done." before refreshing,
+in the same file, and the fix is the same: finish, then say so. **Proved
+rather than assumed** - with 1.2s added to the boot endpoint the old
+ordering fails exactly as it did on the real machine, and the new one
+passes.
+
+The delete path looks like the same shape and is not: it removes the row
+from the DOM itself before reporting, with a comment saying why, so the
+screen and the message already agree. Left alone.
+
 #### The dialog moved out
 
 `api/public/dialog.js`. Two screens now ask people things, and both ask in
