@@ -1,0 +1,1036 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Help &amp; FAQ - TVL-EAS</title>
+<!--
+  THE HELP SCREEN - the published answers, and the team's inbox.
+
+  Ported from the view-help section of src/Index.html and from loadHelp,
+  renderFaq, paintFaq, loadInbox, watchInbox, inboxBusy, inboxPeople,
+  renderInbox, bubbles, wireThreadRows, toggleThread, wireReplyButtons,
+  wireDeleteButtons and showHelpBadge in src/App.html.
+
+  WHAT THIS SCREEN IS. Index.html says it in one line: "The published
+  answers, and the conversations people have started. This screen is the
+  team's - everybody else asks from the message bar in the corner." It is
+  not a help page any more; it is where the EAS team reads its post.
+
+  TWO CARDS, TWO AUDIENCES. The FAQ is published and harmless enough to sit
+  on the sign-in page, so it is drawn for anybody who reaches this URL. The
+  inbox is ADMIN and above, hidden by applyRole and refused by the server
+  independently - App.html: "every endpoint behind it checks requireAdmin
+  on the server, because hiding a panel does not stop google.script.run
+  reaching it." The same is true of fetch.
+-->
+<link rel="stylesheet" href="app.css">
+<script src="dialog.js"></script>
+<script src="shell.js"></script>
+<style>
+  body { background: var(--bg); }
+  body > .page { max-width: 1320px; margin: 0 auto; padding: 28px 20px 60px; }
+  .signin { max-width: 400px; margin: 60px auto; }
+  .signin label { display: block; font-size: 12px; color: var(--text-dim);
+                  margin: 14px 0 4px; }
+  .signin input { width: 100%; padding: 9px 11px; border: 1px solid var(--line);
+                  border-radius: 8px; font: inherit; background: var(--card);
+                  color: var(--text); }
+  .signin .btn { margin-top: 18px; width: 100%; }
+  .signin .why { color: var(--red); font-size: 13px; margin: 12px 0 0;
+                 min-height: 18px; }
+</style>
+</head>
+<body>
+
+<section class="card signin" id="signinCard" hidden>
+  <div class="card-head">Sign in</div>
+  <label for="employeeId">Employee ID</label>
+  <input id="employeeId" autocomplete="username" inputmode="numeric">
+  <label for="password">Password</label>
+  <input id="password" type="password" autocomplete="current-password">
+  <p class="why" id="signinWhy"></p>
+  <button class="btn btn-primary" id="signinGo">Sign in</button>
+</section>
+
+
+<div class="page" id="page" hidden>
+
+  <section class="view" id="view-help">
+    <div class="page-head">
+      <div>
+        <h1>Help &amp; FAQ</h1>
+        <p class="sub">The published answers, and the conversations people
+          have started. This screen is the team's &#x2014; everybody else asks
+          from the message bar in the corner.</p>
+      </div>
+    </div>
+
+    <!--
+      The published answers. Read from the faq table on every page load, so
+      correcting one is an UPDATE rather than a deployment - the same
+      reasoning the spreadsheet version had for putting them on a tab.
+      Built by renderFaq().
+    -->
+    <div class="card">
+      <div class="card-head">Frequently asked
+        <span class="head-note" id="faqCount"></span>
+      </div>
+      <div class="faq-list" id="faqList">
+        <p class="empty">Loading&#x2026;</p>
+      </div>
+    </div>
+
+    <!--
+      The inbox: one card per person, the whole conversation inside it, and
+      a box to reply. ADMIN and above, hidden from everyone else by
+      applyRole() - and every endpoint behind it checks requireAdmin on the
+      server, because hiding a panel does not stop a fetch reaching it.
+
+      A conversation marked UNVERIFIED came from the message box on the
+      SIGN-IN page, where nobody is signed in. The employee ID on it is only
+      what somebody typed. Built by renderInbox(), which puts that warning
+      on the card itself rather than trusting anyone to remember it.
+    -->
+    <!--
+      id, because `[data-admin-only]` is not a name. The shell marks its
+      own Help item with the same attribute, so a bare attribute selector
+      finds that one first - which on the Summary screen let a card stay
+      visible to a viewer with the test still passing.
+    -->
+    <div class="card" id="inboxCard" data-admin-only hidden>
+      <div class="card-head">Queries by name
+        <span class="head-note" id="inboxCount"></span>
+      </div>
+      <div class="thread-list" id="inboxList">
+        <p class="empty">Nothing waiting.</p>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+
+<script>
+(function () {
+  'use strict';
+
+  const TOKEN_STORE = 'easToken';
+
+  const state = {
+    token: '', user: null, boot: null,
+    threads: [],
+    /*
+      Which card is open, so a redraw does not close it. A PERSON'S key,
+      not a thread id - the card is one conversation with one person, and
+      replying into one of their queries redraws this whole list.
+    */
+    openKey: ''
+  };
+
+
+  async function api(method, path, body) {
+    try {
+      return await request(method, path, body);
+    } catch (err) {
+      if (String(err && err.message) !== 'signed out') easShell.setLive(false);
+      throw err;
+    }
+  }
+
+  async function request(method, path, body) {
+    const opts = { method: method, headers: {} };
+    if (state.token) opts.headers.Authorization = 'Bearer ' + state.token;
+    if (body !== undefined) {
+      opts.headers['Content-Type'] = 'application/json';
+      opts.body = JSON.stringify(body);
+    }
+    const res = await fetch(path, opts);
+    if (res.status === 401) {
+      signedOut('Your session has ended.');
+      throw new Error('signed out');
+    }
+    let data = null;
+    try { data = await res.json(); } catch (e) { /* not JSON */ }
+    if (!res.ok || !data || data.ok === false) {
+      throw new Error((data && data.error) || (data && data.message) ||
+                      ('the server answered ' + res.status));
+    }
+    return data;
+  }
+
+  const get = function (path) { return api('GET', path); };
+  const post = function (path, body) { return api('POST', path, body || {}); };
+
+
+  // =======================================================================
+  // SIGNING IN
+  // =======================================================================
+
+  function signedOut(why) {
+    stopWatching();
+    state.token = '';
+    state.user = null;
+    state.boot = null;
+    state.threads = [];
+    try { sessionStorage.removeItem(TOKEN_STORE); } catch (e) { /* fine */ }
+    document.getElementById('page').hidden = true;
+    easShell.signedOut();
+    document.getElementById('signinCard').hidden = false;
+    document.getElementById('signinWhy').textContent = why || '';
+  }
+
+  async function signIn() {
+    const button = document.getElementById('signinGo');
+    const why = document.getElementById('signinWhy');
+    why.textContent = '';
+    button.disabled = true;
+    try {
+      const out = await api('POST', '/api/login', {
+        employee_id: document.getElementById('employeeId').value.trim(),
+        password: document.getElementById('password').value
+      });
+      state.token = out.token;
+      state.user = out.user;
+      try { sessionStorage.setItem(TOKEN_STORE, out.token); } catch (e) { /* fine */ }
+      document.getElementById('password').value = '';
+      await start();
+    } catch (err) {
+      why.textContent = err.message;
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+
+  async function start() {
+    const boot = await get('/api/help/boot');
+    state.boot = boot;
+
+    document.getElementById('signinCard').hidden = true;
+    easShell.signedIn({
+      role: boot.role,
+      username: boot.username ||
+                (state.user ? state.user.employee_id : boot.role),
+      appName: boot.appName,
+      appVersion: boot.appVersion,
+      mustChange: boot.mustChange,
+      // Already counted by the boot, so the shell does not ask again.
+      waiting: boot.canAnswer ? boot.waiting : 0
+    });
+    document.getElementById('page').hidden = false;
+
+    applyRole();
+    renderFaq(boot.faq);
+
+    if (canAnswer()) {
+      state.threads = boot.threads || [];
+      renderInbox(state.threads);
+      watchInbox();
+    }
+  }
+
+
+  function applyRole() {
+    /*
+      SCOPED TO #page. The shell is outside it and has its own role
+      handling - a document-wide sweep from here would answer a question
+      it was not asked, and hide the Help item in the sidebar that is the
+      only reason anybody is on this screen.
+    */
+    document.getElementById('page')
+      .querySelectorAll('[data-admin-only]').forEach(function (el) {
+        el.hidden = !canAnswer();
+      });
+  }
+
+  function canAnswer() {
+    return Boolean(state.boot && state.boot.canAnswer);
+  }
+
+  function canDelete() {
+    return Boolean(state.boot && state.boot.canDelete);
+  }
+
+
+  // =======================================================================
+  // THE PUBLISHED ANSWERS
+  // =======================================================================
+
+  function renderFaq(entries) {
+    const rows = entries || [];
+    setText('faqCount',
+      rows.length + (rows.length === 1 ? ' question' : ' questions'));
+    paintFaq('faqList', rows);
+  }
+
+  /**
+   * The FAQ as a list of <details>, which gives keyboard support,
+   * find-in-page and an open/closed state for nothing.
+   *
+   * Takes a list id because the message panel paints the same rows into
+   * its own box - one FAQ cannot be allowed to drift from the other. The
+   * panel is not ported yet; the shape is kept so that it does not have to
+   * write this twice when it is.
+   */
+  function paintFaq(listId, rows) {
+    const list = document.getElementById(listId);
+    if (!list) return;
+
+    if (!rows.length) {
+      list.innerHTML = '<p class="empty">Nothing published yet.</p>';
+      return;
+    }
+    list.innerHTML = rows.map(function (e) {
+      return '<details class="faq-item">' +
+               '<summary>' + escapeHtml(e.question) + '</summary>' +
+               '<div class="faq-answer">' + escapeHtml(e.answer) + '</div>' +
+             '</details>';
+    }).join('');
+  }
+
+
+  // =======================================================================
+  // THE INBOX
+  // =======================================================================
+
+  /*
+    HOW OFTEN THE INBOX LOOKS FOR ITSELF AGAIN.
+
+    App.html: "It never did. It loaded when the screen opened, when you
+    replied and when you wrote a message yourself - so a query that arrived
+    from anybody else sat there unseen until somebody reloaded the page.
+    The badge polled and the list did not, which is the worst pairing of
+    the two: a number telling you there is something to read, above a list
+    that does not have it."
+
+    Sixty seconds. Every tick is a round trip, so it earns that by only
+    running while somebody is looking at this screen, and it stops itself
+    when they leave.
+  */
+  const INBOX_POLL_MS = 60000;
+  let inboxTimer = null;
+
+
+  /**
+   * Whether redrawing now would take something away from somebody.
+   *
+   * renderInbox replaces every card, so a reply half typed into one is
+   * gone - and the one certain way to make an auto-refresh hated is to
+   * have it eat a sentence somebody was in the middle of.
+   */
+  function inboxBusy() {
+    const box = document.querySelector('#inboxList .thread.is-open [data-reply]');
+    if (box && String(box.value || '').trim()) return true;
+    // A dialog open over the list is a decision in progress; the list
+    // underneath it changing shape is not help.
+    const modal = document.getElementById('modalBackdrop');
+    return Boolean(modal && !modal.hidden);
+  }
+
+  function watchInbox() {
+    stopWatching();
+    if (!canAnswer()) return;
+
+    inboxTimer = setInterval(function () {
+      // A background tab costs the same round trip and nobody is reading it.
+      if (document.hidden) return;
+      if (inboxBusy()) return;
+      loadInbox();
+    }, INBOX_POLL_MS);
+  }
+
+  function stopWatching() {
+    if (inboxTimer) { clearInterval(inboxTimer); inboxTimer = null; }
+  }
+
+
+  /**
+   * The inbox again, and the badge with it.
+   *
+   * ONE CALL FOR BOTH. Two would be able to land either side of somebody
+   * sending a message, leaving a badge that disagrees with the cards under
+   * it - which is the fault App.html calls "three answers to one
+   * question".
+   */
+  async function loadInbox() {
+    try {
+      const out = await get('/api/help/inbox');
+      state.threads = out.threads || [];
+      renderInbox(state.threads);
+      easShell.setBadge('help', out.waiting);
+    } catch (err) {
+      if (String(err && err.message) === 'signed out') return;
+      // A failed refresh leaves the cards that are already there. They are
+      // a minute old at worst, which beats replacing them with an error.
+      easShell.say('The inbox could not be refreshed \u2014 ' + err.message);
+    }
+  }
+
+
+  /**
+   * The threads grouped into one card per person.
+   *
+   * Ported from inboxPeople. One card per person once the ID is enrolled;
+   * until then the unverified threads keep a card of their own.
+   */
+  function inboxPeople(rows) {
+    const order = [];
+    const byKey = {};
+
+    (rows || []).forEach(function (t) {
+      const key = (t.enrolled ? 'P' : (t.verified ? 'V' : 'U')) + ':' + t.person;
+      let group = byKey[key];
+      if (!group) {
+        group = byKey[key] = {
+          key: key, person: t.person, name: '', verified: Boolean(t.verified),
+          enrolled: Boolean(t.enrolled), signIn: false, owed: false,
+          threads: [], waiting: 0, lastAt: ''
+        };
+        order.push(group);
+      }
+      /*
+        A card is proven only if EVERY query on it was sent signed in; it
+        carries a sign-in-page note if ANY of them was not. On a merged
+        card both can be true of different queries, which is the point of
+        keeping the two flags apart.
+      */
+      if (!t.verified) { group.verified = false; group.signIn = true; }
+      /*
+        A NAME BELONGS TO THE PERSON, not to one of their queries, so the
+        first one any of them carries names the card. An empty one never
+        wins: a query sent before they typed a name should not leave the
+        card showing a bare employee ID when another of theirs knows it.
+      */
+      if (!group.name && t.name) group.name = t.name;
+      group.threads.push(t);
+      /*
+        WAITING IS A FACT ABOUT THE PERSON, not a sum over their queries.
+        The server decides it - see peopleWaiting - on whether the last
+        thing said between us was said by them. Answer anything of theirs
+        and the card goes quiet; write again and it comes back.
+      */
+      if (t.owed) group.owed = true;
+      group.waiting += Number(t.waiting) || 0;
+      if (String(t.lastAt) > String(group.lastAt)) group.lastAt = t.lastAt;
+    });
+
+    order.forEach(function (group) {
+      // Oldest query first, so the card reads in the order it happened.
+      group.threads.sort(function (a, b) {
+        return String(a.lastAt).localeCompare(String(b.lastAt));
+      });
+      // The query they spoke in last. It supplies the subject and the last
+      // line on the closed row, and it is where a reply goes unless the
+      // person answering picks another.
+      group.newest = group.threads[group.threads.length - 1];
+    });
+
+    // Waiting first, then by the last thing said. The same ordering the
+    // server uses on the threads themselves, applied to the people.
+    return order.sort(function (a, b) {
+      if (a.owed !== b.owed) return a.owed ? -1 : 1;
+      return String(b.lastAt).localeCompare(String(a.lastAt));
+    });
+  }
+
+
+  function renderInbox(rows) {
+    const list = document.getElementById('inboxList');
+    if (!list) return;
+
+    const people = inboxPeople(rows);
+    const waiting = people.filter(function (g) { return g.owed; }).length;
+
+    /*
+      PEOPLE, since that is what the cards are - and the number of queries
+      behind them as well when the two differ, because "4 people" over a
+      screen holding seven questions is a count that looks wrong.
+    */
+    setText('inboxCount', people.length
+      ? people.length + (people.length === 1 ? ' person' : ' people') +
+        ((rows || []).length === people.length
+          ? '' : ' \u00b7 ' + rows.length + ' queries') +
+        (waiting ? ' \u00b7 ' + waiting + ' waiting' : ' \u00b7 all answered')
+      : '');
+
+    if (!people.length) {
+      list.innerHTML = '<p class="empty">Nothing waiting.</p>';
+      return;
+    }
+
+    // Whichever was open before the redraw stays open. A reply redraws
+    // this list, and having it snap shut the moment you answered would
+    // mean reopening it to read what you just wrote.
+    const wasOpen = state.openKey;
+
+    list.innerHTML = people.map(function (g) {
+      return cardHtml(g, g.key === wasOpen);
+    }).join('');
+
+    wireThreadRows();
+    wireReplyButtons();
+    wireAttachButtons();
+    wireDeleteButtons();
+  }
+
+
+  function cardHtml(g, open) {
+    const many = g.threads.length > 1;
+    const said = g.newest.messages || [];
+    const peek = said.length ? said[said.length - 1].text : '';
+    const ids = g.threads.map(function (t) { return t.id; }).join(',');
+
+    /*
+      The amber card is the ALARM treatment - it exists for the moment
+      somebody is reading a convincing password-reset request from an ID
+      nobody has proved. Once the ID is enrolled there is no alarm, so the
+      card goes back to looking like every other one with a quiet marker.
+    */
+    return '<article class="thread' +
+        (g.signIn ? (g.enrolled ? ' is-presignin' : ' is-unverified') : '') +
+        (open ? ' is-open' : '') +
+        '" data-thread="' + escapeHtml(g.key) + '">' +
+
+      '<div class="thread-row" role="button" tabindex="0" ' +
+           'aria-expanded="' + (open ? 'true' : 'false') + '">' +
+        '<span class="thread-caret" aria-hidden="true">' +
+          '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" ' +
+          'stroke="currentColor" stroke-width="2.2" stroke-linecap="round" ' +
+          'stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>' +
+        '</span>' +
+        (g.owed ? '<span class="pill pill-wait">WAITING</span>' : '') +
+        '<span class="thread-who">' +
+          escapeHtml(g.name ? g.name + ' (' + g.person + ')' : g.person) +
+        '</span>' +
+        /*
+          NOT VERIFIED means "we cannot tell who this is", so it comes off
+          the day the ID is enrolled - the accounts list can tell now. What
+          stays is a quiet note that the query arrived from the sign-in
+          page, which is a fact about the query and not a doubt about the
+          person.
+
+          "signed in" is on no card at all: it was on every other one,
+          which made it furniture, and a word that is on everything is a
+          word nobody reads on the one that matters.
+        */
+        (g.enrolled
+          ? (g.signIn
+              ? '<span class="thread-pre">FROM THE SIGN-IN PAGE</span>' : '')
+          : (g.verified ? '' : '<span class="thread-warn">NOT VERIFIED</span>')) +
+        (g.newest.topic
+          ? '<span class="q-topic">' + escapeHtml(g.newest.topic) + '</span>'
+          : '') +
+        '<span class="thread-peek">' + escapeHtml(peek) + '</span>' +
+        '<span class="q-when">' + escapeHtml(whenText(g.lastAt)) + '</span>' +
+        (canDelete()
+          ? '<button class="thread-del" data-del="' + escapeHtml(g.key) +
+            '" data-del-ids="' + escapeHtml(ids) +
+            '" title="Delete this conversation" ' +
+            'aria-label="Delete this conversation">' +
+            '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" ' +
+            'stroke="currentColor" stroke-width="2" stroke-linecap="round" ' +
+            'stroke-linejoin="round">' +
+            '<path d="M4 7h16M10 7V4h4v3M6 7l1 13h10l1-13"/></svg></button>'
+          : '') +
+      '</div>' +
+
+      '<div class="thread-open"' + (open ? '' : ' hidden') + '>' +
+        warningHtml(g) +
+
+        /*
+          ONE RUN OF BUBBLES PER QUERY, oldest query at the top, with a
+          thin rule naming each one. Merging the messages into a single
+          stream by time was the other way to do this, and it is worse: two
+          questions asked the same afternoon come back interleaved, and an
+          answer to one sits under a line of the other. The rule only
+          appears when there is more than one, because with a single query
+          its subject is already on the row above.
+        */
+        '<div class="thread-body">' +
+          g.threads.map(function (t) {
+            return (many
+              ? '<div class="thread-sub">' +
+                  '<span class="thread-sub-topic">' +
+                    escapeHtml(t.topic || 'No subject') + '</span>' +
+                  ((Number(t.waiting) || 0) > 0
+                    ? '<span class="thread-sub-wait">waiting</span>' : '') +
+                  '<span class="thread-sub-when">' +
+                    escapeHtml(whenText(t.startedAt)) + '</span>' +
+                '</div>'
+              : '') + bubbles(t.messages || [], true);
+          }).join('') +
+        '</div>' +
+
+        /*
+          WHICH QUERY THE REPLY GOES INTO, said out loud and changeable.
+          One box for one person is the point of this card, but a reply is
+          still a line in one conversation: it arrives in their panel under
+          whichever question it was filed against, and the wrong one means
+          somebody reads the answer to Tuesday's problem underneath
+          Thursday's. It defaults to the query they spoke in last, which is
+          the one being read here.
+        */
+        (many
+          ? '<label class="reply-into">Reply to' +
+              '<select data-reply-into="' + escapeHtml(g.key) + '">' +
+                g.threads.slice().reverse().map(function (t) {
+                  return '<option value="' + escapeHtml(t.id) + '">' +
+                    escapeHtml(t.topic || 'No subject') + '</option>';
+                }).join('') +
+              '</select>' +
+            '</label>'
+          : '<input type="hidden" data-reply-into="' + escapeHtml(g.key) +
+            '" value="' + escapeHtml(g.newest.id) + '">') +
+
+        '<div class="q-reply">' +
+          /*
+            THE CLIP IS HERE AND IT IS OFF, which is the honest version of
+            what the live system already does. saveChatImages writes
+            nothing and returns [] unless a store is configured, and
+            CHAT_FOLDER has never been set on the live script - so on the
+            spreadsheet version today, picking a screenshot gets you "1
+            image could not be attached" AFTER you press Reply. The server
+            here says the same thing for the same reason. Saying it on the
+            button instead means nobody types a reply around a picture that
+            was never going to arrive.
+          */
+          '<button type="button" class="msgr-clip" id="shotClip" disabled ' +
+            'title="Screenshots are not stored yet. api/messenger-write.js ' +
+            'saveChatImages has nowhere to put them, exactly as the live ' +
+            'script has no CHAT_FOLDER set." ' +
+            'aria-label="Attach a screenshot (not available)">' +
+            '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" ' +
+              'stroke="currentColor" stroke-width="2" stroke-linecap="round" ' +
+              'stroke-linejoin="round"><path d="M21.4 11.1l-8.5 8.5a5.5 5.5 0 ' +
+              '0 1-7.8-7.8l8.5-8.5a3.7 3.7 0 0 1 5.2 5.2l-8.5 8.5a1.8 1.8 0 ' +
+              '0 1-2.6-2.6l7.8-7.8"/></svg>' +
+          '</button>' +
+          '<textarea rows="2" data-reply="' + escapeHtml(g.key) +
+            '" placeholder="Reply' +
+            /*
+              A sign-in-page thread is never read by the account that owns
+              the ID, enrolled or not - see myThreads. So the warning stays
+              on the box whenever this card holds one, and the note above
+              it says where to write instead.
+            */
+            (g.signIn ? ' (they will not see it)' : '') +
+            '\u2026"></textarea>' +
+          '<button class="btn btn-primary" data-reply-go="' +
+            escapeHtml(g.key) + '">Reply</button>' +
+        '</div>' +
+      '</div>' +
+    '</article>';
+  }
+
+
+  /**
+   * TWO DIFFERENT WARNINGS, because they are two different situations and
+   * the old single one went on saying the alarming thing long after it
+   * stopped being true.
+   */
+  function warningHtml(g) {
+    if (!g.signIn) return '';
+
+    if (g.enrolled) {
+      const loose = g.threads.filter(function (t) { return !t.verified; })
+        .map(function (t) { return t.id; }).join(',');
+      return '<p class="thread-note is-soft">Some of this arrived from the ' +
+        'sign-in page, before this person had an account. They have one now ' +
+        'under this employee ID, so nothing here reaches them until somebody ' +
+        'says it is really them. <strong>Check who they are first</strong> ' +
+        '\u2014 ring them, or ask in SAP \u2014 then attach it, and they will ' +
+        'see the whole conversation and every reply.' +
+        '<button class="thread-attach" data-attach="' + escapeHtml(loose) +
+        '">Attach to their account</button></p>';
+    }
+
+    return '<p class="thread-note">This came from the sign-in page, where ' +
+      'nobody is signed in. That employee ID is only what the sender typed, ' +
+      'and no account has been opened under it. Do not reset a password or ' +
+      'share anything on the strength of it \u2014 ring them or check in SAP ' +
+      'first. They cannot see a reply here either.</p>';
+  }
+
+
+  /**
+   * A run of messages as chat bubbles.
+   *
+   * WHOSE SIDE IS THE RIGHT-HAND SIDE DEPENDS ON WHO IS LOOKING. App.html:
+   * "the team's inbox - 'us' is TEAM. Our replies go right, their messages
+   * left - we are reading somebody else's conversation. somebody's panel -
+   * 'us' is USER." One function served both for a while, with the inbox's
+   * answer, so people saw their own words arriving from the other side of
+   * their own screen. The flag is why this takes an argument on a screen
+   * that only ever passes true.
+   *
+   * @param {boolean} mineIsTeam true on the team's inbox, false in the panel
+   */
+  function bubbles(messages, mineIsTeam) {
+    if (!messages.length) return '<p class="empty">No messages.</p>';
+
+    return messages.map(function (m) {
+      const mine = (m.side === 'TEAM') === Boolean(mineIsTeam);
+      /*
+        WHO REPLIED, on every team line. The person who asked should know
+        who owns the answer, and the next admin to open the inbox should be
+        able to see at a glance that a colleague has already picked it up
+        rather than writing a second reply underneath the first.
+
+        The separator is in the markup, not in a ::after rule. CSS
+        collapsed the trailing space in its content and ran the name into
+        the time; it also kept the byline out of textContent, where a test
+        could see it.
+      */
+      const by = m.side === 'TEAM' && byline(m)
+        ? '<span class="bubble-by">' + escapeHtml(byline(m)) + '</span> \u00b7 '
+        : '';
+      /*
+        WHAT is attached, never the bytes - a conversation with six
+        screenshots in it would be twenty megabytes of base64 on every
+        poll. The original fills these slots from getChatImage, which is
+        not ported because there is nothing to fetch: nothing can be
+        attached in the first place. The name is drawn so that a
+        conversation carried over from a system that COULD store them does
+        not silently lose the fact that something was sent.
+      */
+      const shots = (m.files || []).map(function (f) {
+        return '<span class="bubble-shot" data-shot-id="' +
+          escapeHtml(f.id) + '" title="' + escapeHtml(f.name) + '">' +
+          escapeHtml(f.name) + '</span>';
+      }).join('');
+
+      return '<div class="bubble bubble-' + (mine ? 'mine' : 'theirs') + '">' +
+               '<p>' + escapeHtml(m.text) + '</p>' +
+               (shots ? '<span class="bubble-shots">' + shots + '</span>' : '') +
+               '<time>' + by + escapeHtml(whenText(m.at)) + '</time>' +
+             '</div>';
+    }).join('');
+  }
+
+
+  /**
+   * Who signed a team line.
+   *
+   * BOTH SHAPES, and that is not defensiveness. Messenger.gs builds `by`
+   * on the server and sends only that; api/messenger-read.js sends `by`
+   * too but keeps `author` and `authorName` beside it, because
+   * /api/messages/mine was already sending them. The port has disagreed
+   * with the original about the shape of a payload once already - the
+   * Comparison screen's quarters came back as plain strings where App.html
+   * read q.key - and that cost a screen. This reads whichever is there.
+   */
+  function byline(m) {
+    if (m.by) return m.by;
+    if (!m.author && !m.authorName) return '';
+    return m.authorName ? m.authorName + ' (' + m.author + ')' : m.author;
+  }
+
+
+  // =======================================================================
+  // OPENING A CARD
+  // =======================================================================
+
+  function wireThreadRows() {
+    document.querySelectorAll('#inboxList .thread-row').forEach(function (row) {
+      const open = function () {
+        const card = row.closest('.thread');
+        if (!card) return;
+        toggleThread(card.getAttribute('data-thread'));
+      };
+      row.addEventListener('click', function (e) {
+        // The bin lives in this row and means something else entirely.
+        if (e.target.closest('[data-del]')) return;
+        open();
+      });
+      row.addEventListener('keydown', function (e) {
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        e.preventDefault();
+        open();
+      });
+    });
+  }
+
+  function toggleThread(key) {
+    state.openKey = (state.openKey === key) ? '' : key;
+
+    document.querySelectorAll('#inboxList .thread').forEach(function (card) {
+      const isOpen = card.getAttribute('data-thread') === state.openKey;
+      card.classList.toggle('is-open', isOpen);
+      const body = card.querySelector('.thread-open');
+      if (body) body.hidden = !isOpen;
+      const row = card.querySelector('.thread-row');
+      if (row) row.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+      if (isOpen) {
+        const box = card.querySelector('[data-reply]');
+        if (box) box.focus();
+      }
+    });
+  }
+
+
+  // =======================================================================
+  // REPLYING
+  // =======================================================================
+
+  function wireReplyButtons() {
+    document.querySelectorAll('[data-reply-go]').forEach(function (button) {
+      button.addEventListener('click', function () { sendReply(button); });
+    });
+  }
+
+  async function sendReply(button) {
+    /*
+      THE CARD IS A PERSON; THE REPLY IS A LINE IN ONE OF THEIR QUERIES. So
+      the button carries the person's key, and the thread the reply goes
+      into is read off the card - the picker when they have several
+      queries, a hidden field holding the only one when they do not.
+    */
+    const key = button.getAttribute('data-reply-go');
+    const box = document.querySelector('[data-reply="' + cssEscape(key) + '"]');
+    const into = document.querySelector(
+      '[data-reply-into="' + cssEscape(key) + '"]');
+    const text = box ? String(box.value || '').trim() : '';
+    const threadId = into ? String(into.value || '') : '';
+
+    if (!text) {
+      if (box) box.focus();
+      return;
+    }
+    if (!threadId) {
+      return easDialog.tell({
+        title: 'Nowhere to put that',
+        body: '<p>This card has lost track of which query the reply belongs ' +
+              'to. Reload the screen and try again.</p>'
+      });
+    }
+
+    button.disabled = true;
+    try {
+      const out = await post('/api/messages/reply',
+                             { thread_id: threadId, text: text });
+      // Emptied only once the server has it. A failed send that cleared
+      // the box would lose the sentence.
+      if (box) box.value = '';
+      /*
+        THE REFRESH FIRST, the confirmation second. App.html: "ordering
+        them the other way round once meant a thrown notice left a deleted
+        conversation sitting on screen."
+      */
+      await loadInbox();
+      easShell.say(out.message || 'Replied.');
+    } catch (err) {
+      if (String(err && err.message) === 'signed out') return;
+      await easDialog.tell({
+        title: 'That reply did not send',
+        body: '<p>' + escapeHtml(err.message) + '</p>'
+      });
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+
+  // =======================================================================
+  // ATTACHING A SIGN-IN CONVERSATION TO AN ACCOUNT
+  // =======================================================================
+
+  function wireAttachButtons() {
+    document.querySelectorAll('[data-attach]').forEach(function (button) {
+      button.addEventListener('click', function () { attach(button); });
+    });
+  }
+
+  /**
+   * AN UNVERIFIED MESSAGE IS NOT EVIDENCE OF ANYTHING. It says somebody
+   * typed an employee ID into a box on a public web page. The dialog says
+   * so, because this is the one action on the screen that hands a stranger
+   * a conversation with somebody else's account.
+   */
+  async function attach(button) {
+    const ids = String(button.getAttribute('data-attach') || '')
+      .split(',').filter(Boolean);
+    if (!ids.length) return;
+
+    const yes = await easDialog.confirm({
+      title: 'Attach this to their account?',
+      subtitle: ids.length + (ids.length === 1 ? ' conversation' : ' conversations'),
+      body: '<p>Only do this once you have checked who they are \u2014 by ' +
+            'ringing them, or in SAP. An employee ID typed into the sign-in ' +
+            'page is not proof of anything.</p>' +
+            '<p>Afterwards they will see the whole conversation, and every ' +
+            'reply, in their own message bar.</p>',
+      confirmLabel: 'Yes, attach it',
+      tone: 'info'
+    });
+    if (!yes) return;
+
+    try {
+      /*
+        ONE AT A TIME, in order, and not Promise.all. Each of these is a
+        transaction over the same person's threads; firing them together
+        has them queue on each other's locks for no gain on a list that is
+        never more than a handful long.
+      */
+      for (const id of ids) {
+        await post('/api/messages/attach', { thread_id: id });
+      }
+      await loadInbox();
+      easShell.say(ids.length === 1
+        ? 'Attached. They can see it now.'
+        : 'Attached ' + ids.length + ' conversations. They can see them now.');
+    } catch (err) {
+      if (String(err && err.message) === 'signed out') return;
+      // The refresh on the way out too: a run that attached two of three
+      // and then threw has changed the screen.
+      await loadInbox();
+      await easDialog.tell({
+        title: 'That could not be attached',
+        body: '<p>' + escapeHtml(err.message) + '</p>'
+      });
+    }
+  }
+
+
+  // =======================================================================
+  // DELETING
+  // =======================================================================
+
+  function wireDeleteButtons() {
+    document.querySelectorAll('[data-del]').forEach(function (button) {
+      button.addEventListener('click', function (e) {
+        e.stopPropagation();
+        remove(button);
+      });
+    });
+  }
+
+  async function remove(button) {
+    const ids = String(button.getAttribute('data-del-ids') || '')
+      .split(',').filter(Boolean);
+    if (!ids.length) return;
+
+    const card = button.closest('.thread');
+    const who = card ? (card.querySelector('.thread-who') || {}).textContent : '';
+
+    /*
+      DANGER TONE, AND THE SENTENCE THAT EARNS IT. This destroys the
+      conversation for the person who wrote it as well as for the team:
+      their copy disappears from their own panel with everything they were
+      told in it. MASTER only, which the server enforces independently.
+    */
+    const yes = await easDialog.confirm({
+      title: 'Delete this conversation?',
+      subtitle: String(who || '').trim(),
+      body: '<p>This destroys it for <strong>them</strong> too. Their copy ' +
+            'disappears from their own message bar, with every answer they ' +
+            'were given in it.</p>' +
+            (ids.length > 1
+              ? '<p>' + ids.length + ' queries are on this card and all of ' +
+                'them go.</p>'
+              : ''),
+      confirmLabel: 'Delete it'
+    });
+    if (!yes) return;
+
+    try {
+      for (const id of ids) {
+        await post('/api/messages/delete', { thread_id: id });
+      }
+      // The refresh FIRST, the confirmation second. See sendReply.
+      await loadInbox();
+      easShell.say('Deleted.');
+    } catch (err) {
+      if (String(err && err.message) === 'signed out') return;
+      await loadInbox();
+      await easDialog.tell({
+        title: 'That could not be deleted',
+        body: '<p>' + escapeHtml(err.message) + '</p>'
+      });
+    }
+  }
+
+
+  // =======================================================================
+  // SMALL THINGS
+  // =======================================================================
+
+  function escapeHtml(value) {
+    return String(value == null ? '' : value)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  /** CSS.escape, for the browsers that have it, and a fallback for the rest. */
+  function cssEscape(value) {
+    const text = String(value == null ? '' : value);
+    return (window.CSS && window.CSS.escape) ? window.CSS.escape(text)
+                                             : text.replace(/["\\]/g, '\\$&');
+  }
+
+  function whenText(iso) {
+    if (!iso) return '';
+    const at = new Date(iso);
+    if (isNaN(at.getTime())) return String(iso);
+    const pad = function (x) { return (x < 10 ? '0' : '') + x; };
+    return at.getFullYear() + '-' + pad(at.getMonth() + 1) + '-' +
+           pad(at.getDate()) + ' ' + pad(at.getHours()) + ':' +
+           pad(at.getMinutes());
+  }
+
+  function setText(id, text) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = text;
+  }
+
+  function bind(id, event, handler) {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener(event, handler);
+  }
+
+
+  // =======================================================================
+  // STARTUP
+  // =======================================================================
+
+  document.addEventListener('DOMContentLoaded', function () {
+    easShell.mount({ view: 'help' });
+
+    bind('signinGo', 'click', function () { signIn(); });
+    bind('password', 'keydown', function (e) { if (e.key === 'Enter') signIn(); });
+    bind('employeeId', 'keydown', function (e) { if (e.key === 'Enter') signIn(); });
+    bind('signOut', 'click', function () { signedOut(''); });
+
+    try { state.token = sessionStorage.getItem(TOKEN_STORE) || ''; }
+    catch (e) { state.token = ''; }
+
+    if (!state.token) { signedOut(''); return; }
+
+    start().catch(function (err) {
+      if (String(err && err.message) === 'signed out') return;
+      signedOut('Could not open the screen \u2014 ' +
+                (err && err.message ? err.message : String(err)));
+    });
+  });
+
+
+  // For the browser suite, which drives this page against the real server.
+  window.__helpScreen = {
+    inboxPeople: inboxPeople,
+    bubbles: bubbles,
+    byline: byline,
+    paintFaq: paintFaq,
+    inboxBusy: inboxBusy,
+    loadInbox: loadInbox,
+    pollMs: INBOX_POLL_MS,
+    /* Whether the sixty-second timer is armed, for the suite. */
+    polling: function () { return inboxTimer !== null; },
+    state: state
+  };
+}());
+</script>
+</body>
+</html>

@@ -75,7 +75,7 @@ Judge the demo page on whether the data is right. Judge nothing else by it.
 | `links` | portal links, incl. TVL Knowledge Base | TODO - portal |
 | `uploads` | CSV upload and history | **DONE** `uploads.html` |
 | `master` | Accounts (MASTER only) | **DONE** `master.html` |
-| `help` | Help / FAQ - the team inbox (ADMIN+) | TODO - next |
+| `help` | Help / FAQ - the team inbox (ADMIN+) | **DONE** `help.html` |
 | `settings` | shown as "Summary" | **DONE** `summary.html` |
 | `about` | about page | TODO |
 | `contact` | contact page | TODO |
@@ -1712,3 +1712,139 @@ install, not a failed import, and a red zero on day one teaches people that
 the red does not mean anything - after which it does not. `nothingStored`
 is a named predicate for exactly this, and both mutations against it (mark
 everything, mark nothing) are caught.
+
+### The Help & FAQ screen
+
+`api/public/help.html`, with `GET /api/help/boot` and `GET /api/help/inbox`.
+The `view-help` section of `src/Index.html` with `loadHelp`, `renderFaq`,
+`paintFaq`, `loadInbox`, `watchInbox`, `inboxBusy`, `inboxPeople`,
+`renderInbox`, `bubbles`, `wireThreadRows`, `toggleThread`,
+`wireReplyButtons`, `wireDeleteButtons` and `showHelpBadge`. **89 checks in
+a real browser.**
+
+**Almost all the server side was already here.** `api/messenger-read.js`
+and `api/messenger-write.js` were ported and proved long before this
+screen, and every endpoint it writes through - reply, attach, delete -
+already existed. What was missing was the screen, one boot endpoint, one
+poll endpoint, and a byline.
+
+**Two cards, two audiences.** The FAQ is published and sits on the sign-in
+page, so it is drawn for anybody who reaches the URL; the inbox is
+`data-admin-only` and every endpoint behind it checks `requireAdmin`
+independently. The boot does not even *fetch* the threads for a viewer -
+`listThreads()` loads every conversation and every line in it, and paying
+that to throw the answer away would be the expensive way to be refused.
+
+#### The four states a card can be in
+
+This is what most of the screen, and most of the suite, is about.
+
+| the query | the card | why |
+|---|---|---|
+| sent signed in | no marker at all | "a word that is on everything is a word nobody reads on the one that matters" |
+| from the sign-in page, no account | amber, **NOT VERIFIED** | the alarm: somebody may be reading a convincing password-reset request from an ID nobody has proved |
+| from the sign-in page, account opened since | quiet, **FROM THE SIGN-IN PAGE**, with an attach button | the ID is known now. The doubt was about identity and it has gone; what is left is a fact about the query |
+| the team spoke last | no WAITING pill | and not counted by the badge |
+
+The attach button offers **only the unverified queries** on a merged card.
+The signed-in ones are already theirs.
+
+#### One definition of "waiting"
+
+App.html records three living on this screen at once - the badge counted
+threads, the heading counted people by a per-thread sum, and the poll asked
+the server, which counts people by who spoke last. Which answer you saw
+depended on whether you had just replied, just opened the screen, or just
+waited a minute.
+
+The server's is the only one now. `GET /api/help/inbox` returns the threads
+**and** the count in one reply, deliberately: two calls can land either side
+of somebody sending a message, which puts the fault straight back.
+
+The server keys cards `P|id` / `YES|id` / `NO|id` and the screen keys them
+`P:id` / `V:id` / `U:id`. Different spellings of the same partition, as in
+the original - the suite asserts the two agree on how many cards there are,
+which is the assertion that would catch them drifting apart.
+
+#### The badge belongs to the shell
+
+`showHelpBadge` was one screen's business because the original is one page.
+Here there are six pages, and the badge has to be right on the five that
+are **not** Help - nobody goes looking in the inbox to find out whether
+there is anything in the inbox. `easShell.setBadge(view, n)` is generic over
+any screen that declares a `badge` in `SCREENS`, and the shell fetches the
+count itself when a boot has not already supplied it. Zero hides it; over 99
+reads `99+`.
+
+#### The refresh the original never had
+
+The inbox never reloaded itself: it loaded when the screen opened, when you
+replied, and when you wrote a message yourself. The badge polled and the
+list did not, "which is the worst pairing of the two: a number telling you
+there is something to read, above a list that does not have it."
+
+Sixty seconds here, and it stands down when a reply is half typed, when a
+dialog is open over the list, when the tab is in the background, and when
+somebody signs out - a timer left armed on a signed-out tab is a 401 every
+minute for as long as the tab is open.
+
+#### Two things worth knowing
+
+**The byline was missing from the port.** `Messenger.gs` builds
+`out.by = who(m.author, m.authorName)` on TEAM lines and sends only that;
+the port's `threadMessageList` sent `author` and `authorName` and no `by`.
+Added to `messenger-read.js` rather than computed on the screen, because the
+message panel will draw the same bubbles and a byline computed twice can be
+computed two ways. The screen reads **either** shape all the same - the
+Comparison screen already lost a day to the port and the original disagreeing
+about a payload (`feedbackQuarters` as strings where App.html read `q.key`).
+
+**Screenshots are off, and the clip says so.** `saveChatImages()` returns
+`[]` and writes nothing, exactly as the live script does - `CHAT_FOLDER` has
+never been set on it. So on the spreadsheet version today, picking a
+screenshot gets you "1 image could not be attached" *after* you press Reply.
+The button is drawn, disabled, with the reason on the hover, so nobody types
+a reply around a picture that was never going to arrive.
+
+#### What the mutation run found, which was mostly the suite
+
+**71 mutations, 70 caught.** The thirteen that escaped the first pass were
+all gaps in the test, not in the screen, and three are worth writing down.
+
+**`[data-admin-only]` is not a name, and I used it anyway.** The same
+mistake as on the Summary screen, in the same week, after writing it up:
+the attribute matches the inbox card *and* the Help item the shell marks in
+its own sidebar, a bare selector resolves to the shell's, and the check
+passes while the card is plainly on screen for a viewer. The card has an
+`id` now, and the suite asserts it is the only admin-only thing on the
+page.
+
+**A truthy string is not a pass.** The dialog-guard check read
+`if (!back) return 'no modal in the page'` - and `dialog.js` injects its
+markup lazily, so on a page load with no dialog yet opened it was not
+there. A non-empty string is truthy, the check passed, and the mutation
+that made `inboxBusy` ignore dialogs altogether went straight through. It
+opens a real dialog now.
+
+**A reply that succeeds cannot tell you when the box was cleared.** Only a
+refused one can, so the suite sends a one-character message, which
+`cleanMessage` turns down, and asserts the words are still there. That one
+400 is then subtracted from the console watch *by name*, so a second
+refusal or any other bad request still fails.
+
+Two mutations were *correctly* missed and left as they are. Removing
+`stopPropagation` from the bin, or the `closest('[data-del]')` guard from
+the row, changes nothing - each is covered by the other. Removing both
+breaks it, and the suite catches that. And blanking the server's `by`
+changes no pixel, because the screen falls back to `author`/`authorName`
+on purpose; the server's field is asserted directly against the payload
+instead.
+
+#### And the fixture owns its own enrolment
+
+Whether a card is amber depends on whether an account exists for that
+employee ID, so the suite creates the accounts it needs - and the `team`
+rows under them, since `account.employee_id` has a foreign key to `team` -
+and deletes them again. Picking an ID that happens to be enrolled on this
+machine would be asserting something about the database, which is the
+mistake six suites on this port have now made.

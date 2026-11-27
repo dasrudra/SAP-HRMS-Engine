@@ -1879,6 +1879,111 @@ app.get('/api/compare/boot', requireAuth, async function (req, res) {
 });
 
 
+// ---------------------------------------------------------------------------
+// GET /api/help/boot - the published answers and the team's inbox
+// ---------------------------------------------------------------------------
+/*
+  The Help half of getBootstrap [Code.gs:191], plus loadHelp [App.html:12717]
+  which made two calls where this makes one.
+
+  THE INBOX IS FETCHED ONLY FOR SOMEBODY WHO MAY READ IT. listThreads()
+  loads every conversation and every line in it, which is the most
+  expensive read in this API; doing it for a viewer whose screen will
+  refuse to draw it as well would be paying that price to throw the answer
+  away. A viewer gets the FAQ, which is the half of this screen that is
+  theirs - and /api/messages/threads still refuses them on its own, because
+  what the screen sends is never what decides.
+
+  SIGNED IN, NOT ADMIN. The sidebar only offers this screen to ADMIN and
+  above, but the FAQ behind it is public enough to sit on the sign-in page,
+  so a viewer who types the URL gets the published answers rather than a
+  403 - which is exactly what the original does with the one card marked
+  data-admin-only and the other not.
+*/
+app.get('/api/help/boot', requireAuth, async function (req, res) {
+  try {
+    const rank = rankOf(req.user.role);
+    const canAnswer = rank >= ROLE_RANK.ADMIN;
+
+    const [faq, threads] = await Promise.all([
+      content.faqEntries(),
+      canAnswer ? msgRead.listThreads() : Promise.resolve([])
+    ]);
+
+    /*
+      PEOPLE, NOT CONVERSATIONS, counted by t.key - the same card the
+      inbox groups by and the same number the sidebar badge shows.
+      Messenger.gs:873 settled this: "Somebody asks two things and the team
+      answers in one of them; the conversation has been had, both of them
+      know it, and the badge went on saying 1 for ever."
+
+      Counted here from the threads this call already has rather than
+      fetched again, so the badge, the heading and the pills on the cards
+      come from one answer and cannot disagree.
+    */
+    const cards = {};
+    threads.forEach(function (t) { if (t.owed) cards[t.key] = true; });
+    const waiting = Object.keys(cards).length;
+
+    res.json({
+      ok: true,
+      configured: true,
+      role: req.user.role,
+      canAdmin: canAnswer,
+      username: req.user.employeeId,
+      appName: APP_NAME,
+      appVersion: APP_VERSION,
+      mustChange: await accounts.mustChangeFor(req.user.employeeId),
+
+      faq: faq,
+      canAnswer: canAnswer,
+      /*
+        Deleting a conversation destroys it for the person who wrote it
+        too, so it belongs to whoever owns the dashboard rather than to
+        every admin. The same line /api/messages/boot draws.
+      */
+      canDelete: rank >= ROLE_RANK.MASTER,
+      threads: threads,
+      waiting: waiting
+    });
+  } catch (err) {
+    fail(res, err, 'could not open the help screen');
+  }
+});
+
+
+// ---------------------------------------------------------------------------
+// GET /api/help/inbox - the inbox again, for the poll. ADMINS ONLY.
+// ---------------------------------------------------------------------------
+/*
+  What the sixty-second refresh asks for, and what a reply asks for
+  afterwards. The same threads /api/messages/threads returns, with the
+  people-waiting count beside them so the badge moves with the list.
+
+  A SECOND ENDPOINT RATHER THAN A SECOND CALL. The screen needs the threads
+  and the count together every single time it refreshes, and two calls can
+  land either side of somebody sending a message - leaving a badge that
+  disagrees with the cards underneath it, which is the exact fault
+  App.html records as "three answers to one question".
+*/
+app.get('/api/help/inbox', requireAuth, requireAdmin,
+  async function (req, res) {
+    try {
+      const threads = await msgRead.listThreads();
+      const cards = {};
+      threads.forEach(function (t) { if (t.owed) cards[t.key] = true; });
+      res.json({
+        ok: true,
+        threads: threads,
+        count: threads.length,
+        waiting: Object.keys(cards).length
+      });
+    } catch (err) {
+      fail(res, err, 'could not read the inbox');
+    }
+  });
+
+
 app.get('/api/kpi1/compare', requireAuth, async function (req, res) {
   try {
     const months = String(req.query.months || '')

@@ -11,6 +11,13 @@
  */
 
 const db = require('./db');
+/*
+  For who(), which formats a byline. Not copied in: Messenger.gs settled
+  the wording once - 'Name (20536723)', the bare id when no name is known -
+  and a second copy here is a second thing to correct. messenger-write
+  requires nothing but crypto and db, so there is no cycle.
+*/
+const { who } = require('./messenger-write');
 
 const SIDE_USER = 'USER';
 const SIDE_TEAM = 'TEAM';
@@ -24,7 +31,7 @@ async function threadMessageList(threadId) {
     [threadId]);
 
   return rows.map(function (m) {
-    return {
+    const out = {
       id: m.message_id,
       at: m.at ? new Date(m.at).toISOString() : '',
       side: m.side,
@@ -33,6 +40,26 @@ async function threadMessageList(threadId) {
       authorName: m.author_name || '',
       files: m.files || []
     };
+
+    /*
+      WHO REPLIED, ON A TEAM LINE AND ONLY ON A TEAM LINE.
+
+      Messenger.gs:1297 puts it there and says why: "A reply with no name
+      on it leaves the person wondering whether anybody owns it, and
+      leaves the next admin unable to tell that a colleague has it in hand.
+      The asker's own ID is left off their own lines - they know who they
+      are, and the thread header carries it for the team."
+
+      Added rather than left to the screen to work out, because both the
+      inbox and the message panel draw these bubbles and a byline computed
+      twice is a byline that can be computed two ways. `author` and
+      `authorName` stay beside it: they were here first, /api/messages/mine
+      and the boot already send them, and this is a field added, not a
+      shape changed.
+    */
+    if (m.side === SIDE_TEAM) out.by = who(m.author, m.author_name);
+
+    return out;
   });
 }
 

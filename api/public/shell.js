@@ -112,7 +112,7 @@
       moved into the message bar in the corner. The badge is the number of
       conversations waiting on a reply.
     */
-    { view: 'help', label: 'Help & FAQ', href: null, needs: 'ADMIN',
+    { view: 'help', label: 'Help & FAQ', href: 'help.html', needs: 'ADMIN',
       badge: 'helpBadge' },
 
     { group: 'Administration', needs: 'MASTER' },
@@ -391,10 +391,73 @@
     app.hidden = false;
 
     /*
+      THE BADGE IS THE SHELL'S, AND SO IS FETCHING IT.
+
+      In the original every screen is one page, so one poll served all of
+      them. Here they are six pages, and the badge has to be right on the
+      five that are not Help - which is the whole point of it: nobody goes
+      looking at the inbox to find out whether there is anything in the
+      inbox.
+
+      Putting it in each screen's own boot would mean six endpoints each
+      doing the same count, and five of them paying for it on every load.
+      Putting it here is one call, once, made by the thing that owns the
+      badge. A boot that already knows the number passes it in and this
+      does not fire at all.
+
+      It never fails the page. The badge not appearing is a smaller harm
+      than a screen that will not open, which is also what the server's own
+      /api/messages/waiting decided when it chose to answer 0 rather than
+      error.
+    */
+    if (isAdmin) {
+      if (b.waiting !== undefined) setBadge('help', b.waiting);
+      else loadBadge();
+    }
+
+    /*
       AND IF THE PASSWORD THEY JUST USED IS NOT THEIRS, that is the only
       thing on this screen until it is. See mustChangeCard below.
     */
     if (b.mustChange) mustChangeCard(b);
+  }
+
+
+  /**
+   * The count beside a sidebar item.
+   *
+   * showHelpBadge in App.html, generalised to any screen that declares a
+   * `badge` in SCREENS - there is one today and the portal will bring more.
+   *
+   * ZERO HIDES IT. A badge reading 0 is a badge saying "look here" about
+   * nothing, and once people have learnt to ignore it they ignore the 3 as
+   * well. Anything above 99 reads '99+', because a sidebar item is not
+   * wide enough for a real number and the exact count stopped mattering
+   * long before then.
+   *
+   * SAFE TO CALL WHEN THE SCREEN IS NOT IN THE NAV. A viewer has no Help
+   * item at all, so there is nothing to find and nothing happens - which
+   * is what lets a shared poll call this without first asking who is
+   * looking.
+   *
+   * @param {string} view  a view name from SCREENS
+   * @param {number} n     how many are waiting
+   */
+  function setBadge(view, n) {
+    const entry = SCREENS.filter(function (e) { return e.view === view; })[0];
+    if (!entry || !entry.badge) return;
+
+    const badge = byId(entry.badge);
+    if (!badge) return;
+
+    const waiting = Number(n) || 0;
+    badge.hidden = waiting <= 0;
+    if (waiting <= 0) return;
+
+    badge.textContent = waiting > 99 ? '99+' : String(waiting);
+    badge.title = waiting +
+      (waiting === 1 ? ' conversation is' : ' conversations are') +
+      ' waiting for a reply';
   }
 
 
@@ -527,6 +590,25 @@
   }
 
 
+  /**
+   * Asks how many people are waiting, and paints the badge.
+   *
+   * Swallows everything. See the note at the call site: an admin whose
+   * badge is missing has lost a hint, an admin whose screen threw has lost
+   * the screen.
+   */
+  function loadBadge() {
+    const token = tokenFromStore();
+    if (!token) return;
+
+    fetch('/api/messages/waiting',
+          { headers: { Authorization: 'Bearer ' + token } })
+      .then(function (res) { return res.json(); })
+      .then(function (data) { setBadge('help', data && data.waiting); })
+      .catch(function () { /* the badge is a hint, not the screen */ });
+  }
+
+
   /** The token the pages keep, for the one call the shell makes itself. */
   function tokenFromStore() {
     try { return sessionStorage.getItem('easToken') || ''; }
@@ -625,6 +707,7 @@
     mustChangeCard: mustChangeCard,
     signedOut: signedOut,
     setLive: setLive,
+    setBadge: setBadge,
     say: say,
     urlFor: urlFor,
     goTo: goTo,

@@ -383,19 +383,29 @@ async function main() {
     so.
   */
   check('a screen with no page yet has no URL to offer',
-        shell.urlFor('help') === '' && shell.urlFor('home') === '',
-        JSON.stringify(['help', 'home'].map(shell.urlFor)));
+        shell.urlFor('home') === '', JSON.stringify(shell.urlFor('home')));
   check('AND THE ONES THAT HAVE ARRIVED DO',
         shell.urlFor('master') === 'master.html' &&
         shell.urlFor('compare') === 'compare.html' &&
         shell.urlFor('summary') === '' &&
         shell.urlFor('settings') === 'summary.html' &&
+        shell.urlFor('help') === 'help.html' &&
         shell.urlFor('kpi1') === 'kpi1.html' &&
         shell.urlFor('kpi2') === 'kpi2.html' &&
         shell.urlFor('uploads') === 'uploads.html',
-        JSON.stringify(['master', 'compare', 'settings', 'kpi1', 'kpi2',
-                        'uploads']
+        JSON.stringify(['master', 'compare', 'settings', 'help', 'kpi1',
+                        'kpi2', 'uploads']
           .map(shell.urlFor)));
+  /*
+    HOME IS THE LAST ONE, and it is the portal rather than a screen. When
+    it lands there is no list left and these two checks become one.
+  */
+  check('and the only screen still to come is the portal\'s own landing page',
+        shell.SCREENS.filter(function (e) {
+          return e.view && !e.href;
+        }).map(function (e) { return e.view; }).join(',') === 'home',
+        JSON.stringify(shell.SCREENS.filter(function (e) {
+          return e.view && !e.href; }).map(function (e) { return e.view; })));
   check('and one that has a page carries the period into the query',
         shell.urlFor('kpi1', '2026-05') === 'kpi1.html?period=2026-05' &&
         shell.urlFor('kpi2', '2026-Q2') === 'kpi2.html?period=2026-Q2');
@@ -590,6 +600,53 @@ async function main() {
         }),
         JSON.stringify((nav.filter(function (e) {
           return e.view === 'home'; })[0] || {}).title));
+
+
+  // =======================================================================
+  console.log('');
+  console.log('  The count beside Help');
+  // =======================================================================
+  /*
+    showHelpBadge in App.html, where it was one screen's business because
+    there was one screen. Here it belongs to the shell: the badge has to be
+    right on the five pages that are NOT Help, since nobody goes looking in
+    the inbox to find out whether there is anything in the inbox.
+  */
+  const badge = async function (n) {
+    return p.evaluate(function (want) {
+      easShell.setBadge('help', want);
+      const el = document.getElementById('helpBadge');
+      return { hidden: el.hidden, text: el.textContent, title: el.title };
+    }, n);
+  };
+
+  check('ZERO HIDES IT - a badge reading 0 is a badge saying "look here" ' +
+        'about nothing, and then the 3 is ignored too',
+        (await badge(0)).hidden === true && (await badge(null)).hidden === true);
+  check('one is shown, and the hover reads as one',
+        await (async function () {
+          const b = await badge(1);
+          return !b.hidden && b.text === '1' &&
+                 b.title === '1 conversation is waiting for a reply';
+        }()));
+  check('and several read as several',
+        await (async function () {
+          const b = await badge(4);
+          return b.text === '4' &&
+                 b.title === '4 conversations are waiting for a reply';
+        }()));
+  check('A HUNDRED READS 99+ - a sidebar item is not wide enough for a real ' +
+        'number, and the exact count stopped mattering long before then',
+        (await badge(100)).text === '99+' && (await badge(99)).text === '99');
+  check('it comes back down as well as up',
+        (await badge(0)).hidden === true);
+  check('and asking for a screen that has no badge does nothing rather ' +
+        'than throwing - a shared poll should not have to ask who is looking',
+        await p.evaluate(function () {
+          easShell.setBadge('kpi1', 3);
+          easShell.setBadge('nothing-like-this', 3);
+          return true;
+        }));
 
 
   // =======================================================================
