@@ -741,6 +741,13 @@ module.exports = {
   BY_WEEKLY_SECTIONS, FAQ_SEED, PORTAL_LINKS, SAP_APP_URL, portalLinks,
   KNOWLEDGE_CHUNK, KNOWLEDGE_MAX_FILE, KNOWLEDGE_MAX_FILES,
   KNOWLEDGE_TITLE_MAX, KNOWLEDGE_BODY_MAX, KNOWLEDGE_TAGS_MAX,
+  /*
+    The three classification lists. LEARN_TYPES and LEARN_MODULES were not
+    exported while only this file read them; learn-scan.js reads them now,
+    and it must read THESE rather than keep a copy - the same rule the KPI
+    definitions follow, for the same reason.
+  */
+  LEARN_TYPES, LEARN_MODULES,
   LEARN_BUSINESS, LEARN_FALLBACK_TYPE, LEARN_FRESH_DAYS,
   shortDate, idStamp,
   faqEntries,

@@ -66,3 +66,18 @@ preview/
 .DS_Store
 Thumbs.db
 *.log
+
+# ---------------------------------------------------------------------------
+# THE GOOGLE SERVICE ACCOUNT KEY - never commit.
+# api/drive.js reads the Learnings Drive folders with a service account, and
+# its key file is a password: anybody holding it can do to those folders
+# whatever the account can. GOOGLE_KEY_FILE in api/.env points at it, and the
+# only safe place for it is OUTSIDE this folder altogether - these patterns
+# are the net under that, not the plan.
+# ---------------------------------------------------------------------------
+*service-account*.json
+*service_account*.json
+*-sa.json
+gcp-*.json
+google-key*.json
+keys/
