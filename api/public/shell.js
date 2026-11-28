@@ -412,7 +412,18 @@
     */
     if (isAdmin) {
       if (b.waiting !== undefined) setBadge('help', b.waiting);
-      else loadBadge();
+      /*
+        WITH THE TOKEN THIS BOOT WAS MADE WITH, not whatever is in storage
+        by the time the reply lands. Those are not always the same string:
+        a boot is a round trip, and anything that replaces the token while
+        it is in flight - signing out, a password change, a test driving
+        two roles through one tab - leaves the shell about to send a token
+        that disagrees with the role it was just handed. That is a 403 on
+        a screen nobody did anything wrong on, and it is how this was
+        found: shell-test swaps roles between page loads and caught the
+        shell sending a viewer's token against an admin's boot.
+      */
+      else loadBadge(b.token || tokenFromStore());
     }
 
     /*
@@ -596,9 +607,11 @@
    * Swallows everything. See the note at the call site: an admin whose
    * badge is missing has lost a hint, an admin whose screen threw has lost
    * the screen.
+   *
+   * @param {string} token the token the boot was made with, not the one in
+   *                       storage now - see the call site for why.
    */
-  function loadBadge() {
-    const token = tokenFromStore();
+  function loadBadge(token) {
     if (!token) return;
 
     fetch('/api/messages/waiting',

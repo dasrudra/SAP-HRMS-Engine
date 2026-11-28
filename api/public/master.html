@@ -303,7 +303,9 @@
                 (state.user ? state.user.employee_id : boot.role),
       appName: boot.appName,
       appVersion: boot.appVersion,
-      mustChange: boot.mustChange
+      mustChange: boot.mustChange,
+      // The token THIS boot was made with. See signedIn in shell.js.
+      token: state.token
     });
     document.getElementById('page').hidden = false;
 

@@ -1776,6 +1776,29 @@ any screen that declares a `badge` in `SCREENS`, and the shell fetches the
 count itself when a boot has not already supplied it. Zero hides it; over 99
 reads `99+`.
 
+#### A boot is a round trip, and the token can move while it is in flight
+
+The shell fetching the count itself had a fault that only showed on the
+live machine's run: **403 on `/api/messages/waiting`**, on a screen where
+nobody had done anything wrong.
+
+`loadBadge` read the token out of `sessionStorage` when the reply to the
+boot arrived, not when the boot was sent. Those are not always the same
+string. Anything that replaces the token while a boot is in flight - a
+sign-out, a password change, or `shell-test` driving two roles through one
+tab between page loads - leaves the shell about to send one person's token
+against the role the server just reported for another.
+
+Every screen passes `token` into `signedIn` now, and the shell sends that
+one. `mustChangeCard` had already been written expecting `boot.token` and
+falling back; the fallback is still there, and now something supplies it.
+
+Four mutations cover it: reading storage again, asking when the boot
+already counted them, asking on a viewer's behalf, and sending an empty
+`Authorization` when there is no token at all. The last of those is a 401
+and a red line in the console to ask a question nobody could have
+answered.
+
 #### The refresh the original never had
 
 The inbox never reloaded itself: it loaded when the screen opened, when you

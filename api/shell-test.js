@@ -648,6 +648,112 @@ async function main() {
           return true;
         }));
 
+  /*
+    AND THE COUNT IS ASKED FOR WITH THE TOKEN THE BOOT WAS MADE WITH.
+
+    A boot is a round trip. Anything that replaces the token while it is
+    in flight - signing out, a password change, this suite driving two
+    roles through one tab - used to leave the shell reading the NEW token
+    out of storage and sending it against the role the OLD boot had just
+    reported. The server answered 403, correctly, on a screen where
+    nobody had done anything wrong.
+
+    Every screen passes `token` into signedIn now. These two drive the
+    shell directly, which is the only way to hold the two apart.
+  */
+  const badgeCall = await p.evaluate(async function () {
+    const sent = [];
+    const realFetch = window.fetch;
+    window.fetch = function (url, opts) {
+      if (String(url).indexOf('/api/messages/waiting') !== -1) {
+        sent.push(((opts || {}).headers || {}).Authorization || '');
+        return Promise.resolve({ json: function () {
+          return Promise.resolve({ ok: true, waiting: 7 });
+        } });
+      }
+      return realFetch.apply(window, arguments);
+    };
+    const realToken = sessionStorage.getItem('easToken');
+    try {
+      /*
+        A DIFFERENT TOKEN IN STORAGE FROM THE ONE THE BOOT CARRIES, which
+        is the whole point of the check - and the real one is put back in
+        the finally, because every section after this one signs in with
+        it. Leaving a made-up token here broke the next screen to load.
+      */
+      sessionStorage.setItem('easToken', 'TOKEN-FROM-STORAGE');
+      easShell.signedIn({ role: 'ADMIN', username: 'x',
+                          token: 'TOKEN-THE-BOOT-USED' });
+      await new Promise(function (r) { setTimeout(r, 120); });
+
+      // And a boot that already knows the number asks for nothing at all.
+      const before = sent.length;
+      easShell.signedIn({ role: 'ADMIN', username: 'x',
+                          token: 'TOKEN-THE-BOOT-USED', waiting: 2 });
+      await new Promise(function (r) { setTimeout(r, 120); });
+
+      return { sent: sent, askedAgain: sent.length - before,
+               painted: document.getElementById('helpBadge').textContent };
+    } finally {
+      window.fetch = realFetch;
+      if (realToken === null) sessionStorage.removeItem('easToken');
+      else sessionStorage.setItem('easToken', realToken);
+    }
+  });
+  check('THE BADGE IS ASKED FOR WITH THE BOOT\'S OWN TOKEN, not whatever ' +
+        'is in storage when the reply lands',
+        badgeCall.sent.length === 1 &&
+        badgeCall.sent[0] === 'Bearer TOKEN-THE-BOOT-USED',
+        JSON.stringify(badgeCall.sent));
+  check('AND A BOOT THAT ALREADY COUNTED THEM ASKS FOR NOTHING',
+        badgeCall.askedAgain === 0 && badgeCall.painted === '2',
+        JSON.stringify([badgeCall.askedAgain, badgeCall.painted]));
+  /**
+   * How many times the shell asks for the count, under one set of
+   * conditions. Counted rather than intercepted, so nothing here can
+   * leave a stub behind on a shared page.
+   */
+  const asksFor = async function (boot, clearStorage) {
+    return p.evaluate(async function (o) {
+      let asked = 0;
+      const realFetch = window.fetch;
+      const realToken = sessionStorage.getItem('easToken');
+      window.fetch = function (url) {
+        if (String(url).indexOf('/api/messages/waiting') !== -1) asked++;
+        return realFetch.apply(window, arguments);
+      };
+      try {
+        if (o.clear) sessionStorage.removeItem('easToken');
+        easShell.signedIn(o.boot);
+        await new Promise(function (r) { setTimeout(r, 120); });
+        return asked;
+      } finally {
+        window.fetch = realFetch;
+        if (realToken === null) sessionStorage.removeItem('easToken');
+        else sessionStorage.setItem('easToken', realToken);
+      }
+    }, { boot: boot, clear: Boolean(clearStorage) });
+  };
+
+  check('a viewer is never asked for either, since the count is refused ' +
+        'to them and the badge is not in their sidebar',
+        (await asksFor({ role: 'USER', username: 'x',
+                         token: 'TOKEN-THE-BOOT-USED' })) === 0);
+  /*
+    AND WITH NO TOKEN ANYWHERE, NOTHING IS SENT. An Authorization header
+    reading "Bearer " is a 401 the server has to answer and a red line in
+    the console, to ask a question nobody could have answered.
+  */
+  check('nor is anything asked for when there is no token to ask with',
+        (await asksFor({ role: 'ADMIN', username: 'x' }, true)) === 0);
+
+  /*
+    AND BACK TO A REAL SIGN-IN. The three checks above handed the shell
+    made-up boots, the last of them a viewer's, which left the sidebar
+    gated for a viewer. Everything below clicks through that sidebar.
+  */
+  await open(p, 'uploads.html', 'MASTER');
+
 
   // =======================================================================
   console.log('');

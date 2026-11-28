@@ -216,7 +216,9 @@
       appVersion: boot.appVersion,
       mustChange: boot.mustChange,
       // Already counted by the boot, so the shell does not ask again.
-      waiting: boot.canAnswer ? boot.waiting : 0
+      waiting: boot.canAnswer ? boot.waiting : 0,
+      // The token THIS boot was made with. See signedIn in shell.js.
+      token: state.token
     });
     document.getElementById('page').hidden = false;
 

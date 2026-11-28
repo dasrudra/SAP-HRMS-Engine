@@ -369,7 +369,9 @@
       appVersion: boot.appVersion,
       // If the password they signed in with was set for them, the shell
       // puts the card that replaces it in front of this screen.
-      mustChange: boot.mustChange
+      mustChange: boot.mustChange,
+      // The token THIS boot was made with. See signedIn in shell.js.
+      token: state.token
     });
     document.getElementById('page').hidden = false;
 
