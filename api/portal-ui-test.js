@@ -247,9 +247,15 @@ async function main() {
         /Data\.\s*Insight\.\s*Performance\./
           .test((await p.textContent('.portal-hero-title')).replace(/\s+/g, ' ')),
         JSON.stringify(await p.textContent('.portal-hero-title')));
+  /*
+    COUNTED AS DRAWN, NOT AS PRESENT. querySelectorAll answers for a card
+    with `hidden` on it just as happily as for one somebody can see, so
+    the first version of this counted five while one of them was gone.
+  */
   check('THE FIVE CARDS ARE A COLLAGE, not a row of four equal rectangles',
         (await p.evaluate(function () {
-          return document.querySelectorAll('.ptile').length;
+          return Array.prototype.slice.call(document.querySelectorAll('.ptile'))
+            .filter(function (t) { return t.offsetParent !== null; }).length;
         })) === 5);
   /*
     INLINE SVG, NOT CHART.JS. Portal.html: "Here the chart IS the card, and
@@ -390,16 +396,48 @@ async function main() {
     is the one thing the port can give the portal for free by making the
     address real.
   */
+  /*
+    FROM A HISTORY THIS CHECK OWNS. The first version just pressed Back
+    after a couple of clicks, and the entries behind it were pages an
+    earlier section had opened with goto - so a portal that only ever
+    REPLACED the address still went "back" to a portal page, and the
+    mutation that drops pushState passed. Starting from a blank page
+    makes the entries below these three this suite's own, and the last
+    Back leaves the portal entirely, which is the thing being asserted.
+  */
+  await p.goto('about:blank');
+  await p.goto(PAGE);
+  await p.waitForSelector('#portalRoot:not([hidden])', { timeout: 20000 });
+  await p.waitForTimeout(250);
+  await p.click('.portal-tab[data-view="about"]');
+  await p.waitForTimeout(300);
+  await p.click('.portal-tab[data-view="links"]');
+  await p.waitForTimeout(300);
+
   await p.goBack();
-  await p.waitForTimeout(400);
+  await p.waitForTimeout(450);
   check('THE BROWSER\'S BACK WALKS BACK THROUGH THE PAGES, which the ' +
         'single-document original could not do',
         viewOf(p.url()) === 'about' && (await where(p)).dataPage === 'about',
         p.url());
+  await p.goBack();
+  await p.waitForTimeout(450);
+  check('AND ONE STEP PER PAGE, not one for the whole visit - three pages ' +
+        'opened, three entries to walk back through',
+        viewOf(p.url()) === '' && (await where(p)).dataPage === 'home',
+        p.url());
+  await p.goBack();
+  await p.waitForTimeout(450);
+  check('and the step before that leaves the portal, because that is where ' +
+        'the suite came in',
+        p.url().indexOf('portal.html') === -1, p.url());
   await p.goForward();
-  await p.waitForTimeout(400);
-  check('and Forward walks on again',
-        viewOf(p.url()) === 'links' && (await where(p)).dataPage === 'links');
+  await p.waitForTimeout(450);
+  await p.goForward();
+  await p.waitForTimeout(450);
+  check('Forward walks on again',
+        viewOf(p.url()) === 'about' && (await where(p)).dataPage === 'about',
+        p.url());
 
   /* The portal's own Back, which is a trail and not the browser's. */
   await p.goto(PAGE);
@@ -439,6 +477,25 @@ async function main() {
   await p.waitForTimeout(300);
   check('so does a page that is real but not ported yet',
         (await where(p)).dataPage === 'home');
+  /*
+    AND SO DOES A NAME HANDED STRAIGHT TO THE ROUTER. Reading it off the
+    address already clamps it, so the clamp inside showView is only
+    reachable by calling it - which is what a stray data-view does, and
+    what every control on this page goes through. Removing it survived a
+    whole run before this check existed.
+  */
+  check('AND A NAME HANDED STRAIGHT TO THE ROUTER LANDS ON HOME TOO, rather ' +
+        'than hiding every page and leaving a blank screen',
+        await p.evaluate(function () {
+          const s = window.__portalScreen;
+          s.showView('nothing-like-this');
+          const root = document.getElementById('portalRoot');
+          const shown = Array.prototype.slice.call(root.querySelectorAll('.view'))
+            .filter(function (v) { return !v.hidden; })
+            .map(function (v) { return v.id; });
+          return root.dataset.page === 'home' &&
+                 shown.length === 1 && shown[0] === 'view-home';
+        }));
 
 
   // =======================================================================
@@ -513,10 +570,23 @@ async function main() {
         JSON.stringify(cust.codes) ===
         JSON.stringify(zones.map(function (z) { return z.code; })),
         JSON.stringify(cust.codes));
-  check('each zone counts its own chips',
+  check('each zone draws a chip per plant',
         JSON.stringify(cust.chips) ===
         JSON.stringify(zones.map(function (z) { return z.plants.length; })),
-        JSON.stringify([cust.chips, cust.counts]));
+        JSON.stringify(cust.chips));
+  /*
+    AND ITS CAPTION COUNTS THOSE CHIPS. This was captured and never
+    asserted, so a caption reading the number of ZONES rather than the
+    number of plants in one went unnoticed - three cards all saying
+    "3 plants" over six, thirteen and four chips.
+  */
+  check('AND SAYS SO IN ITS OWN CAPTION, in its own units',
+        JSON.stringify(cust.counts) ===
+        JSON.stringify(zones.map(function (z) {
+          return z.plants.length +
+            (z.plants.length === 1 ? ' plant' : ' plants');
+        })),
+        JSON.stringify(cust.counts));
   /*
     THE TOTAL IS ADDED UP. Config.gs records what happened when it was
     written down: TVL was left off the list and "the page said 22 and the

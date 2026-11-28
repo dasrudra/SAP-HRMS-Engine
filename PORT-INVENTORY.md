@@ -1964,6 +1964,31 @@ from. A table would buy correcting a sentence without a deployment and cost
 a migration, an editor screen and a second place for the text to be wrong
 in, for something edited perhaps twice a year.
 
+#### What the mutation run found, which was the suite again
+
+**47 mutations, 47 caught.** Four escaped the first pass, and all four were
+gaps in the test.
+
+**A hidden card still answers `querySelectorAll`.** The front page counted
+five tiles while one of them had `hidden` on it. Counted as drawn now, not
+as present.
+
+**A Back check needs a history it owns.** It pressed Back after a couple
+of clicks, and the entries behind those were pages an earlier section had
+opened with `goto` - so a portal that only ever *replaced* the address
+still went "back" to a portal page, and the mutation that drops
+`pushState` passed. It starts from a blank page now and walks all the way
+out of the portal, which is the thing actually being asserted.
+
+**The clamp in `showView` is only reachable by calling it.** Reading the
+name off the address already clamps it, so removing the second one changed
+nothing a URL-driven check could see - while leaving every stray
+`data-view` able to hide all five pages at once. Driven directly now.
+
+**And a caption that was captured and never asserted.** `.zone-count` was
+read into the test and then not compared, so a card saying "3 plants" over
+thirteen chips went unnoticed in all three zones.
+
 #### Still to come in the portal
 
 EAS Team (needs presence), Learnings, Knowledge Share, By-Weekly and
