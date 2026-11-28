@@ -382,30 +382,40 @@ async function main() {
     them is deliberate: when the last one lands, this check is what says
     so.
   */
-  check('a screen with no page yet has no URL to offer',
-        shell.urlFor('home') === '', JSON.stringify(shell.urlFor('home')));
-  check('AND THE ONES THAT HAVE ARRIVED DO',
+  check('EVERY SCREEN IN THE SIDEBAR HAS A PAGE NOW',
+        shell.urlFor('home') === 'portal.html' &&
         shell.urlFor('master') === 'master.html' &&
         shell.urlFor('compare') === 'compare.html' &&
-        shell.urlFor('summary') === '' &&
         shell.urlFor('settings') === 'summary.html' &&
         shell.urlFor('help') === 'help.html' &&
         shell.urlFor('kpi1') === 'kpi1.html' &&
         shell.urlFor('kpi2') === 'kpi2.html' &&
         shell.urlFor('uploads') === 'uploads.html',
-        JSON.stringify(['master', 'compare', 'settings', 'help', 'kpi1',
-                        'kpi2', 'uploads']
-          .map(shell.urlFor)));
+        JSON.stringify(['home', 'master', 'compare', 'settings', 'help',
+                        'kpi1', 'kpi2', 'uploads'].map(shell.urlFor)));
   /*
-    HOME IS THE LAST ONE, and it is the portal rather than a screen. When
-    it lands there is no list left and these two checks become one.
+    AND THE LIST IS EMPTY, which is what this check was put here to say.
+    It read "when the last one lands, this check is what says so" while
+    there were six to go. Home was the last, and it is the portal.
   */
-  check('and the only screen still to come is the portal\'s own landing page',
+  check('AND THE LIST OF SCREENS STILL TO COME IS EMPTY',
         shell.SCREENS.filter(function (e) {
           return e.view && !e.href;
-        }).map(function (e) { return e.view; }).join(',') === 'home',
+        }).length === 0,
         JSON.stringify(shell.SCREENS.filter(function (e) {
           return e.view && !e.href; }).map(function (e) { return e.view; })));
+  /*
+    THE MECHANISM STAYS, WITH NOTHING USING IT. urlFor still answers '' for
+    a name it does not know and goTo still refuses to navigate on one -
+    which is what stops a typo in a data-view sending somebody to
+    "undefined.html", and is the only part of this that was ever about
+    more than the port being unfinished.
+  */
+  check('and a name the shell does not know still goes nowhere',
+        shell.urlFor('nothing-like-this') === '' &&
+        shell.urlFor('summary') === '',
+        JSON.stringify([shell.urlFor('nothing-like-this'),
+                        shell.urlFor('summary')]));
   check('and one that has a page carries the period into the query',
         shell.urlFor('kpi1', '2026-05') === 'kpi1.html?period=2026-05' &&
         shell.urlFor('kpi2', '2026-Q2') === 'kpi2.html?period=2026-Q2');
@@ -589,17 +599,25 @@ async function main() {
         .reduce(function (acc, e) { acc[e.view] = iconOf(e.view); return acc; }, {}));
   check('the icons in the browser are the ones the original drew',
         wrongIcons.length === 0, JSON.stringify(wrongIcons));
-  check('every unported screen is shown, disabled, and says why on hover',
-        nav.filter(function (e) { return e.soon; })
-           .every(function (e) { return e.showing && /not ported yet/.test(e.title); }),
+  /*
+    NOTHING IS MARKED "not ported yet" ANY MORE. This check used to walk
+    the ones that were; the list emptied when Home landed, so it says that
+    instead - vacuously passing over an empty list would have been a check
+    that stopped meaning anything without anybody noticing.
+  */
+  check('NOT ONE ITEM IN THE SIDEBAR IS STILL WAITING FOR ITS SCREEN',
+        nav.filter(function (e) { return e.soon; }).length === 0,
         JSON.stringify(nav.filter(function (e) { return e.soon; })
                           .map(function (e) { return e.view + ': ' + e.title; })));
-  check('HOME SAYS IT IS THE PORTAL, rather than landing on a dashboard',
-        nav.some(function (e) {
-          return e.view === 'home' && e.soon && /portal/i.test(e.title);
-        }),
-        JSON.stringify((nav.filter(function (e) {
-          return e.view === 'home'; })[0] || {}).title));
+  check('and every one of them is enabled and showing',
+        nav.filter(function (e) { return e.kind === 'item'; })
+           .every(function (e) { return e.showing; }),
+        JSON.stringify(nav.filter(function (e) {
+          return e.kind === 'item' && !e.showing; })
+          .map(function (e) { return e.view; })));
+  check('HOME IS FIRST, because it is the front door and the portal is ' +
+        'where people land after signing in',
+        shown(nav)[0] === 'home', JSON.stringify(shown(nav).slice(0, 2)));
 
 
   // =======================================================================
@@ -808,16 +826,54 @@ async function main() {
         }));
 
   /*
-    AND A SCREEN THAT IS STILL TO COME SAYS SO. Home is the one used here
-    now that Summary has landed: it is visible to every role, where Help is
-    admin-only and would need a second sign-in to reach.
+    AND HOME LEAVES FOR THE OTHER SHELL. It was the last unported screen on
+    this list and it is the portal: a different stylesheet, a different
+    chrome, a different set of pages. In Apps Script this hop swaps
+    #appRoot for #portalRoot inside one document; here it is a navigation,
+    and the session goes with it because both shells read the same token
+    out of the same sessionStorage.
+  */
+  await p.click('.nav-item[data-view="home"]');
+  await p.waitForSelector('#portalRoot:not([hidden])', { timeout: 20000 });
+  check('HOME OPENS THE PORTAL, which is the other shell',
+        /\/portal\.html$/.test(p.url().split('?')[0]), p.url());
+  check('AND THE SESSION CAME WITH IT - one token, two shells, no second ' +
+        'sign-in',
+        (await p.textContent('#portalWho')) === 'TEST-SHELL-master',
+        await p.textContent('#portalWho'));
+  check('the dashboard sidebar is not on it; the portal has its own nav',
+        (await p.evaluate(function () {
+          return document.querySelectorAll('.sidebar').length;
+        })) === 0 &&
+        (await p.evaluate(function () {
+          return document.querySelectorAll('.portal-tab').length;
+        })) > 0);
+
+  /*
+    AND BACK AGAIN, by the tab that exists for it. Portal.html: "KPI Engine
+    carries data-view='kpi1'. There is no #view-kpi1 inside this file, so
+    the router finds it in the dashboard shell and hands over."
+  */
+  await p.click('.portal-tab[data-view="kpi1"]');
+  await p.waitForSelector('#page:not([hidden])', { timeout: 20000 });
+  check('AND KPI ENGINE HANDS BACK TO THE DASHBOARD',
+        /\/kpi1\.html$/.test(p.url().split('?')[0]), p.url());
+  check('still signed in, still the same person',
+        (await p.textContent('#operatorName')) === 'TEST-SHELL-master',
+        await p.textContent('#operatorName'));
+
+  /*
+    A NAME THE SHELL DOES NOT KNOW still goes nowhere. This is what the
+    unported-screen check became: nothing is unported any more, but goTo
+    still has to refuse a view it cannot place, which is what stops a typo
+    in a data-view navigating to "undefined.html".
   */
   const before = p.url();
-  await p.click('.nav-item[data-view="home"]');
-  await p.waitForSelector('#shellSays:not([hidden])', { timeout: 5000 });
-  check('a screen with no page says so instead of doing nothing',
-        /not ported yet/.test(await p.textContent('#shellSays')),
-        await p.textContent('#shellSays'));
+  check('a view the shell cannot place is refused rather than guessed at',
+        (await p.evaluate(function () {
+          return easShell.goTo('nothing-like-this');
+        })) === false);
+  await p.waitForTimeout(250);
   check('and it did not navigate anywhere', p.url() === before, p.url());
 
 

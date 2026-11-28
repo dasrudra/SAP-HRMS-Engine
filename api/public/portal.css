@@ -1,0 +1,4541 @@
+/*
+  portal.css - the portal's own CSS, and only the portal's.
+  ================================================================
+
+  Blue and white. The colours are not new: the blues below are the variables
+  already declared at the top of app.css and already used by the
+  dashboard. Two stylesheets each holding their own idea of "our blue" drift
+  apart the first time one of them is adjusted, and then the portal and the
+  dashboard are visibly two products bolted together - which is exactly what
+  this is meant not to look like.
+
+  What is new is the SHAPE. The dashboard is a dark sidebar against a dense
+  working surface, because it is a tool you keep open. The portal opens on a
+  wash of blue with white type over it, because it is a front door.
+
+  Loaded after app.css, so anything shared resolves the same way and
+  anything here wins a tie.
+*/
+
+/*
+  PORTED VERBATIM from src/PortalStyles.html. Not a rule has been changed:
+  it is 818 rules of hand-tuned layout, and the one way to lose a port of
+  it is to "tidy" it on the way across. The only edits are to this header,
+  which named two Apps Script files that do not exist here.
+
+  WHY IT IS A SEPARATE FILE and not appended to app.css: exactly the reason
+  the original keeps two. app.css is the dashboard - a dark sidebar against
+  a dense working surface, a tool you keep open. This is the front door. A
+  dashboard page never loads it, and the portal loads both so that anything
+  shared resolves the same way and anything here wins a tie.
+*/
+
+
+  /* =========================================================
+     THE CARD SURFACE
+     =========================================================
+     A warm off-white, not white.
+
+     White cards on this page sat on a pale blue background and all but
+     disappeared into it - two near-white surfaces a few percent apart, with
+     only a hairline border saying where one stopped. Going DARKER on the
+     background would have fixed the contrast and lost the light, airy feel
+     the page is built on, so the cards move instead.
+
+     Cream rather than grey because the move is in temperature as well as
+     lightness: against a cool blue background a warm surface separates at a
+     glance, where a grey one of the same lightness still reads as "the same
+     white, slightly off". It also stays out of the way of the only two
+     tinted surfaces on the site that carry meaning - the amber drift notice
+     and the band pills - which a grey-blue card family would have crowded.
+
+     White is kept for controls sitting ON the dark sky, where it is the
+     brightest thing available and that is the point: the open tab, the KPI
+     Engine pill, the hero buttons, the EAS mark.
+  */
+  :root {
+    --portal-card: #fcf8f1;
+    --portal-card-edge: #ebe1d2;
+    --portal-card-rule: #f2e9dc;
+  }
+
+  /* =========================================================
+     THE SHELL
+     ========================================================= */
+  /*
+    A fixed app shell, not a scrolling document: the bar stays at the top and
+    the footer at the bottom while only the middle moves. Inside the Blogger
+    page this app is an iframe pinned to the whole window, so "the viewport"
+    here really is the whole window.
+
+    WHERE IT SITS IN THE STACK, which is the part worth writing down:
+       portal shell       1   <- this
+       sign-in screen   200   covers the portal, which is what a sign-out
+                              has to do
+       messenger bar    300   reachable from the portal, as it is everywhere
+       confirm dialog  1000   stays the only thing on screen while it is up
+  */
+  .portal {
+    position: fixed; inset: 0; z-index: 1;
+    display: flex; flex-direction: column;
+    background: #eef4fc;
+    overflow: hidden;
+  }
+
+  /* =========================================================
+     THE SKY
+     =========================================================
+     Four soft radial blobs over a deep blue, which is how the gradient in
+     the reference is built: no single linear ramp makes that shape. They are
+     placed off the edges on purpose - a blob whose centre is visible reads as
+     a spotlight, and one whose centre is outside the box reads as light.
+
+     Darkened twice, on request. There is a floor, and it is the glass: a
+     frosted panel is only legible as glass while there is light behind it
+     for the blur to pick up. Past this the navigation pill and the section
+     cards stop reading as glass and start reading as grey boxes.
+
+     The cards were brightened at the same time to hold their contrast
+     against it - a film that reads as glass over a mid blue reads as haze
+     over this one, so the two have to move together.
+
+     Height comes from data-page, set by applyShell(). A hero's worth on Home,
+     a header band on every other page, and the transition makes walking
+     between them a movement rather than a jump.
+  */
+  .portal-sky {
+    position: absolute; top: 0; left: 0; right: 0;
+    height: 232px;
+    z-index: 0;
+    pointer-events: none;
+    /*
+      DEEPER THAN IT WAS, EVERY LAYER.
+
+      Each of the five was taken down roughly a quarter: the blue
+      highlight from #27508f to #1d3d70, the teal from #0d6076 to #0a4a5c,
+      the violet from #271a6e to #1d1355, and the base gradient's three
+      stops with them. The hue of each is unchanged - this is the same
+      sky with the lamp turned down, not a different one.
+
+      It matters more than it did. Three screens now put translucent glass
+      over this (the team chart, Learnings and Knowledge Share), and the
+      lighter the sky the less a pane can lift off it. The panes were
+      raised to clear the old sky by measurement; taking the sky down
+      widens the gap rather than closing it, so those measurements still
+      hold and learn-ui-test re-checks them against whatever this is.
+    */
+    background:
+      radial-gradient(90% 120% at 12% 8%,   #1d3d70 0%, rgba(29, 61, 112, 0) 60%),
+      radial-gradient(70% 110% at 88% 0%,   #0a4a5c 0%, rgba(10, 74, 92, 0) 55%),
+      radial-gradient(80% 130% at 72% 100%, #1d1355 0%, rgba(29, 19, 85, 0) 62%),
+      radial-gradient(120% 140% at 30% 110%, #040f30 0%, rgba(4, 15, 48, 0) 70%),
+      linear-gradient(135deg, #020a1e 0%, #061a40 48%, #0b2a5e 100%);
+    /* Only the bottom corners, so it meets the window squarely at the top. */
+    border-radius: 0 0 26px 26px;
+    transition: height .32s cubic-bezier(.4, 0, .2, 1);
+  }
+  .portal[data-page="home"] .portal-sky { height: 672px; }
+
+  /*
+    The team page needs the blue to reach past the four section cards,
+    because those cards ARE glass - a glass card over a white page is a grey
+    card. Everything below them, once a section is opened, is on the light
+    surface and is solid white.
+
+    MEASURED, NOT GUESSED. This was 700px, which was right for the cards as
+    they were and wrong the day the heads' contact details moved onto them:
+    the cards grew about fifty pixels and the blue stopped halfway down
+    their footers. A number here has to be kept in step with content it
+    cannot see, which it will not be. renderTeam() measures the bottom of
+    the card row and sets --team-sky; the figure below is the fallback for
+    the instant before it does.
+  */
+  .portal[data-page="team"] .portal-sky { height: var(--team-sky, 760px); }
+
+  /*
+    The Links page is blue all the way down, not for effect but because every
+    bar on it is glass - and glass over the light surface is a grey box. A
+    fixed height would have been a guess at how many links there will ever
+    be, and the first one past the edge would have been the one that looked
+    broken.
+  */
+  .portal[data-page="links"] .portal-sky { height: 100%; border-radius: 0; }
+  /*
+    AND THE PAGE THE LINKS PAGE OPENS. Without this the sky stops at its
+    default 232px and the rest of the screen is the pale body underneath -
+    where every word on this page, being white, is invisible. It is not a
+    subtle fault and it is not a visible one either: the text is all still
+    there, in white, on white.
+  */
+  .portal[data-page="byweekly"] .portal-sky { height: 100%; border-radius: 0; }
+
+  /*
+    The two layers above it. Transparent backgrounds, so the sky shows
+    through, and a stacking context above it so they are not painted under.
+  */
+  .portal-top, .portal-body { position: relative; z-index: 1; }
+
+
+  /* =========================================================
+     THE TOP BAR
+     ========================================================= */
+  .portal-top {
+    flex: 0 0 auto;
+    display: flex; align-items: center;
+    padding: 0 22px;
+    height: 72px;
+    background: none;
+    border: 0;
+  }
+
+  /* The mark, and the mailbox under it. */
+  .portal-ident {
+    flex: 0 0 auto;
+    display: flex; flex-direction: column; align-items: flex-start; gap: 3px;
+  }
+
+  .portal-mail {
+    /* Indented past the mark - 34px of tile plus the 11px gap - so it lines
+       up under the company line rather than under the EAS square. */
+    margin-left: 45px;
+    display: inline-flex; align-items: center; gap: 6px;
+    /* Larger than the company line above it, on request: it is the address
+       people are meant to write to, not a footnote about the company. */
+    font-size: 12.5px; font-weight: 600;
+    color: rgba(255, 255, 255, .92);
+    text-decoration: none;
+    padding: 3px 10px 3px 8px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, .10);
+    border: 1px solid rgba(255, 255, 255, .16);
+    transition: color .15s ease, background .15s ease, box-shadow .15s ease;
+  }
+    .portal-mail svg { width: 13px; height: 13px; }
+
+  .portal-mail:hover {
+    color: #fff;
+    background: rgba(255, 255, 255, .20);
+    box-shadow: 0 0 14px rgba(150, 200, 255, .45);
+  }
+  .portal-mail:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+
+  .portal-brand {
+    flex: 0 0 auto;
+    display: flex; align-items: center; gap: 11px;
+    padding: 0; border: 0; background: none;
+    cursor: pointer; text-align: left;
+    font: inherit; color: inherit;
+    border-radius: 8px;
+  }
+  .portal-brand:focus-visible { outline: 2px solid #fff; outline-offset: 3px; }
+
+  .portal-brand-text { display: flex; flex-direction: column; line-height: 1.25; }
+  .portal-brand-text strong {
+    font-size: 13.5px; font-weight: 700; color: #fff;
+    letter-spacing: -.01em; white-space: nowrap;
+  }
+  .portal-brand-text span {
+    font-size: 10.5px; color: rgba(255, 255, 255, .72); white-space: nowrap;
+  }
+
+  /*
+    The mark is drawn by Styles.html for the dark sidebar, where a solid blue
+    tile on near-black reads well. On the sky it is blue on blue, so it goes
+    white with the blue inside it.
+  */
+  .portal-top .brand-mark {
+    background: #fff; color: var(--blue-600);
+    box-shadow: 0 2px 10px rgba(4, 18, 50, .22);
+  }
+
+
+  /* =========================================================
+     THE TABS - centred, and made of glass
+     =========================================================
+     Centred by taking them out of the flex row entirely. Left in it, the row
+     would centre them between the mark and the identity strip, which are not
+     the same width - so they would sit visibly off-centre and move sideways
+     whenever somebody with a longer name signed in.
+
+     The glass is a real backdrop blur of the sky behind it. That is why the
+     sky has to be a painted element and not a background on the scroll box:
+     there must be something underneath for the filter to work on.
+  */
+  /*
+    THE ROW THE PILL SITS ON, which exists only so the pill can be centred
+    twice over.
+
+    On a wide window it is taken out of the flex row and pinned to the middle
+    of the bar: centred between the window's edges, not between the mark and
+    the identity strip, which are different widths and would push it visibly
+    off-centre - and would shift it sideways whenever somebody with a longer
+    name signed in.
+
+    On a narrower one it becomes a full-width row of its own. The width is
+    what forces the wrap: a flex item allowed to shrink will shrink instead
+    of wrapping, which is how the first attempt ended up with the pill
+    squeezed onto the same line as everything else and hanging off the right
+    edge. The pill inside stays its own size and is centred by this.
+  */
+  .portal-navwrap {
+    position: absolute; left: 50%; transform: translateX(-50%);
+    display: flex; justify-content: center;
+    max-width: calc(100% - 620px);
+  }
+
+  .portal-nav {
+    display: flex; align-items: center; gap: 2px;
+    max-width: 100%;
+    overflow-x: auto; overflow-y: hidden;
+    scrollbar-width: none; -ms-overflow-style: none;
+    /* Wider at the ends than the top: at border-radius 999px the pill's
+       corners curve in across the full height, so a first or last tab with
+       only the vertical padding sits against the curve rather than inside
+       it. */
+    padding: 5px 11px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, .13);
+    border: 1px solid rgba(255, 255, 255, .24);
+    -webkit-backdrop-filter: blur(16px) saturate(150%);
+    backdrop-filter: blur(16px) saturate(150%);
+    box-shadow:
+      0 8px 28px rgba(5, 20, 56, .22),
+      inset 0 1px 0 rgba(255, 255, 255, .34);
+  }
+  .portal-nav::-webkit-scrollbar { height: 0; width: 0; }
+
+  .portal-tab {
+    flex: 0 0 auto;
+    position: relative;
+    padding: 8px 13px;
+    border: 0; background: none;
+    /* Longhands, not the font shorthand: `inherit` is illegal as the family
+       inside it and takes the whole declaration down with it. See the note
+       on .portal-cta for what that cost. */
+    font-family: inherit; font-size: 13px; line-height: 1; font-weight: 600;
+    color: rgba(255, 255, 255, .80);
+    white-space: nowrap;
+    border-radius: 999px;
+    cursor: pointer;
+    transition: color .16s ease, background .16s ease, box-shadow .16s ease;
+  }
+
+  /*
+    THE GLOW, which is the hover state asked for. Kept to a halo plus a lift
+    in brightness - no movement. Ten tabs this close together, each nudging
+    itself on hover, is a row that twitches as the pointer crosses it.
+  */
+  .portal-tab:hover {
+    color: #fff;
+    background: rgba(255, 255, 255, .18);
+    box-shadow:
+      0 0 0 1px rgba(255, 255, 255, .30),
+      0 0 18px rgba(150, 200, 255, .55),
+      inset 0 1px 0 rgba(255, 255, 255, .35);
+  }
+  .portal-tab:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+
+  /*
+    The open tab is marked by FILL AND WEIGHT, not by colour alone - the same
+    rule the band pills follow elsewhere in this project, and the reason none
+    of this depends on telling two blues apart.
+  */
+  .portal-tab.is-on {
+    color: var(--navy-900);
+    background: #fff;
+    box-shadow: 0 2px 10px rgba(5, 20, 56, .20);
+  }
+
+  /* The one tab that leaves the portal: white on the glass, so it reads as a
+     button among labels rather than another label. */
+  /* ---------- who is signed in ---------- */
+  .portal-who {
+    flex: 0 0 auto; margin-left: auto;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .portal-who-name {
+    font-size: 12.5px; font-weight: 600; color: rgba(255, 255, 255, .92);
+    max-width: 16ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .portal-signout {
+    padding: 6px 13px;
+    border: 1px solid rgba(255, 255, 255, .34); border-radius: 999px;
+    background: rgba(255, 255, 255, .12);
+    -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+    color: #fff;
+    /* Longhands, not the font shorthand: `inherit` is illegal as the family
+       inside it and takes the whole declaration down with it. See the note
+       on .portal-cta for what that cost. */
+    font-family: inherit; font-size: 12px; line-height: 1; font-weight: 600;
+    cursor: pointer;
+    transition: background .16s ease, box-shadow .16s ease;
+  }
+  .portal-signout:hover {
+    background: rgba(255, 255, 255, .22);
+    box-shadow: 0 0 16px rgba(150, 200, 255, .5);
+  }
+  .portal-signout:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+
+  /*
+    AWAY, in the portal bar. The same glass as Back and Sign out either side
+    of it - a third pill in a row of two that looked different would read as
+    belonging to the page rather than to the bar - but dimmer than Sign out
+    while it is off, because it is the least consequential of the three.
+
+    Pressed, it goes amber and matches the dot two elements to its left. That
+    pairing is doing real work: it is the only thing on screen that explains
+    why the glow stopped.
+  */
+  .portal-away {
+    padding: 6px 13px;
+    border: 1px solid rgba(255, 255, 255, .22); border-radius: 999px;
+    background: rgba(255, 255, 255, .07);
+    -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+    color: rgba(255, 255, 255, .86);
+    /* Longhands, not the font shorthand: `inherit` is illegal as the family
+       inside it and takes the whole declaration down with it. See the note
+       on .portal-cta for what that cost. */
+    font-family: inherit; font-size: 12px; line-height: 1; font-weight: 600;
+    cursor: pointer;
+    transition: background .16s ease, box-shadow .16s ease,
+                border-color .16s ease, color .16s ease;
+  }
+  .portal-away:hover {
+    background: rgba(255, 255, 255, .18); color: #fff;
+    box-shadow: 0 0 16px rgba(150, 200, 255, .42);
+  }
+  .portal-away:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+  .portal-away[aria-pressed="true"] {
+    background: rgba(240, 173, 60, .24);
+    border-color: rgba(240, 173, 60, .60);
+    color: #ffe0b0;
+  }
+  .portal-away[aria-pressed="true"]:hover {
+    background: rgba(240, 173, 60, .34);
+    box-shadow: 0 0 16px rgba(240, 173, 60, .45);
+  }
+
+
+  /* =========================================================
+     THE PAGES
+     ========================================================= */
+  /*
+    The bottom padding is for the messenger bubble. It sits bottom-right on
+    every screen, portal included - it is outside both shells in Index.html
+    precisely so that it does - and it is taller than the 46px footer, so
+    without this the last line of a long page ends up underneath it.
+  */
+  .portal-body {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    scroll-padding-bottom: 90px;
+    background: none;
+  }
+
+  .portal-page { max-width: 1180px; margin: 0 auto; padding: 18px 28px 96px; }
+
+  /* On a content page the title sits on the sky, so it is white there. */
+  .portal-page-title {
+    margin: 10px 0 26px;
+    font-size: 32px; font-weight: 700; letter-spacing: -.025em;
+    color: #fff;
+    text-shadow: 0 1px 14px rgba(6, 22, 60, .3);
+  }
+
+  /* ---------- the hero ----------
+     TIGHTER THAN IT WAS, SO THE PAGE ENDS WHERE THE SCREEN DOES. The hero
+     and the five cards under it are one thought - the team, and the four
+     figures it is measured on - and on a 1920x1080 screen the cards ran
+     about sixty pixels past the fold, so the thought was cut in half and
+     the first thing anybody did on the front page was scroll.
+
+     The space came off the parts with the most of it: 44px of padding
+     above a 58px headline, then 20 under it, then 32 under the standfirst,
+     then 88 before the cards. Nothing here is small now and nothing was
+     load-bearing. */
+  .portal-hero { padding: 26px 0 6px; text-align: center; }
+
+  .portal-hero-title {
+    margin: 0 auto 12px;
+    font-size: 50px; line-height: 1.05; font-weight: 800;
+    letter-spacing: -.04em;
+    color: #fff;
+    text-shadow: 0 2px 30px rgba(6, 22, 60, .32);
+    max-width: 14ch;
+  }
+
+  .portal-hero-sub {
+    margin: 0 auto 20px;
+    max-width: 58ch;
+    font-size: 16px; line-height: 1.62;
+    color: rgba(255, 255, 255, .86);
+  }
+
+  /*
+    TWO COLUMNS, SHARED BY BOTH ROWS.
+
+    These were two centred flex rows, which meant each row sized itself to
+    its own two labels and centred the result. "Open the KPI Engine" and
+    "Open SAP UserHub" are not the same width as "Open RMG PA Report" and
+    "Open Groupware & ITSM", so the gap down the middle stepped sideways
+    between the rows - four buttons that look like they were placed by hand
+    and not quite straight.
+
+    A grid of two fixed-width columns fixes the column edges once, and both
+    rows use them, so the gutter is a single straight line and all four
+    buttons are the same width. The buttons stretch to the cell rather than
+    hugging their labels, which is what makes them match.
+
+    Below 560px there is not room for two, so it becomes one column and the
+    buttons stack - still all one width.
+  */
+  .portal-hero-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 248px));
+    justify-content: center;
+    gap: 12px;
+  }
+  @media (max-width: 560px) {
+    .portal-hero-actions { grid-template-columns: minmax(0, 290px); }
+  }
+  /*
+    The second line of buttons. Its own row rather than four buttons wrapping
+    in one, because wrapping would put three on the first line and one alone
+    on the second at most widths - and which two sit together is the point:
+    the pair above are the two systems this portal is about.
+  */
+  .portal-hero-actions.is-more { margin-top: 12px; }
+
+  /*
+    Both hero buttons wear this, and one of them is an anchor because it
+    leaves the app.
+
+    text-decoration and display are here FOR that anchor. A button is
+    inline-block and never underlined; an anchor is inline and underlined by
+    default, so without these two lines the SAP button came out underlined
+    and a hair's breadth off the height of the one beside it. Styling a
+    control by class rather than by tag means the class has to say everything
+    the tag would otherwise have assumed.
+
+    The translucent "ghost" variant is gone. It had one user - the second
+    hero button - and that button now matches the first, so the rules would
+    have been dead CSS waiting to be wondered about.
+  */
+  .portal-cta {
+    display: inline-flex; align-items: center; justify-content: center;
+    padding: 13px 26px;
+    border: 1px solid transparent; border-radius: 999px;
+    background: #fff; color: var(--blue-600);
+    /* LONGHANDS, AND NOT THE font SHORTHAND, which is how this spent months
+       doing nothing at all. It read `font: 600 14px/1 inherit`, and `inherit`
+       is not a legal family INSIDE the shorthand - only as the whole value -
+       so the browser threw the entire declaration away. Nothing here was
+       applied: no size, no weight, no line-height. The three links fell back
+       to the page's 14px because an anchor inherits, and the KPI Engine
+       button fell back to the UA default, which is 13.3px ARIAL - a different
+       typeface and a different size from the three pills beside it, at weight
+       400. It passed the test next door because that one compares the
+       underline, the height and the background, and the padding happened to
+       round both to the same 45px.
+
+       BOLD, not semibold, now that a weight reaches the screen at all. Four
+       of these sit on a photographic blue hero where 600 read as a caption.
+       700 is a real weight in every family in the stack, so it is drawn
+       rather than faked by smearing the strokes, and the letter-spacing is
+       what stops bold 14px from closing up. */
+    font-family: inherit; font-size: 14px; line-height: 1; font-weight: 700;
+    letter-spacing: .012em; cursor: pointer;
+    text-decoration: none;
+    box-shadow: 0 6px 22px rgba(5, 20, 56, .26);
+    transition: box-shadow .16s ease, transform .16s ease;
+  }
+  .portal-cta:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 30px rgba(5, 20, 56, .34), 0 0 26px rgba(150, 200, 255, .62);
+  }
+  .portal-cta:focus-visible { outline: 2px solid #fff; outline-offset: 3px; }
+
+
+  /* =========================================================
+     THE CARDS
+     =========================================================
+     White, and deliberately overlapping the bottom of the sky the way the
+     cards in the reference overlap their panel. That overlap is what stops
+     the hero reading as a coloured box with a list under it.
+  */
+  /* =========================================================
+     THE HOME CARDS
+     =========================================================
+     A COLLAGE, NOT A ROW. Four columns, but the cards inside them are
+     different heights and sit at different offsets - a tall one carrying the
+     chart people come for, a column of two beside it, two more to the right.
+     Four equal rectangles in a line reads as a dashboard template; this
+     reads as somebody having chosen what belongs on a front page.
+
+     The offsets are margin-top rather than transform, because every card
+     lifts on hover and two transforms on one element means the hover has to
+     know what the stagger was.
+  */
+  .portal-tiles {
+    display: grid;
+    grid-template-columns: 1.45fr 1.05fr 1fr 1.05fr;
+    gap: 16px;
+    /*
+      STRETCH, AND NO OFFSETS. The cards were staggered - each column
+      starting a little lower than the last - which is what the reference
+      design does and which looked like a layout that had slipped. Every
+      column now starts on the same line and ends on the same line: the
+      three that span both rows are pulled to the full height, and the
+      middle column reaches it by stacking two.
+    */
+    align-items: stretch;
+    /* Enough that the hero finishes before the cards start and the two do
+       not read as one block - and no more than that, because every pixel
+       here is a pixel of the last card hanging below the fold. */
+    margin-top: 38px;
+  }
+
+  /*
+    A SHORTER WINDOW, which is most laptops.
+
+    The front page is one thought - the team, and the four figures it is
+    measured on - and it only works if the whole thought is on the screen.
+    The measurements above fit a 1920x1080 monitor with room over and run
+    off the bottom of a 1440x900 laptop, so the same space comes off again
+    where there is less of it to begin with.
+
+    Keyed on HEIGHT, which is the thing that is short. Keyed on width too,
+    only to leave the phone layout further down alone: it stacks, and
+    nothing about it is trying to fit in one screen.
+
+    The headline shrinks here and nowhere else. It is the one measurement
+    on this page that can be given up without the page looking squeezed,
+    because at 50px it is already shouting.
+  */
+  @media (min-width: 1100px) and (max-height: 899px) {
+    .portal-hero { padding-top: 10px; }
+    .portal-hero-title { font-size: 37px; margin-bottom: 8px; }
+    .portal-hero-sub { margin-bottom: 10px; font-size: 15px; line-height: 1.55; }
+    .portal-hero-actions.is-more { margin-top: 10px; }
+    .portal-tiles { margin-top: 16px; }
+    .ptile { padding: 10px 15px 10px; }
+  }
+
+  .ptile-compare { grid-column: 1; grid-row: 1 / span 2; }
+  .ptile-itsm    { grid-column: 2; grid-row: 1; }
+  .ptile-faq     { grid-column: 2; grid-row: 2; }
+  .ptile-kpi2    { grid-column: 3; grid-row: 1 / span 2; }
+  .ptile-layers  { grid-column: 4; grid-row: 1 / span 2; }
+
+  .ptile {
+    display: flex; flex-direction: column;
+    padding: 14px 18px 13px;
+    background: var(--portal-card);
+    border: 1px solid rgba(255, 255, 255, .7);
+    border-radius: 16px;
+    box-shadow: 0 10px 30px rgba(8, 26, 66, .14), 0 2px 6px rgba(8, 26, 66, .07);
+    transition: transform .2s cubic-bezier(.3, 0, .2, 1), box-shadow .2s ease;
+  }
+  .ptile:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 20px 46px rgba(8, 26, 66, .20), 0 3px 10px rgba(8, 26, 66, .10);
+  }
+
+  /* ---------- the head every card shares ---------- */
+  .ptile-head {
+    display: flex; align-items: flex-start; justify-content: space-between;
+    gap: 8px; margin-bottom: 10px;
+  }
+  .ptile-label {
+    display: block;
+    font-size: 11px; font-weight: 700; letter-spacing: .07em;
+    text-transform: uppercase; color: var(--text-mut);
+  }
+  .ptile-sub {
+    display: block; margin-top: 2px;
+    font-size: 11.5px; color: var(--text-dim);
+  }
+  .ptile-trend {
+    flex: 0 0 auto;
+    font-size: 11px; font-weight: 700;
+    padding: 3px 7px; border-radius: 999px;
+    background: var(--green-bg); color: var(--green-ink);
+  }
+  /* KPI 2 is not in the approved policy. Said here as it is said on every
+     other screen that shows it, rather than left to be assumed. */
+  .ptile-chip {
+    flex: 0 0 auto;
+    font-size: 10px; font-weight: 700; letter-spacing: .06em;
+    text-transform: uppercase;
+    padding: 3px 7px; border-radius: 999px;
+    background: rgba(37, 99, 235, .10); color: var(--blue-600);
+  }
+
+  /* ---------- the figure ---------- */
+  .ptile-figure { display: flex; align-items: baseline; gap: 9px; flex-wrap: wrap; }
+  .ptile-value {
+    font-size: 30px; font-weight: 700; letter-spacing: -.025em;
+    color: var(--navy-900); line-height: 1.1;
+  }
+  .ptile-value.is-sm { font-size: 24px; }
+  .ptile-unit { font-size: 16px; font-weight: 600; color: var(--text-dim); }
+  .ptile-against { font-size: 11.5px; color: var(--text-mut); }
+
+  /* ---------- legends and axes ---------- */
+  .ptile-legend {
+    display: flex; flex-wrap: wrap; gap: 14px;
+    margin: 12px 0 2px;
+    font-size: 11px; color: var(--text-dim);
+  }
+  .ptile-legend.is-stack { flex-direction: column; gap: 6px; margin: 14px 0 auto; }
+  .ptile-key { display: inline-flex; align-items: center; gap: 6px; }
+  .ptile-dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
+  .ptile-dot.is-now  { background: var(--blue-600); }
+  .ptile-dot.is-was  { background: #9fb3cd; }
+  .ptile-dot.is-rest { background: #e6ecf6; border: 1px solid #d3dfee; }
+
+  /*
+    overflow:visible because a line chart's last point sits ON the right edge
+    of its viewBox, so the dot marking it was being sliced in half. Moving
+    the data inwards instead would leave the area fill short of the edge,
+    which looks like missing data rather than like a margin.
+  */
+  /*
+    SIZED BY RATIO, NOT BY HEIGHT. An SVG with a viewBox keeps its own
+    proportions: give it a box taller than those and it draws at the width
+    and centres, leaving the rest blank. The comparison card had 159 empty
+    pixels down the middle of it that way, and raising the CSS height only
+    made the gap bigger. Each ratio below matches its viewBox, so the box is
+    exactly the drawing.
+
+    auto on the top margin: when the card is stretched taller than its
+    contents - which it is, because all four columns end on one line - the
+    slack falls between the figure and the chart rather than under the axis,
+    where it would read as the card having been left unfinished.
+  */
+  .ptile-chart {
+    display: block; width: 100%; height: auto;
+    aspect-ratio: 220 / 56;
+    margin: auto 0 6px;
+    overflow: visible;
+  }
+  .ptile-chart.is-tall { aspect-ratio: 300 / 230; margin: 0 0 6px; }
+
+  /*
+    The chart and its month labels, as one block, centred in whatever height
+    is left over. Banking the slack above the chart instead left a visible
+    hole between the legend and the plot; split in two it reads as margin.
+  */
+  .ptile-plot { margin: auto 0; }
+
+  .ptile-axis {
+    display: flex; justify-content: space-between;
+    font-size: 10px; color: var(--text-mut); letter-spacing: .02em;
+  }
+
+  .ptile-eyebrow {
+    font-size: 10px; font-weight: 700; letter-spacing: .1em;
+    text-transform: uppercase; color: var(--text-mut);
+    margin-bottom: 8px;
+  }
+  .ptile-foot {
+    margin: auto 0 0; padding-top: 10px;
+    font-size: 11px; line-height: 1.45; color: var(--text-mut);
+  }
+  .ptile-foot b { color: var(--navy-700); }
+
+  /* ---------- the Help and FAQ card: a portrait of the panel ---------- */
+  /*
+    Built to look like the Messages panel rather than to be it - the real one
+    is a bubble in the corner of every page. So it carries the panel's own
+    furniture: the navy bar with the avatar and the collapse chevron, the
+    COMMON QUESTIONS line, and threads showing who last spoke and when.
+
+    It fills whatever height the card has left, because this card shares a
+    column with the ITSM chart above it and the two together have to match
+    the cards either side.
+  */
+  .msgr-demo {
+    flex: 1;
+    display: flex; flex-direction: column;
+    border-radius: 11px; overflow: hidden;
+    border: 1px solid rgba(8, 26, 66, .10);
+    box-shadow: 0 4px 14px rgba(8, 26, 66, .08);
+    background: #fff;
+  }
+
+  .msgr-demo-bar {
+    flex: 0 0 auto;
+    display: flex; align-items: center; gap: 8px;
+    padding: 7px 10px;
+    background: var(--navy-800, #13306b); color: #fff;
+  }
+  .msgr-demo-face {
+    flex: 0 0 auto;
+    width: 19px; height: 19px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(255, 255, 255, .20); color: rgba(255, 255, 255, .92);
+  }
+  .msgr-demo-title { flex: 1; font-size: 11.5px; font-weight: 700; }
+
+  .msgr-demo-body {
+    flex: 1;
+    display: flex; flex-direction: column; gap: 6px;
+    padding: 8px 10px 9px;
+  }
+  .msgr-demo-eyebrow {
+    display: flex; align-items: center; gap: 4px;
+    font-size: 9.5px; font-weight: 700; letter-spacing: .09em;
+    text-transform: uppercase; color: var(--text-mut);
+  }
+
+  .msgr-demo-row {
+    padding-top: 6px;
+    border-top: 1px solid rgba(8, 26, 66, .07);
+  }
+  .msgr-demo-row:first-of-type { border-top: 0; padding-top: 0; }
+  .msgr-demo-top {
+    display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
+  }
+  .msgr-demo-top b { font-size: 11.5px; color: var(--navy-900); }
+  .msgr-demo-when {
+    flex: 0 0 auto; font-size: 9.5px; color: var(--text-mut);
+  }
+  .msgr-demo-row p {
+    margin: 2px 0 0;
+    font-size: 10.5px; line-height: 1.4; color: var(--text-mut);
+    /* One line, cut with an ellipsis, exactly as the real list does it. */
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .msgr-demo-row p i { font-style: normal; font-weight: 600; color: var(--blue-600); }
+
+  /* ---------- the KPI 2 ring ---------- */
+  /*
+    auto on the top here and auto on the legend's bottom: between them the
+    ring and its key are pushed to the middle as one block. The ring alone
+    had auto on all sides and the legend had auto on top, so the two fought
+    and settled with the ring high and the key on the floor.
+  */
+  .ring-wrap {
+    margin: auto auto 0; padding: 6px 0;
+    width: 100%; max-width: 224px;
+  }
+  .ring { display: block; width: 100%; height: auto; }
+  .ring-value {
+    font-size: 26px; font-weight: 700; fill: var(--navy-900);
+    letter-spacing: -.02em;
+  }
+  .ring-note { font-size: 11px; fill: #7d8da4; }
+
+  /* ---------- the service layers ---------- */
+  .layer-stack {
+    display: flex; flex-direction: column; gap: 9px;
+    /* Centred rather than pinned to the top, so a stretched card
+       does not carry all its empty space in one lump underneath. */
+    flex: 1; justify-content: center;
+  }
+  .layer-row {
+    display: flex; align-items: flex-start; gap: 10px;
+    padding: 10px 11px; border-radius: 11px;
+    background: rgba(37, 99, 235, .055);
+    border: 1px solid rgba(37, 99, 235, .10);
+    transition: background .15s ease, border-color .15s ease;
+  }
+  .layer-row:hover {
+    background: rgba(37, 99, 235, .10);
+    border-color: rgba(37, 99, 235, .22);
+  }
+  .layer-no {
+    flex: 0 0 auto;
+    width: 22px; height: 22px; border-radius: 7px;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--blue-600); color: #fff;
+    font-size: 11.5px; font-weight: 700;
+  }
+  .layer-text { min-width: 0; }
+  .layer-text b {
+    display: block;
+    font-size: 12px; line-height: 1.3; color: var(--navy-900);
+  }
+  .layer-kpis {
+    display: flex; flex-wrap: wrap; gap: 5px; margin-top: 5px;
+  }
+  .layer-kpi {
+    padding: 2px 6px; border-radius: 6px;
+    background: rgba(8, 26, 66, .06);
+    font-size: 10px; font-weight: 600; color: var(--text-dim);
+  }
+  /*
+    The one measure that is not in the approved policy, marked as it is
+    everywhere else rather than sitting silently beside three that are. Its
+    own tag, and unbreakable: as text on the end of the name it wrapped to a
+    second line and read as another KPI.
+  */
+  .layer-flag {
+    padding: 2px 6px; border-radius: 6px;
+    border: 1px solid rgba(8, 26, 66, .12);
+    font-size: 9.5px; font-weight: 600; letter-spacing: .04em;
+    color: var(--text-mut); white-space: nowrap;
+  }
+
+  /* =========================================================
+     THE EAS TEAM PAGE
+     =========================================================
+     A page of thirty-seven people, so the thing that matters is scanning:
+     finding one person fast, and seeing who leads a section without reading
+     every card. Cards rather than a table because each one carries a face, a
+     role and three ways to reach somebody - a table of that is six columns
+     wide and unreadable on anything but a desktop.
+  */
+  .portal-page-head { margin: 10px 0 30px; }
+  .portal-page-head .portal-page-title { margin: 0 0 6px; }
+  .portal-page-sub {
+    margin: 0; font-size: 13.5px;
+    color: rgba(255, 255, 255, .80);
+  }
+
+  /* =========================================================
+     THE SWITCH: directory or chart
+     =========================================================
+     Two buttons on the blue, so they are glass like everything else up
+     here. The pressed one is solid white - not a border, not a tint: on a
+     photographic background the only state that reads at a glance is the
+     one that stops being transparent.
+  */
+  .team-switch {
+    display: inline-flex; gap: 6px;
+    margin: 0 0 22px;
+    padding: 5px;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, .22);
+    background: rgba(255, 255, 255, .10);
+    -webkit-backdrop-filter: blur(16px) saturate(160%);
+    backdrop-filter: blur(16px) saturate(160%);
+    box-shadow:
+      0 10px 28px rgba(2, 10, 32, .34),
+      inset 0 1px 0 rgba(255, 255, 255, .26);
+  }
+
+  .team-switch-btn {
+    position: relative;
+    display: inline-flex; align-items: center; gap: 7px;
+    padding: 9px 18px;
+    border: 1px solid transparent; border-radius: 999px;
+    background: none; color: rgba(255, 255, 255, .80);
+    font-family: inherit; font-size: 13px; line-height: 1; font-weight: 700;
+    letter-spacing: .012em; cursor: pointer;
+    transition: color .18s ease, background .18s ease,
+                box-shadow .18s ease, transform .18s ease;
+  }
+  .team-switch-btn svg { opacity: .9; }
+
+  /*
+    THE GLOW IS ON HOVER AND ON THE PRESSED ONE, and it is a shadow rather
+    than a filter: a filter on a button inside a backdrop-filtered bar
+    makes the browser rasterise the lot, and the bar behind it stops
+    blurring the sky.
+  */
+  .team-switch-btn:hover {
+    color: #fff;
+    background: rgba(255, 255, 255, .14);
+    box-shadow: 0 0 20px rgba(150, 200, 255, .36);
+    transform: translateY(-1px);
+  }
+  .team-switch-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+  .team-switch-btn.is-on {
+    background: #fff; color: var(--blue-600);
+    border-color: rgba(255, 255, 255, .9);
+    box-shadow:
+      0 8px 20px rgba(2, 10, 32, .30),
+      0 0 26px rgba(150, 200, 255, .50),
+      inset 0 1px 0 rgba(255, 255, 255, .9);
+    transform: translateY(-1px);
+  }
+  .team-switch-btn.is-on svg { opacity: 1; }
+
+
+  /* =========================================================
+     THE ORGANOGRAM
+     =========================================================
+     Everybody at once: a face, a name and a title, arranged the way the
+     department is. Nothing opens and nothing is hidden, because a shape
+     cannot be read a quarter at a time.
+
+     The connectors are drawn with pseudo-elements rather than an SVG. An
+     SVG would have to be told where every box ended up, which means
+     measuring the layout in JavaScript and redrawing it on every resize;
+     a border that hangs off the element it belongs to simply follows it.
+  */
+  .og { display: flex; flex-direction: column; align-items: center; }
+
+  .og-root { display: flex; flex-direction: column; align-items: center; }
+
+  .og-crown {
+    padding: 7px 16px; border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, .26);
+    background: rgba(255, 255, 255, .12);
+    -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
+    color: #fff;
+    font-size: 11px; font-weight: 700; letter-spacing: .08em;
+    text-transform: uppercase;
+  }
+
+  /* The line between one rung and the next. */
+  .og-drop {
+    display: block; width: 2px; height: 22px;
+    background: linear-gradient(180deg,
+      rgba(255, 255, 255, .42), rgba(255, 255, 255, .16));
+  }
+
+  /* =======================
+     a person, anywhere on the chart
+     =======================
+     DARK, NOT CREAM. The person cards were the directory's cream card
+     reused, and thirty-six of them on a navy chart read as thirty-six
+     sticky notes - the eye went to the paper rather than to the faces.
+     Here they are cut out of the same dark the chart is made of: a lifted
+     pane rather than a card laid on top, with a lit top edge and a hair of
+     the column's accent down the left so the shape says which branch it
+     belongs to without a line being drawn to it.
+  */
+  .og-person {
+    position: relative; overflow: hidden;
+    display: flex; align-items: center; gap: 11px;
+    padding: 9px 13px 9px 12px;
+    border-radius: 13px;
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, .115) 0%,
+                              rgba(255, 255, 255, .045) 100%);
+    border: 1px solid rgba(255, 255, 255, .14);
+    -webkit-backdrop-filter: blur(14px) saturate(150%);
+    backdrop-filter: blur(14px) saturate(150%);
+    box-shadow:
+      0 6px 18px rgba(2, 10, 32, .30),
+      inset 0 1px 0 rgba(255, 255, 255, .22);
+    transition: transform .18s cubic-bezier(.3, 0, .2, 1),
+                box-shadow .18s ease, border-color .18s ease, background .18s ease;
+  }
+  /* The accent, as a hairline down the leading edge. */
+  .og-person::before {
+    content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 2px;
+    background: var(--accent);
+    opacity: .55;
+    transition: opacity .18s ease;
+  }
+  .og-person:hover {
+    transform: translateY(-2px);
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, .17) 0%,
+                              rgba(255, 255, 255, .075) 100%);
+    border-color: rgba(255, 255, 255, .26);
+    box-shadow:
+      0 16px 34px rgba(2, 10, 32, .42),
+      0 0 24px -6px var(--accent),
+      inset 0 1px 0 rgba(255, 255, 255, .34);
+  }
+  .og-person:hover::before { opacity: 1; }
+
+  .og-person .team-face { width: 46px; height: 46px; }
+  .og-person .team-face.is-initials {
+    font-size: 13px;
+    background: rgba(255, 255, 255, .92); color: var(--blue-600);
+    border-color: transparent;
+  }
+
+  .og-person-who { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+  .og-person-who strong {
+    font-size: 12.5px; font-weight: 700; color: #fff;
+    line-height: 1.25; letter-spacing: .006em;
+  }
+  /*
+    The designation, and the presence dot with it. A flex row rather than
+    the dot trailing the text, so a long designation wraps around the dot
+    rather than carrying it onto a line of its own.
+  */
+  .og-title {
+    display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+    font-size: 11px; color: rgba(255, 255, 255, .64);
+  }
+
+  /*
+    THE EMPLOYEE ID, quietest thing on the card. It is what somebody types
+    into SAP, so it has to be legible and exact - which is the one argument
+    for a tabular figure here, where a 1 beside a 7 is read rather than
+    skimmed - and it is not what anybody is scanning the chart for, so it
+    sits under everything else at the lowest contrast that is still plainly
+    readable.
+  */
+  .og-id {
+    margin-top: 2px;
+    font-size: 10px; font-weight: 600; letter-spacing: .055em;
+    font-variant-numeric: tabular-nums;
+    color: rgba(255, 255, 255, .42);
+  }
+  .og-lead .og-id { font-size: 10.5px; color: rgba(255, 255, 255, .50); }
+  .og-flag {
+    font-size: 9px; font-weight: 800; letter-spacing: .07em;
+    text-transform: uppercase; color: var(--accent);
+  }
+
+  /* The head of the department, on the blue and larger. */
+  .og-lead {
+    gap: 13px; padding: 13px 20px 13px 14px;
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, .19) 0%, rgba(255, 255, 255, .075) 100%);
+    border-color: rgba(255, 255, 255, .26);
+    -webkit-backdrop-filter: blur(20px) saturate(160%);
+    backdrop-filter: blur(20px) saturate(160%);
+    box-shadow:
+      0 18px 44px rgba(2, 10, 32, .40),
+      inset 0 1px 0 rgba(255, 255, 255, .32);
+  }
+  .og-lead .team-face { width: 64px; height: 64px; }
+  .og-lead .team-face.is-initials { font-size: 19px; }
+  .og-lead .og-person-who strong { font-size: 15px; color: #fff; }
+  .og-lead .og-title { font-size: 12px; color: rgba(255, 255, 255, .76); }
+  .og-lead .og-flag { color: rgba(255, 255, 255, .86); }
+  .og-lead:hover { transform: none; border-color: rgba(255, 255, 255, .38); }
+
+  /* =======================
+     the four sections
+     ======================= */
+  .og-cols {
+    position: relative;
+    display: grid; grid-template-columns: repeat(var(--og-cols, 4), 1fr);
+    gap: 16px; width: 100%;
+    padding-top: 22px;
+  }
+  /*
+    The bar the columns hang from. Inset by HALF A COLUMN at each end, so it
+    runs from the first drop to the last rather than out past them into
+    space - which is what it did when the inset was written as a flat
+    12.5%: right for four columns, and the chart has as many columns as
+    the department has sections. renderOrganogram sets --og-cols.
+  */
+  .og-cols::before {
+    content: ''; position: absolute; top: 0; height: 2px;
+    left: calc(50% / var(--og-cols, 4));
+    right: calc(50% / var(--og-cols, 4));
+    background: rgba(255, 255, 255, .28);
+  }
+  .og-col { position: relative; display: flex; flex-direction: column; gap: 12px; }
+  /* Each column's own drop, from the bar down to its heading. */
+  .og-col::before {
+    content: ''; position: absolute; top: -22px; left: 50%;
+    width: 2px; height: 22px; margin-left: -1px;
+    background: rgba(255, 255, 255, .28);
+  }
+
+  /*
+    A COLUMN, not a row, since the group mailbox went under the name.
+
+    The name and the count stay on one line together - that is what
+    .og-section-top is - and the address sits beneath them on its own.
+    Putting the address on the same line would have meant four bars whose
+    titles wrap to two lines at the width a column actually gets, which is
+    a worse trade than one extra line that every column pays equally.
+  */
+  .og-section {
+    display: flex; flex-direction: column; gap: 7px;
+    padding: 11px 14px;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, .22);
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, .17) 0%, rgba(255, 255, 255, .07) 100%);
+    -webkit-backdrop-filter: blur(16px) saturate(160%);
+    backdrop-filter: blur(16px) saturate(160%);
+    box-shadow:
+      0 10px 26px rgba(2, 10, 32, .32),
+      inset 0 1px 0 rgba(255, 255, 255, .28);
+  }
+  .og-section-top {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  }
+  .og-section-name {
+    font-size: 10.5px; font-weight: 800; letter-spacing: .07em;
+    text-transform: uppercase; color: #fff; line-height: 1.3;
+  }
+  .og-section-count {
+    flex: none; min-width: 22px; padding: 2px 7px; border-radius: 999px;
+    background: rgba(255, 255, 255, .18);
+    font-size: 10.5px; font-weight: 700; color: #fff; text-align: center;
+  }
+
+  /*
+    The section's group mailbox.
+
+    Lower-case and not upper, unlike the name above it: an email address
+    IS lower-case, and setting one in capitals makes people doubt whether
+    it is the real address. Separated from the name by a hairline rather
+    than by space alone, so the bar reads as two facts about the section
+    and not as a heading that happens to wrap.
+
+    An address does not shorten gracefully - there is no word to drop - so
+    it is allowed to run to the full width of the bar and is clipped with
+    an ellipsis only if the column is narrower than the address, which at
+    four columns it is not.
+  */
+  .og-section-mail {
+    display: flex; align-items: center; gap: 5px;
+    margin-top: 1px; padding-top: 7px;
+    border-top: 1px solid rgba(255, 255, 255, .16);
+    font-size: 10.5px; font-weight: 600; letter-spacing: .01em;
+    color: rgba(255, 255, 255, .78);
+    text-decoration: none; min-width: 0;
+    transition: color .15s ease;
+  }
+  .og-section-mail svg { flex: none; opacity: .75; }
+  .og-section-mail span {
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .og-section-mail:hover { color: var(--accent, #4cc9f0); }
+  .og-section-mail:hover svg { opacity: 1; }
+
+  /* The accent each column carries, the same four as the directory. */
+  .og-col[data-accent="0"] { --accent: #4cc9f0; }
+  .og-col[data-accent="1"] { --accent: #5b9cf8; }
+  .og-col[data-accent="2"] { --accent: #7b86f0; }
+  .og-col[data-accent="3"] { --accent: #9d7bef; }
+  .og-section { border-top: 2px solid var(--accent); }
+
+  /* =======================
+     the modules under a section
+     ======================= */
+  .og-modules { display: flex; flex-direction: column; gap: 10px; }
+
+  /*
+    The module a group of people work in. Barely there on purpose: it is a
+    label with a boundary, and the cards inside it are the content. Made
+    any heavier it competes with them and the column reads as panels
+    rather than as people.
+  */
+  .og-module {
+    display: flex; flex-direction: column; gap: 7px;
+    padding: 9px 9px 10px;
+    border-radius: 14px;
+    background:
+      linear-gradient(180deg, rgba(8, 20, 54, .30) 0%, rgba(8, 20, 54, .14) 100%);
+    border: 1px solid rgba(255, 255, 255, .10);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .07);
+  }
+  .og-module-head {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 8px; padding: 0 3px;
+  }
+  .og-module-name {
+    font-size: 10.5px; font-weight: 800; letter-spacing: .06em;
+    text-transform: uppercase; color: var(--accent);
+  }
+  .og-module-count {
+    font-size: 10px; font-weight: 700; color: rgba(255, 255, 255, .55);
+  }
+  .og-people { display: flex; flex-direction: column; gap: 7px; }
+
+  /*
+    The head of a section. A brighter pane and a full-strength accent edge
+    rather than a ring: on a column of eleven cards the eye finds the one
+    that is lit before it finds the one that is outlined.
+  */
+  .og-person.is-head {
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, .20) 0%,
+                              rgba(255, 255, 255, .085) 100%);
+    border-color: rgba(255, 255, 255, .30);
+    box-shadow:
+      0 10px 26px rgba(2, 10, 32, .40),
+      inset 0 1px 0 rgba(255, 255, 255, .34);
+  }
+  .og-person.is-head::before { opacity: 1; width: 3px; }
+  .og-person.is-head .og-person-who strong { font-size: 13px; }
+
+  /*
+    NARROWER THAN A DESKTOP and the four columns stop being four. Two, then
+    one - the chart still reads top to bottom, it just folds.
+  */
+  @media (max-width: 1080px) {
+    .og-cols { grid-template-columns: repeat(2, 1fr); row-gap: 26px; }
+    .og-cols::before { left: 25%; right: 25%; }
+    .og-col:nth-child(n+3)::before { display: none; }
+  }
+  /* The chart's own bottom margin, so the blue finishes below it rather
+     than against it. */
+  .og { padding-bottom: 8px; }
+  @media (max-width: 680px) {
+    .og-cols { grid-template-columns: 1fr; }
+    .og-cols::before { display: none; }
+    .og-col::before { display: none; }
+  }
+
+
+  /* =========================================================
+     THE DEPARTMENT HEAD
+     =========================================================
+     Above the sections and in the middle, which is where the organogram has
+     him. Glass, because he sits on the blue.
+  */
+  .team-lead-wrap {
+    display: flex; flex-direction: column; align-items: center;
+    margin-bottom: 0;
+  }
+
+  /*
+    THE CARD AT THE TOP OF THE CHART KEEPS ITS SIZE. It was briefly narrowed
+    to one column on a misreading of "match the section card" - the ask was
+    the other way round, and the cards below came up to meet this one.
+  */
+  .team-lead {
+    position: relative;
+    width: min(380px, 100%);
+    display: flex; flex-direction: column; gap: 11px;
+    padding: 18px 20px 16px;
+    border-radius: 18px;
+    overflow: hidden;
+    /* The same frosted-glass build as the section cards: a gradient sheen
+       rather than a flat film, and a lit lip along the top edge. */
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, .19) 0%, rgba(255, 255, 255, .075) 100%);
+    border: 1px solid rgba(255, 255, 255, .24);
+    -webkit-backdrop-filter: blur(20px) saturate(160%);
+    backdrop-filter: blur(20px) saturate(160%);
+    box-shadow:
+      0 18px 48px rgba(2, 10, 32, .42),
+      inset 0 1px 0 rgba(255, 255, 255, .34);
+    transition: box-shadow .2s ease, transform .2s ease, background .2s ease;
+  }
+  .team-lead::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .85), transparent);
+  }
+  .team-lead:hover {
+    transform: translateY(-3px);
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, .26) 0%, rgba(255, 255, 255, .12) 100%);
+    box-shadow:
+      0 26px 60px rgba(2, 10, 32, .50),
+      0 0 34px rgba(150, 200, 255, .38),
+      inset 0 1px 0 rgba(255, 255, 255, .46);
+  }
+
+  .team-lead-flag {
+    align-self: flex-start;
+    font-size: 10px; font-weight: 700; letter-spacing: .09em;
+    text-transform: uppercase;
+    padding: 4px 10px; border-radius: 999px;
+    background: rgba(255, 255, 255, .92); color: var(--blue-600);
+  }
+  .team-lead .team-who strong { color: #fff; font-size: 15px; }
+  .team-lead .team-role { color: rgba(255, 255, 255, .80); }
+  .team-lead .team-face.is-initials {
+    background: rgba(255, 255, 255, .92); color: var(--blue-600);
+    border-color: transparent;
+  }
+  .team-lead .team-lines { border-top-color: rgba(255, 255, 255, .22); }
+  .team-lead .team-line { color: rgba(255, 255, 255, .84); }
+  .team-lead .team-line svg { color: rgba(255, 255, 255, .62); }
+  .team-lead a.team-line:hover { color: #fff; }
+  .team-lead a.team-line:hover svg { color: #fff; }
+
+  /* The line down to the sections. Drawn, because four cards under a fifth
+     is a row of five without it. */
+  .team-stem {
+    width: 2px; height: 30px;
+    background: linear-gradient(rgba(255, 255, 255, .55), rgba(255, 255, 255, .16));
+    border-radius: 2px;
+  }
+
+
+  /* =========================================================
+     THE FOUR SECTIONS
+     ========================================================= */
+  /*
+    The column geometry, declared once. The head card above sizes itself to
+    one of these columns, and a gap changed here and not there would leave
+    it a few pixels wider than the card it is supposed to match - the kind
+    of difference nobody can name and everybody can see.
+  */
+  #teamBody { --team-cols: 4; --team-gap: 16px; }
+
+  /*
+    STRETCH, so the four cards end on the same line. They hold different
+    numbers of contact rows - not everybody has an extension - and at
+    natural height that came out as four cards of three different lengths
+    sitting in a row, which reads as a layout that has slipped. The footer
+    is pushed down by margin-top: auto, so the chevrons line up too.
+  */
+  .team-sections {
+    display: grid;
+    grid-template-columns: repeat(var(--team-cols), 1fr);
+    gap: var(--team-gap);
+    align-items: stretch;
+  }
+
+  /*
+    An opened section spans the whole row rather than widening its own
+    column. Eleven cards inside a quarter-width column is a single file of
+    cards a mile long; across the row they lay out four at a time like every
+    other grid on this site.
+  */
+  .team-sec { display: contents; }
+  .team-sec-card { grid-row: 1; }
+  .team-sec-body { grid-column: 1 / -1; grid-row: 2; }
+  .team-sec:nth-child(1) .team-sec-card { grid-column: 1; }
+  .team-sec:nth-child(2) .team-sec-card { grid-column: 2; }
+  .team-sec:nth-child(3) .team-sec-card { grid-column: 3; }
+  .team-sec:nth-child(4) .team-sec-card { grid-column: 4; }
+
+  /*
+    A SECTION CARD.
+
+    Frosted dark glass rather than a white film. A flat rgba(255,255,255,.12)
+    over a deep blue comes out as a milky grey rectangle - it lightens the
+    background without looking like a material. Two things fix that and both
+    are how real glass behaves: the sheen is a GRADIENT, brighter at the top
+    edge where light would catch it, and there is a hairline of pure white
+    along that edge (the inset shadow) to stand for the lit lip of the pane.
+
+    Each card carries an --accent, set below. It is the only per-card colour
+    and it stays inside the blue family on purpose: the organogram uses green
+    and orange, which would read as status here, where this project has spent
+    a lot of effort making green and amber mean exactly one thing.
+  */
+  .team-sec-card {
+    position: relative;
+    display: flex; flex-direction: column; gap: 12px;
+    width: 100%; text-align: left;
+    padding: 17px 16px 13px;
+    border-radius: 16px;
+    overflow: hidden;
+    border: 1px solid rgba(255, 255, 255, .20);
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, .17) 0%, rgba(255, 255, 255, .065) 100%);
+    -webkit-backdrop-filter: blur(18px) saturate(160%);
+    backdrop-filter: blur(18px) saturate(160%);
+    box-shadow:
+      0 12px 34px rgba(2, 10, 32, .38),
+      inset 0 1px 0 rgba(255, 255, 255, .30);
+    /* Not a button any more - see teamSectionCard(). The head's email and
+       extension live on this card now, and a link inside a button is not a
+       link anybody can press. The footer row is the control. */
+    font: inherit;
+    transition: transform .2s cubic-bezier(.3, 0, .2, 1),
+                background .2s ease, border-color .2s ease, box-shadow .2s ease;
+  }
+
+  /* The accent, as a hairline along the top edge. */
+  .team-sec-card::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    background: linear-gradient(90deg, transparent, var(--accent), transparent);
+    opacity: .75;
+    transition: opacity .2s ease;
+  }
+
+  /*
+    Two variables and not one, because the glow is an rgba and the line is a
+    hex. color-mix() would derive the second from the first in one line, and
+    it is new enough that a browser without it drops the WHOLE box-shadow
+    declaration it appears in - so the hover would lose its shadow entirely
+    rather than just its tint. Not a trade worth one line.
+  */
+  .team-sec:nth-child(1) .team-sec-card { --accent: #4cc9f0; --glow: rgba(76, 201, 240, .42); }
+  .team-sec:nth-child(2) .team-sec-card { --accent: #5b9cf8; --glow: rgba(91, 156, 248, .42); }
+  .team-sec:nth-child(3) .team-sec-card { --accent: #7b86f0; --glow: rgba(123, 134, 240, .42); }
+  .team-sec:nth-child(4) .team-sec-card { --accent: #9d7bef; --glow: rgba(157, 123, 239, .42); }
+
+  .team-sec-card:hover {
+    transform: translateY(-4px);
+    border-color: rgba(255, 255, 255, .34);
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, .25) 0%, rgba(255, 255, 255, .11) 100%);
+    /* The halo takes the card's own accent, so the four do not all glow the
+       same colour - and it is the one place the accent is bright enough to
+       be read as a choice rather than a line. */
+    box-shadow:
+      0 22px 52px rgba(2, 10, 32, .46),
+      0 0 30px var(--glow),
+      inset 0 1px 0 rgba(255, 255, 255, .44);
+  }
+  .team-sec-card:hover::before { opacity: 1; }
+  .team-sec-open:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+
+  /* Open: a solid card, because what is under it is solid too. */
+  .team-sec.is-open .team-sec-card {
+    transform: none;
+    background: var(--portal-card);
+    border-color: transparent;
+    box-shadow: 0 16px 42px rgba(2, 10, 32, .34);
+  }
+  .team-sec.is-open .team-sec-card::before { opacity: 1; }
+
+  .team-sec-name {
+    font-size: 11px; font-weight: 700; letter-spacing: .07em;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, .82);
+  }
+  .team-sec.is-open .team-sec-name { color: var(--blue-600); }
+
+  .team-sec-person { display: flex; align-items: center; gap: 11px; }
+  /* Room for the pill in the corner, so a long section name does not run
+     under it. */
+  .team-sec-name { padding-right: 44px; }
+  /* flex: 1 so the name takes whatever the face leaves, rather than
+     shrinking to its longest unbreakable word and wrapping the rest. */
+  .team-sec-who {
+    display: flex; flex-direction: column; gap: 2px;
+    flex: 1; min-width: 0;
+  }
+  .team-sec-who strong {
+    font-size: 13.5px; font-weight: 700; color: #fff; line-height: 1.25;
+  }
+  .team-sec-role { font-size: 11px; color: rgba(255, 255, 255, .74); }
+  /*
+    The designation and module, under the organogram role. A second line
+    rather than more words on the first: "Section Head, Interim - Senior
+    Manager - MM" is four facts in one breath, and the one somebody is
+    scanning for is the first.
+  */
+  .team-sec-sub {
+    display: block; margin-top: 2px;
+    font-size: 10.5px; color: rgba(255, 255, 255, .58);
+  }
+  .team-sec.is-open .team-sec-who strong { color: var(--navy-900); }
+  .team-sec.is-open .team-sec-role { color: var(--text-dim); }
+  .team-sec.is-open .team-sec-sub { color: var(--text-mut); }
+
+  /* The summary card's face is the same size as every other one; only its
+     colours differ, because it sits on the blue rather than on a card. */
+  /*
+    THE HEAD'S CONTACT LINES, on the glass. .team-lines is written for the
+    cream person cards below, where the ink is dark; up here it sits on the
+    blue and has to be light until the section is opened and the card turns
+    cream like the rest.
+  */
+  .team-sec-card .team-lines {
+    margin-top: 0; padding-top: 10px;
+    border-top-color: rgba(255, 255, 255, .22);
+  }
+  .team-sec-card .team-line { color: rgba(255, 255, 255, .80); }
+  .team-sec-card .team-line svg { color: rgba(255, 255, 255, .55); }
+  .team-sec-card a.team-line:hover { color: #fff; }
+  .team-sec-card a.team-line:hover svg { color: #fff; }
+  .team-sec.is-open .team-sec-card .team-lines {
+    border-top-color: var(--portal-card-rule);
+  }
+  .team-sec.is-open .team-sec-card .team-line { color: var(--text-dim); }
+  .team-sec.is-open .team-sec-card .team-line svg { color: var(--text-mut); }
+  .team-sec.is-open .team-sec-card a.team-line:hover { color: var(--blue-600); }
+
+  /*
+    The blood pill on the glass, where the cream card's red is invisible -
+    and OUT OF THE NAME ROW. These cards are a quarter of the row wide; an
+    88px face and a 45px pill either side of the name left ninety pixels
+    for "Senior Manager - MM", which wrapped onto three lines. Lifted to
+    the corner it costs the name nothing, and it is the same corner it
+    occupies on the person cards below.
+  */
+  .team-sec-card .team-blood {
+    position: absolute; top: 14px; right: 14px; margin: 0;
+    background: rgba(255, 255, 255, .16);
+    border-color: rgba(255, 255, 255, .34);
+    color: #ffd9d9;
+  }
+  .team-sec.is-open .team-sec-card .team-blood {
+    background: var(--red-bg); border-color: #f3cfcf; color: var(--red-ink);
+  }
+
+  .team-sec-card .team-face.is-initials {
+    background: rgba(255, 255, 255, .92); color: var(--blue-600);
+    border-color: transparent;
+  }
+
+  /*
+    THE CONTROL. It was the whole card; it is this row. A button carrying a
+    section name, a face, a designation and three contact links is a button
+    with links inside it, which is neither valid nor pressable - so the card
+    went back to being a card and the row that already said "9 members" and
+    carried the chevron took the job it was always describing.
+  */
+  .team-sec-open {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    width: 100%; margin-top: auto;
+    padding: 10px 0 0;
+    border: 0; border-top: 1px solid rgba(255, 255, 255, .22);
+    background: none; text-align: left;
+    font: inherit; font-size: 11px; color: rgba(255, 255, 255, .78);
+    cursor: pointer;
+  }
+  .team-sec-open:hover { color: #fff; }
+  .team-sec.is-open .team-sec-open:hover { color: var(--navy-900); }
+  .team-sec.is-open .team-sec-open {
+    border-top-color: var(--portal-card-rule); color: var(--text-dim);
+  }
+  .team-sec-open svg { transition: transform .2s ease; }
+  .team-sec.is-open .team-sec-open svg { transform: rotate(180deg); }
+
+  .team-sec-body { padding: 16px 0 4px; }
+
+
+  /* =========================================================
+     THE PEOPLE INSIDE A SECTION
+     =========================================================
+     Solid white: they sit below the blue, and a glass card over the light
+     surface is a grey card.
+  */
+  /*
+    WIDER CARDS, FEWER PER ROW. The email address is the only thing on one
+    of these long enough to matter, and at 248px it was the thing being
+    cut - a thirty-character address trailing off into an ellipsis on a
+    card whose whole job is letting somebody reach that person. 300px fits
+    the longest address this team has with room over, and on a 1400px
+    screen it still lays out four across.
+  */
+  .team-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 16px;
+  }
+
+  .team-card {
+    display: flex; flex-direction: column; gap: 12px;
+    padding: 18px 18px 16px;
+    background: var(--portal-card);
+    border: 1px solid var(--portal-card-edge); border-radius: 14px;
+    box-shadow: 0 2px 10px rgba(8, 26, 66, .07);
+    transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease;
+  }
+  .team-card:hover {
+    transform: translateY(-2px);
+    border-color: #ddcfb8;
+    box-shadow: 0 12px 30px rgba(8, 26, 66, .16);
+  }
+
+  .team-card-top { display: flex; align-items: center; gap: 13px; }
+
+  /*
+    THE PHOTOGRAPH. 76px, up from 56 and before that 42 - and the reason to
+    keep going is that the real photographs arrived and settled the
+    argument. At 56 these are passport stamps: the face is there, you can
+    tell it is a person, you cannot tell WHICH person without reading the
+    name underneath. That is the one job a photograph on a directory has.
+
+    A circle makes it smaller than it looks, too. A 76px circle shows the
+    area of a 60px square, so the box has to run ahead of the face you want
+    to see inside it.
+
+    The size lives here and the two cards below override it, one up and one
+    down: the person card is the one being looked at, the summary card
+    carries four other things besides, and the lead card is the hero.
+  */
+  .team-face {
+    flex: 0 0 auto;
+    width: 88px; height: 88px;
+    border-radius: 50%;
+    object-fit: cover;
+    /*
+      CROPPED TOWARDS THE HEAD, NOT THE MIDDLE.
+
+      These are standing portraits - most of them show somebody from the
+      waist or chest up - and a square crop taken from the centre of one of
+      those is mostly shirt. The face ends up occupying perhaps a third of
+      the circle, so a 76px avatar was showing a 25px face, and no amount
+      of resolution fixes that: the pixels were being spent on a tie.
+
+      30% rather than the top, because a photograph already framed tight on
+      the head would lose its chin to an aggressive crop. 30 is far enough
+      to lift a full-length portrait onto the face and near enough the
+      middle to leave a headshot alone.
+    */
+    object-position: center 30%;
+    background: var(--blue-050);
+  }
+  .team-face.is-initials {
+    display: flex; align-items: center; justify-content: center;
+    font-size: 24px; font-weight: 700; letter-spacing: .02em;
+    color: var(--blue-600);
+    border: 1px solid #d8e5f8;
+  }
+  /*
+    ONE FACE SIZE ON THE WHOLE PAGE. The head card, the four section cards
+    and the person cards inside them all draw at 88px now. Three sizes was
+    a hierarchy nobody had asked for, and the smallest of them - 58px on
+    the four cards everybody looks at first - was the one being squinted
+    at. The rule above carries all three; there is nothing to override.
+  */
+
+  .team-who { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .team-who strong {
+    font-size: 15px; font-weight: 700; color: var(--navy-900);
+    line-height: 1.25;
+  }
+
+  /*
+    BLOOD GROUP. Pushed to the far end of the header row, away from the name
+    and the designation, because it is not part of either - it is the one
+    thing on this card that somebody reads in a hurry, and only ever once.
+    Red, which is the only colour it could be, and quiet enough at rest that
+    a wall of cards does not read as a wall of warnings.
+  */
+  .team-blood {
+    flex: 0 0 auto; margin-left: auto; align-self: flex-start;
+    padding: 3px 9px; border-radius: 999px;
+    background: var(--red-bg); border: 1px solid #f3cfcf;
+    color: var(--red-ink);
+    font-size: 11.5px; font-weight: 800; letter-spacing: .02em;
+    line-height: 1.3; white-space: nowrap;
+  }
+  .team-lead .team-blood {
+    background: rgba(255, 255, 255, .16); border-color: rgba(255, 255, 255, .34);
+    color: #ffd9d9;
+  }
+  /*
+    What this person is ON THE CHART - Section Head, and whether that is
+    interim. Above the designation and in the card's accent, because it is
+    the thing the organogram exists to show; the designation underneath is
+    what they are everywhere else.
+  */
+  .team-flag {
+    display: block; margin-bottom: 1px;
+    font-size: 10px; font-weight: 700; letter-spacing: .05em;
+    text-transform: uppercase; color: var(--blue-600);
+  }
+  .team-lead .team-flag { color: rgba(255, 255, 255, .82); }
+  .team-role { font-size: 12.5px; color: var(--text-dim); }
+
+  .team-lines {
+    display: flex; flex-direction: column; gap: 7px;
+    margin-top: auto;
+    padding-top: 12px;
+    border-top: 1px solid var(--portal-card-rule);
+  }
+
+  .team-line {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 12.5px; color: var(--text-dim);
+    text-decoration: none;
+    /*
+      The address is the long one - some of these run past twenty characters -
+      so it is the part allowed to be cut. Wrapping instead would make every
+      card in the row as tall as the longest address in it.
+    */
+    min-width: 0;
+  }
+  .team-line span {
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .team-line svg { flex: 0 0 auto; color: var(--text-mut); }
+  a.team-line:hover { color: var(--blue-600); }
+  a.team-line:hover svg { color: var(--blue-500); }
+  a.team-line:focus-visible { outline: 2px solid var(--blue-500); outline-offset: 2px; }
+
+  /* The roster disagreement note - admins only, and it says why it matters. */
+  .team-drift {
+    margin-top: 26px;
+    padding: 14px 16px;
+    background: var(--amber-bg);
+    border: 1px solid #f4dfae; border-radius: 12px;
+    font-size: 12px; line-height: 1.6; color: var(--amber-ink);
+  }
+  .team-drift div { margin-top: 6px; }
+
+  /* =========================================================
+     THE BACK BUTTON
+     ========================================================= */
+  .portal-back {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 6px 12px 6px 9px;
+    border: 1px solid rgba(255, 255, 255, .28); border-radius: 999px;
+    background: rgba(255, 255, 255, .10);
+    -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+    color: rgba(255, 255, 255, .90);
+    /* Longhands, not the font shorthand: `inherit` is illegal as the family
+       inside it and takes the whole declaration down with it. See the note
+       on .portal-cta for what that cost. */
+    font-family: inherit; font-size: 12px; line-height: 1; font-weight: 600;
+    cursor: pointer;
+    transition: background .16s ease, box-shadow .16s ease, transform .16s ease;
+  }
+  .portal-back:hover {
+    background: rgba(255, 255, 255, .20);
+    box-shadow: 0 0 16px rgba(150, 200, 255, .45);
+    /* Leftwards, because that is the direction the button means. */
+    transform: translateX(-2px);
+  }
+  .portal-back:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+
+
+  /* =========================================================
+     THE LINKS PAGE
+     =========================================================
+     One card now, built to take a list: the stack behind it is drawn with
+     two pseudo-elements rather than with real empty cards, so a second link
+     added later lands beside this one instead of having to displace a prop.
+  */
+  /*
+    THE LINKS PAGE.
+
+    One bar per system, the full width of the page. It began as a narrow card
+    with a paragraph in it and a stack of panes drawn behind; both are gone.
+    The paragraph repeated the line under the heading once per link, and the
+    stack was scenery - it implied cards that were not there, which is a
+    strange thing to draw on a page whose whole job is to be an honest list.
+
+    GLASS, with the cream down to a trace. It has been walked down twice -
+    solid cream, then cream at a fifth - and this is the end of that road:
+    enough warmth left that the bar is not icy next to the cream cards on
+    the other pages, not enough to read as a surface of its own.
+
+    What replaces it is more glass, not more colour: a deeper blur, a
+    stronger lit lip along the top edge, and a halo on hover. Those are what
+    make a pane look like a pane; tint only ever made it look like paper.
+  */
+  .link-stack {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 14px;
+  }
+
+  .link-card {
+    position: relative; overflow: hidden;
+    display: flex; align-items: center; gap: 16px;
+    padding: 18px 22px;
+    border-radius: 16px;
+    text-decoration: none;
+    border: 1px solid rgba(255, 255, 255, .26);
+    /* A trace of warmth - 255,251,244 rather than pure white - and that is
+       all the cream there is left in it. */
+    background:
+      linear-gradient(180deg, rgba(255, 251, 244, .15) 0%, rgba(255, 251, 244, .05) 100%);
+    -webkit-backdrop-filter: blur(26px) saturate(185%);
+    backdrop-filter: blur(26px) saturate(185%);
+    box-shadow:
+      0 16px 42px rgba(2, 10, 32, .36),
+      inset 0 1px 0 rgba(255, 255, 255, .40);
+    transition: transform .2s cubic-bezier(.3, 0, .2, 1),
+                background .2s ease, border-color .2s ease, box-shadow .2s ease;
+  }
+
+  /* The lit lip along the top edge, as on every other glass panel here. */
+  .link-card::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .95), transparent);
+    opacity: .8; transition: opacity .2s ease;
+  }
+  .link-card:hover {
+    transform: translateY(-3px);
+    border-color: rgba(255, 255, 255, .48);
+    background:
+      linear-gradient(180deg, rgba(255, 251, 244, .24) 0%, rgba(255, 251, 244, .09) 100%);
+    box-shadow:
+      0 28px 62px rgba(2, 10, 32, .48),
+      0 0 46px rgba(130, 190, 255, .60),
+      inset 0 1px 0 rgba(255, 255, 255, .58);
+  }
+  .link-card:hover::before { opacity: 1; }
+  .link-card:focus-visible { outline: 2px solid #fff; outline-offset: 4px; }
+
+  .link-card-mark {
+    flex: 0 0 auto;
+    display: flex; align-items: center; justify-content: center;
+    width: 42px; height: 42px;
+    border-radius: 12px;
+    background: rgba(255, 255, 255, .93);
+    color: var(--blue-600);
+    box-shadow: 0 2px 10px rgba(2, 10, 32, .22);
+  }
+  .link-card-mark svg { width: 20px; height: 20px; }
+
+  .link-card-text { display: flex; min-width: 0; }
+  .link-card-text strong {
+    font-size: 16px; font-weight: 700; color: #fff; letter-spacing: -.01em;
+  }
+
+  .link-card-go {
+    flex: 0 0 auto; margin-left: auto;
+    color: rgba(255, 255, 255, .60);
+    transition: color .16s ease, transform .16s ease;
+  }
+  .link-card-go svg { width: 17px; height: 17px; display: block; }
+  .link-card:hover .link-card-go {
+    color: #fff;
+    transform: translate(3px, -3px);
+  }
+
+  /* ---------- the waiting pages ---------- */
+  .portal-empty {
+    padding: 34px 30px;
+    background: var(--portal-card);
+    border: 1px solid rgba(255, 255, 255, .7); border-radius: 16px;
+    box-shadow: 0 10px 30px rgba(8, 26, 66, .14);
+    max-width: 68ch;
+  }
+  .portal-empty h2 {
+    margin: 0 0 9px;
+    font-size: 17px; font-weight: 700; color: var(--navy-700);
+  }
+  .portal-empty p {
+    margin: 0; font-size: 13.5px; line-height: 1.65; color: var(--text-dim);
+  }
+
+  .portal-phase-note {
+    margin: 26px 0 0;
+    font-size: 12px; line-height: 1.6; color: var(--text-dim);
+    text-align: center;
+  }
+  .portal-phase-note b { color: var(--navy-700); }
+
+  /* ---------- footer ---------- */
+  /*
+    The right-hand padding is the messenger bubble's footprint - about 290px
+    wide, 20px off the edge. Without it the second half of the footer sits
+    underneath the bubble and reads as a rendering fault.
+  */
+  .portal-foot {
+    flex: 0 0 auto;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 330px 0 24px; height: 46px;
+    background: var(--portal-card);
+    border-top: 1px solid var(--portal-card-edge);
+    font-size: 11.5px; color: var(--text-dim);
+    position: relative; z-index: 1;
+  }
+  .portal-foot-dim { color: var(--text-mut); }
+
+
+  /* =========================================================
+     THE WRITTEN PAGES - About us, Partners
+     =========================================================
+     One head and two card grids, shared so the two pages read as the same
+     kind of page: a small pill, a heading that breaks over two lines, and
+     the paragraph set beside it rather than under it.
+
+     Everything here is glass on the blue, so the sky runs the whole height
+     the way it does on Links - glass over the light surface is a grey box,
+     and a fixed height would be a guess at how long the page will ever be.
+  */
+  /*
+    BOTH OF THESE RUN BLUE ALL THE WAY DOWN, because every card on them is
+    glass and glass over the light surface is a grey box.
+
+    About us was tried the other way - a band behind the heading and white
+    below - and put back. It is noted here because the reasoning for the
+    break was sound and somebody will have it again: on white the pillars
+    cannot be glass, so they become solid cream with dark type, and at that
+    point the two content pages are built from two different materials and
+    stop looking like one site. A fixed height would also be a guess at how
+    long the page will ever be, and the first card past the edge is the one
+    that looks broken.
+  */
+  .portal[data-page="about"] .portal-sky,
+  .portal[data-page="partners"] .portal-sky { height: 100%; border-radius: 0; }
+
+  /*
+    LEARNINGS IS THE SAME CASE, and it is not optional there.
+
+    Every surface on that page is glass: the search bar, the chips, the
+    document cards, the tree and the reading pane. Glass over the light
+    page surface is not a lighter pane - it is a GREY SLAB, and the first
+    screenshot of the finished page showed exactly that: a row of grey
+    rectangles with chips on them that had all but vanished.
+
+    100% rather than a measured height like the team page uses. There the
+    sky has to stop, because the people underneath are solid cards that
+    want the light surface; here there is nothing below the glass to want
+    anything, so there is no measurement to get wrong.
+  */
+  .portal[data-page="learnings"] .portal-sky,
+  .portal[data-page="knowledge"] .portal-sky { height: 100%; border-radius: 0; }
+
+  /* ---------- the shared head ---------- */
+  .pcontent-head { padding: 26px 0 34px; }
+
+  .pcontent-pill {
+    display: inline-block; margin-bottom: 18px;
+    padding: 6px 15px; border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, .26);
+    background: rgba(255, 255, 255, .11);
+    -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+    font-size: 10.5px; font-weight: 700; letter-spacing: .14em;
+    text-transform: uppercase; color: rgba(255, 255, 255, .88);
+  }
+
+  /*
+    Heading left, paragraph right. The gap is wide and the paragraph narrow
+    on purpose: a lede that runs the full width of a 1180px page is a line
+    the eye loses its place in, and the empty middle is what makes the
+    heading look deliberate rather than merely left-aligned.
+  */
+  .pcontent-headline {
+    display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 380px);
+    gap: 24px 60px; align-items: end;
+  }
+  .pcontent-title {
+    margin: 0;
+    font-size: 46px; line-height: 1.08; font-weight: 700;
+    letter-spacing: -.03em; color: #fff;
+    text-shadow: 0 2px 20px rgba(4, 16, 46, .4);
+  }
+  .pcontent-lede {
+    margin: 0 0 6px; font-size: 13.5px; line-height: 1.65;
+    color: rgba(255, 255, 255, .78);
+  }
+
+  /* ---------- the glass card both grids use ---------- */
+  /*
+    The same recipe as a team section card - gradient sheen, lit top lip,
+    accent halo on hover - rather than a second idea about what glass looks
+    like on this site.
+  */
+  .pillar, .zone {
+    position: relative; overflow: hidden;
+    display: flex; flex-direction: column;
+    padding: 20px 19px 18px;
+    border-radius: 18px;
+    border: 1px solid rgba(255, 255, 255, .20);
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, .17) 0%, rgba(255, 255, 255, .065) 100%);
+    -webkit-backdrop-filter: blur(18px) saturate(160%);
+    backdrop-filter: blur(18px) saturate(160%);
+    box-shadow:
+      0 12px 34px rgba(2, 10, 32, .38),
+      inset 0 1px 0 rgba(255, 255, 255, .30);
+    transition: transform .2s cubic-bezier(.3, 0, .2, 1),
+                background .2s ease, border-color .2s ease, box-shadow .2s ease;
+  }
+
+  /* The accent only shows as a bar along the top edge and as the hover
+     halo. Kept in the blue family, because green and amber mean one thing
+     on this site now and it is not decoration. */
+  .pillar::before, .zone::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    background: linear-gradient(90deg, var(--accent), rgba(255, 255, 255, 0));
+    opacity: .75; transition: opacity .2s ease;
+  }
+  .pillar[data-accent="0"], .zone[data-accent="0"] { --accent: #4cc9f0; --glow: rgba(76, 201, 240, .42); }
+  .pillar[data-accent="1"], .zone[data-accent="1"] { --accent: #5b9cf8; --glow: rgba(91, 156, 248, .42); }
+  .pillar[data-accent="2"], .zone[data-accent="2"] { --accent: #9d7bef; --glow: rgba(157, 123, 239, .42); }
+  .pillar[data-accent="3"], .zone[data-accent="3"] { --accent: #7b86f0; --glow: rgba(123, 134, 240, .42); }
+
+  .pillar:hover, .zone:hover {
+    transform: translateY(-4px);
+    border-color: rgba(255, 255, 255, .34);
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, .25) 0%, rgba(255, 255, 255, .11) 100%);
+    box-shadow:
+      0 22px 52px rgba(2, 10, 32, .46),
+      0 0 30px var(--glow),
+      inset 0 1px 0 rgba(255, 255, 255, .44);
+  }
+  .pillar:hover::before, .zone:hover::before { opacity: 1; }
+
+  /* ---------- About us: the three pillars ---------- */
+  .pillar-grid {
+    display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 18px;
+  }
+  .pillar-top {
+    display: flex; align-items: baseline; justify-content: space-between;
+    gap: 10px;
+  }
+  .pillar-word {
+    font-size: 23px; font-weight: 700; letter-spacing: -.02em; color: #fff;
+  }
+  /* How many responsibilities sit under this word. Counted by the page. */
+  .pillar-count {
+    flex: 0 0 auto;
+    padding: 3px 9px; border-radius: 999px;
+    background: rgba(255, 255, 255, .13);
+    border: 1px solid rgba(255, 255, 255, .18);
+    font-size: 11px; font-weight: 600; color: rgba(255, 255, 255, .80);
+  }
+  .pillar-line {
+    margin: 7px 0 15px; font-size: 12.5px; line-height: 1.5;
+    color: var(--accent);
+  }
+  .pillar-list {
+    margin: 0; padding: 0; list-style: none;
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  /*
+    A rule between the lines rather than a bullet glyph. Fourteen bullets
+    down one column is what the slide does and what makes it unreadable; a
+    hairline says "another one" without putting a mark at the start of every
+    line for the eye to step over.
+  */
+  .pillar-list li {
+    padding-top: 10px;
+    border-top: 1px solid rgba(255, 255, 255, .13);
+    font-size: 12.5px; line-height: 1.55;
+    color: rgba(255, 255, 255, .86);
+  }
+  .pillar-list li:first-child { padding-top: 0; border-top: 0; }
+
+  /* ---------- About us: the closing line ---------- */
+  .pcontent-band {
+    margin-top: 26px;
+    display: flex; align-items: center; justify-content: center;
+    flex-wrap: wrap; gap: 12px;
+    padding: 20px 24px; border-radius: 18px;
+    border: 1px solid rgba(255, 255, 255, .18);
+    background: rgba(255, 255, 255, .08);
+    -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px);
+    font-size: 21px; font-weight: 700; letter-spacing: -.02em; color: #fff;
+  }
+  .pcontent-band b { font-weight: 700; }
+  .pcontent-band-lead { color: rgba(255, 255, 255, .72); font-weight: 600; }
+  .pcontent-eq, .pcontent-plus { color: #4cc9f0; font-weight: 400; margin: 0 2px; }
+
+  /* ---------- Partners: who is serving them ---------- */
+  .vendor-strip {
+    display: flex; align-items: center; flex-wrap: wrap; gap: 12px;
+    margin-bottom: 18px;
+    padding: 13px 18px; border-radius: 14px;
+    border: 1px solid rgba(255, 255, 255, .18);
+    background: rgba(255, 255, 255, .09);
+    -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
+    color: rgba(255, 255, 255, .88);
+  }
+  .vendor-mark {
+    padding: 4px 10px; border-radius: 8px;
+    background: rgba(255, 255, 255, .92); color: var(--blue-600);
+    font-size: 11.5px; font-weight: 800; letter-spacing: .04em;
+  }
+  .vendor-name { font-size: 14px; font-weight: 700; color: #fff; }
+  .vendor-sep {
+    width: 1px; height: 16px; background: rgba(255, 255, 255, .22);
+  }
+  .vendor-count { font-size: 12.5px; color: rgba(255, 255, 255, .78); }
+  .vendor-count b { color: #fff; font-size: 14px; }
+
+  /* ---------- Partners: one card per zone ---------- */
+  .zone-grid {
+    display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 18px; align-items: start;
+  }
+  .zone-top {
+    display: flex; align-items: baseline; justify-content: space-between;
+    gap: 10px;
+  }
+  .zone-code {
+    font-size: 25px; font-weight: 800; letter-spacing: -.02em; color: #fff;
+  }
+  .zone-count {
+    flex: 0 0 auto;
+    padding: 3px 10px; border-radius: 999px;
+    background: rgba(255, 255, 255, .13);
+    border: 1px solid rgba(255, 255, 255, .18);
+    font-size: 11px; font-weight: 600; color: rgba(255, 255, 255, .80);
+  }
+  .zone-name {
+    margin: 6px 0 15px; font-size: 12px; line-height: 1.45;
+    color: var(--accent);
+  }
+  .zone-plants { display: flex; flex-wrap: wrap; gap: 7px; }
+
+  /*
+    One chip per plant. Chips rather than a comma-separated line because the
+    question this page is asked is "are we on it" - and a name you can find
+    by scanning a grid is quicker to answer that with than a name inside a
+    sentence twelve items long.
+  */
+  .plant {
+    padding: 5px 10px; border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, .16);
+    background: rgba(255, 255, 255, .10);
+    font-size: 11.5px; font-weight: 600; color: rgba(255, 255, 255, .90);
+    transition: background .15s ease, border-color .15s ease,
+                transform .15s ease;
+  }
+  .plant:hover {
+    background: rgba(255, 255, 255, .22);
+    border-color: rgba(255, 255, 255, .34);
+    transform: translateY(-1px);
+  }
+
+
+  /* =========================================================
+     NARROWER WINDOWS
+     ========================================================= */
+  /*
+    Ten tabs centred between the mark and the identity strip need about
+    1500px. Below that the glass pill drops to its own row and goes back to
+    scrolling, with a shadow marking whichever end still has tabs behind it -
+    a tab nobody can see is a tab nobody visits, which is the same reason
+    there is no More menu.
+  */
+  @media (max-width: 1500px) {
+    .portal-top { height: auto; flex-wrap: wrap; padding: 12px 18px 14px; gap: 10px 14px; }
+    /*
+      The row goes full width, which is what makes it wrap below the mark and
+      the identity strip; the pill inside keeps its own width and is centred
+      on it. Once the tabs genuinely outgrow the window the pill fills the
+      row and scrolls, with the shadows below marking what is off-screen.
+    */
+    .portal-navwrap {
+      position: static; transform: none;
+      order: 3; width: 100%; max-width: none;
+    }
+    .portal-nav {
+      background:
+        linear-gradient(to right, rgba(255, 255, 255, .22) 30%, rgba(255, 255, 255, 0)) left / 26px 100% no-repeat local,
+        linear-gradient(to left,  rgba(255, 255, 255, .22) 30%, rgba(255, 255, 255, 0)) right / 26px 100% no-repeat local,
+        radial-gradient(farthest-side at 0 50%, rgba(3, 14, 40, .3), rgba(3, 14, 40, 0)) left / 12px 100% no-repeat scroll,
+        radial-gradient(farthest-side at 100% 50%, rgba(3, 14, 40, .3), rgba(3, 14, 40, 0)) right / 12px 100% no-repeat scroll,
+        rgba(255, 255, 255, .13);
+    }
+  }
+
+  @media (max-width: 1080px) {
+    /*
+      The collage collapses to two columns, and every card goes back to
+      taking one row of its own - the explicit grid-row spans above are what
+      makes the stagger, and keeping them here would leave holes rather than
+      a layout. The offsets go with them for the same reason.
+    */
+    .portal-tiles { grid-template-columns: repeat(2, 1fr); }
+    .ptile-compare, .ptile-itsm, .ptile-faq, .ptile-kpi2, .ptile-layers {
+      grid-column: auto; grid-row: auto; margin-top: 0;
+    }
+    .ptile-compare { grid-column: 1 / -1; }
+    .ptile-chart.is-tall { height: 170px; }
+    .portal-hero-title { font-size: 46px; }
+    /*
+      Tuned so the FIRST row of cards straddles the bottom edge of the sky,
+      which is the whole effect: cards half on the colour and half off it.
+      At 700px the first row sat entirely inside the blue and the second row
+      entirely outside, which reads as two unrelated groups rather than one
+      set of cards coming off a hero.
+    */
+    .portal[data-page="home"] .portal-sky { height: 647px; }
+
+    /*
+      Three glass cards side by side stop working well before the window
+      does: the pillar lists are full sentences, and at a third of 1080px
+      they break after two or three words each. Two across, with the last
+      one taking the full width rather than sitting as a half-empty orphan.
+    */
+    .pillar-grid, .zone-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .pillar-grid > :last-child:nth-child(odd),
+    .zone-grid > :last-child:nth-child(odd) { grid-column: 1 / -1; }
+    .pcontent-title { font-size: 38px; }
+    .pcontent-headline { grid-template-columns: minmax(0, 1fr); align-items: start; }
+  }
+
+  @media (max-width: 760px) {
+    .pillar-grid, .zone-grid { grid-template-columns: 1fr; }
+    .pcontent-head { padding: 18px 0 24px; }
+    .pcontent-title { font-size: 29px; }
+    .pcontent-band { font-size: 17px; gap: 8px; padding: 16px 18px; }
+    .zone-code { font-size: 21px; }
+    .portal-top { padding: 10px 14px 12px; }
+    .portal-brand-text span { display: none; }
+    .portal-page { padding: 12px 16px 96px; }
+    .portal-hero { padding: 22px 0 6px; }
+    .portal-hero-title { font-size: 34px; max-width: none; }
+    .portal-hero-sub { font-size: 14.5px; }
+    .portal-tiles { grid-template-columns: 1fr; margin-top: 44px; }
+    .ptile-compare { grid-column: auto; }
+    .ptile-chart.is-tall { height: 140px; }
+    .portal-page-title { font-size: 25px; }
+    .portal[data-page="home"] .portal-sky { height: 578px; }
+    .portal-foot { height: auto; padding: 12px 16px; }
+    .portal-foot-dim { display: none; }
+  }
+
+  /* ==========================================================================
+     LEARNINGS
+     ==========================================================================
+
+     NOT THE CREAM THE TEAM CARDS USE. That colour was chosen to make a
+     person's card feel like a printed card, and it is right there. It is
+     wrong here: a library of PDFs rendered on cream puts a warm page
+     behind a white page, and the document - which is the thing somebody
+     came to read - ends up looking like a misprint sitting on top of the
+     furniture.
+
+     So the whole screen is INK, and the only white on it is the document
+     itself. The tree, the cards and the file list are deep translucent
+     panes over the portal's own sky; the preview is a white sheet lit
+     against them. A reading desk, with one lamp on it.
+
+     The four accents are the portal's four, in the same order the
+     organogram and the directory use them, so a colour means the same
+     thing on every screen.
+  */
+  /*
+    THE KNOWLEDGE COLOURS ARE DECLARED HERE TOO.
+
+    The search bar borrows them, and custom properties are inherited from
+    the element they are set on - which was #view-knowledge and the portal
+    bar, neither of which is an ancestor of the search box. Without this
+    the bar silently fell back to the literals in its own rules, which is
+    the kind of thing that works until somebody changes the colour in the
+    one place it is supposed to live.
+  */
+  #view-learnings {
+    --kn-rgb: 120, 141, 170;
+    --kn-lit-rgb: 157, 176, 204;
+    --kn-pale-rgb: 185, 202, 226;
+    /*
+      LIFTED OFF THE SKY, not sunk into it.
+
+      The first pass set the panes at 52% of a near-black navy, which on a
+      screenshot of a full library read as a grid of holes: the cards were
+      DARKER than the background they sat on, so the page looked like
+      punched card stock rather than like paper on a desk. A surface that
+      holds something should catch more light than the thing behind it.
+
+      So the pane is now a lighter blue at lower opacity, which lifts it
+      clear of the sky at every point of the gradient, and the three text
+      levels below it were all raised a notch with it - at 250 documents
+      the module and business tags are what the eye actually scans, and at
+      58% white on a dark pane they were the faintest thing on the card.
+    */
+    --lrn-pane: rgba(32, 58, 112, .42);
+    --lrn-pane-lit: rgba(44, 74, 134, .54);
+    --lrn-edge: rgba(255, 255, 255, .17);
+    --lrn-edge-lit: rgba(255, 255, 255, .34);
+    --lrn-raise: rgba(255, 255, 255, .07);
+    /*
+      THESE THREE ARE SET BY MEASUREMENT, not by eye.
+
+      Every one of them is white at some opacity over a translucent pane
+      over the sky, and the sky is a stack of radial gradients - so what a
+      reader actually sees depends on where on the page the card happens to
+      sit. Picking these by looking at one screenshot is picking them for
+      one spot.
+
+      So they are chosen to clear a 4.5:1 contrast ratio against the
+      LIGHTEST point of the sky, which for white text is the worst case,
+      and learn-ui-test measures exactly that. .72 and .55 were the first
+      guesses and came out at 4.30 and 4.05 - close enough to look fine in
+      the middle of the page and not fine at the top left.
+    */
+    --lrn-text: rgba(255, 255, 255, .95);
+    --lrn-dim: rgba(255, 255, 255, .80);
+    --lrn-faint: rgba(255, 255, 255, .65);
+    max-width: 1340px;
+  }
+
+  /*
+    SCOPED TO THIS PAGE. A bare [data-accent="0"] selector would set the
+    variable on the organogram's columns and the Customers tab's zone
+    cards too - they carry the same attribute - and a custom property that
+    leaks onto elements that never asked for it is how a stylesheet
+    becomes impossible to reason about later.
+  */
+  #view-learnings [data-accent="0"] { --lrn-accent: #4cc9f0; }
+  #view-learnings [data-accent="1"] { --lrn-accent: #5b9cf8; }
+  #view-learnings [data-accent="2"] { --lrn-accent: #7b86f0; }
+  #view-learnings [data-accent="3"] { --lrn-accent: #9d7bef; }
+
+  /* ---------- the headline and the three figures ---------- */
+  .lrn-head {
+    display: flex; align-items: flex-end; justify-content: space-between;
+    gap: 28px; margin: 6px 0 20px;
+  }
+  .lrn-eyebrow {
+    display: inline-block; margin-bottom: 10px;
+    padding: 4px 11px; border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, .2);
+    background: rgba(255, 255, 255, .08);
+    font-size: 10px; font-weight: 800; letter-spacing: .14em;
+    text-transform: uppercase; color: rgba(255, 255, 255, .8);
+  }
+  .lrn-title {
+    margin: 0 0 7px;
+    font-size: 38px; font-weight: 700; letter-spacing: -.03em;
+    line-height: 1.05; color: #fff;
+    text-shadow: 0 1px 16px rgba(6, 22, 60, .34);
+  }
+  .lrn-sub {
+    margin: 0; font-size: 14.5px; line-height: 1.5;
+    color: rgba(255, 255, 255, .68); max-width: 52ch;
+  }
+
+  .lrn-stats { display: flex; gap: 10px; flex: none; }
+  .lrn-stat {
+    display: flex; flex-direction: column; align-items: center; gap: 1px;
+    min-width: 86px; padding: 11px 14px;
+    border-radius: 13px;
+    border: 1px solid var(--lrn-edge);
+    background: var(--lrn-pane);
+    -webkit-backdrop-filter: blur(16px) saturate(155%);
+    backdrop-filter: blur(16px) saturate(155%);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .13);
+  }
+  .lrn-stat strong {
+    font-size: 23px; font-weight: 700; line-height: 1.1;
+    letter-spacing: -.02em; color: #fff;
+  }
+  .lrn-stat span {
+    font-size: 9.5px; font-weight: 700; letter-spacing: .1em;
+    text-transform: uppercase; color: var(--lrn-faint); white-space: nowrap;
+  }
+
+  /* ---------- the search box ---------- */
+  /*
+    THE SEARCH BAR, WHICH IS THE CONTROL THIS PAGE IS BUILT AROUND.
+
+    At 250 documents it is how anybody finds anything, and it was the
+    flattest thing on the screen - a rectangle the same weight as the
+    cards under it. It now has three states that each say something:
+
+      at rest   a lit top edge and a soft halo, so it reads as the raised
+                control on the page rather than another pane
+      hover     the halo widens and the glass brightens, before the
+                pointer has committed to anything
+      focus     a cyan ring. The one state that has to be unmistakable,
+                because it is the only one where typing does something.
+
+    ::before is the glow and it sits BEHIND the bar with a negative inset,
+    so the halo spreads outside the border instead of being clipped to it.
+    A box-shadow would have done one colour; this one is a gradient, which
+    is what makes it read as light rather than as a grey edge.
+  */
+  .lrn-search {
+    position: relative; isolation: isolate;
+    display: flex; align-items: center; gap: 12px;
+    padding: 0 18px; height: 58px; margin-bottom: 16px;
+    border-radius: 16px;
+    /*
+      LIGHTER THAN THE PANES UNDER IT, by enough to be seen.
+      It was a dark pane among dark panes, which made the control this
+      page is built around the hardest thing on it to find. It is now a
+      tint of the same #788daa the portal bar above it is painted in -
+      related, so the two read as a pair at the top of the page, and
+      lighter rather than filled, because a search box has to be a place
+      to type and the bar above it has to stay the thing you press.
+    */
+    border: 1px solid rgba(var(--kn-pale-rgb, 185, 202, 226), .4);
+    background:
+      linear-gradient(180deg, rgba(var(--kn-lit-rgb, 157, 176, 204), .34) 0%,
+                              rgba(var(--kn-rgb, 120, 141, 170), .26) 100%);
+    -webkit-backdrop-filter: blur(22px) saturate(170%);
+    backdrop-filter: blur(22px) saturate(170%);
+    box-shadow:
+      0 18px 44px rgba(2, 8, 26, .42),
+      inset 0 1px 0 rgba(255, 255, 255, .26);
+    transition: border-color .2s ease, box-shadow .2s ease,
+                transform .2s ease;
+  }
+  .lrn-search::before {
+    content: ''; position: absolute; inset: -1.5px; z-index: -1;
+    border-radius: 17.5px;
+    background: linear-gradient(110deg,
+      rgba(76, 201, 240, .5) 0%, rgba(91, 156, 248, .34) 34%,
+      rgba(157, 123, 239, .34) 68%, rgba(76, 201, 240, .42) 100%);
+    /*
+      Low at rest and high on hover, rather than bright all the time. A
+      halo that never changes is a haze - it makes the bar look slightly
+      out of focus and says nothing, because a signal that is always on
+      is not a signal.
+    */
+    opacity: .26; filter: blur(8px);
+    transition: opacity .22s ease, filter .22s ease;
+  }
+  .lrn-search:hover {
+    transform: translateY(-1px);
+    border-color: rgba(255, 255, 255, .66);
+    background:
+      linear-gradient(180deg, rgba(var(--kn-lit-rgb, 157, 176, 204), .44) 0%,
+                              rgba(var(--kn-rgb, 120, 141, 170), .34) 100%);
+    box-shadow:
+      0 22px 52px rgba(2, 8, 26, .5),
+      inset 0 1px 0 rgba(255, 255, 255, .32);
+  }
+  .lrn-search:hover::before { opacity: .62; filter: blur(10px); }
+  .lrn-search:focus-within {
+    transform: none;
+    border-color: rgba(76, 201, 240, .72);
+    box-shadow:
+      0 18px 44px rgba(2, 8, 26, .42),
+      0 0 0 3px rgba(76, 201, 240, .22),
+      inset 0 1px 0 rgba(255, 255, 255, .3);
+  }
+  .lrn-search:focus-within::before { opacity: .9; filter: blur(12px); }
+  .lrn-search > svg {
+    flex: none; color: var(--lrn-dim);
+    transition: color .18s ease;
+  }
+  .lrn-search:focus-within > svg { color: #7fdcff; }
+  /*
+    EVERY ONE OF THESE LONGHANDS IS LOAD-BEARING. An input does not inherit
+    the page's font, its colour, or its background - it takes the browser's,
+    which is 13.3px Arial on a white box. The `font` shorthand cannot be
+    used to fix that in one line, because `font: 600 15px/1 inherit` is
+    invalid CSS and the whole declaration is dropped. That mistake sat in
+    .portal-cta for months.
+  */
+  .lrn-search input {
+    flex: 1; min-width: 0;
+    border: 0; outline: 0; background: transparent;
+    font-family: inherit; font-size: 15px; font-weight: 500;
+    line-height: 1.3; color: #fff;
+    -webkit-appearance: none; appearance: none;
+  }
+  .lrn-search input::placeholder { color: rgba(255, 255, 255, .38); font-weight: 400; }
+  /* Safari draws its own cross in the corner and it is unreadable on ink. */
+  .lrn-search input::-webkit-search-cancel-button { -webkit-appearance: none; }
+  .lrn-search-count {
+    flex: none; padding: 4px 10px; border-radius: 999px;
+    background: rgba(255, 255, 255, .1);
+    font-size: 11px; font-weight: 700; color: var(--lrn-dim);
+    white-space: nowrap;
+  }
+
+  /* ---------- the filter chips ---------- */
+  .lrn-chips {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 7px;
+    margin-bottom: 20px;
+  }
+  /*
+    A SEPARATOR, NOT A GAP IN THE MARKUP. The chips are three questions in
+    one row - what kind, whose module, which business - and without a
+    break between the groups it reads as one list of fourteen arbitrary
+    words. It collapses to nothing when the row wraps at that point, so it
+    never leaves a floating mark at the start of a line.
+  */
+  .lrn-chip-gap {
+    width: 1px; height: 17px; margin: 0 5px;
+    background: rgba(255, 255, 255, .16);
+  }
+  .lrn-chip {
+    display: inline-flex; align-items: center; gap: 7px;
+    padding: 7px 13px; border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, .15);
+    background: rgba(255, 255, 255, .055);
+    font-family: inherit; font-size: 12.5px; font-weight: 600;
+    line-height: 1; color: rgba(255, 255, 255, .76);
+    cursor: pointer;
+    transition: background .16s ease, border-color .16s ease,
+                color .16s ease, transform .16s ease;
+  }
+  .lrn-chip-n {
+    font-size: 10.5px; font-weight: 700; color: var(--lrn-faint);
+    font-variant-numeric: tabular-nums;
+  }
+  .lrn-chip:hover {
+    transform: translateY(-1px);
+    background: rgba(255, 255, 255, .11);
+    border-color: var(--lrn-edge-lit); color: #fff;
+  }
+  /*
+    THE CHIP THAT IS ON WEARS ITS OWN ACCENT, not one shared highlight.
+    The accent is the same one the type's cards and its dot in the tree
+    use, so pressing "SOP" lights the row in the colour the SOP cards are
+    already wearing and the connection does not have to be explained.
+  */
+  .lrn-chip.is-on {
+    background: color-mix(in srgb, var(--lrn-accent, #4cc9f0) 20%, transparent);
+    border-color: color-mix(in srgb, var(--lrn-accent, #4cc9f0) 62%, transparent);
+    color: #fff;
+    box-shadow: 0 6px 18px color-mix(in srgb, var(--lrn-accent, #4cc9f0) 24%, transparent);
+  }
+  .lrn-chip.is-on .lrn-chip-n { color: rgba(255, 255, 255, .8); }
+  /*
+    color-mix is recent enough that a browser two years old does not have
+    it, and without this the "on" chip would be indistinguishable from the
+    others - the one state the row exists to show. Declared BEFORE the
+    rules above in cascade terms by being in a @supports not block, so a
+    browser that does understand color-mix ignores it entirely.
+  */
+  @supports not (background: color-mix(in srgb, red 20%, transparent)) {
+    .lrn-chip.is-on {
+      background: rgba(76, 201, 240, .22);
+      border-color: rgba(76, 201, 240, .62);
+    }
+  }
+  .lrn-chip.is-all.is-on {
+    background: rgba(255, 255, 255, .92); border-color: #fff; color: #0b1d3f;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, .22);
+  }
+  .lrn-chip.is-all.is-on .lrn-chip-n { color: rgba(11, 29, 63, .6); }
+
+  /* ---------- the grid of documents ---------- */
+  .lrn-grid {
+    display: grid; gap: 13px;
+    grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+  }
+  /*
+    A BUTTON and not a link, because pressing it does not leave the page -
+    it opens the reader, which is the same screen. The browser's button
+    defaults are all undone here: text-align, font and the grey box.
+  */
+  .lrn-card {
+    display: grid; grid-template-columns: auto 1fr; gap: 0 13px;
+    align-content: start; text-align: left;
+    padding: 15px 16px 13px;
+    border-radius: 16px;
+    border: 1px solid var(--lrn-edge);
+    background: var(--lrn-pane);
+    -webkit-backdrop-filter: blur(16px) saturate(155%);
+    backdrop-filter: blur(16px) saturate(155%);
+    box-shadow:
+      0 12px 30px rgba(2, 10, 32, .26),
+      inset 0 1px 0 rgba(255, 255, 255, .11);
+    font-family: inherit; cursor: pointer; position: relative; overflow: hidden;
+    transition: transform .2s ease, box-shadow .2s ease, border-color .2s ease;
+  }
+  /* The accent, as a hairline along the top edge rather than a block of it. */
+  .lrn-card::before {
+    content: ''; position: absolute; inset: 0 0 auto 0; height: 2px;
+    background: linear-gradient(90deg,
+      var(--lrn-accent, #4cc9f0), transparent 78%);
+    opacity: .85;
+  }
+  .lrn-card:hover {
+    transform: translateY(-3px);
+    border-color: var(--lrn-edge-lit);
+    box-shadow:
+      0 20px 42px rgba(2, 10, 32, .4),
+      inset 0 1px 0 rgba(255, 255, 255, .16);
+  }
+  .lrn-card:focus-visible {
+    outline: 2px solid var(--lrn-accent, #4cc9f0); outline-offset: 2px;
+  }
+
+  /*
+    THE FILE'S KIND, AS THREE LETTERS IN A TILE. An icon of a page with a
+    corner folded is the same picture for a 900KB SOP and a 40-minute
+    training video; the three letters say which in the space the picture
+    would have taken.
+  */
+  .lrn-mark {
+    display: grid; place-items: center; flex: none;
+    width: 38px; height: 38px; border-radius: 11px;
+    background: rgba(255, 255, 255, .11);
+    border: 1px solid rgba(255, 255, 255, .16);
+    color: rgba(255, 255, 255, .88);
+    grid-row: span 2;
+  }
+  /*
+    A COLOUR PER FORMAT, at the strength the format is recognised by. Red
+    for a PDF and orange for a deck are not decoration - they are the half
+    of the recognition that happens before anybody reads anything, which
+    is the whole reason these are drawings now and not the letters PDF and
+    PPT. The tint is carried by the tile and the stroke colour together,
+    so the glyph reads at 19px without a fill.
+  */
+  .lrn-mark[data-kind="pdf"], .lrn-pane-icon[data-kind="pdf"]   { background: rgba(229, 72, 77, .26);   color: #ffb3ae; border-color: rgba(229, 72, 77, .42); }
+  .lrn-mark[data-kind="slide"], .lrn-pane-icon[data-kind="slide"] { background: rgba(242, 116, 13, .26);  color: #ffc48a; border-color: rgba(242, 116, 13, .42); }
+  .lrn-mark[data-kind="sheet"], .lrn-pane-icon[data-kind="sheet"] { background: rgba(34, 183, 120, .24);  color: #87e9bc; border-color: rgba(34, 183, 120, .4); }
+  .lrn-mark[data-kind="doc"], .lrn-pane-icon[data-kind="doc"]   { background: rgba(72, 140, 248, .26);  color: #a8caff; border-color: rgba(72, 140, 248, .42); }
+  .lrn-mark[data-kind="video"], .lrn-pane-icon[data-kind="video"] { background: rgba(245, 170, 20, .26);  color: #ffd681; border-color: rgba(245, 170, 20, .42); }
+  .lrn-mark[data-kind="image"], .lrn-pane-icon[data-kind="image"] { background: rgba(167, 123, 248, .26); color: #d3bcff; border-color: rgba(167, 123, 248, .42); }
+
+  /*
+    Named for a screen reader and for nobody else. Not display:none, which
+    takes it out of the accessibility tree along with everything else.
+  */
+  .sr-only {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+  }
+
+  .lrn-card-body { min-width: 0; }
+  .lrn-card-title {
+    display: block; margin-bottom: 7px;
+    font-size: 14.5px; font-weight: 650; line-height: 1.32;
+    letter-spacing: -.005em; color: #fff;
+    /*
+      Two lines and then an ellipsis. Titles run from "Destruction Process
+      in SAP" to "SAP S4HANA Leftover Declaration and Amortization
+      Principle", and a grid whose cards are each as tall as their own
+      title is a grid with holes in it.
+    */
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .lrn-card-tags { display: flex; flex-wrap: wrap; gap: 5px; }
+  .lrn-tag {
+    padding: 2.5px 8px; border-radius: 6px;
+    background: rgba(255, 255, 255, .13);
+    border: 1px solid rgba(255, 255, 255, .17);
+    font-size: 10px; font-weight: 700; letter-spacing: .03em;
+    color: var(--lrn-dim); white-space: nowrap;
+  }
+  .lrn-tag.is-type {
+    background: color-mix(in srgb, var(--lrn-accent, #4cc9f0) 20%, transparent);
+    border-color: color-mix(in srgb, var(--lrn-accent, #4cc9f0) 42%, transparent);
+    color: #fff;
+  }
+  @supports not (background: color-mix(in srgb, red 20%, transparent)) {
+    .lrn-tag.is-type {
+      background: rgba(76, 201, 240, .2); border-color: rgba(76, 201, 240, .42);
+      color: #fff;
+    }
+  }
+  .lrn-card-foot {
+    grid-column: 2; display: flex; justify-content: space-between; gap: 10px;
+    margin-top: 11px; padding-top: 9px;
+    border-top: 1px solid rgba(255, 255, 255, .08);
+    font-size: 10.5px; font-weight: 600; color: var(--lrn-faint);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .lrn-wait, .lrn-none {
+    grid-column: 1 / -1;
+    display: flex; flex-direction: column; align-items: center; gap: 5px;
+    padding: 48px 20px; border-radius: 16px;
+    border: 1px dashed rgba(255, 255, 255, .16);
+    background: rgba(255, 255, 255, .03);
+    color: var(--lrn-dim); font-size: 13.5px;
+  }
+  .lrn-none strong { font-size: 15px; font-weight: 700; color: #fff; }
+
+  /* ==========================
+     THE READER
+     ========================== */
+  .lrn-back {
+    display: inline-flex; align-items: center; gap: 7px;
+    margin: 4px 0 16px; padding: 8px 15px 8px 11px;
+    border-radius: 999px;
+    border: 1px solid var(--lrn-edge);
+    background: rgba(255, 255, 255, .06);
+    font-family: inherit; font-size: 12.5px; font-weight: 650;
+    line-height: 1; color: rgba(255, 255, 255, .82);
+    cursor: pointer;
+    transition: background .16s ease, border-color .16s ease, color .16s ease;
+  }
+  .lrn-back:hover {
+    background: rgba(255, 255, 255, .12);
+    border-color: var(--lrn-edge-lit); color: #fff;
+  }
+
+  /*
+    THE DESK: the tree on the left, everything else on the right.
+
+    A fixed 232px for the tree rather than a fraction. The folder names are
+    short and known - Common, MM, SD, PP, FI-CO - so the column does not
+    need to grow, and a fractional tree steals width from the document,
+    which is the one thing on this screen that benefits from every pixel.
+  */
+  .lrn-desk {
+    display: grid; grid-template-columns: 232px minmax(0, 1fr); gap: 16px;
+    align-items: start;
+  }
+
+  .lrn-tree {
+    display: flex; flex-direction: column; gap: 3px;
+    padding: 14px 12px;
+    border-radius: 16px;
+    border: 1px solid var(--lrn-edge);
+    background: var(--lrn-pane);
+    -webkit-backdrop-filter: blur(18px) saturate(155%);
+    backdrop-filter: blur(18px) saturate(155%);
+    box-shadow:
+      0 14px 34px rgba(2, 10, 32, .28),
+      inset 0 1px 0 rgba(255, 255, 255, .11);
+    /*
+      It follows the page down. The document beside it is tall - a PDF
+      preview is 640px of pane - and a tree that scrolls away means going
+      back to the top of the page to change folder.
+    */
+    position: sticky; top: 16px;
+  }
+  .lrn-tree-cap {
+    padding: 8px 10px 5px;
+    font-size: 9.5px; font-weight: 800; letter-spacing: .12em;
+    text-transform: uppercase; color: var(--lrn-faint);
+  }
+  .lrn-tree-cap:not(:first-child) { margin-top: 9px; }
+
+  .lrn-folder, .lrn-sub {
+    display: flex; align-items: center; gap: 9px;
+    width: 100%; padding: 8px 10px; border-radius: 9px;
+    border: 1px solid transparent; background: transparent;
+    font-family: inherit; font-size: 13px; font-weight: 600;
+    line-height: 1.3; color: rgba(255, 255, 255, .72);
+    text-align: left; cursor: pointer;
+    transition: background .14s ease, color .14s ease, border-color .14s ease;
+  }
+  .lrn-folder > span:not(.lrn-dot):not(.lrn-n) {
+    flex: 1; min-width: 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .lrn-dot {
+    flex: none; width: 7px; height: 7px; border-radius: 50%;
+    background: var(--lrn-accent, #4cc9f0);
+    box-shadow: 0 0 9px color-mix(in srgb, var(--lrn-accent, #4cc9f0) 65%, transparent);
+  }
+  .lrn-n {
+    flex: none; font-size: 10.5px; font-weight: 700;
+    color: var(--lrn-faint); font-variant-numeric: tabular-nums;
+  }
+  .lrn-folder:hover, .lrn-sub:hover {
+    background: rgba(255, 255, 255, .07); color: #fff;
+  }
+  .lrn-folder.is-on, .lrn-sub.is-on {
+    background: rgba(255, 255, 255, .12);
+    border-color: var(--lrn-edge-lit); color: #fff;
+  }
+  .lrn-folder.is-on .lrn-n, .lrn-sub.is-on .lrn-n { color: rgba(255, 255, 255, .8); }
+  .lrn-folder.is-root { font-weight: 700; }
+
+  /*
+    MG and RMG, indented under the module they belong to, with a rail
+    drawn down the gutter so the indent reads as containment rather than
+    as two chips that happen to be further in.
+  */
+  .lrn-subs {
+    display: flex; flex-direction: column; gap: 2px;
+    margin: 2px 0 4px 19px; padding-left: 11px;
+    border-left: 1px solid rgba(255, 255, 255, .14);
+  }
+  .lrn-sub {
+    justify-content: space-between;
+    padding: 6px 9px; font-size: 12px; font-weight: 600;
+  }
+
+  /* ---------- the pane the document is read in ---------- */
+  .lrn-pane {
+    border-radius: 18px;
+    border: 1px solid var(--lrn-edge);
+    background: var(--lrn-pane);
+    -webkit-backdrop-filter: blur(18px) saturate(155%);
+    backdrop-filter: blur(18px) saturate(155%);
+    box-shadow:
+      0 18px 44px rgba(2, 10, 32, .32),
+      inset 0 1px 0 rgba(255, 255, 255, .11);
+    overflow: hidden;
+  }
+  .lrn-pane-head {
+    display: flex; align-items: center; gap: 13px;
+    padding: 14px 16px;
+    border-bottom: 1px solid rgba(255, 255, 255, .09);
+  }
+  .lrn-pane-icon {
+    display: grid; place-items: center; flex: none;
+    width: 40px; height: 40px; border-radius: 11px;
+    background: rgba(255, 255, 255, .09);
+    border: 1px solid rgba(255, 255, 255, .12);
+    font-size: 10px; font-weight: 800; letter-spacing: .06em;
+    color: rgba(255, 255, 255, .8);
+  }
+  /*
+    THE PANE'S TILE TAKES ITS COLOUR FROM THE SAME PLACE THE CARDS DO.
+
+    It used to carry its own pair of rules for pdf and video, written when
+    the tiles were lettered, and they were quietly left behind when the
+    card palette was redrawn - so the same PDF was one red on a card and a
+    different red in the reader, and only for two of the seven kinds. The
+    per-kind colours are declared once now, on both selectors together;
+    see the .lrn-mark block above.
+
+    `none` is the pane's alone: a card always has a file, and only the
+    reader has a tile with nothing open in it.
+  */
+  .lrn-pane-icon[data-kind="none"] {
+    background: rgba(255, 255, 255, .05); border-color: rgba(255, 255, 255, .1);
+  }
+  .lrn-pane-who {
+    display: flex; flex-direction: column; gap: 3px; flex: 1; min-width: 0;
+  }
+  .lrn-pane-who strong {
+    font-size: 16px; font-weight: 700; letter-spacing: -.015em; color: #fff;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .lrn-pane-meta {
+    font-size: 11.5px; font-weight: 500; color: var(--lrn-dim);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .lrn-pane-acts { display: flex; gap: 8px; flex: none; }
+
+  .lrn-btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    padding: 9px 16px; border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, .2);
+    background: rgba(255, 255, 255, .08);
+    font-family: inherit; font-size: 12.5px; font-weight: 700;
+    line-height: 1; color: #fff; text-decoration: none;
+    white-space: nowrap; cursor: pointer;
+    transition: background .16s ease, border-color .16s ease,
+                transform .16s ease, box-shadow .16s ease;
+  }
+  .lrn-btn:hover {
+    background: rgba(255, 255, 255, .15);
+    border-color: var(--lrn-edge-lit); transform: translateY(-1px);
+  }
+  .lrn-btn.is-primary {
+    background: linear-gradient(180deg, #5bb4f8 0%, #3d87ea 100%);
+    border-color: rgba(120, 190, 255, .6); color: #fff;
+    box-shadow: 0 8px 20px rgba(61, 135, 234, .34);
+  }
+  .lrn-btn.is-primary:hover {
+    background: linear-gradient(180deg, #6cbeff 0%, #4a93f2 100%);
+    box-shadow: 0 12px 26px rgba(61, 135, 234, .44);
+  }
+  /*
+    DEAD UNTIL A DOCUMENT IS OPEN, and really dead: renderLearnDoc removes
+    the href as well, so this is the look of a control that cannot be used
+    rather than a grey coat over a live one. pointer-events is belt and
+    braces for the gap between the class landing and the href going.
+  */
+  .lrn-btn.is-off {
+    opacity: .34; pointer-events: none; cursor: default;
+    box-shadow: none; transform: none;
+  }
+
+  /*
+    THE DOCUMENT AND THE LIST BESIDE IT.
+
+    The list is 272px and fixed, like the tree, and for the same reason:
+    everything else goes to the document.
+  */
+  .lrn-pane-body {
+    display: grid; grid-template-columns: minmax(0, 1fr) 272px;
+    min-height: 560px;
+  }
+
+  .lrn-view { position: relative; background: rgba(2, 8, 24, .22); }
+  /*
+    THE ONE WHITE THING ON THE SCREEN. A PDF renders on white whatever the
+    page around it does, so the frame is given white rather than left to
+    show the ink through its margins - which produced a white page inside
+    a dark frame inside a white-ish band, three edges where there should
+    be one.
+  */
+  .lrn-frame {
+    display: block; width: 100%; height: 100%; min-height: 560px;
+    border: 0; background: #fff;
+  }
+  .lrn-view-wait {
+    display: flex; flex-direction: column; align-items: center;
+    justify-content: center; gap: 7px; height: 100%; min-height: 560px;
+    padding: 30px; text-align: center; color: var(--lrn-dim);
+  }
+  .lrn-view-wait strong { font-size: 15px; font-weight: 700; color: rgba(255, 255, 255, .82); }
+  .lrn-view-wait span { font-size: 12.5px; }
+  .lrn-view-mark {
+    width: 52px; height: 64px; margin-bottom: 6px; border-radius: 5px;
+    border: 2px dashed rgba(255, 255, 255, .22);
+  }
+
+  .lrn-files {
+    display: flex; flex-direction: column; min-width: 0;
+    border-left: 1px solid rgba(255, 255, 255, .09);
+    background: var(--lrn-raise);
+  }
+  .lrn-files-head {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    padding: 12px 14px;
+    border-bottom: 1px solid rgba(255, 255, 255, .08);
+    font-size: 11px; font-weight: 800; letter-spacing: .07em;
+    text-transform: uppercase; color: var(--lrn-dim);
+  }
+  .lrn-files-head > span:first-child {
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .lrn-files-list {
+    display: flex; flex-direction: column; gap: 4px;
+    padding: 9px; overflow-y: auto; max-height: 560px;
+  }
+  .lrn-files-none {
+    padding: 22px 14px; font-size: 12.5px; color: var(--lrn-faint);
+    text-align: center;
+  }
+
+  .lrn-file {
+    display: flex; align-items: center; gap: 10px;
+    width: 100%; padding: 9px 10px; border-radius: 11px;
+    border: 1px solid transparent; background: transparent;
+    font-family: inherit; text-align: left; cursor: pointer;
+    transition: background .14s ease, border-color .14s ease;
+  }
+  .lrn-file .lrn-mark { width: 30px; height: 30px; border-radius: 8px; font-size: 8.5px; }
+  .lrn-file-who { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .lrn-file-who strong {
+    font-size: 12.5px; font-weight: 650; line-height: 1.3; color: rgba(255, 255, 255, .92);
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .lrn-file-who span { font-size: 10.5px; font-weight: 600; color: var(--lrn-faint); }
+  .lrn-file:hover { background: rgba(255, 255, 255, .07); }
+  .lrn-file.is-on {
+    background: rgba(255, 255, 255, .12);
+    border-color: var(--lrn-accent, #4cc9f0);
+  }
+  .lrn-file.is-on .lrn-file-who span { color: rgba(255, 255, 255, .68); }
+
+  /* ---------- narrower screens ---------- */
+  @media (max-width: 1180px) {
+    .lrn-pane-body { grid-template-columns: minmax(0, 1fr) 232px; }
+    .lrn-desk { grid-template-columns: 206px minmax(0, 1fr); }
+  }
+  @media (max-width: 980px) {
+    /*
+      The three-column desk becomes one column: tree, then the list, then
+      the document. The document goes LAST because at this width it is
+      the tallest thing on the page by a factor of four, and putting it
+      between the tree and the list would mean scrolling past a whole PDF
+      to get from one to the other.
+    */
+    .lrn-desk { grid-template-columns: minmax(0, 1fr); }
+    .lrn-tree { position: static; flex-direction: row; flex-wrap: wrap; }
+    .lrn-tree-cap { width: 100%; }
+    .lrn-folder, .lrn-sub { width: auto; }
+    .lrn-subs { margin-left: 0; border-left: 0; padding-left: 0; flex-direction: row; }
+    .lrn-pane-body { grid-template-columns: minmax(0, 1fr); min-height: 0; }
+    .lrn-files {
+      border-left: 0; border-bottom: 1px solid rgba(255, 255, 255, .09);
+      order: -1;
+    }
+    .lrn-files-list { max-height: 260px; }
+    .lrn-frame, .lrn-view-wait { min-height: 460px; }
+  }
+  @media (max-width: 760px) {
+    .lrn-head { flex-direction: column; align-items: stretch; gap: 16px; }
+    .lrn-title { font-size: 30px; }
+    .lrn-stats { justify-content: space-between; }
+    .lrn-stat { flex: 1; min-width: 0; }
+    .lrn-pane-head { flex-wrap: wrap; }
+    .lrn-pane-acts { width: 100%; }
+    .lrn-btn { flex: 1; }
+    .lrn-grid { grid-template-columns: minmax(0, 1fr); }
+  }
+
+  /* ==========================================================================
+     KNOWLEDGE SHARE
+     ==========================================================================
+
+     ITS OWN COLOUR, AND THAT IS THE WHOLE POINT OF IT.
+
+     Everything on Learnings is approved: signed off, named to a
+     convention, owned by whoever owns the process. Nothing here is - it
+     is what a colleague worked out on Tuesday. Two pages built from the
+     same three panes and painted the same way would invite somebody to
+     quote a screenshot from this one as policy, and that is a mistake
+     worth a colour to prevent.
+
+     #788daa, the lighter of the two that were put to me. The darker
+     #415a78 was the other, and it loses against the sky - which has just
+     been taken a quarter deeper, so a muted dark blue on it reads as a
+     smudge rather than as a signal. The lighter one holds at every point
+     of the gradient and still sits well away from the four bright accents
+     the rest of the portal uses.
+  */
+  /*
+    ONE DEFINITION, AND THE CHANNELS SEPARATELY.
+
+    Nearly every use of this colour is at some opacity - a border at 46%,
+    a tile at 32%, a hover at 36% - and CSS cannot put an alpha onto a hex
+    custom property without color-mix, which is younger than some of the
+    browsers in this building. So the channels are a variable of their own
+    and the uses are rgba(var(--kn-rgb), x).
+
+    Written out as hardcoded rgba() first, which was wrong in a way a test
+    found: changing --kn did nothing, because nothing read it. A colour
+    that is "defined" in a variable nothing uses is a colour defined in
+    nine places.
+  */
+  #view-knowledge, .kn-portal {
+    --kn-rgb: 120, 141, 170;
+    --kn-lit-rgb: 157, 176, 204;
+    --kn: rgb(var(--kn-rgb));
+    --kn-lit: rgb(var(--kn-lit-rgb));
+    --kn-pale-rgb: 185, 202, 226;
+    --kn-deep: #415a78;
+  }
+  #view-knowledge {
+    --lrn-pane: rgba(42, 58, 86, .44);
+    --lrn-pane-lit: rgba(56, 76, 108, .56);
+    --lrn-edge: rgba(185, 202, 226, .2);
+    --lrn-edge-lit: rgba(185, 202, 226, .38);
+    --lrn-raise: rgba(185, 202, 226, .08);
+    --lrn-dim: rgba(255, 255, 255, .80);
+    --lrn-faint: rgba(255, 255, 255, .65);
+    --lrn-accent: var(--kn);
+    max-width: 1340px;
+  }
+
+  /* ---------- the way in, from the Learnings page ---------- */
+  /*
+    FILLED, NOT TINTED.
+
+    The first version painted this at a quarter opacity over the sky, and
+    it was hard to see - the one thing a way-in to another page must not
+    be. The colour chosen for it is #788daa, so the bar is now that
+    colour, with a slight gradient for depth rather than enough
+    transparency to lose it in the background.
+  */
+  .kn-portal {
+    display: flex; align-items: center; gap: 14px; width: 100%;
+    margin-bottom: 14px; padding: 13px 16px;
+    border-radius: 15px;
+    border: 1px solid rgba(var(--kn-lit-rgb), .62);
+    background:
+      linear-gradient(100deg, rgba(var(--kn-rgb), .96) 0%,
+                              rgba(var(--kn-rgb), .80) 58%,
+                              rgba(var(--kn-rgb), .9) 100%);
+    -webkit-backdrop-filter: blur(18px) saturate(150%);
+    backdrop-filter: blur(18px) saturate(150%);
+    box-shadow:
+      0 12px 30px rgba(2, 8, 26, .3),
+      inset 0 1px 0 rgba(var(--kn-pale-rgb), .22);
+    font-family: inherit; text-align: left; cursor: pointer;
+    transition: transform .2s ease, border-color .2s ease,
+                box-shadow .2s ease, background .2s ease;
+  }
+  .kn-portal:hover {
+    transform: translateY(-2px);
+    border-color: #cdd9ea;
+    background:
+      linear-gradient(100deg, rgba(var(--kn-lit-rgb), 1) 0%,
+                              rgba(var(--kn-rgb), .96) 58%,
+                              rgba(var(--kn-lit-rgb), .96) 100%);
+    box-shadow:
+      0 18px 40px rgba(2, 8, 26, .42),
+      0 0 0 1px rgba(var(--kn-lit-rgb), .2),
+      inset 0 1px 0 rgba(var(--kn-pale-rgb), .3);
+  }
+  .kn-portal:focus-visible { outline: 2px solid var(--kn-lit); outline-offset: 3px; }
+  .kn-portal-mark {
+    display: grid; place-items: center; flex: none;
+    width: 38px; height: 38px; border-radius: 11px;
+    background: rgba(255, 255, 255, .22);
+    border: 1px solid rgba(255, 255, 255, .34);
+    color: #fff;
+  }
+  .kn-portal-who {
+    display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0;
+  }
+  .kn-portal-who strong {
+    font-size: 14px; font-weight: 700; letter-spacing: -.005em; color: #fff;
+  }
+  /* On the filled bar the sub-line is white at high opacity, not a dim
+     grey: #788daa is a mid tone, and text that was legible on the dark
+     sky is mud on top of it. */
+  .kn-portal-who > span {
+    font-size: 11.5px; font-weight: 500; color: rgba(255, 255, 255, .88);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .kn-portal-who strong { text-shadow: 0 1px 2px rgba(20, 32, 54, .3); }
+  .kn-portal-go {
+    display: grid; place-items: center; flex: none;
+    width: 26px; height: 26px; border-radius: 50%;
+    background: rgba(255, 255, 255, .24); color: #fff;
+    transition: transform .2s ease, background .2s ease;
+  }
+  .kn-portal:hover .kn-portal-go {
+    transform: translateX(3px); background: rgba(255, 255, 255, .38);
+  }
+
+  /* ---------- the way out ---------- */
+  .kn-back {
+    display: inline-flex; align-items: center; gap: 7px;
+    margin: 4px 0 16px; padding: 8px 15px 8px 11px;
+    border-radius: 999px;
+    border: 1px solid rgba(var(--kn-pale-rgb), .24);
+    background: rgba(var(--kn-pale-rgb), .09);
+    font-family: inherit; font-size: 12.5px; font-weight: 650;
+    line-height: 1; color: rgba(255, 255, 255, .84); cursor: pointer;
+    transition: background .16s ease, border-color .16s ease, color .16s ease;
+  }
+  .kn-back:hover {
+    background: rgba(var(--kn-pale-rgb), .18);
+    border-color: rgba(var(--kn-pale-rgb), .46); color: #fff;
+  }
+
+  /* ---------- the head ---------- */
+  .kn-head {
+    display: flex; align-items: flex-end; justify-content: space-between;
+    gap: 28px; margin: 0 0 20px;
+  }
+  .kn-eyebrow {
+    display: inline-block; margin-bottom: 10px;
+    padding: 4px 11px; border-radius: 999px;
+    border: 1px solid rgba(var(--kn-lit-rgb), .5);
+    background: rgba(var(--kn-rgb), .24);
+    font-size: 10px; font-weight: 800; letter-spacing: .14em;
+    text-transform: uppercase; color: #dbe6f5;
+  }
+  .kn-title {
+    margin: 0 0 7px;
+    font-size: 38px; font-weight: 700; letter-spacing: -.03em;
+    line-height: 1.05; color: #fff;
+    text-shadow: 0 1px 16px rgba(4, 14, 40, .4);
+  }
+  .kn-sub {
+    margin: 0; font-size: 14.5px; line-height: 1.5;
+    color: rgba(255, 255, 255, .7); max-width: 58ch;
+  }
+  .kn-stats { display: flex; gap: 10px; flex: none; }
+
+  /* ---------- the Library, which is a feed ---------- */
+  .kn-tree { gap: 5px; }
+  .kn-new {
+    display: flex; align-items: center; justify-content: center; gap: 7px;
+    width: 100%; margin-bottom: 8px; padding: 11px 14px;
+    border-radius: 11px; border: 1px solid rgba(var(--kn-lit-rgb), .5);
+    background: linear-gradient(180deg, rgba(var(--kn-rgb), .4) 0%,
+                                        rgba(var(--kn-rgb), .22) 100%);
+    font-family: inherit; font-size: 13px; font-weight: 700;
+    line-height: 1; color: #fff; cursor: pointer;
+    transition: background .16s ease, border-color .16s ease,
+                transform .16s ease, box-shadow .16s ease;
+  }
+  .kn-new span { font-size: 16px; font-weight: 400; line-height: 1; }
+  .kn-new:hover {
+    transform: translateY(-1px);
+    border-color: var(--kn-lit);
+    background: linear-gradient(180deg, rgba(141, 162, 192, .54) 0%,
+                                        rgba(var(--kn-rgb), .34) 100%);
+    box-shadow: 0 10px 24px rgba(2, 8, 26, .36);
+  }
+
+  .kn-list { display: flex; flex-direction: column; gap: 4px; }
+  .kn-item {
+    display: flex; flex-direction: column; gap: 5px; width: 100%;
+    padding: 10px; border-radius: 11px;
+    border: 1px solid transparent; background: transparent;
+    font-family: inherit; text-align: left; cursor: pointer;
+    transition: background .14s ease, border-color .14s ease;
+  }
+  .kn-item-top { display: flex; align-items: flex-start; gap: 9px; }
+  .kn-item-top strong {
+    font-size: 12.8px; font-weight: 650; line-height: 1.32;
+    color: rgba(255, 255, 255, .94);
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .kn-dot, .kn-avatar {
+    display: grid; place-items: center; flex: none;
+    width: 24px; height: 24px; border-radius: 50%;
+    background: rgba(var(--kn-rgb), .4);
+    border: 1px solid rgba(var(--kn-lit-rgb), .42);
+    font-size: 9px; font-weight: 800; letter-spacing: .02em; color: #e3ecf8;
+  }
+  .kn-avatar { width: 40px; height: 40px; border-radius: 12px; font-size: 13px; }
+  .kn-item-foot {
+    font-size: 10.5px; font-weight: 600; color: var(--lrn-faint);
+    padding-left: 33px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .kn-item:hover { background: rgba(var(--kn-pale-rgb), .09); }
+  .kn-item.is-on {
+    background: rgba(var(--kn-pale-rgb), .15);
+    border-color: var(--kn);
+  }
+
+  .kn-wait, .kn-empty {
+    display: flex; flex-direction: column; gap: 5px;
+    padding: 26px 14px; text-align: center;
+    font-size: 12.5px; color: var(--lrn-faint);
+  }
+  .kn-empty strong { font-size: 13.5px; color: rgba(255, 255, 255, .86); }
+
+  /* ---------- the middle pane ---------- */
+  .kn-view {
+    position: relative; overflow-y: auto; max-height: 620px;
+    padding: 20px 22px; background: rgba(2, 8, 24, .16);
+  }
+  .kn-tags { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 13px; }
+  .kn-body {
+    font-size: 14px; line-height: 1.66; color: rgba(255, 255, 255, .9);
+    /* Typed by a person into a textarea, so long words and pasted paths
+       have to break rather than push the pane wide. */
+    overflow-wrap: anywhere;
+  }
+  .kn-body.is-empty { color: var(--lrn-faint); font-style: italic; }
+  .kn-frame-wrap {
+    margin-top: 18px; border-radius: 12px; overflow: hidden;
+    border: 1px solid var(--lrn-edge);
+  }
+  /*
+    THE BAR OVER THE PREVIEW: back, the name, which of how many, forward,
+    and the way out to Drive.
+
+    It is above the frame and not floating on top of it, because the thing
+    underneath is somebody's screenshot and a control sitting over it
+    covers part of what they came to look at. Drive puts its own zoom
+    controls inside the frame already; a second set of ours on the same
+    pixels would be two toolbars arguing.
+  */
+  .kn-frame-bar {
+    display: flex; align-items: center; gap: 8px;
+    padding: 7px 9px;
+    background: rgba(var(--kn-pale-rgb), .1);
+    border-bottom: 1px solid var(--lrn-edge);
+  }
+  .kn-frame-name {
+    flex: 1; min-width: 0;
+    font-size: 11.5px; font-weight: 650; color: rgba(255, 255, 255, .86);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .kn-frame-of {
+    flex: none; padding: 2px 8px; border-radius: 999px;
+    background: rgba(var(--kn-pale-rgb), .14);
+    font-size: 10.5px; font-weight: 700; color: rgba(255, 255, 255, .7);
+    font-variant-numeric: tabular-nums;
+  }
+  .kn-arrow, .kn-frame-out {
+    display: grid; place-items: center; flex: none;
+    width: 26px; height: 26px; border-radius: 8px;
+    border: 1px solid rgba(var(--kn-pale-rgb), .24);
+    background: rgba(var(--kn-pale-rgb), .1);
+    font-family: inherit; color: rgba(255, 255, 255, .82);
+    cursor: pointer; text-decoration: none;
+    transition: background .14s ease, border-color .14s ease, color .14s ease;
+  }
+  .kn-arrow:hover, .kn-frame-out:hover {
+    background: rgba(var(--kn-pale-rgb), .24);
+    border-color: rgba(var(--kn-lit-rgb), .6); color: #fff;
+  }
+  .kn-arrow:focus-visible, .kn-frame-out:focus-visible {
+    outline: 2px solid var(--kn-lit); outline-offset: 2px;
+  }
+
+  .kn-frame { display: block; width: 100%; height: 420px; border: 0; background: #fff; }
+
+  .kn-blank {
+    display: flex; flex-direction: column; align-items: center;
+    justify-content: center; gap: 7px; min-height: 420px;
+    padding: 30px; text-align: center; color: var(--lrn-dim);
+  }
+  .kn-blank strong { font-size: 15px; font-weight: 700; color: rgba(255, 255, 255, .85); }
+  .kn-blank span { font-size: 12.5px; }
+  .kn-blank-mark {
+    width: 54px; height: 54px; margin-bottom: 6px; border-radius: 14px;
+    border: 2px dashed rgba(var(--kn-pale-rgb), .3);
+  }
+
+  /*
+    An attachment row is a BUTTON now - it changes the preview rather
+    than opening Drive - so it has to have the browser's button defaults
+    undone and has to show which one is on show.
+  */
+  .kn-file {
+    text-decoration: none; font-family: inherit;
+    width: 100%; text-align: left; cursor: pointer;
+  }
+  .kn-file.is-on {
+    background: rgba(var(--kn-pale-rgb), .16);
+    border-color: var(--kn);
+  }
+
+  .kn-get {
+    border-color: rgba(var(--kn-lit-rgb), .5);
+    background: rgba(var(--kn-pale-rgb), .14);
+  }
+  .kn-get:hover {
+    border-color: var(--kn-lit); background: rgba(var(--kn-pale-rgb), .26);
+  }
+  .kn-del {
+    border-color: rgba(229, 72, 77, .42); background: rgba(229, 72, 77, .14);
+    color: #ffc2bf;
+  }
+  .kn-del:hover {
+    border-color: rgba(229, 72, 77, .7); background: rgba(229, 72, 77, .24);
+    color: #fff;
+  }
+
+  /* ---------- the composer ---------- */
+  .kn-sheet {
+    position: fixed; inset: 0; z-index: 90;
+    display: grid; place-items: center; padding: 24px;
+    background: rgba(2, 8, 24, .66);
+    -webkit-backdrop-filter: blur(5px); backdrop-filter: blur(5px);
+  }
+  .kn-sheet-box {
+    width: min(680px, 100%); max-height: calc(100vh - 48px);
+    display: flex; flex-direction: column;
+    border-radius: 18px;
+    border: 1px solid rgba(var(--kn-pale-rgb), .28);
+    background: linear-gradient(180deg, #27354f 0%, #1a2740 100%);
+    box-shadow: 0 30px 80px rgba(0, 0, 0, .55);
+    overflow: hidden;
+  }
+  .kn-sheet-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 16px 18px; border-bottom: 1px solid rgba(var(--kn-pale-rgb), .16);
+  }
+  .kn-sheet-head strong {
+    font-size: 16px; font-weight: 700; letter-spacing: -.015em; color: #fff;
+  }
+  .kn-sheet-x {
+    display: grid; place-items: center; width: 30px; height: 30px;
+    border-radius: 9px; border: 1px solid rgba(var(--kn-pale-rgb), .22);
+    background: rgba(var(--kn-pale-rgb), .08);
+    font-family: inherit; font-size: 17px; line-height: 1;
+    color: rgba(255, 255, 255, .78); cursor: pointer;
+    transition: background .14s ease, color .14s ease;
+  }
+  .kn-sheet-x:hover { background: rgba(var(--kn-pale-rgb), .2); color: #fff; }
+
+  .kn-sheet-body {
+    display: flex; flex-direction: column; gap: 15px;
+    padding: 18px; overflow-y: auto;
+  }
+  .kn-field { display: flex; flex-direction: column; gap: 6px; }
+  .kn-field > span {
+    font-size: 11px; font-weight: 800; letter-spacing: .09em;
+    text-transform: uppercase; color: rgba(255, 255, 255, .62);
+  }
+  .kn-field > span i {
+    font-style: normal; font-weight: 600; letter-spacing: .02em;
+    text-transform: none; color: rgba(255, 255, 255, .42);
+  }
+  /*
+    LONGHANDS, NOT THE font SHORTHAND. An input and a textarea take the
+    browser's 13.3px Arial on a white box unless every one of these is
+    given, and `font: 400 14px/1.5 inherit` is invalid CSS that silently
+    drops the lot - which is how .portal-cta spent months in the wrong
+    typeface.
+  */
+  .kn-field input, .kn-field textarea {
+    width: 100%; padding: 11px 13px;
+    border-radius: 11px;
+    border: 1px solid rgba(var(--kn-pale-rgb), .24);
+    background: rgba(8, 16, 34, .5);
+    font-family: inherit; font-size: 14px; font-weight: 500;
+    line-height: 1.55; color: #fff;
+    -webkit-appearance: none; appearance: none;
+    transition: border-color .16s ease, box-shadow .16s ease;
+  }
+  .kn-field textarea { resize: vertical; min-height: 120px; }
+  .kn-field input::placeholder, .kn-field textarea::placeholder {
+    color: rgba(255, 255, 255, .34); font-weight: 400;
+  }
+  .kn-field input:focus, .kn-field textarea:focus {
+    outline: 0; border-color: var(--kn-lit);
+    box-shadow: 0 0 0 3px rgba(var(--kn-rgb), .26);
+  }
+  .kn-field input[type="file"] {
+    padding: 9px 11px; font-size: 12.5px; cursor: pointer;
+    color: rgba(255, 255, 255, .72);
+  }
+  .kn-field input[type="file"]::file-selector-button {
+    margin-right: 11px; padding: 7px 13px;
+    border-radius: 8px; border: 1px solid rgba(var(--kn-pale-rgb), .3);
+    background: rgba(var(--kn-pale-rgb), .14);
+    font-family: inherit; font-size: 12px; font-weight: 700;
+    color: #fff; cursor: pointer;
+  }
+
+  .kn-picked { display: flex; flex-wrap: wrap; gap: 6px; }
+  .kn-picked:not(:empty) { margin-top: 2px; }
+  .kn-chip {
+    display: inline-flex; align-items: center; gap: 7px;
+    padding: 5px 5px 5px 11px; border-radius: 999px;
+    border: 1px solid rgba(var(--kn-pale-rgb), .26);
+    background: rgba(var(--kn-pale-rgb), .11);
+    font-size: 11.5px; font-weight: 600; color: rgba(255, 255, 255, .88);
+    max-width: 100%;
+  }
+  .kn-chip > span:first-child {
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    max-width: 230px;
+  }
+  .kn-chip-n { font-size: 10.5px; color: rgba(255, 255, 255, .5); }
+  .kn-chip-x {
+    display: grid; place-items: center; width: 19px; height: 19px;
+    border-radius: 50%; border: 0; background: rgba(255, 255, 255, .12);
+    font-family: inherit; font-size: 13px; line-height: 1;
+    color: rgba(255, 255, 255, .8); cursor: pointer;
+  }
+  .kn-chip-x:hover { background: rgba(229, 72, 77, .5); color: #fff; }
+
+  .kn-sheet-note {
+    padding: 10px 13px; border-radius: 10px;
+    border: 1px solid rgba(var(--kn-pale-rgb), .24);
+    background: rgba(var(--kn-pale-rgb), .1);
+    font-size: 12.5px; line-height: 1.5; color: rgba(255, 255, 255, .84);
+  }
+  .kn-sheet-note.is-bad {
+    border-color: rgba(229, 72, 77, .46); background: rgba(229, 72, 77, .14);
+    color: #ffd3d0;
+  }
+
+  .kn-sheet-foot {
+    display: flex; align-items: center; gap: 10px;
+    padding: 14px 18px; border-top: 1px solid rgba(var(--kn-pale-rgb), .16);
+    background: rgba(8, 16, 34, .3);
+  }
+  .kn-bar {
+    flex: 1; height: 5px; border-radius: 999px; overflow: hidden;
+    background: rgba(255, 255, 255, .12);
+  }
+  .kn-bar span {
+    display: block; height: 100%; width: 0;
+    background: linear-gradient(90deg, var(--kn), var(--kn-lit));
+    transition: width .2s ease;
+  }
+  /* Pushes the two buttons right whenever the bar is not taking the room. */
+  .kn-bar[hidden] + .lrn-btn { margin-left: auto; }
+
+  #view-knowledge .lrn-btn.is-primary {
+    background: linear-gradient(180deg, #8b9fbd 0%, #637b9c 100%);
+    border-color: rgba(var(--kn-pale-rgb), .6);
+    box-shadow: 0 8px 20px rgba(65, 90, 120, .4);
+  }
+  #view-knowledge .lrn-btn.is-primary:hover {
+    background: linear-gradient(180deg, #9db0cc 0%, #7288a9 100%);
+    box-shadow: 0 12px 26px rgba(65, 90, 120, .5);
+  }
+  .kn-sheet .lrn-btn.is-primary {
+    background: linear-gradient(180deg, #8b9fbd 0%, #637b9c 100%);
+    border-color: rgba(var(--kn-pale-rgb), .6);
+  }
+  .kn-sheet .lrn-btn.is-primary:hover {
+    background: linear-gradient(180deg, #9db0cc 0%, #7288a9 100%);
+  }
+  .lrn-btn:disabled { opacity: .5; pointer-events: none; }
+
+  @media (max-width: 980px) {
+    .kn-tree { flex-direction: column; }
+    .kn-new, .kn-item { width: 100%; }
+    .kn-frame { height: 320px; }
+    .kn-view { max-height: none; }
+  }
+  @media (max-width: 760px) {
+    .kn-head { flex-direction: column; align-items: stretch; gap: 16px; }
+    .kn-title { font-size: 30px; }
+    .kn-stats { justify-content: space-between; }
+    .kn-stats .lrn-stat { flex: 1; min-width: 0; }
+    .kn-portal-who > span { white-space: normal; }
+    .kn-sheet { padding: 12px; }
+  }
+
+  /*
+    Somebody who has asked their system not to animate things gets the height
+    change without the slide.
+  */
+  @media (prefers-reduced-motion: reduce) {
+    .portal-sky { transition: none; }
+    /*
+      The lift goes, the glow stays. Hover still has to say "this is the one
+      under the pointer" - that is information, not decoration - and the
+      halo says it without anything moving.
+    */
+    .pillar, .zone, .plant { transition: box-shadow .2s ease, background .2s ease; }
+    .pillar:hover, .zone:hover, .plant:hover { transform: none; }
+
+    /* The same bargain on Learnings and Knowledge Share. */
+    .lrn-card:hover, .lrn-chip:hover, .lrn-btn:hover,
+    .lrn-search:hover, .kn-portal:hover, .kn-new:hover { transform: none; }
+    .kn-portal:hover .kn-portal-go { transform: none; }
+
+    /* And on Objectives. */
+    .obj-card:hover, .obj-new:hover, .obj-btn:hover,
+    .obj-tick:hover { transform: none; }
+  }
+
+
+  /* =======================================================================
+     OBJECTIVES
+     =======================================================================
+
+     THE ONE LIGHT PAGE, and the only one that is not .portal-page.
+
+     Every other screen in this portal sits on the blue sky, which is right
+     for a front door: you arrive, you look, you move on. This page is a
+     working surface. Somebody is on it for half an hour at a month end,
+     reading numbers and pressing counters, and white paper under black text
+     is what that wants - the same reason a spreadsheet is not navy.
+
+     So the page paints over the sky below the navigation. The band is what
+     keeps that from being a jolt: dark blue at the top, carrying the title
+     and the controls, so the eye travels from the glass bar through a
+     familiar colour and into the light rather than falling off a cliff.
+
+     EVERY COLOUR HERE IS LOCAL. Nothing above this comment is reused,
+     because everything above it is built for white text on blue and would
+     be invisible or illegible the moment it landed on paper.
+  */
+  #view-objective {
+    --ob-ink: #101828;
+    --ob-mid: #475467;
+    --ob-dim: #667085;
+    --ob-faint: #98a2b3;
+    --ob-line: #eaecf0;
+    --ob-line-2: #d0d5dd;
+    --ob-paper: #fff;
+
+    /*
+      The band's blue is the indigo the toggle is painted in, run darker at
+      the left so the title has something solid under it and lighter at the
+      right where the buttons are. The two soft lights on top of it stop it
+      reading as a flat rectangle of corporate blue.
+    */
+    --ob-band-1: #272465;
+    --ob-band-2: #3b33b4;
+    --ob-band-3: #4f46e5;
+    --ob-accent: #4338ca;
+
+    --ob-green: #12b76a;
+    --ob-green-2: #32d583;
+    --ob-amber: #f79009;
+    --ob-amber-2: #fdb022;
+    --ob-red: #f04438;
+    --ob-red-2: #fda29b;
+
+    display: block;
+    min-height: 100%;
+    /*
+      Opaque, and that is the whole trick: .portal-sky is behind every view,
+      so a page with a transparent background shows navy through it. This
+      covers the sky from the navigation down.
+    */
+    background:
+      radial-gradient(1100px 520px at 88% 12%,
+        #eef1fc 0%, rgba(238, 241, 252, 0) 62%),
+      radial-gradient(820px 460px at 4% 96%,
+        #e9f5f1 0%, rgba(233, 245, 241, 0) 60%),
+      #f7f8fb;
+    color: var(--ob-ink);
+  }
+
+  /*
+    The sky is left full height behind it rather than shortened. Nothing of
+    it shows on this page except behind the glass navigation, which needs
+    something dark to blur or it stops looking like glass.
+  */
+  .portal[data-page="objective"] .portal-sky {
+    height: 100%; border-radius: 0;
+  }
+
+  /* ---------------- the band ---------------- */
+  .obj-band {
+    position: relative; overflow: hidden;
+    padding: 26px 0 28px;
+    background:
+      radial-gradient(880px 320px at 86% -45%,
+        rgba(129, 140, 248, .60) 0%, rgba(129, 140, 248, 0) 72%),
+      radial-gradient(720px 300px at 8% 140%,
+        rgba(34, 211, 238, .30) 0%, rgba(34, 211, 238, 0) 70%),
+      linear-gradient(118deg, var(--ob-band-1) 0%,
+        var(--ob-band-2) 52%, var(--ob-band-3) 100%);
+    box-shadow: 0 14px 34px -22px rgba(49, 46, 129, .9);
+  }
+  .obj-band::after {
+    content: ''; position: absolute; left: 0; right: 0; bottom: 0;
+    height: 1px; background: rgba(255, 255, 255, .16);
+  }
+  .obj-band-in {
+    position: relative; z-index: 1;
+    max-width: 1180px; margin: 0 auto; padding: 0 28px;
+    display: flex; align-items: flex-start; gap: 20px; flex-wrap: wrap;
+  }
+  .obj-h1 {
+    margin: 0; font-size: 25px; font-weight: 660; letter-spacing: -.5px;
+    color: #fff;
+  }
+  .obj-sub {
+    margin: 5px 0 0; font-size: 13.2px; color: rgba(255, 255, 255, .70);
+  }
+  .obj-band-acts {
+    margin-left: auto; display: flex; align-items: center; gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  /* ---------------- the two-sheet toggle ---------------- */
+  .obj-toggle {
+    display: inline-flex; padding: 4px; border-radius: 12px;
+    background: rgba(255, 255, 255, .13);
+    border: 1px solid rgba(255, 255, 255, .22);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .12);
+  }
+  .obj-tab {
+    font: inherit; font-size: 13px; font-weight: 580; cursor: pointer;
+    padding: 9px 18px; border-radius: 9px; border: 0; background: none;
+    color: rgba(255, 255, 255, .76);
+    display: flex; align-items: center; gap: 8px; white-space: nowrap;
+    transition: background .15s ease, color .15s ease;
+  }
+  .obj-tab:hover { color: #fff; }
+  .obj-tab.is-on {
+    background: #fff; color: #312e81; font-weight: 640;
+    box-shadow: 0 2px 8px rgba(23, 20, 70, .35);
+  }
+  .obj-tab u {
+    text-decoration: none; font-size: 11px; font-weight: 700;
+    padding: 1px 6px; border-radius: 20px;
+    background: rgba(255, 255, 255, .18);
+  }
+  .obj-tab.is-on u { background: rgba(49, 46, 129, .11); color: #312e81; }
+
+  .obj-new {
+    font: inherit; font-size: 13px; font-weight: 620; cursor: pointer;
+    padding: 11px 17px; border-radius: 11px; border: 0;
+    background: #fff; color: #231f5c;
+    display: flex; align-items: center; gap: 8px;
+    box-shadow: 0 4px 14px -4px rgba(16, 14, 55, .5);
+    transition: transform .14s ease, box-shadow .14s ease;
+  }
+  .obj-new:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 8px 20px -6px rgba(16, 14, 55, .55);
+  }
+
+  /* ---------------- the body ---------------- */
+  .obj-body {
+    max-width: 1180px; margin: 0 auto; padding: 24px 28px 110px;
+  }
+
+  /* where a refused press says so */
+  .obj-warn {
+    display: flex; align-items: flex-start; gap: 9px;
+    padding: 12px 15px; border-radius: 12px; margin-bottom: 16px;
+    background: #fef3f2; border: 1px solid #fecdca; color: #b42318;
+    font-size: 12.8px; line-height: 1.5; font-weight: 530;
+  }
+
+  /*
+    TWO CARDS, NOT FOUR. See renderObjStats - both sheets now say the same
+    two things, so the strip is a pair rather than a row, and each half has
+    room for a figure somebody can read across the table.
+  */
+  .obj-stats {
+    display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px;
+    margin-bottom: 24px;
+  }
+  /*
+    THE FOUR TILES CARRY THE BAND'S COLOUR, faintly.
+
+    They were white cards on a near-white page directly under a deep indigo
+    band, which made the band look like it belonged to a different screen.
+    A wash of the same indigo at four per cent, a hairline of it at the top
+    and a tinted border tie the two together without turning the tiles into
+    another coloured block - the numbers still have to be the loudest thing
+    on them.
+  */
+  /*
+    THE FOUR TILES ARE THE SHARED .tile NOW - the same component, tones
+    and washes the KPI Engine's figures use, out of Styles.html. They
+    used to be a card of their own: a white box with a coloured rail
+    across the top, two screens away from tiles that are washed in their
+    tone and carry the icon beside the label. Two components for one job
+    is how a page stops looking like one page.
+
+    What is left here is only what this page adds to them: a slightly
+    tighter grid, the unit beside the figure, and a meter that can be
+    segmented where the tile is comparing two things.
+  */
+  .obj-stats { gap: 14px; margin-bottom: 24px; }
+  #objStats .tile-value em {
+    font-size: 15px; font-style: normal; font-weight: 400;
+    letter-spacing: 0; color: var(--text-dim); margin-left: 4px;
+  }
+  /*
+    ONE TRACK, SEGMENTED. Where a tile is comparing two things - the ones
+    on schedule against the ones that are not - they belong in the same
+    bar, because that comparison is the whole of what it says.
+  */
+  #objStats .tile-bar { display: flex; gap: 2px; }
+  #objStats .tile-bar i.is-g { background: #12b76a; }
+  #objStats .tile-bar i.is-r { background: #f04438; }
+  #objStats .tile-bar i.is-a { background: #f79009; }
+  #objStats .tile-bar i.is-n { background: #98a2b3; }
+
+  /*
+    ---------------- the overall progress ring ----------------
+
+    THREE COLOURS AND ONLY THREE, the same three on the bar beside it and
+    in the key underneath: green was ticked on time, amber was ticked late,
+    grey was not ticked. Not done is grey rather than red on purpose - the
+    ring is read across a meeting table, and a third of it in alarm red
+    says "failing" where the honest word is "outstanding".
+  */
+  /*
+    THE TWO HALVES ARE THE SAME HEIGHT, so the line of small print sits on
+    the same baseline on both. The ring is the taller of the two by its
+    nature, and a left-hand card whose note floated halfway up a column of
+    empty space read as unfinished rather than as roomy.
+  */
+  #objStats .tile { display: flex; flex-direction: column; }
+  #objStats .tile-note { margin-top: auto; padding-top: 10px; }
+  #objStats .obj-ring { display: flex; flex-direction: column; }
+  #objStats .obj-pie {
+    display: flex; align-items: center; gap: 16px;
+    margin: 6px 0 2px; flex: 1 1 auto; min-width: 0;
+  }
+  #objStats .obj-donut { width: 92px; height: 92px; flex: none; }
+  #objStats .obj-arc {
+    fill: none; stroke-width: 15; transform: rotate(-90deg);
+    transform-origin: 50% 50%;
+  }
+  #objStats .obj-arc.is-track { stroke: #eaecf0; }
+  #objStats .obj-arc.is-ontime { stroke: #12b76a; }
+  #objStats .obj-arc.is-late { stroke: #f79009; }
+  #objStats .obj-arc.is-undone { stroke: #d0d5dd; }
+  /*
+    Longhand, not the `font:` shorthand - the shorthand needs a family and
+    `inherit` is not one, so the whole declaration would be dropped and the
+    figure in the middle of the ring would fall back to the browser's
+    default SVG text. wiring-test.js catches exactly this.
+  */
+  #objStats .obj-donut-n {
+    font-size: 21px; font-weight: 700; line-height: 1;
+    fill: var(--text, #101828);
+    text-anchor: middle; dominant-baseline: central;
+    letter-spacing: -.02em; transform: none;
+  }
+  #objStats .obj-key {
+    list-style: none; margin: 0; padding: 0; min-width: 0;
+    display: grid; gap: 6px; font-size: 12.6px;
+  }
+  #objStats .obj-key li {
+    display: flex; align-items: center; gap: 7px; min-width: 0;
+  }
+  #objStats .obj-key i {
+    width: 9px; height: 9px; border-radius: 3px; flex: none;
+  }
+  #objStats .obj-key i.is-ontime { background: #12b76a; }
+  #objStats .obj-key i.is-late { background: #f79009; }
+  #objStats .obj-key i.is-undone { background: #d0d5dd; }
+  #objStats .obj-key span {
+    color: var(--text-dim); overflow: hidden; text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  #objStats .obj-key b {
+    margin-left: auto; font-weight: 650; font-variant-numeric: tabular-nums;
+  }
+
+  @media (max-width: 560px) {
+    #objStats .obj-pie { gap: 12px; }
+    #objStats .obj-donut { width: 76px; height: 76px; }
+  }
+
+  /* ---------------- the month picker ---------------- */
+  .obj-listhead {
+    display: flex; align-items: center; gap: 14px; margin-bottom: 13px;
+    flex-wrap: wrap;
+  }
+  .obj-month { display: flex; align-items: center; gap: 4px; }
+  .obj-month b {
+    font-size: 15px; font-weight: 620; min-width: 132px; text-align: center;
+  }
+  .obj-month-step {
+    width: 28px; height: 28px; border-radius: 8px; cursor: pointer;
+    border: 1px solid var(--ob-line-2); background: var(--ob-paper);
+    color: var(--ob-mid); display: grid; place-items: center;
+    box-shadow: 0 1px 2px rgba(16, 24, 40, .05);
+  }
+  .obj-month-step:hover { background: #f9fafb; color: var(--ob-ink); }
+  .obj-month-step[disabled] {
+    opacity: .4; cursor: default; box-shadow: none;
+  }
+  .obj-hint { font-size: 12.6px; color: var(--ob-dim); }
+  .obj-filters {
+    margin-left: auto; display: flex; gap: 6px; flex-wrap: wrap;
+  }
+  .obj-filter {
+    font: inherit; font-size: 11.8px; font-weight: 580; cursor: pointer;
+    padding: 6px 12px; border-radius: 999px;
+    border: 1px solid var(--ob-line-2); background: var(--ob-paper);
+    color: var(--ob-mid);
+    transition: transform .13s ease, background .13s ease,
+                border-color .13s ease, box-shadow .13s ease;
+  }
+  .obj-filter:hover {
+    background: #f4f6ff; border-color: #a4bcfd; color: var(--ob-ink);
+    transform: translateY(-1px);
+  }
+  .obj-filter.is-on {
+    background: var(--ob-accent); border-color: var(--ob-accent);
+    color: #fff; font-weight: 640;
+    box-shadow: 0 3px 10px -3px rgba(67, 56, 202, .5);
+  }
+  .obj-filter.is-on:hover { background: #3b32b5; }
+  /*
+    Frequency sits on its own row, in its own key, because it is a
+    different question from module - and the two narrow each other rather
+    than replacing each other.
+  */
+  .obj-filter-break { flex-basis: 100%; height: 0; }
+  .obj-filter.is-freq {
+    border-style: dashed;
+  }
+  .obj-filter.is-freq.is-on {
+    border-style: solid;
+    background: #5925dc; border-color: #5925dc;
+    box-shadow: 0 3px 10px -3px rgba(89, 37, 220, .5);
+  }
+  .obj-filter.is-freq.is-on:hover { background: #4c1fbd; }
+
+  /* ---------------- a card ---------------- */
+  .obj-card {
+    background: var(--ob-paper); border: 1px solid var(--ob-line);
+    border-radius: 16px; padding: 18px 20px; margin-bottom: 11px;
+    box-shadow: 0 1px 2px rgba(16, 24, 40, .04);
+    display: grid; grid-template-columns: 1fr 188px 118px;
+    gap: 22px; align-items: center;
+    transition: box-shadow .15s ease, border-color .15s ease;
+  }
+  .obj-card:hover {
+    border-color: #d7def2;
+    box-shadow: 0 8px 20px -10px rgba(49, 46, 129, .26);
+  }
+  /* The row that is being saved. Not a spinner - the square has already
+     changed colour, and this only says the answer has not come back yet. */
+  .obj-card.is-sending { opacity: .72; }
+  .obj-card.is-open {
+    grid-template-columns: 1fr;
+    border-color: #c7d7fe;
+    box-shadow: 0 6px 22px -8px rgba(67, 56, 202, .22);
+  }
+
+  .obj-tag {
+    display: inline-block; font-size: 11px; font-weight: 650;
+    letter-spacing: .2px; padding: 4px 10px; border-radius: 7px;
+    margin-bottom: 9px;
+  }
+  /*
+    One colour per category, and they are assigned in Config order rather
+    than chosen per category name - a seventh category added to the sheet
+    gets a colour instead of falling back to grey and looking broken.
+  */
+  .obj-tag[data-c="0"] { background: #eef4ff; color: #3538cd; }
+  .obj-tag[data-c="1"] { background: #f0f9ff; color: #026aa2; }
+  .obj-tag[data-c="2"] { background: #fdf2fa; color: #c11574; }
+  .obj-tag[data-c="3"] { background: #fffaeb; color: #b54708; }
+  .obj-tag[data-c="4"] { background: #ecfdf3; color: #027a48; }
+  .obj-tag[data-c="5"] { background: #f4f3ff; color: #5925dc; }
+  .obj-tag[data-c="6"] { background: #fef3f2; color: #b42318; }
+  .obj-tag[data-c="7"] { background: #f2f4f7; color: #344054; }
+
+  .obj-card-t {
+    font-size: 14.6px; font-weight: 600; line-height: 1.4;
+    letter-spacing: -.1px; color: var(--ob-ink);
+  }
+  .obj-card-s { font-size: 12.4px; color: var(--ob-dim); margin-top: 5px; }
+  .obj-card-s b { color: #344054; font-weight: 600; }
+  .obj-card-s .is-warn { color: #b54708; font-weight: 600; }
+  .obj-card-s .is-bad { color: #b42318; font-weight: 600; }
+  .obj-card-s .is-auto { color: #027a48; font-weight: 600; }
+
+  /* ---------------- progress ---------------- */
+  .obj-prog-top {
+    display: flex; justify-content: space-between; align-items: baseline;
+    margin-bottom: 7px;
+  }
+  .obj-prog-top b { font-size: 19px; font-weight: 400; letter-spacing: -.5px; }
+  .obj-prog-top span { font-size: 11.6px; color: var(--ob-dim); }
+  .obj-bar {
+    height: 8px; border-radius: 5px; background: #f2f4f7; overflow: hidden;
+  }
+  .obj-bar i { display: block; height: 100%; border-radius: 5px; }
+  .obj-fill-g {
+    background: linear-gradient(90deg, var(--ob-green), var(--ob-green-2));
+  }
+  .obj-fill-a {
+    background: linear-gradient(90deg, var(--ob-amber), var(--ob-amber-2));
+  }
+  .obj-fill-r {
+    background: linear-gradient(90deg, var(--ob-red), var(--ob-red-2));
+  }
+  .obj-fill-n { background: var(--ob-line-2); }
+
+  /* the six months under the bar */
+  .obj-pips { display: flex; gap: 4px; margin-top: 10px; }
+  .obj-pips i {
+    flex: 1; height: 6px; border-radius: 3px; background: var(--ob-line);
+  }
+  /*
+     THE SAME FOUR NAMES THE SQUARES USE.
+
+     The pips were painted from the score and carried is-g / is-a / is-r.
+     They are painted from the month's state now, which arrives as the
+     square classes is-y, is-l and is-n - and nobody changed these rules
+     to match, so every pip on the page went grey. A test asserting the
+     CLASS passed the whole time, because the class was right and the
+     colour was missing.
+  */
+  .obj-pips i.is-y { background: var(--ob-green-2); }
+  .obj-pips i.is-l { background: var(--ob-amber-2); }
+  .obj-pips i.is-n { background: var(--ob-red-2); }
+  /* The month being looked at, ringed rather than recoloured: it still
+     has a state of its own to show, and painting over it hid it. */
+  .obj-pips i.is-now {
+    box-shadow: 0 0 0 2px var(--ob-paper), 0 0 0 3.5px var(--ob-accent);
+  }
+  .obj-pips i.is-now:not(.is-y):not(.is-l):not(.is-n) {
+    background: var(--ob-line-2);
+  }
+  .obj-pipl { display: flex; gap: 4px; margin-top: 5px; }
+  .obj-pipl span {
+    flex: 1; font-size: 9.4px; color: var(--ob-faint); text-align: center;
+    letter-spacing: .3px;
+  }
+
+  /* ---------------- buttons ---------------- */
+  .obj-btn {
+    font: inherit; font-size: 12.8px; font-weight: 600; cursor: pointer;
+    padding: 10px 14px; border-radius: 10px;
+    border: 1px solid var(--ob-line-2); background: var(--ob-paper);
+    color: #344054; box-shadow: 0 1px 2px rgba(16, 24, 40, .05);
+    transition: transform .14s ease, background .14s ease;
+  }
+  .obj-btn:hover { background: #f9fafb; transform: translateY(-1px); }
+  .obj-btn.is-primary {
+    background: var(--ob-accent); border-color: var(--ob-accent); color: #fff;
+    box-shadow: 0 1px 3px rgba(67, 56, 202, .35);
+  }
+  .obj-btn.is-primary:hover { background: #3b32b5; }
+  .obj-btn.is-wide { width: 100%; }
+  .obj-btn[disabled] {
+    opacity: .5; cursor: default; transform: none; box-shadow: none;
+  }
+
+  /* ---------------- the open update panel ---------------- */
+  .obj-up-head { display: flex; align-items: flex-start; gap: 14px; }
+  .obj-up-x {
+    margin-left: auto; font-size: 20px; line-height: 1; cursor: pointer;
+    color: var(--ob-faint); background: none; border: 0; padding: 0 4px;
+  }
+  .obj-up-x:hover { color: var(--ob-ink); }
+  .obj-up-body {
+    margin-top: 19px; padding-top: 19px; border-top: 1px solid #f2f4f7;
+    display: grid; grid-template-columns: 1fr 1fr; gap: 26px;
+  }
+  .obj-fl {
+    font-size: 12.2px; font-weight: 600; color: #344054; margin-bottom: 9px;
+    display: block;
+  }
+  .obj-fl i { font-style: normal; color: var(--ob-faint); font-weight: 400; }
+
+  .obj-step { display: flex; align-items: center; gap: 14px; }
+  .obj-step button {
+    width: 44px; height: 44px; border-radius: 12px; cursor: pointer;
+    border: 1px solid var(--ob-line-2); background: var(--ob-paper);
+    font-size: 21px; line-height: 1; color: #344054;
+    box-shadow: 0 1px 2px rgba(16, 24, 40, .05);
+  }
+  .obj-step button:hover { background: #f9fafb; }
+  .obj-step-v {
+    font-size: 34px; font-weight: 300; letter-spacing: -1.4px;
+    min-width: 46px; text-align: center;
+  }
+  .obj-step-of { font-size: 13px; color: var(--ob-dim); line-height: 1.5; }
+  .obj-step-of b { color: var(--ob-ink); font-weight: 600; }
+  .obj-step-of .is-warn { color: #b54708; font-size: 11.6px; }
+
+  .obj-seg { display: flex; gap: 7px; }
+  .obj-seg button {
+    font: inherit; font-size: 12.4px; font-weight: 580; cursor: pointer;
+    padding: 10px 0; flex: 1; border-radius: 10px;
+    border: 1px solid #e4e7ec; background: var(--ob-paper);
+    color: var(--ob-dim);
+  }
+  .obj-seg button:hover { background: #f9fafb; }
+  .obj-seg button.is-on[data-s="ON_TRACK"],
+  .obj-seg button.is-on[data-s="DONE"] {
+    background: #ecfdf3; border-color: #6ce9a6; color: #027a48;
+    font-weight: 640;
+  }
+  .obj-seg button.is-on[data-s="AT_RISK"] {
+    background: #fffaeb; border-color: #fec84b; color: #b54708;
+    font-weight: 640;
+  }
+  .obj-seg button.is-on[data-s="MISSED"] {
+    background: #fef3f2; border-color: #fda29b; color: #b42318;
+    font-weight: 640;
+  }
+
+  .obj-note-in, .obj-field textarea, .obj-field input, .obj-field select {
+    width: 100%; font: inherit; font-size: 13px; padding: 11px 13px;
+    border-radius: 10px; border: 1px solid var(--ob-line-2);
+    background: var(--ob-paper); color: var(--ob-ink); resize: none;
+    box-shadow: 0 1px 2px rgba(16, 24, 40, .04);
+  }
+  .obj-note-in::placeholder, .obj-field textarea::placeholder,
+  .obj-field input::placeholder { color: #a9adb7; }
+  .obj-note-in:focus, .obj-field textarea:focus, .obj-field input:focus,
+  .obj-field select:focus {
+    outline: none; border-color: #a4bcfd;
+    box-shadow: 0 0 0 4px rgba(67, 56, 202, .10);
+  }
+
+  .obj-up-foot {
+    grid-column: 1 / -1; display: flex; align-items: center; gap: 11px;
+    flex-wrap: wrap;
+  }
+  .obj-up-who {
+    font-size: 11.8px; color: var(--ob-faint); margin-right: auto;
+  }
+  .obj-up-who.is-bad { color: #b42318; }
+
+  /* ---------------- the Updates timeline ---------------- */
+  .obj-hist {
+    grid-column: 1 / -1; margin-top: 4px; padding-top: 18px;
+    border-top: 1px solid #f2f4f7;
+  }
+  .obj-hist-h {
+    font-size: 10.6px; letter-spacing: 1.1px; text-transform: uppercase;
+    color: var(--ob-faint); font-weight: 650; margin-bottom: 13px;
+  }
+  .obj-hi { display: flex; gap: 12px; padding-bottom: 14px; position: relative; }
+  .obj-hi:not(:last-child)::before {
+    content: ''; position: absolute; left: 14px; top: 32px; bottom: 0;
+    width: 1px; background: var(--ob-line);
+  }
+  .obj-av {
+    width: 29px; height: 29px; border-radius: 9px; flex: none;
+    display: grid; place-items: center; font-size: 10.8px; font-weight: 700;
+    background: #eef4ff; color: #3538cd;
+  }
+  .obj-hi-t { font-size: 12.8px; color: var(--ob-mid); line-height: 1.5; }
+  .obj-hi-t b { color: var(--ob-ink); font-weight: 620; }
+  .obj-hi-n {
+    font-size: 12.3px; color: var(--ob-mid); margin-top: 5px; line-height: 1.55;
+    padding: 9px 12px; border-radius: 10px; background: #f9fafb;
+    border: 1px solid var(--ob-line);
+  }
+  .obj-hi-d { font-size: 11px; color: var(--ob-faint); margin-top: 5px; }
+
+  /* ---------------- the Unique Roles side ---------------- */
+  .obj-freq {
+    font-size: 9.8px; font-weight: 700; letter-spacing: .5px;
+    padding: 3px 8px; border-radius: 5px; text-transform: uppercase;
+    white-space: nowrap;
+  }
+  .obj-freq[data-f="DAILY"] {
+    background: #fef3f2; color: #b42318; border: 1px solid #fecdca;
+  }
+  .obj-freq[data-f="WEEKLY"] {
+    background: #fffaeb; color: #b54708; border: 1px solid #fedf89;
+  }
+  .obj-freq[data-f="MONTHLY"] {
+    background: #eff8ff; color: #175cd3; border: 1px solid #b2ddff;
+  }
+  .obj-freq[data-f="QUARTERLY"] {
+    background: #f4f3ff; color: #5925dc; border: 1px solid #d9d6fe;
+  }
+  .obj-chip {
+    font-size: 10.4px; font-weight: 600; padding: 3px 8px; border-radius: 5px;
+    background: #f2f4f7; color: var(--ob-mid); white-space: nowrap;
+  }
+  .obj-meta { display: flex; gap: 6px; align-items: center; margin-top: 8px;
+              flex-wrap: wrap; }
+
+  /* the slot strip - one block per period of the month */
+  .obj-strip { display: flex; gap: 2px; align-items: center; }
+  .obj-strip i {
+    flex: 1; height: 17px; border-radius: 2px; min-width: 3px;
+    background: #f2f4f7; border: 1px solid #eaecf0;
+  }
+  .obj-strip i.is-y {
+    background: var(--ob-green-2); border-color: var(--ob-green);
+  }
+  .obj-strip i.is-n {
+    background: var(--ob-red-2); border-color: var(--ob-red);
+  }
+  /*
+    YELLOW IS "DONE, BUT RECORDED AFTER ITS PERIOD CLOSED".
+
+    It is the one state that cannot be worked out from the marks alone -
+    green and yellow are the same mark, and only the time it was made
+    tells them apart - which is why the moment of each mark is stored
+    beside it. The square carries the date in its tooltip.
+  */
+  .obj-strip i.is-l {
+    background: var(--ob-amber-2); border-color: var(--ob-amber);
+  }
+  .obj-strip i.is-now { box-shadow: 0 0 0 2px rgba(67, 56, 202, .5); }
+  .obj-strip-l { font-size: 10.8px; color: var(--ob-dim); margin-top: 6px; }
+  .obj-strip-l.is-bad { color: #b42318; font-weight: 600; }
+  .obj-strip-l.is-late { color: #b54708; font-weight: 600; }
+
+  .obj-tick {
+    font: inherit; font-size: 12.6px; font-weight: 620; cursor: pointer;
+    width: 100%; padding: 11px 0; border-radius: 11px;
+    display: flex; align-items: center; justify-content: center; gap: 7px;
+    border: 1px solid var(--ob-line-2); background: var(--ob-paper);
+    color: #344054; box-shadow: 0 1px 2px rgba(16, 24, 40, .05);
+    transition: transform .14s ease, background .14s ease;
+  }
+  .obj-tick:hover { transform: translateY(-1px); background: #f9fafb; }
+  .obj-tick.is-due {
+    background: var(--ob-accent); border-color: var(--ob-accent); color: #fff;
+    box-shadow: 0 1px 3px rgba(67, 56, 202, .35);
+  }
+  .obj-tick.is-due:hover { background: #3b32b5; }
+  .obj-tick.is-done {
+    background: #ecfdf3; border-color: #6ce9a6; color: #027a48;
+  }
+  .obj-tick[disabled] {
+    opacity: .55; cursor: default; transform: none;
+    background: #f9fafb; color: var(--ob-faint);
+  }
+
+  /* ---- the month, by date, inside an opened daily objective ----
+
+     Every day of the month is drawn, including the ones that do not count.
+     A Friday shown greyed says "this one is not counted" better than a
+     sentence under the grid did - and it means the number in a cell is the
+     DATE, which somebody can check against a calendar. Before, the cells
+     were working-day ordinals, so the eighth cell was the 11th.
+  */
+  .obj-days {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(36px, 1fr));
+    gap: 5px; max-width: 420px;
+  }
+  .obj-day {
+    aspect-ratio: 1; min-height: 34px; border-radius: 9px; cursor: pointer;
+    display: grid; place-items: center; font-size: 11.6px; font-weight: 600;
+    border: 1px solid var(--ob-line-2); background: var(--ob-paper);
+    color: var(--ob-mid);
+    transition: transform .12s ease, background .12s ease,
+                border-color .12s ease;
+  }
+  .obj-day:hover:not([disabled]):not(.is-off) {
+    background: #f4f6ff; border-color: #a4bcfd; transform: translateY(-1px);
+  }
+  .obj-day.is-y {
+    background: #ecfdf3; border-color: #6ce9a6; color: #027a48;
+  }
+  .obj-day.is-y:hover:not([disabled]) { background: #d9fbe7; }
+  .obj-day.is-n {
+    background: #fef3f2; border-color: #fda29b; color: #b42318;
+  }
+  /* Done, but caught up on after its period closed. The tooltip says when. */
+  .obj-day.is-l {
+    background: #fffaeb; border-color: #fec84b; color: #b54708;
+  }
+  .obj-day.is-l:hover:not([disabled]) { background: #fef0c7; }
+  .obj-day.is-now { box-shadow: 0 0 0 2px rgba(67, 56, 202, .45); }
+  .obj-day[disabled] { opacity: .45; cursor: default; }
+  /* A weekend. Present, so the grid is a calendar; inert, so it is clear
+     it is not counted. Not a button at all, so it is skipped by the keyboard
+     and not announced as something to press. */
+  .obj-day.is-off {
+    background: repeating-linear-gradient(135deg,
+      #f7f8fb 0 5px, #eef0f5 5px 10px);
+    border-color: #eaecf0; color: #b4b9c4; cursor: default;
+    font-weight: 500;
+  }
+  .obj-day.is-week { aspect-ratio: auto; min-width: 46px; padding: 0 8px; }
+  .obj-days:has(.is-week) { grid-template-columns: repeat(5, 46px); }
+  /* A milestone's six months. Six across, so the period reads as a row. */
+  .obj-days.is-months { grid-template-columns: repeat(6, 46px); }
+
+  /*
+     THE CORNER DOT: this square has a note on it.
+
+     Without it every square looks equally empty and the only way to find
+     the one carrying an explanation is to open all twenty-six. It sits in
+     the corner rather than changing the square's colour, because the
+     colour already means something - whether the period was recorded, and
+     when - and a note is a different fact about the same square.
+  */
+  .obj-day.has-note { position: relative; }
+  .obj-day.has-note::after {
+    content: ''; position: absolute; top: 3px; right: 3px;
+    width: 5px; height: 5px; border-radius: 50%;
+    background: var(--ob-ink); opacity: .55;
+  }
+  .obj-day.is-y.has-note::after  { background: #027a48; opacity: .8; }
+  .obj-day.is-n.has-note::after  { background: #b42318; opacity: .8; }
+  .obj-day.is-l.has-note::after  { background: #b54708; opacity: .8; }
+  /* Nothing to tick here - a counted milestone, or somebody who may read
+     the notes but not record. Still pressable, so the note can be opened. */
+  .obj-day.is-fixed { cursor: default; }
+  .obj-day.is-fixed:hover:not([disabled]) {
+    background: var(--ob-paper); border-color: var(--ob-line-2);
+    transform: none;
+  }
+  .obj-day.is-y.is-fixed:hover:not([disabled]) { background: #ecfdf3; }
+  .obj-day.is-n.is-fixed:hover:not([disabled]) { background: #fef3f2; }
+  .obj-day.is-l.is-fixed:hover:not([disabled]) { background: #fffaeb; }
+
+  /* The square whose note is open, so the panel below has an anchor. */
+  .obj-day.is-reading {
+    box-shadow: 0 0 0 2px var(--ob-ink); border-color: var(--ob-ink);
+  }
+
+  /* ---------------- the note on one period ---------------- */
+  /*
+     INLINE, UNDER THE SQUARES IT BELONGS TO.
+
+     Not a dialog. The Apps Script frame is taller than the browser window
+     once it is inside Blogger, so the window scrolls the blog page rather
+     than the frame: anything with position:fixed pins itself to a
+     rectangle nobody can see all of, which is how the first New objective
+     form ended up cut off at the top with no visible backdrop.
+  */
+  .obj-np {
+    margin-top: 14px; border: 1px solid var(--ob-line);
+    border-radius: 13px; background: var(--ob-paper); padding: 12px 13px 11px;
+  }
+  .obj-np.is-edit { border-color: #a4bcfd; background: #fbfcff; }
+  .obj-np.is-hint { background: transparent; border-style: dashed; }
+  .obj-np-h {
+    display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px;
+  }
+  .obj-np-h b { font-size: 12.5px; letter-spacing: .2px; }
+  .obj-np-h span {
+    font-size: 11.8px; color: var(--ob-mid); flex: 1; min-width: 0;
+  }
+  .obj-np-x {
+    border: 0; background: none; cursor: pointer; font-size: 17px; width: 22px;
+    height: 22px; line-height: 1; border-radius: 7px; color: var(--ob-mid);
+  }
+  .obj-np-x:hover { background: #eef1f6; color: var(--ob-ink); }
+  .obj-np-t {
+    margin: 0 0 9px; font-size: 13.2px; line-height: 1.55;
+    white-space: pre-wrap; overflow-wrap: anywhere;
+  }
+  .obj-np-none {
+    margin: 0; font-size: 12.4px; color: var(--ob-mid); line-height: 1.5;
+  }
+  .obj-np-in {
+    width: 100%; box-sizing: border-box; resize: vertical; padding: 9px 10px;
+    border: 1px solid var(--ob-line-2); border-radius: 10px;
+    font: inherit; font-size: 13px; line-height: 1.5; color: var(--ob-ink);
+    background: var(--ob-paper);
+  }
+  .obj-np-in:focus {
+    outline: none; border-color: #6172f3;
+    box-shadow: 0 0 0 3px rgba(97, 114, 243, .16);
+  }
+  .obj-np-f {
+    display: flex; align-items: center; gap: 8px; margin-top: 9px;
+    flex-wrap: wrap;
+  }
+  .obj-np-who {
+    flex: 1; min-width: 150px; font-size: 11.6px; color: var(--ob-mid);
+  }
+  .obj-np-who.is-bad { color: #b42318; font-weight: 600; }
+  .obj-nct { margin-top: 9px; font-size: 11.6px; color: var(--ob-mid); }
+  /* The note somebody left against a whole month, before notes had periods. */
+  .obj-oldnote {
+    margin-top: 12px; padding: 10px 12px; border-radius: 11px;
+    background: #f7f8fb; border: 1px dashed var(--ob-line-2);
+  }
+  .obj-oldnote b {
+    display: block; font-size: 11.4px; letter-spacing: .3px;
+    text-transform: uppercase; color: var(--ob-mid); margin-bottom: 4px;
+  }
+  .obj-oldnote p {
+    margin: 0; font-size: 12.8px; line-height: 1.55; white-space: pre-wrap;
+  }
+
+  /* ---------------- states ---------------- */
+  .obj-wait, .obj-empty {
+    background: var(--ob-paper); border: 1px solid var(--ob-line);
+    border-radius: 16px; padding: 40px 24px; text-align: center;
+  }
+  .obj-empty strong {
+    display: block; font-size: 15.5px; font-weight: 640; margin-bottom: 6px;
+  }
+  .obj-empty span {
+    display: block; font-size: 13px; color: var(--ob-dim); line-height: 1.6;
+    max-width: 560px; margin: 0 auto;
+  }
+  .obj-empty code {
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 12.2px; background: #f2f4f7; padding: 2px 6px;
+    border-radius: 5px; color: #344054;
+  }
+  .obj-wait { color: var(--ob-dim); font-size: 13px; }
+
+  /* ---------------- the new-objective panel ----------------
+
+     NOT A FIXED OVERLAY, and that is the whole point of it.
+
+     The app runs in an Apps Script iframe inside a Blogger post, and that
+     iframe is taller than the browser window - the window scrolls the
+     Blogger page, not the iframe. position:fixed therefore pins to the
+     middle of a box nobody can see all of: the form opened with its top
+     half above the visible area, the backdrop dimmed nothing, and the
+     whole thing slid about as the page scrolled.
+
+     So it is an ordinary panel in the flow, sitting directly under the
+     button that opens it. No viewport units, no z-index, nothing that
+     depends on knowing how tall the window is.
+  */
+  .obj-sheet {
+    display: block;
+    margin: 0 0 18px;
+    animation: obj-slide .18s ease-out;
+  }
+  @keyframes obj-slide {
+    from { opacity: 0; transform: translateY(-6px); }
+    to   { opacity: 1; transform: none; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .obj-sheet { animation: none; }
+  }
+  .obj-sheet-box {
+    max-width: 620px;
+    background: var(--ob-paper); border-radius: 18px;
+    border: 1px solid #c7d7fe;
+    box-shadow: 0 10px 30px -12px rgba(67, 56, 202, .3);
+  }
+  .obj-sheet-head {
+    display: flex; align-items: flex-start; gap: 10px; flex-wrap: wrap;
+    padding: 22px 24px 0;
+  }
+  .obj-sheet-head strong {
+    font-size: 16px; font-weight: 640; letter-spacing: -.3px;
+    color: var(--ob-ink);
+  }
+  .obj-sheet-head span {
+    width: 100%; order: 3; font-size: 12.2px; color: var(--ob-dim);
+    margin-top: -4px;
+  }
+  .obj-sheet-x {
+    margin-left: auto; font-size: 20px; line-height: 1; cursor: pointer;
+    color: var(--ob-faint); background: none; border: 0; padding: 0 2px;
+  }
+  .obj-sheet-x:hover { color: var(--ob-ink); }
+  .obj-sheet-body { padding: 18px 24px 4px; }
+  .obj-field { display: block; margin-bottom: 15px; }
+  .obj-field > span {
+    display: block; font-size: 12.2px; font-weight: 600; color: #30323a;
+    margin-bottom: 7px;
+  }
+  .obj-field > span i {
+    font-style: normal; font-weight: 400; color: var(--ob-faint);
+  }
+  .obj-two { display: grid; grid-template-columns: 1fr 1fr; gap: 11px; }
+  .obj-pick { display: flex; gap: 6px; }
+  .obj-pick button {
+    font: inherit; font-size: 12.2px; font-weight: 580; cursor: pointer;
+    flex: 1; padding: 9px 0; border-radius: 9px;
+    border: 1px solid var(--ob-line-2); background: var(--ob-paper);
+    color: var(--ob-dim);
+  }
+  .obj-pick button.is-on {
+    background: var(--ob-ink); border-color: var(--ob-ink); color: #fff;
+  }
+  .obj-note {
+    display: flex; gap: 9px; align-items: flex-start; padding: 11px 13px;
+    border-radius: 11px; background: #f6f3ff; border: 1px solid #e3dbfd;
+    font-size: 11.9px; color: #5b21b6; line-height: 1.5; margin-bottom: 16px;
+  }
+  .obj-sheet-foot {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    padding: 4px 24px 22px;
+  }
+  .obj-sheet-say {
+    font-size: 12px; color: #b42318; margin-right: auto; flex: 1 1 100%;
+    order: -1;
+  }
+  .obj-sheet-say:empty { display: none; }
+
+  /* ---------------- narrower windows ---------------- */
+  /*
+    The three-column card is the first thing to go. At 1050 the progress
+    column and the button still fit beside the words; below it they do not,
+    and a 14px milestone wrapped to five lines in a 300px column is worse
+    than the same milestone with its bar underneath.
+  */
+  @media (max-width: 1049px) {
+    /* Two already; the ring and its key need the width more than the row
+       needs to stay level, so they stack rather than squeeze. */
+    .obj-card { grid-template-columns: 1fr 160px; }
+    .obj-card > .obj-acts { grid-column: 2; }
+  }
+  @media (max-width: 760px) {
+    .obj-band-in, .obj-body { padding-left: 18px; padding-right: 18px; }
+    .obj-band-acts { margin-left: 0; width: 100%; }
+    .obj-card { grid-template-columns: 1fr; gap: 14px; }
+    .obj-up-body { grid-template-columns: 1fr; gap: 18px; }
+    .obj-stats { grid-template-columns: 1fr; gap: 12px; }
+    .obj-two { grid-template-columns: 1fr; }
+    .obj-filters { margin-left: 0; width: 100%; }
+  }
+
+
+
+  /* =======================================================================
+     BY-WEEKLY MEETINGS
+     =======================================================================
+
+     Four discs, one per section, each opening that section's deck where it
+     lives. Reached from the Links page, and sitting on the same dark sky
+     every other page here does - so nothing in this block is a light-page
+     colour.
+  */
+  .bw-back {
+    font: inherit; font-size: 12.6px; font-weight: 600; cursor: pointer;
+    display: inline-flex; align-items: center; gap: 6px;
+    margin-bottom: 14px; padding: 6px 12px 6px 9px; border-radius: 20px;
+    border: 1px solid rgba(255, 255, 255, .22);
+    background: rgba(255, 255, 255, .07); color: rgba(255, 255, 255, .86);
+  }
+  .bw-back:hover {
+    background: rgba(255, 255, 255, .13); color: #fff;
+  }
+
+  .bw-ring {
+    display: flex; flex-wrap: wrap; gap: 26px;
+    justify-content: center; padding: 26px 0 10px;
+  }
+
+  .bw-pick {
+    flex: 0 0 auto; width: 188px;
+    display: flex; flex-direction: column; align-items: center; gap: 12px;
+    text-decoration: none; color: inherit; cursor: pointer;
+    padding: 18px 10px 16px; border-radius: 18px;
+    border: 1px solid transparent; background: transparent;
+    transition: background .15s, border-color .15s, transform .15s;
+  }
+  .bw-pick:hover {
+    background: rgba(255, 255, 255, .06);
+    border-color: rgba(255, 255, 255, .16);
+    transform: translateY(-2px);
+  }
+
+  /*
+    THE DISC. The section's own colour as a ring rather than a fill: four
+    saturated circles on a dark page is a traffic light, and the name under
+    each one is what somebody is actually reading.
+  */
+  .bw-disc {
+    width: 104px; height: 104px; border-radius: 50%;
+    display: grid; place-items: center;
+    color: var(--bw, #8fb6ff);
+    background:
+      radial-gradient(circle at 50% 38%,
+        rgba(255, 255, 255, .10) 0%, rgba(255, 255, 255, 0) 62%),
+      rgba(11, 27, 54, .72);
+    border: 2px solid var(--bw, #8fb6ff);
+    box-shadow: 0 0 0 6px rgba(255, 255, 255, .03),
+                0 10px 26px -14px var(--bw, #8fb6ff);
+    transition: box-shadow .15s, transform .15s;
+  }
+  .bw-pick:hover .bw-disc {
+    box-shadow: 0 0 0 7px rgba(255, 255, 255, .06),
+                0 14px 30px -12px var(--bw, #8fb6ff);
+  }
+  .bw-disc svg { width: 42px; height: 42px; }
+
+  .bw-name {
+    font-size: 15px; font-weight: 640; color: #fff; text-align: center;
+    line-height: 1.25;
+  }
+  .bw-note {
+    font-size: 11.6px; color: rgba(255, 255, 255, .62); text-align: center;
+    margin-top: -6px;
+  }
+
+  /*
+    A SECTION WITH NO ADDRESS still gets its circle, greyed and not
+    clickable. A button that quietly vanished would read as the page being
+    broken rather than as a cell nobody has filled in.
+  */
+  .bw-pick.is-off { cursor: default; opacity: .45; }
+  .bw-pick.is-off:hover {
+    background: transparent; border-color: transparent; transform: none;
+  }
+  .bw-pick.is-off .bw-disc {
+    color: rgba(255, 255, 255, .55);
+    border-color: rgba(255, 255, 255, .34);
+    box-shadow: none;
+  }
+
+  .bw-wait {
+    text-align: center; color: rgba(255, 255, 255, .7); font-size: 13.4px;
+    padding: 34px 0;
+  }
+
+  /* A card on the Links page that opens a page here rather than a site. */
+  button.link-card { font: inherit; text-align: left; width: 100%; }
+
+  @media (max-width: 760px) {
+    .bw-ring { gap: 14px; }
+    .bw-pick { width: 140px; }
+    .bw-disc { width: 86px; height: 86px; }
+    .bw-disc svg { width: 34px; height: 34px; }
+  }

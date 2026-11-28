@@ -82,16 +82,18 @@
   */
   const SCREENS = [
     /*
-      HOME IS THE PORTAL, and the portal is a second shell - Portal.html,
-      included into the same served page, with its own tabs and its own
-      pages: Home, Team, Links, About, By-weekly, Learnings, Knowledge. In
-      the original this button has no handler of its own either; showView()
-      works out that home lives in the other shell and swaps #appRoot for
-      #portalRoot. None of that is ported yet, so the button says so rather
-      than landing somewhere nobody asked for.
+      HOME IS THE PORTAL, and the portal is a second shell - its own tabs,
+      its own stylesheet, its own pages: Home, About us, Customers,
+      Projects, Links, and the ones still to come.
+
+      In the original this button has no handler of its own: Portal.html is
+      included into the same served page, and showView works out that home
+      lives in the other shell and swaps #appRoot for #portalRoot. Here the
+      two shells are two URLs, so it is an ordinary href like every other
+      entry - and the session goes with it, because both shells read the
+      same token out of the same sessionStorage.
     */
-    { view: 'home', label: 'Home', href: null,
-      soon: 'Home is the portal, a separate shell, and it is not ported yet' },
+    { view: 'home', label: 'Home', href: 'portal.html' },
 
     { group: 'Indicators' },
     { view: 'kpi1', label: 'KPI 1 \u00b7 ITSM',     href: 'kpi1.html' },

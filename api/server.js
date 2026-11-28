@@ -35,6 +35,7 @@ const objWrite = require('./objectives-write');
 const msgRead = require('./messenger-read');
 const msgWrite = require('./messenger-write');
 const content = require('./content');
+const portalContent = require('./portal-content');
 const kpiRead = require('./kpi-read');
 const backup = require('./backup');
 const uploads = require('./uploads');
@@ -1436,6 +1437,49 @@ app.get('/api/links', requireAuth, function (req, res) {
     res.json({ ok: true, count: links.length, links: links });
   } catch (err) {
     fail(res, err, 'could not read the links');
+  }
+});
+
+
+// ---------------------------------------------------------------------------
+// GET /api/portal/boot - the front door
+// ---------------------------------------------------------------------------
+/*
+  The portal half of getBootstrap [Code.gs:191]. Index.html hands these to
+  the browser inline - `window.__EAS_PORTFOLIO__`, `__EAS_PARTNERS__`,
+  `__EAS_LINKS__` - because Apps Script templates the page on the server
+  and there is no second round trip to be had. Here there is, so this is
+  it, and it is one call rather than three.
+
+  SIGNED IN, AND NOTHING MORE. Every page the portal has carries the
+  department's own words and a list of plant codes; none of it names a
+  person or says anything that is not on the slide deck it came from. The
+  pages that DO - the team directory, the objectives - have their own
+  endpoints with their own rules, and this one does not reach them.
+*/
+app.get('/api/portal/boot', requireAuth, async function (req, res) {
+  try {
+    res.json({
+      ok: true,
+      configured: true,
+      role: req.user.role,
+      canAdmin: rankOf(req.user.role) >= ROLE_RANK.ADMIN,
+      username: req.user.employeeId,
+      appName: APP_NAME,
+      appVersion: APP_VERSION,
+      mustChange: await accounts.mustChangeFor(req.user.employeeId),
+
+      portfolio: portalContent.PORTFOLIO,
+      partners: portalContent.PARTNERS,
+      /*
+        The same list the Links page and the hero buttons are both drawn
+        from, so a system added to it appears in both by being given a
+        `hero` label and nothing else having to change.
+      */
+      links: content.portalLinks()
+    });
+  } catch (err) {
+    fail(res, err, 'could not open the portal');
   }
 });
 

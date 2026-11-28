@@ -1,0 +1,1166 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EAS Portal - TVL-EAS</title>
+<!--
+  THE PORTAL - the front door, and everything that is not the dashboard.
+
+  Ported from src/Portal.html, with its stylesheet in portal.css and its
+  render functions - applyShell, showView, renderAbout, renderPartners,
+  renderLinks, renderHeroLinks, pageHead - from src/App.html.
+
+  WHY IT IS A SECOND SHELL AND NOT A SECOND APP, in Portal.html's own words:
+  "A separate web app would have meant a second account table, a second
+  password, a second reset flow, and signing in twice to get from here to
+  the figures." That reasoning survives the port exactly. This page uses the
+  same token in the same sessionStorage as every dashboard screen, so the
+  KPI Engine tab is a link and not a sign-in.
+
+  HOW IT JOINS THE ROUTER, AND WHERE THE PORT DIFFERS.
+
+  In Apps Script both shells are one document: showView hides every .view
+  and applyShell works out which shell the chosen one lives in by asking
+  whether #portalRoot contains it. Here the dashboard's screens are separate
+  pages, so there is no #appRoot to hide - the two shells are two URLs. What
+  is kept is the part that matters: a page here is still an ordinary
+  <section class="view" id="view-NAME">, adding one is still two lines, and
+  the sky's height still comes off data-page because CSS cannot ask what is
+  open.
+
+  So the KPI Engine tab navigates to kpi1.html, and the dashboard's Home
+  button navigates here. One session either way, and the browser's own Back
+  walks between them - which the single-document version could not do.
+
+  WHAT IS PORTED AND WHAT IS NOT. Home, About us, Customers, Projects and
+  Links are here. EAS Team, Learnings and Objective are shown in the nav,
+  disabled, saying so on the hover - the same treatment the sidebar gives a
+  screen that has not arrived, and for the same reason: a tab that vanishes
+  is a tab nobody can tell is coming.
+-->
+<link rel="stylesheet" href="app.css">
+<!-- After app.css, so anything shared resolves the same way and anything
+     in the portal's own sheet wins a tie. PortalStyles.html says so too. -->
+<link rel="stylesheet" href="portal.css">
+<style>
+  /* Only while the sign-in card has the screen to itself. */
+  .signin { max-width: 400px; margin: 60px auto; }
+  .signin label { display: block; font-size: 12px; color: var(--text-dim);
+                  margin: 14px 0 4px; }
+  .signin input { width: 100%; padding: 9px 11px; border: 1px solid var(--line);
+                  border-radius: 8px; font: inherit; background: var(--card);
+                  color: var(--text); }
+  .signin .btn { margin-top: 18px; width: 100%; }
+  .signin .why { color: var(--red); font-size: 13px; margin: 12px 0 0;
+                 min-height: 18px; }
+  /*
+    A TAB WITH NO PAGE YET. Shown rather than hidden, for the reason the
+    sidebar gives: a tab nobody can see is a tab nobody knows is coming.
+    Dimmed and not pressable, with the reason on the hover.
+  */
+  .portal-tab.is-soon { opacity: .45; cursor: not-allowed; }
+  .portal-tab.is-soon:hover { background: none; }
+</style>
+</head>
+<body>
+
+<section class="card signin" id="signinCard" hidden>
+  <div class="card-head">Sign in</div>
+  <label for="employeeId">Employee ID</label>
+  <input id="employeeId" autocomplete="username" inputmode="numeric">
+  <label for="password">Password</label>
+  <input id="password" type="password" autocomplete="current-password">
+  <p class="why" id="signinWhy"></p>
+  <button class="btn btn-primary" id="signinGo">Sign in</button>
+</section>
+
+<div class="portal" id="portalRoot" hidden>
+
+  <!--
+    THE SKY - the blue wash everything at the top of the portal sits on.
+
+    A separate element rather than a background on .portal-body, because the
+    body is the scrolling box: a background painted on it would stay nailed to
+    the viewport while the page moved underneath, and the hero would slide out
+    from under its own colour.
+
+    It is not decoration either. The glass navigation above only reads as
+    glass because there is something behind it to blur, and the headline is
+    white, which needs this to be legible at all. How tall it is depends on
+    the page - a hero's worth on Home, a header band elsewhere - and that is
+    set from data-page by applyShell() in App.html, because CSS cannot ask
+    which view is open.
+  -->
+  <div class="portal-sky" aria-hidden="true"></div>
+
+  <!-- ===================== TOP BAR ===================== -->
+  <header class="portal-top">
+
+    <!--
+      The mark is a button, not a logo: clicking a company mark to get home is
+      a thing people try without being told, and a dead logo in the corner
+      spends that expectation for nothing.
+    -->
+    <!--
+      The mark and the mailbox are SIBLINGS, not one control. An <a> inside a
+      <button> is invalid HTML and browsers recover from it differently - one
+      of them will decide the whole thing navigates Home and swallow the
+      mailto. Two elements, each doing one thing.
+    -->
+    <div class="portal-ident">
+      <button class="portal-brand" data-view="home" title="Home">
+        <span class="brand-mark">EAS</span>
+        <span class="portal-brand-text">
+          <strong>Enterprise Application Services</strong>
+          <span>Tekvision (BD) Ltd &#xB7; Youngone Holdings</span>
+        </span>
+      </button>
+
+      <a class="portal-mail" href="mailto:eas@tekvision.com.bd">
+        <svg viewBox="0 0 16 16" width="11" height="11" fill="none"
+             stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+          <rect x="1.5" y="3.5" width="13" height="9" rx="1.5"/>
+          <path d="M2 4.5l6 4 6-4"/>
+        </svg>
+        eas@tekvision.com.bd
+      </a>
+    </div>
+
+    <!--
+      Ten tabs where the reference design had five.
+
+      They are allowed to SCROLL sideways rather than fold into a "More"
+      menu. On a 1366-wide laptop - which most of the team has - ten tabs plus
+      the mark plus the identity strip do not fit, and the two honest answers
+      are to scroll or to hide some. A menu hides them: a tab nobody can see
+      is a tab nobody visits, and which ones vanish depends on the window
+      width, so no two people are looking at the same navigation. Scrolling
+      keeps every tab reachable and keeps the order fixed.
+    -->
+    <div class="portal-navwrap">
+    <nav class="portal-nav" id="portalNav" aria-label="Portal">
+      <button class="portal-tab" data-view="home">Home</button>
+      <button class="portal-tab" data-view="about">About us</button>
+      <button class="portal-tab is-soon" data-view="team" disabled
+              data-soon="1" title="The EAS Team directory is not ported yet">EAS Team</button>
+
+      <!--
+        It used to be a white pill, on the argument that a tab which leaves
+        the portal for the dashboard should look different before it is
+        pressed. It read as the selected tab instead - a white pill in this
+        bar is what "you are here" looks like - so the one tab you were never
+        on was the one that appeared to be open. Plain, like its neighbours;
+        the title attribute still says where it goes.
+      -->
+      <button class="portal-tab" data-view="kpi1"
+              title="Open the TVL-EAS Database dashboard">KPI Engine</button>
+
+      <!--
+        CUSTOMERS on the tab, `partners` in the data-view. The word people
+        read changed; the name the screen is addressed by did not, so a
+        bookmarked ?view=partners still lands here.
+      -->
+      <button class="portal-tab" data-view="partners">Customers</button>
+      <button class="portal-tab is-soon" data-view="learnings" disabled
+              data-soon="1" title="Learnings is not ported yet">Learnings</button>
+      <button class="portal-tab" data-view="projects">Projects</button>
+      <button class="portal-tab is-soon" data-view="objective" disabled
+              data-soon="1" title="Objectives is not ported yet">Objective</button>
+      <button class="portal-tab" data-view="links">Links</button>
+    </nav>
+    </div>
+
+    <!--
+      Who is signed in, and the way out.
+
+      The button does not sign anybody out itself - it presses the dashboard's
+      Sign out button, which already drops the token, stops the polling and
+      puts the sign-in card back. Two buttons doing the same job in two
+      different ways is how one of them ends up subtly wrong, so there is
+      still exactly one sign-out in this project and this is a handle on it.
+    -->
+    <div class="portal-who">
+      <!--
+        Back inside the app, not the browser's Back. Every screen here is a
+        .view being shown and hidden, so the browser's would leave the app
+        altogether. Hidden until there is somewhere to go back to.
+      -->
+      <button class="portal-back" id="portalBack" type="button" hidden>
+        <svg viewBox="0 0 16 16" width="12" height="12" fill="none"
+             stroke="currentColor" stroke-width="2" stroke-linecap="round"
+             stroke-linejoin="round" aria-hidden="true"><path d="M10 3L5 8l5 5"/></svg>
+        Back
+      </button>
+      <!--
+        YOUR OWN DOT, beside your own name, in the same three colours the
+        team cards use. It is here rather than only on the EAS Team page
+        because the state is yours to see at a glance: the point of the Away
+        button is that you remember you pressed it, and a green dot next to
+        your name is how you notice you are still showing as at your desk
+        when you are not.
+      -->
+      <span class="portal-who-name" id="portalWho">&mdash;</span>
+      <span class="pres-dot" id="portalPresDot" data-state="OFFLINE" hidden></span>
+      <!--
+        A toggle, not a button that does one thing. aria-pressed is what says
+        so to a screen reader, and it is kept in step with data-state by
+        paintPresenceSelf().
+      -->
+      <button class="portal-away" id="portalAway" type="button" hidden
+              aria-pressed="false">Away</button>
+      <button class="portal-signout" id="portalSignOut" hidden>Sign out</button>
+    </div>
+  </header>
+
+
+  <!-- ===================== PAGES ===================== -->
+  <div class="portal-body">
+
+    <!-- ---------- HOME ---------- -->
+    <section class="view portal-page" id="view-home">
+      <div class="portal-hero">
+        <!--
+          Taken from the sign-in page, which has read DATA | INSIGHT |
+          PERFORMANCE under the EAS mark since long before this portal
+          existed. It is the team's own line; borrowing it means the front
+          door and the sign-in card say the same thing rather than each
+          making up a slogan.
+        -->
+        <h1 class="portal-hero-title">
+          Data. Insight.<br>Performance.
+        </h1>
+        <p class="portal-hero-sub">
+          Enterprise Application Services keeps SAP, the ITSM service desk and
+          every business application behind them running - and measures itself
+          on how well it does it.
+        </p>
+        <div class="portal-hero-actions">
+          <button class="portal-cta" data-view="kpi1">Open the KPI Engine</button>
+          <!--
+            An anchor, not a button, and carrying NO data-view: it leaves the
+            app. wireNavigation() skips anything without one, so this cannot
+            quietly change the screen behind the tab it opens. The address
+            and the label are filled in by App.html from portalLinks(), the
+            same list the Links page is drawn from - so a system added there
+            can be put on the front page by giving it a `hero` label and
+            nothing else has to change.
+          -->
+          <a class="portal-cta" id="heroSapLink"
+             target="_blank" rel="noopener noreferrer" hidden>Open SAP UserHub</a>
+        </div>
+
+        <!--
+          The second line of buttons. Empty and hidden until there is
+          something to put on it, because an empty row still takes its
+          margin and leaves a gap under the first two that reads as a
+          rendering fault.
+        -->
+        <div class="portal-hero-actions is-more" id="heroMore" hidden></div>
+
+        <!--
+          THE SECTION MAILBOXES WERE HERE AND ARE NOT ANY MORE.
+
+          Five chips under the buttons, one per group alias. They are on the
+          organogram instead, on each section's own bar - which is where
+          somebody is already looking at that section, and where the address
+          belongs to the thing it names rather than sitting in a row of five
+          on a page about the department as a whole.
+
+          CONFIG.SECTION_MAIL is still the one list they come from; only this
+          second place of showing them is gone.
+        -->
+      </div>
+
+      <!--
+        THE CARDS - a collage, not a row.
+
+        Five of them at three different heights, the way the reference design
+        has it: one tall card carrying the chart people actually come here
+        for, a column of two beside it, and two more to the right. A row of
+        four equal rectangles says "dashboard template"; this says somebody
+        chose what belongs on the front page.
+
+        WHAT IS REAL AND WHAT IS NOT.
+
+        The SHAPES are invented - every number, every bar, every slice. They
+        stand in for the real ones until these are wired to the server, and
+        the note under them says so. What is NOT invented is the structure:
+        the four KPIs, their names and the three SLA layers are read out of
+        Config.gs by serviceLayers(), so the layers card describes the system
+        that actually exists.
+
+        INLINE SVG, not Chart.js. The dashboard loads Chart.js from a CDN,
+        which is fine there - the figures are in the tables beside it, so a
+        blocked CDN costs a chart and not the screen. Here the chart IS the
+        card, and a front page whose cards are empty rectangles because a
+        network somewhere said no is not a front page. Drawn by hand, these
+        cannot fail to load.
+      -->
+      <div class="portal-tiles" id="portalTiles">
+
+        <!-- ================= 1. THE COMPARISON ================= -->
+        <!--
+          The chart the Comparison screen is built around: one period against
+          another, same axis, so the question "is this month better" is
+          answered by looking rather than by subtracting.
+        -->
+        <article class="ptile ptile-compare">
+          <div class="ptile-head">
+            <div>
+              <span class="ptile-label">Comparison</span>
+              <span class="ptile-sub">KPI 1 &#xB7; Resolution rate</span>
+            </div>
+            <span class="ptile-trend">+1.4</span>
+          </div>
+
+          <div class="ptile-figure">
+            <span class="ptile-value">96.1<span class="ptile-unit">%</span></span>
+            <span class="ptile-against">against 94.7% last period</span>
+          </div>
+
+          <div class="ptile-legend">
+            <span class="ptile-key"><i class="ptile-dot is-now"></i>This period</span>
+            <span class="ptile-key"><i class="ptile-dot is-was"></i>Last period</span>
+          </div>
+
+          <!--
+            A TALL viewBox, 300 by 230, and that is a layout decision rather
+            than a drawing one. An SVG with a viewBox keeps its shape: give
+            it a box twice as tall as its own proportions and it renders at
+            the width, centred, with the rest as air - so this card had 159
+            blank pixels in the middle of it and no amount of CSS height
+            fixed that. The drawing is the shape of the space it has to
+            fill, and the CSS sizes the box by the same ratio.
+          -->
+          <div class="ptile-plot">
+          <svg class="ptile-chart is-tall" viewBox="0 0 300 230" role="img"
+               aria-label="Resolution rate this period against last period, rising">
+            <defs>
+              <linearGradient id="cmpFill" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0" stop-color="#2563eb" stop-opacity=".26"/>
+                <stop offset="1" stop-color="#2563eb" stop-opacity="0"/>
+              </linearGradient>
+            </defs>
+
+            <!-- the grid, so the lines are read against something -->
+            <g stroke="#e6ecf6" stroke-width="1">
+              <line x1="0" y1="30"  x2="300" y2="30"/>
+              <line x1="0" y1="75"  x2="300" y2="75"/>
+              <line x1="0" y1="120" x2="300" y2="120"/>
+              <line x1="0" y1="165" x2="300" y2="165"/>
+            </g>
+
+            <!-- last period: dashed and grey, so it reads as the backdrop -->
+            <polyline points="0,175 50,160 100,168 150,140 200,146 250,124 300,116"
+                      fill="none" stroke="#9fb3cd" stroke-width="2.4"
+                      stroke-dasharray="6 6" stroke-linecap="round"
+                      stroke-linejoin="round"/>
+
+            <!-- this period -->
+            <path d="M0,150 L50,128 L100,136 L150,88 L200,98 L250,54 L300,38 L300,230 L0,230 Z"
+                  fill="url(#cmpFill)"/>
+            <polyline points="0,150 50,128 100,136 150,88 200,98 250,54 300,38"
+                      fill="none" stroke="#2563eb" stroke-width="3"
+                      stroke-linecap="round" stroke-linejoin="round"/>
+            <circle cx="300" cy="38" r="4.6" fill="#fff" stroke="#2563eb" stroke-width="3"/>
+          </svg>
+
+          <div class="ptile-axis">
+            <span>Apr</span><span>May</span><span>Jun</span>
+            <span>Jul</span><span>Aug</span><span>Sep</span><span>Oct</span>
+          </div>
+          </div>
+        </article>
+
+        <!-- ================= 2. ITSM TICKETS ================= -->
+        <article class="ptile ptile-itsm">
+          <div class="ptile-head">
+            <div>
+              <span class="ptile-label">ITSM tickets</span>
+              <span class="ptile-sub">Raised per month</span>
+            </div>
+          </div>
+
+          <div class="ptile-figure">
+            <span class="ptile-value is-sm">2,545</span>
+            <span class="ptile-against">this year</span>
+          </div>
+
+          <svg class="ptile-chart" viewBox="0 0 220 72" role="img"
+               aria-label="Tickets raised per month, six months">
+            <g fill="#2563eb">
+              <rect x="4"   y="34" width="26" height="38" rx="5" opacity=".42"/>
+              <rect x="40"  y="26" width="26" height="46" rx="5" opacity=".54"/>
+              <rect x="76"  y="40" width="26" height="32" rx="5" opacity=".46"/>
+              <rect x="112" y="16" width="26" height="56" rx="5" opacity=".70"/>
+              <rect x="148" y="28" width="26" height="44" rx="5" opacity=".58"/>
+              <rect x="184" y="8"  width="26" height="64" rx="5"/>
+            </g>
+          </svg>
+
+          <div class="ptile-axis">
+            <span>May</span><span>Jun</span><span>Jul</span>
+            <span>Aug</span><span>Sep</span><span>Oct</span>
+          </div>
+        </article>
+
+        <!-- ================= 3. HELP AND FAQ ================= -->
+        <!--
+          A PICTURE OF THE PANEL, not a working one. The Messages bubble in
+          the corner is the real thing; this is a small portrait of it, so
+          somebody landing on the front page can see what Help and FAQ looks
+          like before they press anything.
+
+          aria-hidden, and deliberately. Everything inside is scenery - two
+          threads that do not exist and a header bar that does nothing -
+          and a screen reader announcing them would be reading out messages
+          nobody sent. The real panel, one corner away, is fully reachable.
+        -->
+        <article class="ptile ptile-faq">
+          <div class="ptile-head">
+            <div>
+              <span class="ptile-label">Help &amp; FAQ</span>
+              <span class="ptile-sub">Answered in the page</span>
+            </div>
+          </div>
+
+          <div class="msgr-demo" aria-hidden="true">
+            <div class="msgr-demo-bar">
+              <span class="msgr-demo-face">
+                <svg viewBox="0 0 20 20" width="11" height="11" fill="currentColor">
+                  <circle cx="10" cy="6.4" r="3.4"/>
+                  <path d="M10 11.2c-3.6 0-6.2 2-6.2 4.3V17h12.4v-1.5c0-2.3-2.6-4.3-6.2-4.3z"/>
+                </svg>
+              </span>
+              <span class="msgr-demo-title">Messages</span>
+              <svg viewBox="0 0 16 16" width="10" height="10" fill="none"
+                   stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                   stroke-linejoin="round"><path d="M4 10l4-4 4 4"/></svg>
+            </div>
+
+            <div class="msgr-demo-body">
+              <span class="msgr-demo-eyebrow">
+                Common questions
+                <svg viewBox="0 0 16 16" width="8" height="8" fill="currentColor">
+                  <path d="M4 6h8l-4 5z"/>
+                </svg>
+              </span>
+
+              <div class="msgr-demo-row">
+                <div class="msgr-demo-top">
+                  <b>Filter-add</b>
+                  <span class="msgr-demo-when">22 Oct 09:28</span>
+                </div>
+                <p><i>Rudra</i> I have added that.</p>
+              </div>
+
+              <div class="msgr-demo-row">
+                <div class="msgr-demo-top">
+                  <b>Login Issue</b>
+                  <span class="msgr-demo-when">18 Oct 09:39</span>
+                </div>
+                <p><i>Rudra</i> Use the starting login your team gave you.</p>
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <!-- ================= 4. KPI 2, AS A RING ================= -->
+        <article class="ptile ptile-kpi2">
+          <div class="ptile-head">
+            <div>
+              <span class="ptile-label">KPI 2</span>
+              <span class="ptile-sub">Training feedback</span>
+            </div>
+            <span class="ptile-chip">Internal</span>
+          </div>
+
+          <!--
+            A ring rather than a pie. The measure is one ratio - positive
+            responses over applicable responses - and a ring leaves a middle
+            to print it in, which a pie spends on a wedge nobody reads.
+          -->
+          <div class="ring-wrap">
+            <svg class="ring" viewBox="0 0 120 120" role="img"
+                 aria-label="Positive responses, 91 percent of applicable responses">
+              <circle cx="60" cy="60" r="46" fill="none" stroke="#e6ecf6" stroke-width="16"/>
+              <!--
+                289 is the circumference at r=46, to the nearest whole number.
+                The dash is 91% of it; the gap is the rest. Rotated so the arc
+                starts at the top rather than at three o'clock.
+              -->
+              <circle cx="60" cy="60" r="46" fill="none" stroke="#2563eb"
+                      stroke-width="16" stroke-linecap="round"
+                      stroke-dasharray="263 26"
+                      transform="rotate(-90 60 60)"/>
+              <text x="60" y="56" text-anchor="middle" class="ring-value">91%</text>
+              <text x="60" y="74" text-anchor="middle" class="ring-note">positive</text>
+            </svg>
+          </div>
+
+          <div class="ptile-legend is-stack">
+            <span class="ptile-key"><i class="ptile-dot is-now"></i>Positive</span>
+            <span class="ptile-key"><i class="ptile-dot is-rest"></i>Everything else</span>
+          </div>
+        </article>
+
+        <!-- ================= 5. THE THREE SERVICE LAYERS ================= -->
+        <!--
+          Drawn by renderServiceLayers() in App.html from window.__EAS_LAYERS__,
+          which Index.html fills from serviceLayers() in Config.gs. The layers
+          are not typed anywhere: each KPI already carries the layer it answers
+          for - it is how the four were matched to their signed definition
+          sheets - so this card reads them off the KPIs and cannot drift from
+          the engine behind it.
+        -->
+        <article class="ptile ptile-layers">
+          <div class="ptile-head">
+            <div>
+              <span class="ptile-label">Service layers</span>
+              <span class="ptile-sub">What EAS answers for</span>
+            </div>
+          </div>
+          <div class="layer-stack" id="layerStack"></div>
+        </article>
+
+      </div>
+
+    </section>
+
+    <!--
+      ---- ABOUT US ----
+
+      Empty markup, like the team page above and for a weaker version of the
+      same reason: the wording lives in CONFIG.PORTFOLIO and is drawn by
+      renderAbout() in App.html. It is not private, so it could have been
+      written here - but a sentence somebody wants to change should be in a
+      file of sentences, not buried in nested spans, and the people who will
+      want to change one did not write the markup.
+    -->
+    <section class="view portal-page" id="view-about" hidden>
+      <div id="aboutBody"></div>
+    </section>
+
+    <!-- ---- PARTNERS ---- Drawn by renderPartners() from CONFIG.PARTNERS. -->
+    <section class="view portal-page" id="view-partners" hidden>
+      <div id="partnersBody"></div>
+    </section>
+
+
+    <section class="view portal-page" id="view-projects" hidden>
+      <h1 class="portal-page-title">Projects</h1>
+      <div class="portal-empty">
+        <h2>This page is waiting for its words</h2>
+        <p>Phase 5, from the <b>PORTAL</b> tab.</p>
+      </div>
+    </section>
+
+    <!--
+      ---- LINKS ----
+      Drawn by renderLinks() in App.html, because the addresses live in CONFIG
+      and this file's scriptlets are never processed - include() pastes it in
+      as text. Index.html hands the address over on window; see renderLinks.
+    -->
+    <section class="view portal-page" id="view-links" hidden>
+      <div class="portal-page-head">
+        <h1 class="portal-page-title">Links</h1>
+      </div>
+      <div id="linksBody"></div>
+    </section>
+
+  </div>
+
+  <footer class="portal-foot">
+    <span>Enterprise Application Services &#xB7; Tekvision (BD) Ltd</span>
+    <span class="portal-foot-dim">Youngone Holdings</span>
+  </footer>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  const TOKEN_STORE = 'easToken';
+
+  /* Which pages this file actually has, in nav order. */
+  const PAGES = ['home', 'about', 'partners', 'projects', 'links'];
+
+  /*
+    THE ONE TAB THAT IS NOT A PAGE. Portal.html: "KPI Engine carries
+    data-view='kpi1'. There is no #view-kpi1 inside this file, so the
+    router finds it in the dashboard shell and hands over." In the port
+    the dashboard is a different URL, so handing over is a navigation -
+    and the session goes with it, because the token is in sessionStorage
+    and both shells read the same one.
+  */
+  const ELSEWHERE = { kpi1: 'kpi1.html' };
+
+  const state = {
+    token: '', user: null, boot: null,
+    view: 'home',
+    /* Where Back goes. A trail, as in App.html, not the browser's history. */
+    trail: []
+  };
+
+
+  async function api(method, path, body) {
+    const opts = { method: method, headers: {} };
+    if (state.token) opts.headers.Authorization = 'Bearer ' + state.token;
+    if (body !== undefined) {
+      opts.headers['Content-Type'] = 'application/json';
+      opts.body = JSON.stringify(body);
+    }
+    const res = await fetch(path, opts);
+    if (res.status === 401) {
+      signedOut('Your session has ended.');
+      throw new Error('signed out');
+    }
+    let data = null;
+    try { data = await res.json(); } catch (e) { /* not JSON */ }
+    if (!res.ok || !data || data.ok === false) {
+      throw new Error((data && data.error) ||
+                      ('the server answered ' + res.status));
+    }
+    return data;
+  }
+
+  const get = function (path) { return api('GET', path); };
+
+
+  // =======================================================================
+  // SIGNING IN
+  // =======================================================================
+
+  function signedOut(why) {
+    state.token = '';
+    state.user = null;
+    state.boot = null;
+    state.trail = [];
+    try { sessionStorage.removeItem(TOKEN_STORE); } catch (e) { /* fine */ }
+    byId('portalRoot').hidden = true;
+    byId('signinCard').hidden = false;
+    byId('signinWhy').textContent = why || '';
+  }
+
+  async function signIn() {
+    const button = byId('signinGo');
+    const why = byId('signinWhy');
+    why.textContent = '';
+    button.disabled = true;
+    try {
+      const out = await api('POST', '/api/login', {
+        employee_id: byId('employeeId').value.trim(),
+        password: byId('password').value
+      });
+      state.token = out.token;
+      state.user = out.user;
+      try { sessionStorage.setItem(TOKEN_STORE, out.token); } catch (e) { /* fine */ }
+      byId('password').value = '';
+      await start();
+    } catch (err) {
+      why.textContent = err.message;
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+
+  async function start() {
+    const boot = await get('/api/portal/boot');
+    state.boot = boot;
+
+    byId('signinCard').hidden = true;
+    byId('portalRoot').hidden = false;
+
+    byId('portalWho').textContent =
+      boot.username || (state.user ? state.user.employee_id : '\u2014');
+    byId('portalSignOut').hidden = false;
+
+    /*
+      PRESENCE IS NOT PORTED YET, so the dot and the Away toggle stay as
+      the markup left them: hidden. Portal.html's own note on the dot says
+      why half of it would be worse than none - "a dot reading OFFLINE
+      because nothing updates it is a lie about a colleague."
+    */
+
+    renderAbout(boot.portfolio);
+    renderPartners(boot.partners);
+    renderLinks(boot.links);
+    renderHeroLinks(boot.links);
+
+    showView(viewFromUrl(), { replace: true });
+  }
+
+
+  // =======================================================================
+  // THE ROUTER
+  // =======================================================================
+
+  /**
+   * Which page to open, from the address.
+   *
+   * ?view=NAME, the same spelling the original uses, so a bookmark saved
+   * from the spreadsheet version lands on the same page. An unknown name
+   * falls back to Home rather than to a blank screen.
+   */
+  function viewFromUrl() {
+    let want = '';
+    try {
+      want = new URLSearchParams(window.location.search).get('view') || '';
+    } catch (e) { want = ''; }
+    return PAGES.indexOf(want) === -1 ? 'home' : want;
+  }
+
+  /**
+   * Shows one page and hides the rest.
+   *
+   * THE SKY'S HEIGHT COMES OFF data-page, exactly as applyShell sets it:
+   * "CSS has no way to ask what is open, and the blue sky behind the top
+   * of the portal is a hero's worth of it on Home and a header band
+   * everywhere else."
+   */
+  function showView(name, options) {
+    const o = options || {};
+    if (PAGES.indexOf(name) === -1) name = 'home';
+
+    if (!o.back && !o.replace && state.view && state.view !== name) {
+      state.trail.push(state.view);
+    }
+    state.view = name;
+
+    const root = byId('portalRoot');
+    root.querySelectorAll('.view').forEach(function (section) {
+      section.hidden = section.id !== 'view-' + name;
+    });
+    root.dataset.page = name;
+
+    /*
+      The tabs mark themselves the same way App.html does, and KPI Engine
+      is deliberately included there: "while the dashboard is up, the tab
+      that opened it stays lit, so walking back to the portal does not
+      look like it arrived from nowhere." Nothing is up here but this
+      page, so only this page's tab lights.
+    */
+    document.querySelectorAll('.portal-tab').forEach(function (tab) {
+      tab.classList.toggle('is-on', tab.dataset.view === name);
+    });
+
+    paintBack();
+
+    /*
+      THE ADDRESS MOVES WITH THE PAGE. The original cannot do this - an
+      Apps Script web app owns its query string - so Back there is the
+      in-app trail and nothing else. Here the two can agree: pushState
+      gives the browser's own Back the same journey, and ?view= makes a
+      portal page something you can send somebody.
+    */
+    const url = name === 'home' ? 'portal.html'
+                                : 'portal.html?view=' + encodeURIComponent(name);
+    try {
+      if (o.replace) window.history.replaceState({ view: name }, '', url);
+      else window.history.pushState({ view: name }, '', url);
+    } catch (e) { /* a page that cannot rewrite its address still works */ }
+
+    window.scrollTo(0, 0);
+  }
+
+  /** Back to the screen before this one, inside the app. */
+  function goBack() {
+    if (!state.trail.length) return;
+    showView(state.trail.pop(), { back: true });
+  }
+
+  /** Hidden until there is somewhere to go back to. */
+  function paintBack() {
+    const el = byId('portalBack');
+    if (!el) return;
+    const can = state.trail.length > 0;
+    el.hidden = !can;
+    el.title = can
+      ? 'Back to ' + viewTitle(state.trail[state.trail.length - 1])
+      : 'Back';
+  }
+
+  /** What a view is called, for the Back button's tooltip. */
+  function viewTitle(name) {
+    const el = document.querySelector('.portal-tab[data-view="' + name + '"]');
+    const text = el ? el.textContent.replace(/\s+/g, ' ').trim() : '';
+    return text || name;
+  }
+
+
+  /**
+   * Every control that names a view.
+   *
+   * ONE SELECTOR RATHER THAN THREE HANDLERS, as wireNavigation has it:
+   * "a control added to any of them works without being wired up
+   * separately - and so none of them can end up navigating in a subtly
+   * different way from the others."
+   *
+   * AND THE GUARD IS THE POINT OF IT. An external link wears .portal-cta
+   * for the look and carries no data-view; without the skip, showView
+   * (undefined) falls back to Home and quietly changes the screen behind
+   * the tab it just opened.
+   */
+  function wireNavigation() {
+    document.querySelectorAll('.portal-tab, .portal-brand, .portal-cta')
+      .forEach(function (button) {
+        const view = button.dataset.view;
+        if (!view) return;
+        if (button.disabled) return;
+
+        button.addEventListener('click', function () {
+          if (ELSEWHERE[view]) { window.location.href = ELSEWHERE[view]; return; }
+          showView(view);
+        });
+      });
+
+    bind('portalBack', 'click', goBack);
+    bind('portalSignOut', 'click', function () { signedOut(''); });
+
+    /*
+      AND THE BROWSER'S OWN BACK. The page does not reload on a hop
+      between portal pages, so popstate is the only way to hear about it -
+      without this, Back changes the address and leaves the screen where
+      it was.
+    */
+    window.addEventListener('popstate', function (e) {
+      const name = (e.state && e.state.view) || viewFromUrl();
+      state.trail = [];
+      showView(name, { replace: true });
+    });
+  }
+
+
+  // =======================================================================
+  // ABOUT US
+  // =======================================================================
+
+  /** The heading block every written page shares. pageHead in App.html. */
+  function pageHead(pill, titleTop, titleFoot, lede) {
+    return '<div class="pcontent-head">' +
+      '<span class="pcontent-pill">' + escapeHtml(pill) + '</span>' +
+      '<div class="pcontent-headline">' +
+        '<h1 class="pcontent-title">' + escapeHtml(titleTop) + '<br>' +
+          escapeHtml(titleFoot) + '</h1>' +
+        '<p class="pcontent-lede">' + escapeHtml(lede) + '</p>' +
+      '</div>' +
+    '</div>';
+  }
+
+
+  function renderAbout(about) {
+    const body = byId('aboutBody');
+    if (!body) return;
+
+    if (!about || !about.pillars || !about.pillars.length) {
+      body.innerHTML =
+        '<h1 class="portal-page-title">About us</h1>' +
+        '<div class="portal-empty"><h2>Nothing to show yet</h2>' +
+        '<p>PORTFOLIO in api/portal-content.js is empty.</p></div>';
+      return;
+    }
+
+    const cards = about.pillars.map(function (pillar, index) {
+      const items = (pillar.items || []).map(function (line) {
+        return '<li>' + escapeHtml(line) + '</li>';
+      }).join('');
+
+      return '<article class="pillar" data-accent="' + index + '">' +
+        '<div class="pillar-top">' +
+          '<span class="pillar-word">' + escapeHtml(pillar.word) + '</span>' +
+          /*
+            The count is worked out, not written down. Same rule as the
+            team cards: a number beside a list goes wrong the first time
+            somebody adds to the list and does not look up.
+          */
+          '<span class="pillar-count">' + (pillar.items || []).length +
+          '</span>' +
+        '</div>' +
+        '<p class="pillar-line">' + escapeHtml(pillar.line) + '</p>' +
+        '<ul class="pillar-list">' + items + '</ul>' +
+      '</article>';
+    }).join('');
+
+    /*
+      The slide's own closing line, built from the same three words the
+      cards above are headed with - so it cannot end up naming a pillar
+      that is no longer there.
+    */
+    const words = about.pillars.map(function (p) {
+      return '<b>' + escapeHtml(p.word) + '</b>';
+    }).join('<span class="pcontent-plus">+</span>');
+
+    body.innerHTML =
+      pageHead('About us', 'Portfolio of', 'the EAS Team', about.intro || '') +
+      '<div class="pillar-grid">' + cards + '</div>' +
+      '<div class="pcontent-band">' +
+        '<span class="pcontent-band-lead">EAS Team</span>' +
+        '<span class="pcontent-eq">=</span>' + words +
+      '</div>';
+  }
+
+
+  // =======================================================================
+  // CUSTOMERS
+  // =======================================================================
+
+  function renderPartners(data) {
+    const body = byId('partnersBody');
+    if (!body) return;
+
+    if (!data || !data.zones || !data.zones.length) {
+      body.innerHTML =
+        '<h1 class="portal-page-title">Customers</h1>' +
+        '<div class="portal-empty"><h2>Nothing to show yet</h2>' +
+        '<p>PARTNERS in api/portal-content.js is empty.</p></div>';
+      return;
+    }
+
+    let total = 0;
+
+    const cards = data.zones.map(function (zone, index) {
+      const plants = zone.plants || [];
+      total += plants.length;
+
+      const chips = plants.map(function (name) {
+        return '<span class="plant">' + escapeHtml(name) + '</span>';
+      }).join('');
+
+      return '<article class="zone" data-accent="' + index + '">' +
+        '<div class="zone-top">' +
+          '<span class="zone-code">' + escapeHtml(zone.code) + '</span>' +
+          '<span class="zone-count">' + plants.length +
+            (plants.length === 1 ? ' plant' : ' plants') + '</span>' +
+        '</div>' +
+        '<p class="zone-name">' + escapeHtml(zone.name || '') + '</p>' +
+        '<div class="zone-plants">' + chips + '</div>' +
+      '</article>';
+    }).join('');
+
+    body.innerHTML =
+      pageHead('Customers', 'The plants', 'we keep running', data.intro || '') +
+      '<div class="vendor-strip">' +
+        '<span class="vendor-mark">' + escapeHtml(data.vendorShort || '') +
+        '</span>' +
+        '<span class="vendor-name">' + escapeHtml(data.vendor || '') + '</span>' +
+        '<span class="vendor-sep"></span>' +
+        /*
+          COUNTED, NOT WRITTEN DOWN. Config.gs records what happened when it
+          was written down: "Left off this list, the page said 22 and the
+          team supports 23."
+        */
+        '<span class="vendor-count"><b>' + total + '</b> plants served</span>' +
+      '</div>' +
+      '<div class="zone-grid">' + cards + '</div>';
+  }
+
+
+  // =======================================================================
+  // LINKS, AND THE BUTTONS UNDER THE HEADLINE
+  // =======================================================================
+
+  /**
+   * The buttons under the headline, from the same list as the Links page.
+   *
+   * ANCHORS WITH NO data-view, which is the whole reason these are drawn
+   * rather than written: wireNavigation binds anything carrying one and
+   * skips everything else, so a link that leaves the app cannot also
+   * change the screen behind the tab it opens.
+   *
+   * Hidden until an address exists. A link-shaped thing with no href is
+   * something people press once.
+   */
+  function renderHeroLinks(all) {
+    const links = (all || []).filter(function (l) {
+      return l && l.url && l.hero;
+    });
+
+    // Row one sits beside Open the KPI Engine and is already in the
+    // markup, so it keeps its id and its place.
+    const first = links.filter(function (l) { return Number(l.row) === 1; })[0];
+    const top = byId('heroSapLink');
+    if (top) {
+      if (first) {
+        top.href = first.url;
+        top.textContent = first.hero;
+        top.title = first.name + ' - opens in a new tab';
+        top.hidden = false;
+      } else {
+        top.hidden = true;
+      }
+    }
+
+    // Everything else goes on the line below.
+    const more = byId('heroMore');
+    if (!more) return;
+
+    const rest = links.filter(function (l) { return Number(l.row) !== 1; });
+    more.hidden = !rest.length;
+    more.innerHTML = rest.map(function (link) {
+      return '<a class="portal-cta" href="' + escapeHtml(link.url) + '" ' +
+             'target="_blank" rel="noopener noreferrer" ' +
+             'title="' + escapeHtml(link.name) + ' - opens in a new tab">' +
+             escapeHtml(link.hero) + '</a>';
+    }).join('');
+  }
+
+
+  function renderLinks(all) {
+    const body = byId('linksBody');
+    if (!body) return;
+
+    const links = (all || []).filter(function (l) {
+      return l && (l.url || l.view);
+    });
+
+    if (!links.length) {
+      body.innerHTML =
+        '<div class="portal-empty"><h2>No addresses configured</h2>' +
+        '<p>portalLinks() in api/content.js returns nothing, so there is ' +
+        'nothing to link to yet.</p></div>';
+      return;
+    }
+
+    /*
+      target="_blank" on every outside address. In Apps Script it is
+      required - "this page runs inside the sandbox iframe and a
+      same-frame navigation to another origin is refused by the browser" -
+      and here it is not. It stays because these open other systems with
+      their own sign-ins, and swallowing the portal to do it would lose
+      whatever somebody was in the middle of. rel stops the opened page
+      reaching back through window.opener.
+
+      No description under any of them. One used to say "opens in a new
+      tab and signs in separately", which is what the line under the page
+      heading already says about every link on it.
+    */
+    body.innerHTML =
+      '<div class="link-stack">' +
+      links.map(function (link) {
+        /*
+          ONE ENTRY GOES NOWHERE. By-Weekly Meetings opens a page inside
+          the portal rather than a site, so it is a button carrying a
+          data-view and not an anchor with nothing in its href. That page
+          is not ported yet, so the button says so instead of doing
+          nothing - which is what an unported control looks like
+          everywhere else in this project.
+        */
+        const inside = Boolean(link.view);
+        const soon = inside && PAGES.indexOf(link.view) === -1;
+        const open = inside
+          ? '<button class="link-card is-inside' + (soon ? ' is-soon' : '') +
+            '" type="button" ' + (soon ? 'disabled title="' +
+              escapeHtml(link.name) + ' is not ported yet" ' : '') +
+            'data-view="' + escapeHtml(link.view) + '">'
+          : '<a class="link-card" href="' + escapeHtml(link.url) + '" ' +
+            'target="_blank" rel="noopener noreferrer">';
+        return open +
+          '<span class="link-card-mark">' +
+            '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" ' +
+                 'stroke-width="1.5" stroke-linecap="round" ' +
+                 'stroke-linejoin="round" aria-hidden="true">' +
+              '<ellipse cx="8" cy="3.6" rx="5" ry="2"/>' +
+              '<path d="M3 3.6v4c0 1.1 2.2 2 5 2s5-.9 5-2v-4M3 7.6v4c0 1.1 ' +
+                '2.2 2 5 2s5-.9 5-2v-4"/>' +
+            '</svg>' +
+          '</span>' +
+          '<span class="link-card-text">' +
+            '<strong>' + escapeHtml(link.name) + '</strong>' +
+          '</span>' +
+          '<span class="link-card-go">' +
+            '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" ' +
+                 'stroke-width="1.8" stroke-linecap="round" ' +
+                 'stroke-linejoin="round" aria-hidden="true">' +
+              (inside
+                ? '<path d="M6 3.5L10.5 8 6 12.5"/>'
+                : '<path d="M6.5 3h-3A1.5 1.5 0 0 0 2 4.5v8A1.5 1.5 0 0 0 ' +
+                  '3.5 14h8a1.5 1.5 0 0 0 1.5-1.5v-3M9.5 2H14v4.5M14 2L7.5 ' +
+                  '8.5"/>') +
+            '</svg>' +
+          '</span>' +
+        (inside ? '</button>' : '</a>');
+      }).join('') +
+      '</div>';
+
+    /*
+      AND THE INSIDE ONE IS WIRED HERE, not by wireNavigation.
+
+      App.html records why, and it is worth keeping: "That function runs
+      once at boot over a fixed list of selectors and binds what it finds.
+      These cards do not exist then - renderLinks draws them when somebody
+      opens the page - so adding .link-card to that list would still never
+      bind one. The first version of this looked completely correct and
+      did nothing at all when pressed."
+    */
+    body.querySelectorAll('.link-card[data-view]').forEach(function (card) {
+      if (card.disabled) return;
+      card.addEventListener('click', function () {
+        showView(card.dataset.view);
+      });
+    });
+  }
+
+
+  // =======================================================================
+  // SMALL THINGS
+  // =======================================================================
+
+  function byId(id) { return document.getElementById(id); }
+
+  function escapeHtml(value) {
+    return String(value == null ? '' : value)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  function bind(id, event, handler) {
+    const el = byId(id);
+    if (el) el.addEventListener(event, handler);
+  }
+
+
+  // =======================================================================
+  // STARTUP
+  // =======================================================================
+
+  document.addEventListener('DOMContentLoaded', function () {
+    wireNavigation();
+
+    bind('signinGo', 'click', function () { signIn(); });
+    bind('password', 'keydown', function (e) { if (e.key === 'Enter') signIn(); });
+    bind('employeeId', 'keydown', function (e) { if (e.key === 'Enter') signIn(); });
+
+    try { state.token = sessionStorage.getItem(TOKEN_STORE) || ''; }
+    catch (e) { state.token = ''; }
+
+    if (!state.token) { signedOut(''); return; }
+
+    start().catch(function (err) {
+      if (String(err && err.message) === 'signed out') return;
+      signedOut('Could not open the portal \u2014 ' +
+                (err && err.message ? err.message : String(err)));
+    });
+  });
+
+
+  // For the browser suite, which drives this page against the real server.
+  window.__portalScreen = {
+    PAGES: PAGES,
+    showView: showView,
+    goBack: goBack,
+    viewFromUrl: viewFromUrl,
+    renderAbout: renderAbout,
+    renderPartners: renderPartners,
+    renderLinks: renderLinks,
+    renderHeroLinks: renderHeroLinks,
+    state: state
+  };
+}());
+</script>
+</body>
+</html>

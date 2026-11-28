@@ -63,7 +63,7 @@ Judge the demo page on whether the data is right. Judge nothing else by it.
 
 | Screen | What it is | Status |
 |---|---|---|
-| `home` | landing page, cards into everything else | TODO - portal |
+| `home` | landing page, cards into everything else | **DONE** `portal.html` |
 | `kpi1` | KPI 1 - ITSM ticket dashboard | **DONE** `kpi1.html` |
 | `kpi2` | KPI 2 - Training dashboard | **DONE** `kpi2.html` |
 | `compare` | comparison between periods | **DONE** `compare.html` |
@@ -72,15 +72,15 @@ Judge the demo page on whether the data is right. Judge nothing else by it.
 | `knowledge` | Knowledge Share posts | TODO - portal |
 | `learnings` | LEARN entries | TODO - portal |
 | `byweekly` | By-Weekly meeting links | TODO - portal |
-| `links` | portal links, incl. TVL Knowledge Base | TODO - portal |
+| `links` | portal links, incl. TVL Knowledge Base | **DONE** `?view=links` |
 | `uploads` | CSV upload and history | **DONE** `uploads.html` |
 | `master` | Accounts (MASTER only) | **DONE** `master.html` |
 | `help` | Help / FAQ - the team inbox (ADMIN+) | **DONE** `help.html` |
 | `settings` | shown as "Summary" | **DONE** `summary.html` |
-| `about` | about page | TODO |
+| `about` | about page | **DONE** `portal.html?view=about` |
 | `contact` | contact page | TODO |
-| `partners` | partners page | TODO |
-| `projects` | projects page | TODO |
+| `partners` | partners page | **DONE** shown as Customers |
+| `projects` | projects page | **DONE** placeholder, as in the original |
 | `mark` | internal | TODO |
 | `wait` | loading/waiting state | TODO |
 
@@ -1871,3 +1871,102 @@ rows under them, since `account.employee_id` has a foreign key to `team` -
 and deletes them again. Picking an ID that happens to be enrolled on this
 machine would be asserting something about the database, which is the
 mistake six suites on this port have now made.
+
+### The portal, part one: the front door
+
+`api/public/portal.html` and `api/public/portal.css`, with
+`api/portal-content.js` and `GET /api/portal/boot`. From `src/Portal.html`,
+`src/PortalStyles.html`, and `applyShell`, `showView`, `wireNavigation`,
+`goBack`, `paintBack`, `pageHead`, `renderAbout`, `renderPartners`,
+`renderLinks` and `renderHeroLinks` in `src/App.html`. **62 checks in a real
+browser.**
+
+**This is the second shell, and the last item in the sidebar.** Home was the
+only screen still marked "not ported yet"; `shell-test`'s own note said
+"when the last one lands, this check is what says so," and it has.
+
+**Five pages of nine.** Home, About us, Customers, Projects and Links are
+here. EAS Team, Learnings and Objective are in the nav, disabled, with the
+reason on the hover - the same treatment the sidebar gave an unported
+screen, because a tab that vanishes is a tab nobody can tell is coming.
+
+#### `portal.css` was never brought across
+
+4,530 lines and 818 rules of it, still only in `src/PortalStyles.html`.
+Extracted verbatim - not a rule changed, because the one way to lose a port
+of hand-tuned layout is to tidy it on the way across. The only edits are to
+its header, which named two Apps Script files that do not exist here. All 48
+CSS variables it uses resolve against `app.css`, which is checked.
+
+It stays a separate file for the reason the original keeps two: a dashboard
+page never loads it, and the portal loads both so anything shared resolves
+the same way and anything in the portal's own sheet wins a tie.
+
+#### Where the port differs from the original, and why it is better here
+
+In Apps Script both shells are one document. `showView` hides every `.view`
+and `applyShell` works out which shell the chosen one belongs to by asking
+whether `#portalRoot` contains it. There is no `#appRoot` here to hide: the
+two shells are two URLs.
+
+What is kept is the part that matters. A page is still an ordinary
+`<section class="view" id="view-NAME">`, adding one is still two lines, and
+the sky's height still comes off `data-page` because CSS cannot ask what is
+open. What is gained is the address: `?view=` and `pushState` mean a portal
+page can be sent to somebody, and **the browser's own Back walks through
+them** - which the single-document original cannot do, because an Apps
+Script web app owns its query string.
+
+The portal's own Back stays as well, because it is a different thing: a
+trail, with a tooltip naming where it goes, that hides itself again rather
+than becoming a toggle between two pages for ever.
+
+#### The seam
+
+`KPI Engine` carries `data-view="kpi1"`. In the original there is no
+`#view-kpi1` inside Portal.html, so the router finds it in the other shell
+and hands over; here it is a navigation to `kpi1.html`. Either way the
+session does not notice - one token in one `sessionStorage`, read by both
+shells - and the suite checks the hop both ways with the signed-in name
+still on the bar at the far end.
+
+#### Two numbers that are added up, not written down
+
+**23 plants.** Config.gs records what happened when the total was written
+down: TVL, Tekvision's own plant, was left off the list and "the page said
+22 and the team supports 23." The page counts the chips. The mutation that
+writes `22` into the markup is caught.
+
+**The pillar counts** on About are the lengths of the lists under them, for
+the same reason: a number beside a list goes wrong the first time somebody
+adds to the list and does not look up. So is the closing band, which is
+built from the same three words the cards are headed with "so it cannot end
+up naming a pillar that is no longer there."
+
+#### Three sky heights, and a check that assumed two
+
+`data-page` exists so the stylesheet can ask what is open. The first version
+of that check assumed anything which was not Home would have a *shorter*
+sky, and About is taller: `portal.css` gives the written pages `height:100%`
+so they sit on blue all the way down. Projects has no rule of its own and
+gets the 232px band the stylesheet defaults to. Three distinct heights,
+asserted as the three cases they are.
+
+#### What the written pages are, and where they live
+
+`PORTFOLIO` and `PARTNERS` are in `api/portal-content.js`, in code, where
+the team directory went to the database. Portal.html is explicit about why
+the directory had to move: "this page shows thirty-seven people's work
+email, extension and personal mobile number, and this repository is
+public." None of that applies to three pillars and a list of plant codes -
+they are the department's own words, on the slide deck this page was built
+from. A table would buy correcting a sentence without a deployment and cost
+a migration, an editor screen and a second place for the text to be wrong
+in, for something edited perhaps twice a year.
+
+#### Still to come in the portal
+
+EAS Team (needs presence), Learnings, Knowledge Share, By-Weekly and
+Objective. Every one of them already has its endpoints: `/api/team`,
+`/api/presence`, `/api/learn`, `/api/knowledge`, `/api/byweekly`,
+`/api/objectives`. What is missing is the screens.
